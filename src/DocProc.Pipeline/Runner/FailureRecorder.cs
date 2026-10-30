@@ -6,15 +6,17 @@ using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DocProc.Pipeline.Runner;
 
 /// <summary>
 /// Writes the outcome of a failed attempt in a scope of its own, after the handler's scope (and its half-applied
 /// changes) is gone: a <c>document.stage_failed</c> event for a scheduled retry, or <c>Failed(reason)</c> plus the
-/// event and an optional flag for the final failure (docs/03 "Document state machine").
+/// event and an optional flag for the final failure (docs/03 "Document state machine"). A row that another writer
+/// changed in the meantime (its concurrency token moved on) is left alone: the other writer's outcome stands.
 /// </summary>
-internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline timeline, DocumentFlagWriter flags, TimeProvider clock)
+internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline timeline, DocumentFlagWriter flags, TimeProvider clock, ILogger<FailureRecorder> logger)
 {
     public const int MaxReasonLength = 2000;
 
@@ -34,7 +36,7 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
             retry = true,
             retryDelay = delay,
         });
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await CommitAsync("document", document.Id, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RecordFailureAsync(ProcessDocument message, string reason, string? flagCode, CancellationToken cancellationToken)
@@ -62,7 +64,7 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
             flags.Replace(document, [flagCode], [FlagCodes.Create(flagCode, Truncate(reason, 1000))]);
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await CommitAsync("document", document.Id, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RecordIngestionFailureAsync(ProcessIngestion message, string reason, bool final, CancellationToken cancellationToken)
@@ -81,7 +83,22 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
             ingestion.Status = IngestionStatus.Failed;
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await CommitAsync("ingestion", ingestion.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CommitAsync(string what, Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation(exception, "The {What} {Id} was changed by another writer while its failure was being recorded; the failure record is dropped and the other outcome stands.", what, id);
+            }
+        }
     }
 
     private Task<Document?> LoadAsync(Guid documentId, CancellationToken cancellationToken) =>

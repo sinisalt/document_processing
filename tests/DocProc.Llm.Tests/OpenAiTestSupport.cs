@@ -64,8 +64,12 @@ internal static class OpenAiTestSupport
 internal sealed class FakeOpenAiHandler : HttpMessageHandler
 {
     private readonly Queue<Func<CancellationToken, Task<HttpResponseMessage>>> _responses = new();
+    private readonly TaskCompletionSource _hangStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public List<RecordedRequest> Requests { get; } = [];
+
+    /// <summary>Completes when a response queued with <see cref="EnqueueHang"/> has recorded its request and started to hang.</summary>
+    public Task HangStarted => _hangStarted.Task;
 
     public FakeOpenAiHandler Enqueue(HttpStatusCode status, string body, params (string Name, string Value)[] headers)
     {
@@ -82,11 +86,12 @@ internal sealed class FakeOpenAiHandler : HttpMessageHandler
         return this;
     }
 
-    /// <summary>A server that never answers: the request completes only when the SDK's token cancels it.</summary>
+    /// <summary>A server that never answers: the request completes only when the SDK's token cancels it. <see cref="HangStarted"/> signals the hang.</summary>
     public FakeOpenAiHandler EnqueueHang()
     {
         _responses.Enqueue(async cancellationToken =>
         {
+            _hangStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("unreachable");
         });
@@ -134,7 +139,11 @@ internal sealed class FakeOpenAiHandler : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+        // Like a real transport, a request handed over with a token that is already cancelled is never sent. Past that
+        // point the request is recorded before anything awaits and without the token: a request that reached the
+        // transport is a request, even when the SDK's timeout fires in the same instant.
+        cancellationToken.ThrowIfCancellationRequested();
+        var body = ReadBody(request.Content);
         var headers = request.Headers.ToDictionary(h => h.Key, h => string.Join(",", h.Value), StringComparer.OrdinalIgnoreCase);
         Requests.Add(new RecordedRequest(request.RequestUri!, headers, JsonSerializer.Deserialize<JsonElement>(body)));
 
@@ -144,6 +153,18 @@ internal sealed class FakeOpenAiHandler : HttpMessageHandler
         }
 
         return await _responses.Dequeue()(cancellationToken);
+    }
+
+    private static string ReadBody(HttpContent? content)
+    {
+        if (content is null)
+        {
+            return string.Empty;
+        }
+
+        using var stream = content.ReadAsStream();
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 }
 

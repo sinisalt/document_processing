@@ -9,6 +9,7 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
     public void Configure(EntityTypeBuilder<Document> b)
     {
         b.ToTable("Documents", t => t.IsTemporal());
+        b.Property(d => d.Version).IsConcurrencyToken();
         b.ComplexProperty(d => d.NormalizedBlob, BlobReferenceMapping.Configure);
         b.ComplexProperty(d => d.TextLayerBlob, BlobReferenceMapping.Configure);
         b.ComplexProperty(d => d.EmbeddedXmlBlob, BlobReferenceMapping.Configure);
@@ -70,6 +71,7 @@ internal sealed class ReviewTaskConfiguration : IEntityTypeConfiguration<ReviewT
     public void Configure(EntityTypeBuilder<ReviewTask> b)
     {
         b.ToTable("ReviewTasks");
+        b.Property(r => r.Version).IsConcurrencyToken();
         b.Property(r => r.Reason).HasMaxLength(1000);
         b.Property(r => r.AssignedTo).HasMaxLength(200);
         b.HasIndex(r => new { r.TenantId, r.Status, r.CreatedAt });

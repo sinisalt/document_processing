@@ -12,7 +12,9 @@ namespace DocProc.Pipeline.Runner;
 /// <summary>
 /// Consumes the pipeline queue with <see cref="PipelineOptions.MaxParallelism"/> workers. Every message gets a DI
 /// scope of its own with the scoped <see cref="TenantContext"/> set to the message's tenant, so the DbContext filters
-/// and the stage code never see another tenant's rows. A document stage that succeeds enqueues the next stage; a
+/// and the stage code never see another tenant's rows. Messages with the same <see cref="PipelineWorkItem.Key"/>
+/// (one document, one ingestion) run one after the other through <see cref="KeyedWorkGate"/>, so a message delivered
+/// twice cannot race its twin past the status check. A document stage that succeeds enqueues the next stage; a
 /// failure goes through <see cref="FailurePolicy"/> and is recorded in a fresh scope by <see cref="FailureRecorder"/>.
 /// </summary>
 public sealed class PipelineRunnerHostedService(
@@ -25,6 +27,7 @@ public sealed class PipelineRunnerHostedService(
     private readonly PipelineOptions _options = options.Value;
     private readonly Lock _gate = new();
     private readonly HashSet<Task> _running = [];
+    private readonly KeyedWorkGate _keys = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -45,7 +48,17 @@ public sealed class PipelineRunnerHostedService(
                     {
                         try
                         {
-                            await ProcessAsync(item, stoppingToken).ConfigureAwait(false);
+                            // The slot is held while waiting for a twin with the same key: the twin never waits for
+                            // a slot itself, so the wait always ends, and a queue full of one document's messages
+                            // only costs throughput, never a deadlock.
+                            using (await _keys.EnterAsync(item.Key, stoppingToken).ConfigureAwait(false))
+                            {
+                                await ProcessAsync(item, stoppingToken).ConfigureAwait(false);
+                            }
+                        }
+                        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                        {
+                            logger.LogWarning("Pipeline message for tenant {TenantId} was still waiting for its turn at shutdown and is lost (in-process queue).", item.TenantId);
                         }
                         finally
                         {

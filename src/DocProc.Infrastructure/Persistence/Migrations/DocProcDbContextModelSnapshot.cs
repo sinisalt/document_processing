@@ -225,6 +225,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "EmbeddedXmlBlob", "DocProc.Infrastructure.Persistence.Entities.Document.EmbeddedXmlBlob#BlobReference", b1 =>
                         {
                             b1.Property<string>("Container")
@@ -671,6 +675,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "RawBlob", "DocProc.Infrastructure.Persistence.Entities.Ingestion.RawBlob#BlobReference", b1 =>
                         {
@@ -1138,6 +1146,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 

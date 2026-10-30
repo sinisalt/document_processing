@@ -234,16 +234,24 @@ public class OpenAiCompatibleProviderTests
     [Fact]
     public async Task The_request_timeout_bounds_the_call_and_is_a_transient_error()
     {
+        // The timeout runs from the start of the call, and the first call through a cold SDK can take longer than the
+        // timeout just to reach the transport: warm it up on a separate provider, so the hanging request is really sent.
+        await Provider(new FakeOpenAiHandler().EnqueueCompletion(), Config(LlmProviderKind.OpenAi), ApiKey).CompleteAsync(Request(null), CancellationToken.None);
+
         var handler = new FakeOpenAiHandler().EnqueueHang();
         var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey);
-        var request = Request(null) with { Options = new LlmOptions { Timeout = TimeSpan.FromMilliseconds(50) } };
+        var request = Request(null) with { Options = new LlmOptions { Timeout = TimeSpan.FromMilliseconds(200) } };
 
-        var error = await Should.ThrowAsync<LlmException>(() => provider.CompleteAsync(request, CancellationToken.None));
+        var call = Should.ThrowAsync<LlmException>(() => provider.CompleteAsync(request, CancellationToken.None));
+        // The fake records the request before it starts to hang, so once the hang is signalled the request is on record
+        // whenever the timer fires; waiting here turns a lost race into an explicit failure instead of a flaky count.
+        await handler.HangStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var error = await call;
 
         error.Kind.ShouldBe(LlmErrorKind.Transient);
         error.IsRetryable.ShouldBeTrue();
         error.Message.ShouldContain("did not answer");
-        handler.Requests.Count.ShouldBe(1);
+        handler.Requests.Count.ShouldBe(1, "a timed-out attempt is not retried by the adapter");
     }
 
     [Theory]

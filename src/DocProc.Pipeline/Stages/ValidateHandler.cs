@@ -110,17 +110,21 @@ internal sealed class ValidateHandler(
         return StageOutcome.Stopped;
     }
 
-    /// <summary>Same tenant, same supplier (matched or not), same normalised number, on a document that is still alive.</summary>
+    /// <summary>
+    /// Same tenant, same matched supplier, same normalised number, on a document that is still alive. Unmatched
+    /// documents are never compared with each other: "no supplier" is not a supplier, and two unrelated vendors can
+    /// both number their first invoice 1.
+    /// </summary>
     private Task<bool> IsDuplicateAsync(Document document, CancellationToken cancellationToken)
     {
-        if (document.DocumentNumberNormalized is not { Length: > 0 } number)
+        if (document.SupplierId is not { } supplierId || document.DocumentNumberNormalized is not { Length: > 0 } number)
         {
             return Task.FromResult(false);
         }
 
         return Db.Documents.AsNoTracking().AnyAsync(
             d => d.Id != document.Id
-                 && d.SupplierId == document.SupplierId
+                 && d.SupplierId == supplierId
                  && d.DocumentNumberNormalized == number
                  && d.Status != DocumentStatus.Failed
                  && d.Status != DocumentStatus.Rejected,

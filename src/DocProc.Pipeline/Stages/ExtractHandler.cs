@@ -26,7 +26,9 @@ internal sealed class ExtractHandler(
     IEnumerable<IDocumentExtractor> extractors,
     ILogger<ExtractHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
-    private static readonly string[] OwnedFlags = [FlagCodes.ProfileFallback, FlagCodes.CurrencyInferred, FlagCodes.UnsupportedType];
+    // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
+    // succeeds owns it too, so the flag does not outlive the outage.
+    private static readonly string[] OwnedFlags = [FlagCodes.ProfileFallback, FlagCodes.CurrencyInferred, FlagCodes.UnsupportedType, FlagCodes.LlmProviderUnavailable];
     private static readonly ExtractionMethod[] PathOrder = [ExtractionMethod.StructuredXml, ExtractionMethod.Profile, ExtractionMethod.Llm];
 
     public override PipelineStage Stage => PipelineStage.Extract;

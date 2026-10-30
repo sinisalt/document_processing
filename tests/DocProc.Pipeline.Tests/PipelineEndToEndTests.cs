@@ -260,6 +260,7 @@ public class PipelineEndToEndTests
         usage.Count(u => u.Stage == LlmStage.Extract && u.Error == LlmErrorKind.Transient).ShouldBe(1);
         usage.Count(u => u.Stage == LlmStage.Extract && u.Error == null).ShouldBe(1);
         host.Llm.Remaining.ShouldBe(0);
+        host.Clock.GetUtcNow().ShouldBeGreaterThan(PipelineTestHost.Now, "the backoff waited on the fake clock, which the host advanced");
     }
 
     [Fact]
@@ -281,6 +282,7 @@ public class PipelineEndToEndTests
         document.Flags.ShouldContain(f => f.Code == FlagCodes.LlmProviderUnavailable && f.Severity == FlagSeverity.Blocking && f.ResolvedAt == null);
         (await host.EventsAsync(document.Id)).Count(e => e.EventType == DocumentEventTypes.StageFailed).ShouldBe(3, "two retries and the final failure");
         host.Llm.Remaining.ShouldBe(0);
+        host.Clock.GetUtcNow().ShouldBeGreaterThan(PipelineTestHost.Now, "both backoffs waited on the fake clock, which the host advanced");
     }
 
     [Fact]
