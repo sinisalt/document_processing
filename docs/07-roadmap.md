@@ -19,10 +19,16 @@ Done so far (see the README for how to build and test):
   effort mapping, error normalisation); request building and error mapping are unit-tested, the
   live call is not yet exercised.
 - `DocProc.Application`: the interfaces infrastructure implements and the pipeline messages.
+- `DocProc.Infrastructure`: EF Core model for tenancy, channels, suppliers and the global
+  registry, extractor profiles, ingestion, documents (canonical JSON plus denormalised columns,
+  flags, events, review tasks, corrections) and LLM configuration/usage; the `InitialCreate`
+  migration with temporal tables and the row-level security policy; tenant query filters and
+  the SESSION_CONTEXT interceptor. Model checks run without a database; the migration, RLS and
+  temporal behaviour are exercised against the SQL Server 2025 container in CI.
 - `DocProc.Api` / `DocProc.Worker`: hosts with health and OpenAPI endpoints, no business endpoints yet.
 
-Still open in Phase 0: EF Core model and migrations, Aspire AppHost with the containers, tenancy and
-OIDC, the generated TypeScript client, Bicep, and the three decisions below.
+Still open in Phase 0: Aspire AppHost with the containers, OIDC login and roles, API keys at the
+API boundary, the generated TypeScript client, Bicep, and the three decisions below.
 
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server

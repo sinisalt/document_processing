@@ -35,6 +35,32 @@ Tests use xunit v3 on the Microsoft Testing Platform (opted in via `global.json`
 sent to LLM providers are snapshotted under `schemas/`; after an intentional contract change,
 bump the version in `CanonicalSchemas` and rerun with `UPDATE_SCHEMAS=1`.
 
+### Database
+
+The schema lives in EF Core migrations under `src/DocProc.Infrastructure/Persistence/Migrations` and
+targets SQL Server 2025 / Azure SQL (compatibility level 170, native `json` columns, temporal
+tables on `Documents` and `ExtractorProfiles`, row-level security keyed on `SESSION_CONTEXT`).
+`dotnet ef` is a local tool pinned in `.config/dotnet-tools.json`.
+
+Add a migration after changing the entity model (a unit test fails until you do):
+
+```bash
+dotnet tool restore
+```
+
+```bash
+dotnet ef migrations add <Name> --project src/DocProc.Infrastructure --startup-project src/DocProc.Infrastructure --output-dir Persistence/Migrations
+```
+
+Produce an idempotent SQL script for a DBA or a release pipeline:
+
+```bash
+dotnet ef migrations script --idempotent --project src/DocProc.Infrastructure --startup-project src/DocProc.Infrastructure --output artifacts/docproc.sql
+```
+
+The hosts apply pending migrations on start-up when `ConnectionStrings:DocProc` is configured
+and `Persistence:MigrateOnStartup` is true (the default outside production).
+
 Run the API locally and check it answers:
 
 ```bash
@@ -51,7 +77,7 @@ curl http://localhost:5000/health
 src/
   DocProc.Domain/             canonical model, flags, state machine, validation rules (no dependencies)
   DocProc.Application/        pipeline contracts and the interfaces infrastructure implements
-  DocProc.Infrastructure/     EF Core / SQL Server, blob storage, mail, PDF, OCR (skeleton)
+  DocProc.Infrastructure/     EF Core model, migrations, tenancy (query filters + SQL Server RLS); blob/mail/PDF/OCR to come
   DocProc.Llm/                provider-neutral LLM gateway, prompt bundles, portable JSON schemas, replay provider
   DocProc.Llm.Anthropic/      Anthropic API and Claude on Foundry adapter
   DocProc.Llm.OpenAi/         OpenAI / Azure OpenAI adapter (capabilities only until Phase 1)
@@ -62,7 +88,7 @@ src/
 tests/
   DocProc.Domain.Tests/       validation rules, state machine, value types
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, Anthropic adapter
-  DocProc.Integration.Tests/  Testcontainers (SQL Server 2025); skipped without Docker
+  DocProc.Integration.Tests/  model/snapshot checks; Testcontainers (SQL Server 2025) for migrations, RLS and temporal tables, skipped without Docker
 schemas/                      committed JSON schemas sent to providers
 docs/                         plan and design
 ```

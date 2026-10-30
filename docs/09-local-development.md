@@ -37,7 +37,7 @@ by configuration.
 
 | Level | Runs where | Needs | Covers |
 |---|---|---|---|
-| Unit | `dotnet test`, no Docker | nothing | domain model, validation rules, profile engine (snapshot tests on sample PDFs), schema portability, prompt bundles |
+| Unit | `dotnet test`, no Docker | nothing | domain model, validation rules, profile engine (snapshot tests on sample PDFs), schema portability, prompt bundles, EF model vs. migration snapshot |
 | Integration | `dotnet test`, Testcontainers | Docker | EF Core against SQL Server 2025 (RLS, json, vector), Wolverine outbox, Azurite, Lowkey Vault, GreenMail IMAP, full pipeline with the replay LLM provider and Tesseract |
 | End-to-end | Aspire AppHost + Playwright | Docker | send an email with two PDFs to GreenMail → documents appear in the portal → review → approve → webhook received by a local sink |
 | Contract (opt-in) | developer machine or CI job with secrets | Azure dev resources, API keys | Graph delta/webhooks, Document Intelligence F0, Key Vault via managed identity, live LLM calls, Azure SQL |
