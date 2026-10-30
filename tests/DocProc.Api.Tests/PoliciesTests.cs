@@ -17,6 +17,8 @@ public class PoliciesTests
         Policies.RolesByPolicy[Policies.Read].ShouldBe(Roles.All, ignoreOrder: true);
         Policies.RolesByPolicy[Policies.PlatformAdmin].ShouldBe([Roles.SuperAdmin]);
         Policies.RolesByPolicy[Policies.TenantAdmin].ShouldNotContain(Roles.Operator);
+        Policies.RolesByPolicy[Policies.Ingest].ShouldNotContain(Roles.Viewer);
+        Policies.ScopeByPolicy.Keys.ShouldBe([Policies.Ingest, Policies.Read], ignoreOrder: true);
     }
 
     [Fact]

@@ -11,6 +11,8 @@ public sealed record MeResponse(
     string? Name,
     string? Email,
     IReadOnlyList<string> Roles,
+    IReadOnlyList<string> Scopes,
+    string AuthMethod,
     Guid? TenantId,
     string Scope,
     IReadOnlyList<string> Permissions);
@@ -35,6 +37,8 @@ public static class MeEndpoints
                 Name: user.Identity?.Name,
                 Email: user.FindFirstValue("email"),
                 Roles: user.FindAll(oidc.RoleClaimType).Select(c => c.Value).Distinct(StringComparer.Ordinal).ToList(),
+                Scopes: user.FindAll(ApiKeyAuthenticationHandler.ScopeClaimType).Select(c => c.Value).Distinct(StringComparer.Ordinal).ToList(),
+                AuthMethod: user.FindFirstValue(ApiKeyAuthenticationHandler.AuthMethodClaimType) ?? "oidc",
                 TenantId: tenant.TenantId,
                 Scope: tenant.IsPlatformScope ? "platform" : "tenant",
                 Permissions: permissions));

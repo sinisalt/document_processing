@@ -47,6 +47,7 @@ v1.MapGet("/version", () => new
 .AllowAnonymous();
 
 v1.MapMe();
+v1.MapApiKeys();
 
 app.Run();
 

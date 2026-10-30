@@ -1,14 +1,19 @@
 using DocProc.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 
 namespace DocProc.Api.Auth;
 
 public static class AuthenticationSetup
 {
+    /// <summary>Default scheme: forwards to API-key authentication when a key is presented, otherwise to JWT bearer.</summary>
+    public const string DefaultScheme = "DocProc";
+
     /// <summary>
-    /// JWT bearer against the configured authority, role policies from <see cref="Policies"/>, and a fallback policy that
-    /// requires an authenticated user on every endpoint not marked anonymous (secure by default).
+    /// JWT bearer against the configured authority, API keys for machine clients, role/scope policies from
+    /// <see cref="Policies"/>, and a fallback policy that requires an authenticated user on every endpoint not marked
+    /// anonymous (secure by default).
     /// </summary>
     public static IServiceCollection AddDocProcAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
@@ -16,7 +21,13 @@ public static class AuthenticationSetup
         services.AddSingleton(oidc);
         services.AddTenantContext();
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        services.AddAuthentication(DefaultScheme)
+            .AddPolicyScheme(DefaultScheme, "API key or OIDC bearer", options =>
+                options.ForwardDefaultSelector = context =>
+                    ApiKeyAuthenticationHandler.HasApiKey(context.Request)
+                        ? ApiKeyAuthenticationOptions.SchemeName
+                        : JwtBearerDefaults.AuthenticationScheme)
+            .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationOptions.SchemeName, _ => { })
             .AddJwtBearer(options =>
             {
                 if (!string.IsNullOrWhiteSpace(oidc.Authority))
@@ -43,21 +54,14 @@ public static class AuthenticationSetup
                 };
             });
 
-        services.AddAuthorizationBuilder()
-            .SetFallbackPolicy(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())
-            .AddDocProcPolicies();
+        var authorization = services.AddAuthorizationBuilder()
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        foreach (var policy in Policies.All)
+        {
+            authorization.AddPolicy(policy, p => p.RequireAuthenticatedUser().RequireAssertion(ctx => Policies.Satisfies(ctx.User, policy)));
+        }
 
         services.AddScoped<TenantResolutionMiddleware>();
         return services;
-    }
-
-    private static Microsoft.AspNetCore.Authorization.AuthorizationBuilder AddDocProcPolicies(this Microsoft.AspNetCore.Authorization.AuthorizationBuilder builder)
-    {
-        foreach (var (policy, roles) in Policies.RolesByPolicy)
-        {
-            builder.AddPolicy(policy, p => p.RequireAuthenticatedUser().RequireRole(roles.ToArray()));
-        }
-
-        return builder;
     }
 }

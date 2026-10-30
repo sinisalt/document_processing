@@ -37,9 +37,13 @@ Done so far (see the README for how to build and test):
   `X-Tenant-Id` override, secure-by-default fallback policy, `/api/v1/me`; in-process tests mint
   tokens with a test key.
 
-Still open in Phase 0: API keys at the API boundary, the generated TypeScript client, Bicep, and
-the three decisions below. Tenant status (suspended tenants) is not yet checked at the boundary;
-that needs the tenant row and lands with the first tenant endpoints.
+- API keys for machine clients: `dpk_` keys hashed at rest with ingest/read scopes, a composite
+  authentication scheme that picks API key or bearer per request, scope-aware Ingest and Read
+  policies, tenant-admin endpoints to create/list/revoke, suspended tenants refused; endpoint
+  tests run against in-memory SQLite.
+
+Still open in Phase 0: the generated TypeScript client, Bicep, and the three decisions below.
+Tenant status is checked for API keys; for OIDC users it lands with the first tenant endpoints.
 
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server

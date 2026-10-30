@@ -57,7 +57,9 @@ public sealed class AuthenticationTests : IClassFixture<ApiFactory>
         me.Roles.ShouldBe([Roles.Reviewer]);
         me.TenantId.ShouldBe(Guid.Parse(TenantA));
         me.Scope.ShouldBe("tenant");
-        me.Permissions.ShouldBe([Policies.Review, Policies.Read], ignoreOrder: true);
+        me.Permissions.ShouldBe([Policies.Review, Policies.Ingest, Policies.Read], ignoreOrder: true);
+        me.AuthMethod.ShouldBe("oidc");
+        me.Scopes.ShouldBeEmpty();
     }
 
     [Fact]

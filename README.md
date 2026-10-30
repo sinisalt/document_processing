@@ -110,9 +110,17 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 | TenantAdmin | own tenant | TenantAdmin, Review, Read |
 | Reviewer | own tenant | Review, Read |
 | Viewer | own tenant | Read |
+| API key (`ingest`, `read`) | own tenant | Ingest and/or Read |
 
-`GET /api/v1/me` returns the caller's identity, roles, resolved tenant scope and the policies
-they satisfy, which the front ends use to show or hide actions. Get a local token from Keycloak:
+Machine clients use tenant **API keys** instead of OIDC: `X-Api-Key: dpk_…` (or
+`Authorization: ApiKey dpk_…`). A key has the scopes `ingest` and/or `read`, authenticates as its
+tenant, satisfies only the Ingest and Read policies, and cannot use `X-Tenant-Id`. Tenant admins
+manage keys at `/api/v1/api-keys` (create returns the secret once; the database keeps a SHA-256
+hash and the display prefix; revoke is idempotent). Keys of suspended tenants stop working.
+
+`GET /api/v1/me` returns the caller's identity, roles or scopes, resolved tenant scope and the
+policies they satisfy, which the front ends use to show or hide actions. Get a local token from
+Keycloak:
 
 ```bash
 curl -s -X POST http://localhost:8080/realms/docproc/protocol/openid-connect/token -d client_id=docproc-portal -d grant_type=password -d username=tenant-a-reviewer -d password=tenant-a-reviewer -d scope=openid | jq -r .access_token
@@ -137,7 +145,7 @@ src/
 tests/
   DocProc.Domain.Tests/       validation rules, state machine, value types
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, Anthropic adapter
-  DocProc.Api.Tests/          in-process API tests with locally minted tokens: auth, roles, tenant scope
+  DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): auth, roles, tenant scope, API keys
   DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers
   DocProc.Integration.Tests/  model/snapshot checks; Testcontainers (SQL Server 2025) for migrations, RLS and temporal tables, skipped without Docker
 schemas/                      committed JSON schemas sent to providers

@@ -7,6 +7,7 @@ namespace DocProc.Api.Auth;
 public sealed class OpenApiSecurityTransformer : IOpenApiDocumentTransformer
 {
     public const string SchemeName = "Bearer";
+    public const string ApiKeySchemeName = "ApiKey";
 
     public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
     {
@@ -20,11 +21,17 @@ public sealed class OpenApiSecurityTransformer : IOpenApiDocumentTransformer
             Description = "OIDC access token from the configured authority (locally: Keycloak realm 'docproc').",
         };
 
-        document.Security ??= [];
-        document.Security.Add(new OpenApiSecurityRequirement
+        document.Components.SecuritySchemes[ApiKeySchemeName] = new OpenApiSecurityScheme
         {
-            [new OpenApiSecuritySchemeReference(SchemeName, document)] = [],
-        });
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Header,
+            Name = ApiKeyAuthenticationOptions.HeaderName,
+            Description = "Tenant API key (dpk_…) for machine clients; scopes ingest and/or read.",
+        };
+
+        document.Security ??= [];
+        document.Security.Add(new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference(SchemeName, document)] = [] });
+        document.Security.Add(new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference(ApiKeySchemeName, document)] = [] });
 
         return Task.CompletedTask;
     }

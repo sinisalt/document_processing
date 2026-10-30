@@ -1,4 +1,6 @@
+using DocProc.Application.Security;
 using DocProc.Infrastructure.Persistence.Tenancy;
+using DocProc.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +49,9 @@ public static class PersistenceOptions
             var tenant = sp.GetRequiredService<ITenantContext>();
             ConfigureSqlServer((DbContextOptionsBuilder<DocProcDbContext>)options, connectionString, tenant: tenant);
         });
+        services.AddSingleton<ISystemDbContextFactory>(new SqlServerSystemDbContextFactory(connectionString));
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
         return services;
     }
 }
