@@ -125,6 +125,45 @@ public class ProvenanceLocatorTests
     }
 
     [Fact]
+    public void Negative_amounts_prefer_the_signed_token_and_fall_back_to_the_unsigned_one()
+    {
+        // A credit note quotes the original (positive) invoice amount before the credited one, and the text layer often
+        // carries the minus as a word of its own, so only the normalised pass can find the credited amount. Edge
+        // punctuation is stripped in that pass, so without the sign check the earlier positive token would win.
+        var creditNote = new ProvenanceLocator(new TextLayerBuilder()
+            .Page(1)
+            .Line("Gutschrift", "zu", "Rechnung", "RE-2026-0042")
+            .Line("Rechnungsbetrag", "120,00")
+            .Line("Gutschrift", "-", "120,00")
+            .Line("Storno", "45,50", "-")
+            .Line("Rabatt", "(", "3,00", ")")
+            .Build());
+
+        creditNote.LocateNumber(-120m).ShouldSatisfyAllConditions(
+            m => m.Quality.ShouldBe(MatchQuality.Normalized),
+            m => m.RawText.ShouldBe("- 120,00"),
+            m => m.Box!.Value.Y0.ShouldBe(130, "the third line, not the positive amount on the second"));
+        creditNote.LocateNumber(120m).ShouldSatisfyAllConditions(
+            m => m.Quality.ShouldBe(MatchQuality.Exact),
+            m => m.RawText.ShouldBe("120,00"),
+            m => m.Box!.Value.Y0.ShouldBe(100, "the positive amount keeps matching the unsigned token"));
+        creditNote.LocateNumber(-45.5m).ShouldSatisfyAllConditions(
+            m => m.Quality.ShouldBe(MatchQuality.Normalized),
+            m => m.RawText.ShouldBe("45,50 -"));
+        creditNote.LocateNumber(-3m).ShouldSatisfyAllConditions(
+            m => m.Quality.ShouldBe(MatchQuality.Normalized),
+            m => m.RawText.ShouldBe("( 3,00 )"));
+
+        // Printed without any sign (the document kind carries it): the unsigned token counts, but never as an exact match.
+        var unsignedOnly = new ProvenanceLocator(new TextLayerBuilder().Page(1).Line("Gutschrift", "Betrag", "80,00").Build());
+        unsignedOnly.LocateNumber(-80m).ShouldSatisfyAllConditions(
+            m => m.Quality.ShouldBe(MatchQuality.Normalized),
+            m => m.RawText.ShouldBe("80,00"));
+        unsignedOnly.LocateNumber(80m).Quality.ShouldBe(MatchQuality.Exact);
+        unsignedOnly.LocateNumber(-81m).Quality.ShouldBe(MatchQuality.NotFound);
+    }
+
+    [Fact]
     public void Identifiers_match_exactly_or_normalised_but_never_fuzzily()
     {
         Locator.LocateIdentifier("RE-2026-0042").Quality.ShouldBe(MatchQuality.Exact);
