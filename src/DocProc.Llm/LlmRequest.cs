@@ -1,3 +1,4 @@
+using DocProc.Domain.Documents;
 using DocProc.Llm.Schema;
 
 namespace DocProc.Llm;
@@ -49,6 +50,12 @@ public sealed record LlmResult
     public string? ProviderRequestId { get; init; }
 
     public TimeSpan Latency { get; init; }
+
+    /// <summary>The provider kind the gateway resolved for the call; null when the result did not pass through the gateway.</summary>
+    public LlmProviderKind? Provider { get; init; }
+
+    /// <summary>Whose key paid for the call (docs/08 "Cost attribution"); null when the result did not pass through the gateway.</summary>
+    public KeyOwner? KeyOwner { get; init; }
 
     public bool IsTruncated => StopReason == StopReasons.MaxTokens;
 

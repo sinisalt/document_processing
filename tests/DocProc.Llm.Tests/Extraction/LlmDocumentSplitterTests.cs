@@ -2,6 +2,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Llm.Extraction;
 using DocProc.Llm.Prompts;
 using DocProc.Llm.Schema;
+using SkiaSharp;
 
 namespace DocProc.Llm.Tests.Extraction;
 
@@ -72,5 +73,114 @@ public class LlmDocumentSplitterTests
         SplitRangeNormalizer.Normalize([new PageRange(5, 2)], 3).ShouldBe([new PageRange(1, 3)]);
         SplitRangeNormalizer.Normalize([], 3).ShouldBe([new PageRange(1, 3)]);
         SplitRangeNormalizer.Normalize([new PageRange(1, 1)], 0).ShouldBeEmpty();
+    }
+
+
+    /// <summary>
+    /// A stage 2 render of a scanned page: A4 at 200 dpi, rows of "words" (black bars) over a lightly speckled
+    /// background, so the full-size PNG is as large as a real scan and not a trivially compressible blank.
+    /// </summary>
+    private static byte[] RenderedPage(int width = 1654, int height = 2339, int seed = 1)
+    {
+        using var bitmap = new SKBitmap(width, height);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.White);
+        var random = new Random(seed);
+        using var speckle = new SKPaint { Color = new SKColor(200, 200, 200) };
+        for (var i = 0; i < width * height / 40; i++)
+        {
+            canvas.DrawPoint(random.Next(width), random.Next(height), speckle);
+        }
+
+        using var ink = new SKPaint { Color = SKColors.Black };
+        for (var y = 120; y < height - 120; y += 34)
+        {
+            for (var x = 120; x < width - 200; x += random.Next(40, 160))
+            {
+                canvas.DrawRect(x, y, random.Next(30, 120), 18, ink);
+            }
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return data.ToArray();
+    }
+
+    [Fact]
+    public async Task Full_size_renders_are_downscaled_to_thumbnails_so_the_request_stays_small()
+    {
+        var gateway = new FakeGateway().Answer(SampleAnswers.Split);
+        var renders = Enumerable.Range(1, 4).Select(i => (ReadOnlyMemory<byte>)RenderedPage(seed: i)).ToList();
+        var fullSize = renders.Sum(r => r.Length);
+        fullSize.ShouldBeGreaterThan(1_000_000, "the renders must be as large as real scans for the downscaling to matter");
+
+        await Splitter(gateway).SplitAsync(Inputs.TenantId, FourPages(), renders, CancellationToken.None);
+
+        var images = gateway.Requests.Single().Document.ShouldNotBeNull().PageImages;
+        images.Count.ShouldBe(4);
+        foreach (var image in images)
+        {
+            image.Height.ShouldBe(768);
+            image.Width.ShouldBe(543);
+            PngDimensions.TryRead(image.Png.Span, out _, out _).ShouldBeTrue("thumbnails stay PNG so the adapters' media type is unchanged");
+        }
+
+        var sizes = string.Join(", ", images.Select(i => i.Png.Length));
+        var thumbnailSize = images.Sum(i => i.Png.Length);
+        thumbnailSize.ShouldBeLessThan(fullSize / 4, $"thumbnails {sizes} bytes against {fullSize} bytes of renders");
+        thumbnailSize.ShouldBeLessThan(400_000, $"four A4 thumbnails are a few hundred kilobytes at most, got {sizes}");
+        gateway.Requests.Single().Prompt.Task.ShouldContain("4 page thumbnails are attached in page order.");
+    }
+
+    [Fact]
+    public void Downscaling_keeps_small_or_undecodable_images_as_they_are()
+    {
+        var small = RenderedPage(400, 300);
+        PageThumbnails.Downscale(small, 768).ToArray().ShouldBe(small);
+        PageThumbnails.Downscale(Inputs.PngBytes, 100).ToArray().ShouldBe(Inputs.PngBytes, "a header without image data cannot be decoded and is passed through");
+        PageThumbnails.Downscale(RenderedPage(1000, 500), 200).ShouldSatisfyAllConditions(
+            t => PngDimensions.TryRead(t.Span, out var w, out _).ShouldBeTrue(),
+            t => { PngDimensions.TryRead(t.Span, out var w, out var h); (w, h).ShouldBe((200, 100)); });
+        Should.Throw<ArgumentOutOfRangeException>(() => PageThumbnails.Downscale(small, 0));
+    }
+
+    [Fact]
+    public async Task Pages_beyond_the_thumbnail_cap_are_decided_from_text_and_the_model_is_told()
+    {
+        var gateway = new FakeGateway().Answer(SampleAnswers.Split);
+        var pngs = Enumerable.Repeat<ReadOnlyMemory<byte>>(Inputs.PngBytes, 45).ToList();
+        var layer = new TextLayerBuilder();
+        for (var page = 1; page <= 45; page++)
+        {
+            layer.Page(page).Line("Seite", page.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        await Splitter(gateway).SplitAsync(Inputs.TenantId, layer.Build(), pngs, CancellationToken.None);
+
+        var request = gateway.Requests.Single();
+        request.Document.ShouldNotBeNull().PageImages.Count.ShouldBe(40);
+        request.Document.PageImages[^1].Page.ShouldBe(40);
+        request.Prompt.Task.ShouldContain("Split this 45-page attachment");
+        request.Prompt.Task.ShouldContain("Only the first 40 of 45 page thumbnails are attached, in page order; decide the remaining pages from their text alone.");
+        request.Prompt.Task.ShouldContain("<page number=\"45\">\nSeite 45\n</page>");
+
+        var none = new FakeGateway().Answer(SampleAnswers.Split);
+        await Splitter(none, new LlmExtractionOptions { SplitMaxThumbnailPages = 0 }).SplitAsync(Inputs.TenantId, FourPages(), pngs.Take(4).ToList(), CancellationToken.None);
+        none.Requests.Single().Document.ShouldBeNull();
+        none.Requests.Single().Prompt.Task.ShouldContain("No page images are available");
+    }
+
+    [Fact]
+    public async Task The_document_id_rides_on_the_request_when_the_caller_knows_it()
+    {
+        var gateway = new FakeGateway().Answer(SampleAnswers.Split).Answer(SampleAnswers.Split);
+        IDocumentSplitter splitter = Splitter(gateway);
+        var pngs = Enumerable.Repeat<ReadOnlyMemory<byte>>(Inputs.PngBytes, 4).ToList();
+
+        await splitter.SplitAsync(Inputs.TenantId, Inputs.DocumentId, FourPages(), pngs, CancellationToken.None);
+        await splitter.SplitAsync(Inputs.TenantId, FourPages(), pngs, CancellationToken.None);
+
+        gateway.Requests[0].DocumentId.ShouldBe(Inputs.DocumentId);
+        gateway.Requests[1].DocumentId.ShouldBeNull();
     }
 }

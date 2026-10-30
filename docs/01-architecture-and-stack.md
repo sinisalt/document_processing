@@ -67,13 +67,14 @@ document_processing/
 ├── docs/                          this plan, ADRs, API notes
 ├── src/
 │   ├── DocProc.Domain/            canonical model, flags, state machine, validation rules (no deps)
-│   ├── DocProc.Application/       use cases, pipeline stage handlers, interfaces (IBlobStore, IOcrProvider, IDocumentExtractor, IMailSource)
+│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain only
 │   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Key Vault, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI
-│   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, schema portability tests
+│   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, portable schema, and the LLM stage implementations (classifier, splitter, invoice extractor); references Application
 │   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter
 │   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
 │   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
+│   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Application, Llm, Infrastructure and Extraction.EInvoice
 │   ├── DocProc.Api/               ASP.NET Core host
 │   ├── DocProc.Worker/            Wolverine host
 │   └── DocProc.AppHost/           Aspire local orchestration
@@ -88,6 +89,12 @@ document_processing/
 │   └── apps/customer-portal/
 └── deploy/                        docker-compose, Helm/ACA manifests, GitHub Actions
 ```
+
+Dependency direction: `Domain ← Application ← {Llm, Infrastructure, Extraction.*} ← Pipeline ← {Api, Worker}`.
+`DocProc.Application` holds only contracts and pure domain services, so every implementation project
+(including `DocProc.Llm`) can reference it without a cycle; code that needs an implementation type
+(for example `LlmException` to choose between retry and `LLM_PROVIDER_UNAVAILABLE`) lives in
+`DocProc.Pipeline`, never in Application.
 
 ## Multi-tenancy and data protection
 

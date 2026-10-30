@@ -72,7 +72,8 @@ public static class LlmServiceCollectionExtensions
             sp.GetRequiredService<TimeProvider>()));
 
         services.TryAddSingleton<LlmInvoiceExtractor>();
-        services.AddSingleton<IDocumentExtractor>(sp => sp.GetRequiredService<LlmInvoiceExtractor>());
+        // One LLM extractor in the IEnumerable<IDocumentExtractor> however many times a host composes this helper.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDocumentExtractor, LlmInvoiceExtractor>(sp => sp.GetRequiredService<LlmInvoiceExtractor>()));
         services.TryAddSingleton<LlmDocumentClassifier>();
         services.TryAddSingleton<IDocumentClassifier>(sp => sp.GetRequiredService<LlmDocumentClassifier>());
         services.TryAddSingleton<LlmDocumentSplitter>();

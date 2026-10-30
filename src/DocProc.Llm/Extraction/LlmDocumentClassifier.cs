@@ -22,7 +22,11 @@ public sealed class LlmDocumentClassifier(
     /// <summary>An LLM-only classification never reaches certainty; TYPE_UNKNOWN thresholds are tenant settings above this.</summary>
     public const double MaxConfidence = 0.95;
 
-    public async Task<ClassificationOutcome> ClassifyAsync(Guid tenantId, TextLayer? textLayer, ReadOnlyMemory<byte>? firstPagePng, CancellationToken cancellationToken)
+    public Task<ClassificationOutcome> ClassifyAsync(Guid tenantId, TextLayer? textLayer, ReadOnlyMemory<byte>? firstPagePng, CancellationToken cancellationToken) =>
+        ClassifyAsync(tenantId, documentId: null, textLayer, firstPagePng, cancellationToken);
+
+    /// <summary>As <see cref="ClassifyAsync(Guid, TextLayer?, ReadOnlyMemory{byte}?, CancellationToken)"/>; the document id correlates the usage row (docs/08 "Cost attribution").</summary>
+    public async Task<ClassificationOutcome> ClassifyAsync(Guid tenantId, Guid? documentId, TextLayer? textLayer, ReadOnlyMemory<byte>? firstPagePng, CancellationToken cancellationToken)
     {
         var excerpt = Excerpt(textLayer, options.ClassificationTextChars);
         var hasImage = firstPagePng is { Length: > 0 };
@@ -39,6 +43,7 @@ public sealed class LlmDocumentClassifier(
             Document = hasImage ? DocumentInputFactory.ForPages([firstPagePng!.Value], "first-page.png") : null,
             OutputSchema = CanonicalSchemas.Classification,
             Options = options.ToAuxiliaryLlmOptions(),
+            DocumentId = documentId,
         };
 
         var result = await gateway.CompleteAsync(tenantId, request, cancellationToken).ConfigureAwait(false);
@@ -58,7 +63,10 @@ public sealed class LlmDocumentClassifier(
         _ => DocumentType.Other,
     };
 
-    /// <summary>The first characters of the text layer in page order; the first page carries the title and header.</summary>
+    /// <summary>
+    /// The first characters of the text layer in page order; the first page carries the title and header. Pages are
+    /// appended one at a time and only until the budget is reached, so a long attachment never has its whole text joined.
+    /// </summary>
     public static string Excerpt(TextLayer? textLayer, int maxChars)
     {
         if (textLayer is null || maxChars <= 0)
@@ -66,8 +74,30 @@ public sealed class LlmDocumentClassifier(
             return string.Empty;
         }
 
-        var text = textLayer.PlainText.Trim();
-        return text.Length <= maxChars ? text : text[..maxChars];
+        var sb = new System.Text.StringBuilder();
+        foreach (var page in textLayer.Pages.OrderBy(p => p.Number))
+        {
+            if (sb.Length >= maxChars)
+            {
+                break;
+            }
+
+            var text = page.PlainText.Trim();
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append('\n');
+            }
+
+            var remaining = maxChars - sb.Length;
+            sb.Append(text.Length <= remaining ? text : text[..remaining]);
+        }
+
+        return sb.ToString().Trim();
     }
 
     private static string BuildTask(string excerpt, bool hasImage)

@@ -42,11 +42,11 @@ public class ExtractionTaskBuilderTests
                 UnitPrice = FieldValue.Extracted(new Money(1.2m, "EUR")),
             }).ToList(),
         };
-        var supplier = new SupplierHints(Guid.NewGuid(), "METRO Deutschland GmbH", "DE811177936", Enumerable.Range(1, 60).Select(i => $"SKU-{i}").ToList(), last, null);
+        var supplier = new SupplierHints(Guid.NewGuid(), "Musterhandel GmbH", "DE000000000", Enumerable.Range(1, 60).Select(i => $"SKU-{i}").ToList(), last, null);
 
         var task = ExtractionTaskBuilder.Build(Inputs.Tenant, supplier, PdfDocument);
 
-        task.ShouldContain("Matched supplier: METRO Deutschland GmbH (VAT id DE811177936)");
+        task.ShouldContain("Matched supplier: Musterhandel GmbH (VAT id DE000000000)");
         task.ShouldContain("Known SKUs (50 of 60): SKU-1, SKU-2");
         task.ShouldNotContain("SKU-51,");
         task.ShouldContain("Last approved invoice: number RE-2026-0001, issued 2026-09-30, total 64.45 EUR, 12 lines");
@@ -89,5 +89,30 @@ public class ExtractionTaskBuilderTests
 
         task.ShouldContain("Legal name: Pizzeria Luna");
         task.ShouldNotContain("VAT id:");
+    }
+
+
+    [Fact]
+    public void Memory_lines_without_a_printed_unit_show_the_quantity_alone()
+    {
+        var last = new Invoice
+        {
+            Lines =
+            [
+                new InvoiceLine { LineNumber = 1, Description = FieldValue.Extracted("No unit at all"), Quantity = FieldValue.Extracted(2m) },
+                new InvoiceLine { LineNumber = 2, Description = FieldValue.Extracted("Other without raw"), Quantity = FieldValue.Extracted(3m), Unit = FieldValue.Extracted(UnitOfMeasure.Other) },
+                new InvoiceLine { LineNumber = 3, Description = FieldValue.Extracted("Parsed unit"), Quantity = FieldValue.Extracted(4m), Unit = FieldValue.Extracted(UnitOfMeasure.Crate) },
+                new InvoiceLine { LineNumber = 4, Description = FieldValue.Extracted("Raw unit"), Quantity = FieldValue.Extracted(5m), Unit = FieldValue.Extracted(UnitOfMeasure.Other), UnitRaw = "Sack" },
+            ],
+        };
+        var supplier = new SupplierHints(Guid.NewGuid(), "Musterhandel GmbH", null, [], last, null);
+
+        var task = ExtractionTaskBuilder.Build(Inputs.Tenant, supplier, PdfDocument);
+
+        task.ShouldContain("  - \"No unit at all\" 2 \n");
+        task.ShouldContain("  - \"Other without raw\" 3 \n");
+        task.ShouldNotContain("3 Other");
+        task.ShouldContain("  - \"Parsed unit\" 4 Crate \n");
+        task.ShouldContain("  - \"Raw unit\" 5 Sack \n");
     }
 }

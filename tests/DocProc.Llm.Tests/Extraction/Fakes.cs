@@ -13,9 +13,23 @@ internal sealed class FakeGateway : ILlmGateway
 
     public List<LlmRequest> Requests { get; } = [];
 
-    public FakeGateway Answer(string json, string stopReason = StopReasons.EndTurn, LlmUsage? usage = null, string model = "claude-opus-5-5")
+    public FakeGateway Answer(
+        string json,
+        string stopReason = StopReasons.EndTurn,
+        LlmUsage? usage = null,
+        string model = "claude-opus-5-5",
+        LlmProviderKind? provider = null,
+        KeyOwner? keyOwner = null)
     {
-        _answers.Enqueue(_ => new LlmResult { Json = json, Usage = usage ?? new LlmUsage(1_000, 200), Model = model, StopReason = stopReason });
+        _answers.Enqueue(_ => new LlmResult
+        {
+            Json = json,
+            Usage = usage ?? new LlmUsage(1_000, 200),
+            Model = model,
+            StopReason = stopReason,
+            Provider = provider,
+            KeyOwner = keyOwner,
+        });
         return this;
     }
 
@@ -44,7 +58,7 @@ internal static class SampleAnswers
         {
           "kind": "Invoice", "invoiceNumber": "RE-2026-0042", "issueDate": "2026-10-27", "deliveryDate": null,
           "servicePeriodFrom": null, "servicePeriodTo": null, "dueDate": "2026-11-10", "currency": "EUR",
-          "supplier": { "name": "METRO Deutschland GmbH", "vatId": "DE811177936", "taxId": null, "registrationNumber": null,
+          "supplier": { "name": "Musterhandel GmbH", "vatId": "DE000000000", "taxId": null, "registrationNumber": null,
                         "addressLine1": null, "addressLine2": null, "postalCode": null, "city": null, "countryCode": "DE",
                         "email": null, "phone": null, "iban": null, "bic": null },
           "customer": null, "orderReferences": ["PO-77"], "deliveryNoteReferences": [], "originalInvoiceReference": null,
@@ -59,7 +73,7 @@ internal static class SampleAnswers
         }
         """;
 
-    public const string Classification = """{ "documentType": "CreditNote", "confidence": 0.82, "language": "de", "supplierNameHint": "METRO Deutschland GmbH" }""";
+    public const string Classification = """{ "documentType": "CreditNote", "confidence": 0.82, "language": "de", "supplierNameHint": "Musterhandel GmbH" }""";
 
     public const string Split = """{ "documents": [ { "startPage": 1, "endPage": 2, "documentType": "Invoice", "reason": null }, { "startPage": 3, "endPage": 4, "documentType": "DeliveryNote", "reason": "new header on page 3" } ] }""";
 }
@@ -136,8 +150,8 @@ internal static class Inputs
     /// <summary>The text layer the sample answer was "read" from: one value per locatability level.</summary>
     public static TextLayer SampleTextLayer() => new TextLayerBuilder()
         .Page(1)
-        .Word("METRO", 50, 40, 120, 55).Word("Deutschland", 125, 40, 230, 55).Word("GmbH", 235, 40, 290, 55)
-        .Line("USt-IdNr.", "DE", "811177936")
+        .Word("Musterhandel", 50, 40, 170, 55).Word("GmbH", 175, 40, 230, 55)
+        .Line("USt-IdNr.", "DE", "000000000")
         .Word("Rechnung", 50, 100, 140, 115).Word("Nr.", 145, 100, 175, 115).Word("RE-2026-0042", 180, 100, 300, 115)
         .Line("Datum:", "27.10.2026")
         .Line("Bestellung", "PO-77")

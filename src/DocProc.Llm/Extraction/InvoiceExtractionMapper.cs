@@ -58,10 +58,42 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         };
 
         var flags = extraction.UnreadableRegions
-            .Select(r => FlagCodes.Create(FlagCodes.UnreadablePages, $"Page {r.Page}, {r.Area}: {r.Reason}"))
+            .Select(r => UnreadableRegionFlag(r, invoice))
             .ToList();
 
         return new InvoiceMappingResult(invoice, flags);
+    }
+
+    /// <summary>
+    /// A region the model could not read blocks auto-approval only when a required header field (docs/02 §4.2) came
+    /// back empty, because the region may be what hid it. When every required value was returned the region covers
+    /// optional content (notes, a stamp beside the totals) and the flag is a warning for the reviewer instead.
+    /// </summary>
+    private static DocumentFlag UnreadableRegionFlag(UnreadableRegion region, Invoice invoice)
+    {
+        var flag = FlagCodes.Create(FlagCodes.UnreadablePages, $"Page {region.Page}, {region.Area}: {region.Reason}");
+        return RequiredHeaderFieldMissing(invoice) ? flag : flag with { Severity = FlagSeverity.Warning };
+    }
+
+    /// <summary>The required header fields of <c>RequiredFieldsRule</c>; Missing here means the model returned null.</summary>
+    private static bool RequiredHeaderFieldMissing(Invoice invoice)
+    {
+        IFieldValue[] required =
+        [
+            invoice.Kind, invoice.InvoiceNumber, invoice.IssueDate, invoice.Currency, invoice.Supplier, invoice.Customer,
+            invoice.SubtotalNet, invoice.TotalTax, invoice.TotalGross,
+        ];
+        if (required.Any(f => f.Status == FieldStatus.Missing))
+        {
+            return true;
+        }
+
+        if (invoice.Supplier.HasValue && string.IsNullOrWhiteSpace(invoice.Supplier.Value!.Name))
+        {
+            return true;
+        }
+
+        return invoice.Kind is { HasValue: true, Value: InvoiceKind.CreditNote } && invoice.OriginalInvoiceReference.Status == FieldStatus.Missing;
     }
 
     /// <summary>UNCL 5305 code as printed to the canonical category; unknown or absent codes stay null.</summary>
@@ -107,6 +139,7 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         return FieldValue.Extracted(mapped, match.ToSource(), match.Confidence);
     }
 
+    /// <summary>Free text (descriptions, notes, pack sizes): fuzzy matching tolerates OCR noise and merged words.</summary>
     private FieldValue<string> Text(string? value, int? page = null)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -118,6 +151,22 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         return FieldValue.Extracted(value, match.ToSource(), match.Confidence);
     }
 
+    /// <summary>
+    /// Identifier-like text (SKU, GTIN, lot number): exact or normalised match only, so a misread digit is NotFound
+    /// instead of a confident match on a neighbouring code (docs/06 "Provenance without citations").
+    /// </summary>
+    private FieldValue<string> IdentifierText(string? value, int? page = null)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return FieldValue<string>.Missing();
+        }
+
+        var match = _locator.LocateIdentifier(value, page);
+        return FieldValue.Extracted(value, match.ToSource(), match.Confidence);
+    }
+
+    /// <summary>Document identifiers (invoice number, order and delivery note references): exact or normalised match only.</summary>
     private FieldValue<DocumentIdentifier> Identifier(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -125,7 +174,7 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
             return FieldValue<DocumentIdentifier>.Missing();
         }
 
-        var match = _locator.LocateText(value);
+        var match = _locator.LocateIdentifier(value);
         return FieldValue.Extracted(DocumentIdentifier.Create(value), match.ToSource(), match.Confidence);
     }
 
@@ -201,8 +250,9 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         }
 
         // Provenance from the name; confidence from the weaker of name and VAT id, the two values matching relies on.
+        // The name may be fuzzy (OCR noise, diacritics); the VAT id must be printed as returned.
         var name = _locator.LocateText(party.Name);
-        var vat = party.VatId is null ? null : _locator.LocateText(party.VatId);
+        var vat = party.VatId is null ? null : _locator.LocateIdentifier(party.VatId);
         var weakest = vat is null ? name : ProvenanceMatch.Weaker(name, vat);
         var source = name.IsFound ? name : vat ?? name;
         return FieldValue.Extracted(party, source.ToSource(), weakest.Confidence);
@@ -270,8 +320,8 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         return new InvoiceLine
         {
             LineNumber = line.LineNumber > 0 ? line.LineNumber : index + 1,
-            SupplierSku = Text(line.SupplierSku, page),
-            Gtin = Text(line.Gtin, page),
+            SupplierSku = IdentifierText(line.SupplierSku, page),
+            Gtin = IdentifierText(line.Gtin, page),
             Description = Text(line.Description, page),
             Quantity = Number(line.Quantity, page),
             Unit = unit,
@@ -284,7 +334,7 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
             TaxRate = Number(line.TaxRatePercent, page),
             LineGross = Amount(line.LineGross, page),
             DepositAmount = Amount(line.DepositAmount, page),
-            LotNumber = Text(line.LotNumber, page),
+            LotNumber = IdentifierText(line.LotNumber, page),
             BestBefore = Date(line.BestBefore, page),
         };
     }

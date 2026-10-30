@@ -59,9 +59,9 @@ public sealed class LlmInvoiceExtractor(
             LlmOutputTokens: usage.OutputTokens + usage.ReasoningTokens,
             OcrPages: 0,
             Usd: prices.Estimate(result.Model, usage),
-            LlmProvider: null,
+            LlmProvider: result.Provider?.ToString(),
             LlmModel: result.Model,
-            KeyOwner: null);
+            KeyOwner: result.KeyOwner);
 
         return new ExtractionOutcome(mapped.Invoice, ExtractionMethod.Llm, mapped.Flags, cost);
     }

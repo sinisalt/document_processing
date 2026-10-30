@@ -48,6 +48,9 @@
     <PackageVersion Include="PdfPig" Version="0.1.16" />
     <PackageVersion Include="PDFtoImage" Version="5.4.0" />
     <PackageVersion Include="PDFsharp" Version="6.5.0" />
+    <!-- Same version PDFtoImage 5.4.0 depends on; referenced directly by DocProc.Llm for page thumbnails. -->
+    <PackageVersion Include="SkiaSharp" Version="4.150.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.150.1" />
     <PackageVersion Include="MimeKit" Version="4.18.2" />
     <PackageVersion Include="MailKit" Version="4.18.2" />
     <PackageVersion Include="SharpZipLib" Version="1.4.2" />

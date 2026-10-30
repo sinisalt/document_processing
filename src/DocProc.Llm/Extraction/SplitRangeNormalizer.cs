@@ -5,7 +5,8 @@ namespace DocProc.Llm.Extraction;
 /// <summary>
 /// Turns the model's page ranges into what stage 3 requires: 1-based, contiguous, non-overlapping and covering
 /// every page. Gaps are given to the preceding document (a blank or separator page belongs to the document before
-/// it), overlaps are cut at the start of the later range, and an empty or wholly invalid answer is one document.
+/// it); when two ranges overlap the earlier range keeps its pages and the later one starts after it ends, so
+/// (1,3),(2,4) becomes (1,3),(4,4); an empty or wholly invalid answer is one document.
 /// </summary>
 public static class SplitRangeNormalizer
 {

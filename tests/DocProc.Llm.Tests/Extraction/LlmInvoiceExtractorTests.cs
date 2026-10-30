@@ -46,7 +46,7 @@ public class LlmInvoiceExtractorTests
     public async Task Builds_an_extract_request_with_the_pdf_the_schema_and_the_rendered_task()
     {
         var gateway = new FakeGateway().Answer(SampleAnswers.Invoice);
-        var supplier = new SupplierHints(Guid.NewGuid(), "METRO Deutschland GmbH", "DE811177936", ["123"], null, null);
+        var supplier = new SupplierHints(Guid.NewGuid(), "Musterhandel GmbH", "DE000000000", ["123"], null, null);
 
         await Extractor(gateway, new LlmExtractionOptions { MaxOutputTokens = 4_000, Effort = ReasoningEffort.Medium })
             .ExtractAsync(Inputs.Extraction(supplier: supplier), CancellationToken.None);
@@ -61,7 +61,7 @@ public class LlmInvoiceExtractorTests
         request.Prompt.CacheKey.ShouldBe(Prompts.ExtractInvoice.CacheKey);
         request.Prompt.Examples.Count.ShouldBe(2);
         request.Prompt.Task.ShouldContain("Legal name: Gasthaus zur Post GmbH");
-        request.Prompt.Task.ShouldContain("Matched supplier: METRO Deutschland GmbH");
+        request.Prompt.Task.ShouldContain("Matched supplier: Musterhandel GmbH");
         request.Document.ShouldNotBeNull();
         request.Document.HasPdf.ShouldBeTrue();
         request.Document.FileName.ShouldBe($"{Inputs.DocumentId:N}.pdf");
@@ -144,11 +144,11 @@ public class LlmInvoiceExtractorTests
         tax.Category.ShouldBe(TaxCategory.Standard);
 
         var supplier = invoice.Supplier;
-        supplier.Value!.Name.ShouldBe("METRO Deutschland GmbH");
-        supplier.Value.VatId.ShouldBe("DE811177936");
+        supplier.Value!.Name.ShouldBe("Musterhandel GmbH");
+        supplier.Value.VatId.ShouldBe("DE000000000");
         supplier.Value.Address!.CountryCode.ShouldBe("DE");
         supplier.Source!.Page.ShouldBe(1);
-        supplier.Source.RawText.ShouldBe("METRO Deutschland GmbH");
+        supplier.Source.RawText.ShouldBe("Musterhandel GmbH");
 
         var line = invoice.Lines.ShouldHaveSingleItem();
         line.LineNumber.ShouldBe(1);
@@ -176,7 +176,7 @@ public class LlmInvoiceExtractorTests
         var invoice = (await Extractor(gateway).ExtractAsync(Inputs.Extraction(), CancellationToken.None))!.Invoice;
 
         invoice.InvoiceNumber.Confidence.ShouldBe(LocatabilityConfidence.Exact);
-        // VAT id is printed as "DE 811177936": a whitespace-normalised match, the weaker of name and VAT id.
+        // VAT id is printed as "DE 000000000": a whitespace-normalised match, the weaker of name and VAT id.
         invoice.Supplier.Confidence.ShouldBe(LocatabilityConfidence.Normalized);
         // "Tomaten" is printed as part of "Strauchtomaten".
         invoice.Lines[0].Description.Confidence.ShouldBe(LocatabilityConfidence.Fuzzy);
@@ -215,17 +215,61 @@ public class LlmInvoiceExtractorTests
     }
 
     [Fact]
-    public async Task Unreadable_regions_become_blocking_unreadable_pages_flags_with_page_and_area()
+    public async Task Unreadable_regions_block_when_a_required_header_field_came_back_empty()
     {
+        // The sample answer has no customer block, a required header field: the region may be what hid it.
         var gateway = new FakeGateway().Answer(SampleAnswers.Invoice);
 
         var outcome = (await Extractor(gateway).ExtractAsync(Inputs.Extraction(), CancellationToken.None))!;
 
         var flag = outcome.Flags.ShouldHaveSingleItem();
         flag.Code.ShouldBe(FlagCodes.UnreadablePages);
+        flag.Severity.ShouldBe(FlagSeverity.Blocking);
         flag.Severity.ShouldBe(FlagCodes.Catalogue[FlagCodes.UnreadablePages].DefaultSeverity);
         flag.Message.ShouldBe("Page 2, stamp over totals: ink smudge");
         flag.CreatedBy.ShouldBe(FlagOrigin.Pipeline);
+    }
+
+    [Fact]
+    public async Task Unreadable_regions_are_warnings_when_every_required_header_field_was_returned()
+    {
+        var answer = SampleAnswers.Invoice
+            .Replace("\"customer\": null", "\"customer\": { \"name\": \"Gasthaus zur Post GmbH\", \"vatId\": \"DE123456789\" }", StringComparison.Ordinal)
+            .Replace("\"area\": \"stamp over totals\"", "\"area\": \"stamp over the notes\"", StringComparison.Ordinal);
+        var gateway = new FakeGateway().Answer(answer);
+
+        var outcome = (await Extractor(gateway).ExtractAsync(Inputs.Extraction(), CancellationToken.None))!;
+
+        outcome.Invoice.Customer.HasValue.ShouldBeTrue();
+        var flag = outcome.Flags.ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.UnreadablePages);
+        flag.Severity.ShouldBe(FlagSeverity.Warning, "a stamp over an optional field must not block auto-approval");
+        flag.Message.ShouldBe("Page 2, stamp over the notes: ink smudge");
+    }
+
+    [Fact]
+    public async Task A_misread_identifier_is_not_found_rather_than_matched_to_the_printed_neighbour()
+    {
+        var answer = SampleAnswers.Invoice
+            .Replace("\"invoiceNumber\": \"RE-2026-0042\"", "\"invoiceNumber\": \"RE-2026-0043\"", StringComparison.Ordinal)
+            .Replace("\"vatId\": \"DE000000000\"", "\"vatId\": \"DE000000001\"", StringComparison.Ordinal)
+            .Replace("\"supplierSku\": \"123\"", "\"supplierSku\": \"124\"", StringComparison.Ordinal)
+            .Replace("\"gtin\": null", "\"gtin\": \"4006381333931\"", StringComparison.Ordinal)
+            .Replace("\"orderReferences\": [\"PO-77\"]", "\"orderReferences\": [\"PO-78\"]", StringComparison.Ordinal);
+        var gateway = new FakeGateway().Answer(answer);
+
+        var invoice = (await Extractor(gateway).ExtractAsync(Inputs.Extraction(), CancellationToken.None))!.Invoice;
+
+        invoice.InvoiceNumber.ShouldSatisfyAllConditions(
+            n => n.Value!.Verbatim.ShouldBe("RE-2026-0043"),
+            n => n.Confidence.ShouldBe(LocatabilityConfidence.NotFound),
+            n => n.Source.ShouldBe(new FieldSource(SourceMethod.Llm), "no printed text is offered as evidence for a number that is not printed"));
+        invoice.OrderReferences.ShouldHaveSingleItem().Confidence.ShouldBe(LocatabilityConfidence.NotFound);
+        invoice.Supplier.Confidence.ShouldBe(LocatabilityConfidence.NotFound, "the VAT id is one digit off the printed one");
+        invoice.Supplier.Source!.RawText.ShouldBe("Musterhandel GmbH", "provenance still comes from the located name");
+        invoice.Lines[0].SupplierSku.Confidence.ShouldBe(LocatabilityConfidence.NotFound);
+        invoice.Lines[0].Gtin.Confidence.ShouldBe(LocatabilityConfidence.NotFound);
+        invoice.Lines[0].Description.Confidence.ShouldBe(LocatabilityConfidence.Fuzzy, "free text keeps fuzzy matching");
     }
 
     [Fact]
@@ -240,6 +284,19 @@ public class LlmInvoiceExtractorTests
         outcome.Cost.OcrPages.ShouldBe(0);
         outcome.Cost.LlmModel.ShouldBe("claude-opus-5-5");
         outcome.Cost.Usd.ShouldBe(0.0608m);
+        outcome.Cost.LlmProvider.ShouldBeNull("the fake gateway resolved no provider");
+        outcome.Cost.KeyOwner.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Cost_carries_the_provider_and_key_owner_the_gateway_resolved()
+    {
+        var gateway = new FakeGateway().Answer(SampleAnswers.Invoice, provider: LlmProviderKind.AzureOpenAi, keyOwner: KeyOwner.Tenant);
+
+        var outcome = (await Extractor(gateway).ExtractAsync(Inputs.Extraction(), CancellationToken.None))!;
+
+        outcome.Cost.LlmProvider.ShouldBe("AzureOpenAi");
+        outcome.Cost.KeyOwner.ShouldBe(KeyOwner.Tenant);
     }
 
     [Fact]

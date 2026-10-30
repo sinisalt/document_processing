@@ -33,7 +33,7 @@ public class LlmServiceCollectionTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static ServiceProvider Build(IDictionary<string, string?> settings, Action<IServiceCollection>? configure = null)
+    private static ServiceProvider Build(IDictionary<string, string?> settings, Action<IServiceCollection>? configure = null, Action<IServiceCollection>? after = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
@@ -43,6 +43,7 @@ public class LlmServiceCollectionTests : IDisposable
         services.AddSingleton<ILlmUsageRecorder>(sp => sp.GetRequiredService<UsageRecorder>());
         configure?.Invoke(services);
         services.AddDocProcLlm(configuration);
+        after?.Invoke(services);
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }
 
@@ -69,6 +70,17 @@ public class LlmServiceCollectionTests : IDisposable
         provider.GetRequiredService<IDocumentClassifier>().ShouldBeOfType<LlmDocumentClassifier>();
         provider.GetRequiredService<IDocumentSplitter>().ShouldBeOfType<LlmDocumentSplitter>();
         provider.GetServices<ILlmProviderFactory>().ShouldBeEmpty("no replay directory and no adapters were registered");
+    }
+
+    [Fact]
+    public void Composing_the_registration_twice_keeps_one_llm_extractor()
+    {
+        using var provider = Build(
+            new Dictionary<string, string?>(),
+            after: services => services.AddDocProcLlm(new ConfigurationBuilder().Build()));
+
+        provider.GetServices<IDocumentExtractor>().ShouldHaveSingleItem().ShouldBeOfType<LlmInvoiceExtractor>();
+        provider.GetRequiredService<IDocumentClassifier>().ShouldBeOfType<LlmDocumentClassifier>();
     }
 
     [Fact]
@@ -124,6 +136,28 @@ public class LlmServiceCollectionTests : IDisposable
     }
 
     [Fact]
+    public async Task Record_mode_wraps_an_adapter_registered_after_the_llm_services_too()
+    {
+        // An adapter for a kind only it serves (the replay factory also serves Replay), registered after AddDocProcLlm.
+        var scripted = new ScriptedLlmProvider().Enqueue("{\"kind\":\"Invoice\"}");
+        var anthropic = new LlmProviderConfig { Id = Platform.Id, Scope = Platform.Scope, Kind = LlmProviderKind.Anthropic, Auth = Platform.Auth, Models = Platform.Models };
+        using var provider = Build(
+            new Dictionary<string, string?> { ["Llm:Replay:Directory"] = _directory, ["Llm:Replay:Record"] = "true" },
+            after: services =>
+            {
+                services.AddSingleton<ILlmProviderFactory>(new KindFactory(LlmProviderKind.Anthropic, scripted));
+                services.AddSingleton<ILlmPolicyStore>(new FixedPolicyStore(anthropic));
+            });
+        var gateway = provider.GetRequiredService<ILlmGateway>();
+
+        await gateway.CompleteAsync(TenantId, Request(), CancellationToken.None);
+        await gateway.CompleteAsync(TenantId, Request(), CancellationToken.None);
+
+        scripted.Requests.Count.ShouldBe(1, "the adapter was wrapped by the recorder although it was registered last");
+        Directory.GetFiles(_directory, "*.json").ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public void Record_mode_without_a_directory_is_a_configuration_error()
     {
         Should.Throw<InvalidOperationException>(() => Build(new Dictionary<string, string?> { ["Llm:Replay:Record"] = "true" }))
@@ -134,6 +168,19 @@ public class LlmServiceCollectionTests : IDisposable
     {
         public Task<TenantProviderSetup> GetAsync(Guid tenantId, CancellationToken cancellationToken) =>
             Task.FromResult(new TenantProviderSetup(null, new Dictionary<Guid, LlmProviderConfig>(), Platform, 0m));
+    }
+
+    private sealed class FixedPolicyStore(LlmProviderConfig platform) : ILlmPolicyStore
+    {
+        public Task<TenantProviderSetup> GetAsync(Guid tenantId, CancellationToken cancellationToken) =>
+            Task.FromResult(new TenantProviderSetup(null, new Dictionary<Guid, LlmProviderConfig>(), platform, 0m));
+    }
+
+    private sealed class KindFactory(LlmProviderKind kind, ILlmProvider provider) : ILlmProviderFactory
+    {
+        public bool Supports(LlmProviderKind candidate) => candidate == kind;
+
+        public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential) => provider;
     }
 
     private sealed class CredentialStore : ILlmCredentialStore

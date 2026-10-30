@@ -8,19 +8,19 @@
   "dueDate": "2026-11-10",
   "currency": "EUR",
   "supplier": {
-    "name": "METRO Deutschland GmbH",
-    "vatId": "DE811177936",
+    "name": "Musterhandel GmbH",
+    "vatId": "DE000000000",
     "taxId": null,
     "registrationNumber": null,
-    "addressLine1": "Metro-Straße 1",
+    "addressLine1": "Musterstraße 1",
     "addressLine2": null,
-    "postalCode": "40235",
-    "city": "Düsseldorf",
+    "postalCode": "12345",
+    "city": "Musterstadt",
     "countryCode": null,
     "email": null,
     "phone": null,
-    "iban": "DE89 3704 0044 0532 0130 00",
-    "bic": "COBADEFFXXX"
+    "iban": "DE02 1203 0000 0000 2020 51",
+    "bic": "MUSTDEFFXXX"
   },
   "customer": {
     "name": "Gasthaus zur Post GmbH",
@@ -55,8 +55,8 @@
     "discountPercent": null,
     "discountUntil": null,
     "paymentReference": "4711-2026-00917",
-    "iban": "DE89 3704 0044 0532 0130 00",
-    "bic": "COBADEFFXXX",
+    "iban": "DE02 1203 0000 0000 2020 51",
+    "bic": "MUSTDEFFXXX",
     "rawText": "Zahlbar bis 10.11.2026 ohne Abzug. Verwendungszweck: 4711-2026-00917"
   },
   "notes": null,

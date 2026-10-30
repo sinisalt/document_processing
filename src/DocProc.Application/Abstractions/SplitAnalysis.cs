@@ -45,7 +45,7 @@ public sealed record SplitAnalysis(
     IReadOnlyList<SplitSignal> Signals);
 
 /// <summary>
-/// The non-LLM splitter. <see cref="IDocumentSplitter.SplitAsync"/> keeps the pipeline contract; <see cref="AnalyzeAsync"/>
+/// The non-LLM splitter. <see cref="IDocumentSplitter.SplitAsync(Guid, TextLayer?, IReadOnlyList{ReadOnlyMemory{byte}}, CancellationToken)"/> keeps the pipeline contract; <see cref="AnalyzeAsync"/>
 /// adds the confidence the pipeline needs to decide whether to spend an LLM call (docs/03 stage 3, step 2).
 /// </summary>
 public interface IHeuristicSplitter : IDocumentSplitter
