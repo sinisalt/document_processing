@@ -1,11 +1,651 @@
 {
   "nav": {
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "inbox": "Inbox",
+    "review": "Review queue",
+    "suppliers": "Suppliers",
+    "settings": "Settings"
   },
   "dashboard": {
     "title": "Dashboard",
     "description": "Your documents at a glance.",
     "welcome": "Welcome, {{name}}",
-    "placeholder": "The inbox, review queue and supplier screens arrive here."
+    "countsHeading": "Documents by status",
+    "open": "Open",
+    "quickLinks": "Quick links",
+    "links": {
+      "inbox": "Every document received, filtered by status, supplier and date.",
+      "upload": "Upload PDFs or e-invoice XML from your computer.",
+      "review": "Claim and work the documents that need a human decision.",
+      "suppliers": "Supplier master data used to match incoming documents.",
+      "settings": "Review policy, members, API keys, channels and AI providers."
+    }
+  },
+  "documentType": {
+    "Unknown": "Unknown",
+    "Invoice": "Invoice",
+    "CreditNote": "Credit note",
+    "PurchaseOrder": "Purchase order",
+    "DeliveryNote": "Delivery note",
+    "Statement": "Statement",
+    "Reminder": "Reminder",
+    "Other": "Other"
+  },
+  "flagSeverity": {
+    "Info": "Info",
+    "Warning": "Warning",
+    "Blocking": "Blocking"
+  },
+  "stages": {
+    "Normalize": "Normalize",
+    "Classify": "Classify",
+    "Split": "Split",
+    "Extract": "Extract",
+    "Validate": "Validate",
+    "Synthesize": "Synthesize"
+  },
+  "enums": {
+    "Invoice": "Invoice",
+    "CreditNote": "Credit note",
+    "Proforma": "Pro forma",
+    "BankTransfer": "Bank transfer",
+    "DirectDebit": "Direct debit",
+    "Card": "Card",
+    "Cash": "Cash",
+    "Other": "Other"
+  },
+  "events": {
+    "document": {
+      "received": "Received",
+      "stage_completed": "Stage completed",
+      "stage_failed": "Stage failed",
+      "flagged": "Flagged",
+      "review_requested": "Review requested",
+      "auto_approved": "Auto-approved",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "corrected": "Fields corrected",
+      "reprocessed": "Reprocessing requested"
+    }
+  },
+  "fieldBlocks": {
+    "supplier": "Supplier",
+    "customer": "Customer",
+    "paymentTerms": "Payment terms",
+    "servicePeriod": "Service period",
+    "lines": "Line",
+    "taxBreakdown": "Tax breakdown",
+    "lineField": "Line {{line}} · {{field}}"
+  },
+  "fields": {
+    "kind": "Kind",
+    "invoiceNumber": "Invoice number",
+    "issueDate": "Issue date",
+    "deliveryDate": "Delivery date",
+    "dueDate": "Due date",
+    "servicePeriod": {
+      "from": "Service period from",
+      "to": "Service period to"
+    },
+    "currency": "Currency",
+    "orderReferences": "Order reference",
+    "deliveryNoteReferences": "Delivery note reference",
+    "originalInvoiceReference": "Original invoice",
+    "subtotalNet": "Subtotal (net)",
+    "totalTax": "Total tax",
+    "totalGross": "Total (gross)",
+    "amountDue": "Amount due",
+    "rounding": "Rounding",
+    "notes": "Notes",
+    "party": {
+      "name": "Name",
+      "vatId": "VAT ID",
+      "taxId": "Tax number",
+      "registrationNumber": "Registration number",
+      "email": "Email",
+      "phone": "Phone",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Street",
+        "line2": "Address line 2",
+        "postalCode": "Postal code",
+        "city": "City",
+        "region": "Region",
+        "countryCode": "Country"
+      }
+    },
+    "paymentTerms": {
+      "dueDate": "Payment due",
+      "discountPercent": "Early payment discount (%)",
+      "discountUntil": "Discount until",
+      "paymentMeans": "Payment means",
+      "paymentReference": "Payment reference",
+      "iban": "Payee IBAN",
+      "bic": "Payee BIC",
+      "rawText": "Terms as printed"
+    },
+    "line": {
+      "lineNumber": "#",
+      "supplierSku": "SKU",
+      "gtin": "GTIN",
+      "description": "Description",
+      "quantity": "Qty",
+      "unit": "Unit",
+      "unitPrice": "Unit price",
+      "discountPercent": "Disc. %",
+      "discountAmount": "Discount",
+      "lineNet": "Net",
+      "taxRate": "Tax %",
+      "lineGross": "Gross"
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "description": "Every document your channels received, newest first.",
+    "tabsLabel": "Status",
+    "tabs": {
+      "needsReview": "Needs review",
+      "processing": "Processing",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "failed": "Failed",
+      "all": "All"
+    },
+    "caption": "Documents",
+    "noNumber": "(no number)",
+    "columns": {
+      "documentNumber": "Document number",
+      "supplier": "Supplier",
+      "type": "Type",
+      "issueDate": "Issue date",
+      "total": "Total",
+      "status": "Status",
+      "flags": "Flags",
+      "received": "Received"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Number, supplier, file name",
+      "type": "Type",
+      "anyType": "Any type",
+      "supplier": "Supplier",
+      "anySupplier": "Any supplier",
+      "from": "Issued from",
+      "to": "Issued to",
+      "apply": "Apply",
+      "clear": "Clear filters"
+    },
+    "emptyTitle": "No documents",
+    "emptyFiltered": "No document matches these filters.",
+    "empty": {
+      "needsReview": "Nothing waits for a review.",
+      "processing": "No document is in the pipeline right now.",
+      "approved": "No approved documents yet.",
+      "rejected": "No rejected documents.",
+      "failed": "No document failed processing.",
+      "all": "Upload a file or connect a channel to receive documents."
+    },
+    "blockingFlags_one": "{{count}} blocking flag",
+    "blockingFlags_other": "{{count}} blocking flags",
+    "warningFlags_one": "{{count}} warning",
+    "warningFlags_other": "{{count}} warnings"
+  },
+  "upload": {
+    "button": "Upload",
+    "title": "Upload documents",
+    "description": "PDF, images, e-invoice XML (XRechnung, ZUGFeRD, UBL) or ZIP archives; up to {{max}} files of {{size}} each.",
+    "dropzone": "Drop files here or press Enter to choose files",
+    "dropHere": "Drop files here",
+    "orBrowse": "or click to choose files",
+    "chooseFiles": "Choose files",
+    "selected_one": "{{count}} file selected",
+    "selected_other": "{{count}} files selected",
+    "remove": "Remove {{name}}",
+    "summary_one": "{{count}} file, {{size}}",
+    "summary_other": "{{count}} files, {{size}}",
+    "submit_one": "Upload {{count}} file",
+    "submit_other": "Upload {{count}} files",
+    "uploading": "Uploading…",
+    "queued_one": "{{count}} file received; processing has started.",
+    "queued_other": "{{count}} files received; processing has started.",
+    "ingestionId": "Ingestion {{id}}",
+    "tooLarge": "{{name}} is larger than {{max}} and was skipped.",
+    "tooMany": "At most {{max}} files per upload."
+  },
+  "review": {
+    "back": "Back to the inbox",
+    "notFound": "Document not found",
+    "notFoundDescription": "It does not exist or belongs to another tenant.",
+    "noSupplier": "Unknown supplier",
+    "settledTitle": "This document is settled",
+    "settledDescription": "It is {{status}}; its fields can no longer be edited.",
+    "failedTitle": "Processing failed",
+    "noCanonicalTitle": "No extracted data",
+    "noCanonical": "This document type has no canonical invoice data to review.",
+    "noCanonicalProcessing": "The pipeline is still working on this document; the fields appear when extraction has finished.",
+    "tabs": {
+      "fields": "Fields",
+      "timeline": "Timeline",
+      "original": "Original"
+    },
+    "sections": {
+      "document": "Document",
+      "supplier": "Supplier",
+      "customer": "Customer",
+      "totals": "Totals",
+      "payment": "Payment terms",
+      "notes": "Notes"
+    },
+    "form": {
+      "label": "Canonical data",
+      "none": "(none)"
+    },
+    "flags": {
+      "heading_one": "{{count}} flag",
+      "heading_other": "{{count}} flags",
+      "title_one": "{{count}} flag",
+      "title_other": "{{count}} flags",
+      "hint": "Click a flag or press j / k to jump to its field.",
+      "none": "No flags: every validation rule passed.",
+      "resolved": "Resolved"
+    },
+    "save": {
+      "button": "Save corrections",
+      "nothing": "Nothing changed.",
+      "saved_one": "{{count}} correction saved.",
+      "saved_other": "{{count}} corrections saved."
+    },
+    "actions": {
+      "label": "Review actions",
+      "approve": "Approve",
+      "approveTitle": "Approve this document?",
+      "approveDescription": "{{number}} will be approved and handed to the downstream systems.",
+      "approved": "Document approved.",
+      "reject": "Reject",
+      "rejectTitle": "Reject this document?",
+      "rejectDescription": "Rejected documents are not exported. The reason is recorded in the timeline.",
+      "rejectReason": "Reason",
+      "rejectReasonPlaceholder": "For example: duplicate of an invoice already paid",
+      "rejected": "Document rejected.",
+      "reprocess": "Reprocess",
+      "reprocessTitle": "Reprocess this document?",
+      "reprocessDescription": "The document is sent back through the pipeline from the selected stage; corrections made after that stage are recomputed.",
+      "fromStage": "From stage",
+      "reprocessing": "Reprocessing from {{stage}}.",
+      "saveFirst": "Save or discard your corrections first."
+    },
+    "viewer": {
+      "toolbar": "Page viewer",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "pageOf": "Page {{page}} of {{count}}",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "showWords": "Show recognised words",
+      "words": "Words",
+      "pageAlt": "Page {{page}} of the document",
+      "pageError": "The page image could not be loaded.",
+      "noPagesTitle": "No page images",
+      "noPages": "This document has no rendered pages (an XML e-invoice, for example); the fields on the right are its data."
+    },
+    "overlay": {
+      "label_one": "{{count}} highlighted field on this page",
+      "label_other": "{{count}} highlighted fields on this page",
+      "box": "Field {{path}}"
+    },
+    "lines": {
+      "title_one": "{{count}} line item",
+      "title_other": "{{count}} line items",
+      "caption": "Line items",
+      "check": "Check",
+      "cellLabel": "Line {{line}}, {{field}}",
+      "empty": "This document has no line items.",
+      "allOk": "Line arithmetic OK",
+      "mismatches_one": "{{count}} line does not add up",
+      "mismatches_other": "{{count}} lines do not add up",
+      "ok": "Quantity × unit price matches the line net",
+      "okDetail": "Expected {{expected}}",
+      "incomplete": "Quantity, unit price or line net missing",
+      "mismatchDetail": "Quantity × unit price is {{expected}}, the line says {{actual}}"
+    },
+    "timeline": {
+      "title": "Timeline",
+      "empty": "No events recorded yet.",
+      "details": "Details"
+    },
+    "original": {
+      "fileName": "File",
+      "receivedAt": "Received",
+      "source": "From",
+      "pages": "Pages",
+      "extraction": "Extraction",
+      "download": "Download original"
+    }
+  },
+  "queue": {
+    "title": "Review queue",
+    "description": "Documents waiting for a human decision. Claim a task so nobody else works on it.",
+    "caption": "Review tasks",
+    "mine": "Only mine",
+    "statusQueue": "Open and in progress",
+    "columns": {
+      "reason": "Reason",
+      "status": "Task status",
+      "assignedTo": "Assigned to",
+      "slaDue": "Due",
+      "created": "Created",
+      "actions": "Actions"
+    },
+    "unassigned": "Unassigned",
+    "you": "You",
+    "claim": "Claim",
+    "claimLabel": "Claim {{number}}",
+    "claimed": "Task claimed.",
+    "release": "Release",
+    "releaseLabel": "Release {{number}}",
+    "released": "Task released.",
+    "open": "Open",
+    "openLabel": "Open {{number}}",
+    "emptyTitle": "The queue is empty",
+    "empty": "No document waits for a review.",
+    "emptyMine": "You have no claimed tasks."
+  },
+  "suppliers": {
+    "title": "Suppliers",
+    "description": "Supplier master data: identifiers that match incoming documents to a supplier.",
+    "caption": "Suppliers",
+    "search": "Search",
+    "searchPlaceholder": "Name, VAT ID, alias",
+    "create": "New supplier",
+    "createTitle": "New supplier",
+    "createDescription": "Identifiers help the pipeline match documents to this supplier.",
+    "editDescription": "Master data and recent documents of this supplier.",
+    "edit": "Edit",
+    "view": "View",
+    "save": "Save",
+    "openLabel": "Open {{name}}",
+    "created": "Supplier {{name}} created.",
+    "updated": "Supplier {{name}} saved.",
+    "alwaysReviewBadge": "Always review",
+    "emptyTitle": "No suppliers",
+    "empty": "Suppliers are created as documents arrive, or add one yourself.",
+    "emptySearch": "No supplier matches “{{q}}”.",
+    "activityEmpty": "No documents from this supplier yet.",
+    "columns": {
+      "name": "Name",
+      "vatId": "VAT ID",
+      "currency": "Currency",
+      "ibans": "IBANs",
+      "emailDomains": "Email domains",
+      "alwaysReview": "Review",
+      "updated": "Updated"
+    },
+    "tabs": {
+      "details": "Details",
+      "activity": "Activity"
+    },
+    "fields": {
+      "name": "Name",
+      "vatId": "VAT ID",
+      "taxId": "Tax number",
+      "defaultCurrency": "Default currency",
+      "defaultCurrencyHint": "ISO 4217 code, used when a document states no currency.",
+      "currencyInvalid": "Enter a three-letter currency code such as EUR.",
+      "ibans": "IBANs",
+      "emailDomains": "Email domains",
+      "aliases": "Aliases",
+      "listHint": "One per line or separated by commas.",
+      "alwaysReview": "Always review",
+      "alwaysReviewHint": "Documents of this supplier are never auto-approved."
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Review policy, members, machine access, ingestion channels and AI providers of your organisation.",
+    "tabsLabel": "Settings sections",
+    "platformScopeTitle": "Choose a tenant",
+    "platformScope": "Settings belong to a tenant; platform accounts manage tenants in the admin console.",
+    "save": "Save",
+    "tabs": {
+      "general": "General",
+      "members": "Members",
+      "apiKeys": "API keys",
+      "channels": "Channels",
+      "ai": "AI providers"
+    },
+    "general": {
+      "identityTitle": "Organisation",
+      "identityDescription": "Your tenant's identity. Contact the platform operator to change it.",
+      "identity": {
+        "name": "Name",
+        "legalName": "Legal name",
+        "slug": "Slug",
+        "vatId": "VAT ID",
+        "countryCode": "Country",
+        "defaultCurrency": "Default currency",
+        "timeZone": "Time zone"
+      },
+      "policyTitle": "Review policy",
+      "policyDescription": "When documents are approved automatically and how long they are kept.",
+      "threshold": "Auto-approve confidence threshold",
+      "thresholdHint": "Documents without blocking flags whose every field has at least {{value}} confidence are approved automatically.",
+      "retention": "Retention (years)",
+      "retentionHint": "Originals and data are deleted after this many years.",
+      "shareProfiles": "Share extractor profiles",
+      "shareProfilesHint": "Let layout profiles learnt from your documents help other tenants (no document data is shared).",
+      "alwaysReview": "Always review these suppliers",
+      "alwaysReviewHint": "Their documents are never auto-approved.",
+      "noSuppliers": "No suppliers yet.",
+      "saved": "Settings saved."
+    },
+    "members": {
+      "caption": "Members",
+      "empty": "No members.",
+      "add": "Add member",
+      "addTitle": "Add a member",
+      "addDescription": "The user ID is the subject of the person's sign-in account.",
+      "added": "{{name}} added.",
+      "roleChanged": "{{name}} is now {{role}}.",
+      "roleFor": "Role of {{name}}",
+      "remove": "Remove",
+      "removeLabel": "Remove {{name}}",
+      "removeTitle": "Remove this member?",
+      "removeDescription": "{{name}} loses access to this organisation.",
+      "removed": "Member removed.",
+      "columns": {
+        "name": "Name",
+        "email": "Email",
+        "userId": "User ID",
+        "role": "Role",
+        "since": "Member since"
+      },
+      "fields": {
+        "userId": "User ID",
+        "userIdPlaceholder": "Subject of the sign-in account",
+        "email": "Email",
+        "displayName": "Display name",
+        "role": "Role"
+      }
+    },
+    "apiKeys": {
+      "caption": "API keys",
+      "empty": "No API keys",
+      "emptyDescription": "Create a key for an integration that uploads or reads documents.",
+      "create": "Create key",
+      "createTitle": "Create an API key",
+      "createDescription": "The key is shown once after creation; store it in your integration's secret store.",
+      "createdTitle": "Key “{{name}}” created",
+      "createdDescription": "Copy the key now. It cannot be shown again.",
+      "oneTime": "Shown only once",
+      "copy": "Copy key",
+      "copied": "Copied",
+      "copyFailed": "The key could not be copied; select it and copy it by hand.",
+      "revoke": "Revoke",
+      "revokeLabel": "Revoke {{name}}",
+      "revokeTitle": "Revoke this key?",
+      "revokeDescription": "Integrations using “{{name}}” stop working immediately.",
+      "revoked": "Key revoked.",
+      "statusActive": "Active",
+      "statusRevoked": "Revoked",
+      "neverUsed": "Never",
+      "scopes": {
+        "ingest": "Ingest",
+        "read": "Read"
+      },
+      "scopeHints": {
+        "ingest": "Upload documents.",
+        "read": "Read documents and their data."
+      },
+      "columns": {
+        "name": "Name",
+        "prefix": "Prefix",
+        "scopes": "Scopes",
+        "status": "Status",
+        "lastUsed": "Last used",
+        "created": "Created"
+      },
+      "fields": {
+        "name": "Name",
+        "namePlaceholder": "ERP integration",
+        "scopes": "Scopes"
+      }
+    },
+    "channels": {
+      "caption": "Channels",
+      "empty": "No channels",
+      "emptyDescription": "Portal uploads always work; add a mailbox, watched folder or API channel.",
+      "create": "Add channel",
+      "createTitle": "Add a channel",
+      "createDescription": "Where documents come from. Credentials go to the secret store and are never shown again.",
+      "created": "Channel {{name}} created.",
+      "pause": "Pause",
+      "pauseLabel": "Pause {{name}}",
+      "paused": "{{name}} paused.",
+      "resume": "Resume",
+      "resumeLabel": "Resume {{name}}",
+      "resumed": "{{name}} resumed.",
+      "secretSet": "Stored",
+      "configInvalid": "Enter a JSON object.",
+      "types": {
+        "ApiUpload": "API",
+        "Mailbox": "Mailbox",
+        "WatchedFolder": "Watched folder",
+        "PortalUpload": "Portal upload"
+      },
+      "statuses": {
+        "Active": "Active",
+        "Paused": "Paused",
+        "Error": "Error"
+      },
+      "configHints": {
+        "ApiUpload": "No settings needed; integrations post to /api/v1/ingestions with an API key.",
+        "Mailbox": "IMAP host, port, user name and folder; the password goes into the secret field.",
+        "WatchedFolder": "Folder path and file pattern the worker watches.",
+        "PortalUpload": "No settings needed."
+      },
+      "columns": {
+        "name": "Name",
+        "type": "Type",
+        "status": "Status",
+        "secret": "Secret",
+        "lastPolled": "Last polled",
+        "lastError": "Last error",
+        "created": "Created"
+      },
+      "fields": {
+        "name": "Name",
+        "type": "Type",
+        "config": "Configuration (JSON)",
+        "secret": "Secret",
+        "secretHint": "Mailbox password or token; write-only."
+      }
+    },
+    "ai": {
+      "providersTitle": "AI providers",
+      "providersDescription": "Bring your own key: documents of your organisation are processed with these providers.",
+      "caption": "AI providers",
+      "empty": "No providers of your own",
+      "emptyDescription": "Without one, the platform's provider is used if your policy allows it.",
+      "add": "Add provider",
+      "addTitle": "Add an AI provider",
+      "addDescription": "The key is validated, stored in the secret store, and only its last four characters are shown afterwards.",
+      "added": "{{kind}} provider added.",
+      "enable": "Enable",
+      "enableLabel": "Enable {{kind}}",
+      "enableTitle": "Enable this provider?",
+      "enableDescription": "Stages that route to it start using it again.",
+      "enabled": "Provider enabled.",
+      "disable": "Disable",
+      "disableLabel": "Disable {{kind}}",
+      "disableTitle": "Disable this provider?",
+      "disableDescription": "Stages that route to it fall back to the default or fail.",
+      "disabled": "Provider disabled.",
+      "policyTitle": "Routing policy",
+      "policyDescription": "Which provider each pipeline stage uses.",
+      "policySaved": "Policy saved.",
+      "kinds": {
+        "Anthropic": "Anthropic",
+        "AnthropicFoundry": "Anthropic (Microsoft Foundry)",
+        "OpenAi": "OpenAI",
+        "AzureOpenAi": "Azure OpenAI",
+        "OpenAiCompatible": "OpenAI-compatible",
+        "Replay": "Replay (test)"
+      },
+      "statuses": {
+        "Active": "Active",
+        "Disabled": "Disabled",
+        "Invalid": "Invalid"
+      },
+      "residencies": {
+        "Eu": "EU",
+        "Us": "US",
+        "TenantOwned": "Own infrastructure"
+      },
+      "columns": {
+        "kind": "Provider",
+        "status": "Status",
+        "key": "Key",
+        "residency": "Data residency",
+        "models": "Models",
+        "cap": "Monthly cap",
+        "lastError": "Last error",
+        "updated": "Updated"
+      },
+      "fields": {
+        "kind": "Provider",
+        "apiKey": "API key",
+        "apiKeyHint": "Write-only; never shown again.",
+        "endpoint": "Endpoint",
+        "apiVersion": "API version",
+        "dataResidency": "Data residency",
+        "cap": "Monthly spend cap (USD)",
+        "models": "Model per stage",
+        "modelPlaceholder": "Provider default"
+      },
+      "policy": {
+        "default": "Default provider",
+        "defaultHint": "Used by every stage without an override.",
+        "platformDefault": "Platform default",
+        "overrides": "Stage overrides",
+        "useDefault": "Use the default",
+        "fallback": "Fall back to the platform key",
+        "fallbackHint": "When your provider fails, the platform's key is used instead.",
+        "fallbackNotAllowed": "The platform operator does not allow the platform key for your organisation."
+      },
+      "usage": {
+        "title": "Usage",
+        "description": "Calls, tokens and estimated cost per day.",
+        "window": "{{from}} – {{to}}",
+        "calls": "Calls",
+        "tokens": "Tokens",
+        "cost": "Estimated cost",
+        "day": "Day",
+        "chartLabel": "AI calls per day",
+        "tableToggle": "Show as table",
+        "empty": "No usage yet",
+        "emptyDescription": "Usage appears once documents are processed with an AI provider."
+      }
+    }
   }
 }

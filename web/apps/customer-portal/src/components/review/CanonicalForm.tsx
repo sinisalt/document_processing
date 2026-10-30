@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, parsePath } from "@docproc/app-shell";
@@ -11,24 +12,40 @@ export interface CanonicalFormProps {
   onHighlight: (fieldPath: string | null) => void;
 }
 
-/** The i18n key under `fields` for a spec: party and line paths share labels across their roots. */
+/** Paths whose labels are a group under `fields`; the path alone (a flag on `supplier`) is labelled from `fieldBlocks`. */
+const blockRoots = new Set(["supplier", "customer", "paymentTerms", "servicePeriod", "lines", "taxBreakdown"]);
+
+/**
+ * The full i18n key of a canonical path's label: party and line paths share labels across their roots
+ * (`supplier.vatId` and `customer.vatId` are both `fields.party.vatId`), list items get their 1-based index, and a bare
+ * block path (`supplier`, `lines[2]`) reads `fieldBlocks.*` so it never resolves to a nested object.
+ */
 export function fieldLabelKey(path: string): { key: string; index?: number } {
   const segments = parsePath(path);
-  const first = segments[0];
-  if (first === "supplier" || first === "customer") return { key: `party.${segments.slice(1).join(".")}` };
-  if (first === "lines") return { key: `line.${segments.slice(2).join(".")}` };
-  if (typeof segments[1] === "number") return { key: String(first), index: segments[1] + 1 };
-  return { key: segments.map(String).join(".") };
+  const first = String(segments[0] ?? "");
+  const named = segments.filter((segment) => typeof segment === "string");
+  const firstIndex = segments.find((segment): segment is number => typeof segment === "number");
+  if (named.length <= 1) {
+    const index = firstIndex !== undefined ? firstIndex + 1 : undefined;
+    return { key: blockRoots.has(first) ? `fieldBlocks.${first}` : `fields.${first}`, index };
+  }
+  if (first === "supplier" || first === "customer") return { key: `fields.party.${segments.slice(1).join(".")}` };
+  if (first === "lines") return { key: `fields.line.${segments.slice(2).join(".")}`, index: firstIndex !== undefined ? firstIndex + 1 : undefined };
+  return { key: `fields.${named.join(".")}` };
 }
 
 export function useFieldLabel() {
   const { t } = useTranslation();
-  return (spec: FieldSpec | string) => {
-    const path = typeof spec === "string" ? spec : spec.path;
-    const { key, index } = fieldLabelKey(path);
-    const label = t(`fields.${key}`, { defaultValue: path });
-    return index ? `${label} ${index}` : label;
-  };
+  return useCallback(
+    (spec: FieldSpec | string, withLineIndex = false) => {
+      const path = typeof spec === "string" ? spec : spec.path;
+      const { key, index } = fieldLabelKey(path);
+      const label = t(key, { defaultValue: path });
+      if (key.startsWith("fields.line.")) return index && withLineIndex ? t("fieldBlocks.lineField", { line: index, field: label }) : label;
+      return index ? `${label} ${index}` : label;
+    },
+    [t],
+  );
 }
 
 /** The header part of the canonical form: every `Invoice` field but the lines, grouped by section. */

@@ -255,7 +255,7 @@ function ReviewScreen({ document, canReview, threshold, locale }: ReviewScreenPr
             {t("review.flags.heading", { count: flags.length })}
             <span className="ml-2 text-xs font-normal text-muted-foreground">{t("review.flags.hint")}</span>
           </h2>
-          <FlagsList flags={flags} selectedIndex={selectedFlag} onSelect={setSelectedFlag} onJump={jumpToFlag} fieldLabel={fieldLabel} />
+          <FlagsList flags={flags} selectedIndex={selectedFlag} onSelect={setSelectedFlag} onJump={jumpToFlag} fieldLabel={(path) => fieldLabel(path, true)} />
         </section>
 
         <ResizablePanelGroup orientation="horizontal" className="min-h-[60vh] flex-1 rounded-lg border">
