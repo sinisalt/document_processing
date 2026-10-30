@@ -12,7 +12,9 @@ const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 export default defineConfig({
   plugins: [
     // File-based routes: src/routes/** → src/routeTree.gen.ts (committed; regenerated on dev/build). Must precede react().
-    tanstackRouter({ target: "react", autoCodeSplitting: true, routesDirectory: "./src/routes", generatedRouteTree: "./src/routeTree.gen.ts" }),
+    // No code splitting under vitest: screen tests render `Route.options.component` directly, not a lazy chunk.
+    // Screen tests sit next to their route (`index.test.tsx`) and are not routes.
+    tanstackRouter({ target: "react", autoCodeSplitting: !process.env.VITEST, routesDirectory: "./src/routes", generatedRouteTree: "./src/routeTree.gen.ts", routeFileIgnorePattern: "\\.test\\.tsx?$" }),
     react(),
     tailwindcss(),
     // `@/` is this app's src, except inside @docproc/ui where it is that package's src (see packages/ui/vite.ts).

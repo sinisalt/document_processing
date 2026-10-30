@@ -38,7 +38,7 @@ function ReviewQueuePage() {
 
   const query = useMemo<ReviewTaskListQuery>(() => ({ assignedTo: mine ? "me" : undefined, status: status === "queue" ? undefined : status, limit: 50 }), [mine, status]);
   const list = useCursorList<ReviewTask>({
-    queryKey: queryKeys.reviewTasks.list(query),
+    queryKey: queryKeys.reviewTasks.pages(query),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/review-tasks", { params: { query: { ...query, cursor: cursor ?? undefined } } })),
     refetchInterval: 15_000,
   });

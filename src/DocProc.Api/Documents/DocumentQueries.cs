@@ -9,24 +9,34 @@ using Microsoft.EntityFrameworkCore;
 namespace DocProc.Api.Documents;
 
 /// <summary>A document with the joined values the summary needs; what the list and detail queries project to.</summary>
-public sealed record DocumentRow(Document Document, string? SupplierName, int BlockingFlagCount, int WarningFlagCount);
+public sealed record DocumentRow(Document Document, string? TenantName, string? SupplierName, int BlockingFlagCount, int WarningFlagCount);
 
 /// <summary>Projections shared by the document, ingestion and review-task endpoints.</summary>
 public static class DocumentQueries
 {
-    /// <summary>Tenant scope comes from the context's query filters; nothing here filters by tenant.</summary>
-    public static IQueryable<DocumentRow> Rows(IQueryable<Document> documents) =>
-        documents.Select(d => new DocumentRow(
+    /// <summary>
+    /// Tenant scope comes from the context's query filters; nothing here filters by tenant. The tenant name is a LEFT
+    /// JOIN on <c>Tenants</c> in the same statement (no per-row lookup); the Tenants filter lets a tenant-scoped caller
+    /// see its own tenant row, so the name is there in both scopes.
+    /// </summary>
+    public static IQueryable<DocumentRow> Rows(DocProcDbContext db, IQueryable<Document> documents) =>
+        from d in documents
+        join t in db.Tenants on d.TenantId equals t.Id into tenants
+        from t in tenants.DefaultIfEmpty()
+        select new DocumentRow(
             d,
+            t != null ? t.Name : null,
             d.Supplier != null ? d.Supplier.Name : null,
             d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
-            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning)));
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning));
 
     public static DocumentSummary ToSummary(DocumentRow row)
     {
         var d = row.Document;
         return new DocumentSummary(
             d.Id,
+            d.TenantId,
+            row.TenantName,
             d.Status,
             d.Type,
             d.TypeConfidence,
@@ -49,7 +59,7 @@ public static class DocumentQueries
     public static Task<DocumentRow?> FindForDetailAsync(DocProcDbContext db, Guid id, bool track, CancellationToken ct)
     {
         var documents = track ? db.Documents : db.Documents.AsNoTracking();
-        return Rows(documents
+        return Rows(db, documents
                 .Where(d => d.Id == id)
                 .Include(d => d.Flags)
                 .Include(d => d.IngestionItem!)

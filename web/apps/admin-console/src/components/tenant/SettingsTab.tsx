@@ -7,13 +7,14 @@ import { toast } from "sonner";
 import type { components } from "@docproc/api-client";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Skeleton, Switch } from "@docproc/ui";
 import { isApiError, queryKeys, toNumber, unwrap, useApi } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 
 type Settings = components["schemas"]["TenantSettingsDto"];
 type Supplier = components["schemas"]["SupplierResponse"];
 
 const schema = z.object({
-  autoApproveConfidenceThreshold: z.coerce.number().min(0, "threshold").max(1, "threshold"),
-  retentionYears: z.coerce.number().int("retention").min(1, "retention").max(30, "retention"),
+  autoApproveConfidenceThreshold: z.coerce.number(translated("settings.validation.threshold")).min(0, translated("settings.validation.threshold")).max(1, translated("settings.validation.threshold")),
+  retentionYears: z.coerce.number(translated("settings.validation.retention")).int(translated("settings.validation.retention")).min(1, translated("settings.validation.retention")).max(30, translated("settings.validation.retention")),
   shareExtractorProfiles: z.boolean(),
   alwaysReviewSupplierIds: z.array(z.string()),
 });
@@ -49,7 +50,6 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
       toast.error(isApiError(error) ? error.title : t("settings.saveFailed"), { description: isApiError(error) ? error.problem?.detail ?? undefined : undefined });
     },
   });
-  const message = (code: string | undefined) => (code === "threshold" ? t("settings.validation.threshold") : code === "retention" ? t("settings.validation.retention") : code);
   const knownIds = new Set(suppliers.map((s) => s.id));
 
   return (
@@ -66,7 +66,7 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
                   <Input type="number" step="0.01" min={0} max={1} {...field} value={String(field.value)} />
                 </FormControl>
                 <FormDescription>{t("settings.thresholdHint")}</FormDescription>
-                <FormMessage>{message(form.formState.errors.autoApproveConfidenceThreshold?.message)}</FormMessage>
+                <FormMessage />
               </FormItem>
             )}
           />
@@ -80,7 +80,7 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
                   <Input type="number" step="1" min={1} max={30} {...field} value={String(field.value)} />
                 </FormControl>
                 <FormDescription>{t("settings.retentionHint")}</FormDescription>
-                <FormMessage>{message(form.formState.errors.retentionYears?.message)}</FormMessage>
+                <FormMessage />
               </FormItem>
             )}
           />

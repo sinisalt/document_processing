@@ -9,13 +9,14 @@ import { Pencil } from "lucide-react";
 import type { components } from "@docproc/api-client";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input } from "@docproc/ui";
 import { ConfirmDialog, Policies, TenantStatusBadge, formatDateTime, isApiError, queryKeys, unwrap, useApi, useAuth } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 import { KeyValue } from "../KeyValue";
 
 type Tenant = components["schemas"]["TenantResponse"];
 
 const schema = z.object({
-  name: z.string().trim().min(1, "required").max(200),
-  legalName: z.string().trim().min(1, "required").max(300),
+  name: z.string().trim().min(1, translated("tenants.validation.required")).max(200),
+  legalName: z.string().trim().min(1, translated("tenants.validation.required")).max(300),
   vatId: z.string().trim().max(32),
   nameAliases: z.string().trim(),
 });
@@ -60,7 +61,6 @@ function EditTenantDialog({ tenant, open, onOpenChange }: { tenant: Tenant; open
       toast.error(isApiError(error) ? error.title : t("tenant.saveFailed"), { description: isApiError(error) ? error.problem?.detail ?? undefined : undefined });
     },
   });
-  const message = (code: string | undefined) => (code === "required" ? t("tenants.validation.required") : code);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -80,7 +80,7 @@ function EditTenantDialog({ tenant, open, onOpenChange }: { tenant: Tenant; open
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.name?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -93,7 +93,7 @@ function EditTenantDialog({ tenant, open, onOpenChange }: { tenant: Tenant; open
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.legalName?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />

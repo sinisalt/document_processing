@@ -6,7 +6,9 @@
   },
   "nav": {
     "main": "Main navigation",
-    "toggleSidebar": "Toggle sidebar"
+    "toggleSidebar": "Toggle sidebar",
+    "sidebar": "Navigation",
+    "sidebarDescription": "The app's pages."
   },
   "auth": {
     "signIn": "Sign in",
@@ -100,6 +102,9 @@
     "low": "Low confidence"
   },
   "table": {
+    "details": "Details",
+    "expandRow": "Show details",
+    "collapseRow": "Hide details",
     "columns": "Columns",
     "toggleColumns": "Choose columns",
     "sortAscending": "Sort ascending",
@@ -129,6 +134,22 @@
     "reload": "Reload page",
     "tryAgain": "Try again",
     "goHome": "Go to the dashboard"
+  },
+  "validation": {
+    "required": "Required.",
+    "tooShort": "At least {{minimum}} characters.",
+    "tooLong": "At most {{maximum}} characters.",
+    "tooSmall": "At least {{minimum}}.",
+    "tooBig": "At most {{maximum}}.",
+    "tooFewItems": "Pick at least {{minimum}}.",
+    "tooManyItems": "At most {{maximum}} entries.",
+    "integer": "A whole number.",
+    "number": "A number.",
+    "email": "An e-mail address.",
+    "url": "A URL.",
+    "format": "Not in the expected format.",
+    "choice": "Pick one of the options.",
+    "invalid": "Not a valid value."
   },
   "notFound": {
     "title": "Page not found",

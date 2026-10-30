@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
 import { ConfirmDialog, queryKeys, unwrap, useApi } from "@docproc/app-shell";
-import { defaultReprocessStage, reprocessStages, type ReprocessStage } from "@/lib/documents";
+import { canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, reprocessStages, type DocumentStatus, type ReprocessStage } from "@/lib/documents";
+import type { DocumentEvent } from "@/lib/timeline";
 
 interface ActionDialogProps {
   documentId: string;
@@ -23,16 +24,37 @@ function useDocumentInvalidation() {
   };
 }
 
-/** `POST /documents/{id}:reprocess` with a stage picker; a 409 (wrong state, stage never reached) is toasted by the shell. */
-export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange, trigger }: ActionDialogProps) {
+interface ReprocessDialogProps extends ActionDialogProps {
+  /** The document's current status. */
+  status?: DocumentStatus;
+  /**
+   * The document's timeline, when the caller has it (the detail page). Without it the dialog loads it while open:
+   * which stages are offered depends on how far the document got.
+   */
+  events?: readonly DocumentEvent[];
+}
+
+/**
+ * `POST /documents/{id}:reprocess` with a stage picker. It defaults to the latest stage the document can rerun from
+ * and disables the later ones (the API answers those with 409 "Stage not reached"); other 409s are toasted by the shell.
+ */
+export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange, trigger, status, events }: ReprocessDialogProps) {
   const { t } = useTranslation("admin");
   const { client } = useApi();
   const invalidate = useDocumentInvalidation();
-  const [stage, setStage] = useState<ReprocessStage>(defaultReprocessStage);
+  const loaded = useQuery({
+    queryKey: queryKeys.documents.events(documentId),
+    queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/events", { params: { path: { id: documentId } } })),
+    enabled: open && events === undefined,
+  });
+  const timeline = events ?? loaded.data;
+  const furthest = timeline ? furthestPipelineStatus(timeline, status) : null;
+  const [picked, setPicked] = useState<ReprocessStage | null>(null);
+  const stage: ReprocessStage | null = furthest === null ? null : picked !== null && canReprocessFrom(picked, furthest) ? picked : defaultReprocessStage(furthest);
   const mutation = useMutation({
     mutationFn: async (fromStage: ReprocessStage) => unwrap(await client.POST("/api/v1/documents/{id}:reprocess", { params: { path: { id: documentId } }, body: { fromStage } })),
-    onSuccess: async () => {
-      toast.success(t("document.reprocessQueued", { document: documentLabel, stage: t(`stages.${stage}`, { defaultValue: stage }) }));
+    onSuccess: async (_document, fromStage) => {
+      toast.success(t("document.reprocessQueued", { document: documentLabel, stage: t(`stages.${fromStage}`, { defaultValue: fromStage }) }));
       await invalidate();
     },
   });
@@ -46,23 +68,31 @@ export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange,
       description={t("document.reprocessDescription")}
       confirmLabel={t("document.reprocess")}
       isPending={mutation.isPending}
-      onConfirm={async () => { await mutation.mutateAsync(stage); }}
+      confirmDisabled={stage === null}
+      onConfirm={async () => {
+        if (stage !== null) await mutation.mutateAsync(stage);
+      }}
     >
       <div className="grid gap-2">
         <Label htmlFor={`reprocess-stage-${documentId}`}>{t("document.fromStage")}</Label>
-        <Select value={stage} onValueChange={(value) => setStage(value as ReprocessStage)}>
+        <Select value={stage ?? ""} onValueChange={(value) => setPicked(value as ReprocessStage)} disabled={stage === null}>
           <SelectTrigger id={`reprocess-stage-${documentId}`} className="w-full" aria-label={t("document.fromStage")}>
-            <SelectValue />
+            <SelectValue placeholder={t("document.fromStageLoading")} />
           </SelectTrigger>
           <SelectContent>
             {reprocessStages.map((s) => (
-              <SelectItem key={s} value={s}>
+              <SelectItem key={s} value={s} disabled={furthest === null || !canReprocessFrom(s, furthest)}>
                 {t(`stages.${s}`, { defaultValue: s })}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">{t("document.fromStageHint")}</p>
+        {furthest !== null && !canReprocessFrom("Validate", furthest) && (
+          <p className="text-xs text-muted-foreground" data-testid="reprocess-reached">
+            {t("document.fromStageReached", { status: t(`common:documentStatus.${furthest}`, { defaultValue: furthest }) })}
+          </p>
+        )}
       </div>
     </ConfirmDialog>
   );

@@ -45,6 +45,13 @@
     "Tenant": "Mandantenschlüssel (BYOK)"
   },
   "dashboard": {
+    "ownTenant": "In Ihrem Mandanten",
+    "byStatusOwnTenant": "Dokumente Ihres Mandanten.",
+    "needsPlatform": "Nur für Plattform-Betreiber sichtbar.",
+    "needsReview": "Nur für Prüfer sichtbar.",
+    "platformOnlyTitle": "Diese Konsole ist für Plattform-Betreiber",
+    "platformOnlyDescription": "Sie sind angemeldet als {{roles}}. Die Admin-Konsole betreibt die Plattform: Mandanten, KI-Anbieter und die Dokumente aller Mandanten. Die Arbeit Ihres Mandanten findet im Kundenportal statt; hier sehen Sie nur, was Ihre Rolle lesen darf.",
+    "failedDocumentsDescriptionReadOnly": "Dokumente, die die Pipeline aufgegeben hat. Untersuchen öffnet die Zeitleiste eines Dokuments.",
     "title": "Dashboard",
     "description": "Die Plattform auf einen Blick.",
     "welcome": "Willkommen, {{name}}",
@@ -297,6 +304,7 @@
     }
   },
   "documents": {
+    "tenant": "Mandant",
     "title": "Dokumente",
     "descriptionPlatform": "Dokumente aller Mandanten, neueste zuerst. Wählen Sie einen Mandanten, um die Liste einzugrenzen.",
     "descriptionTenant": "Dokumente von {{tenant}}, neueste zuerst.",
@@ -328,6 +336,10 @@
     "emptyDescription": "Kein Dokument passt zu diesen Filtern."
   },
   "document": {
+    "fromStageLoading": "Zeitleiste wird geladen…",
+    "fromStageReached": "Das Dokument kam bis {{status}}; spätere Stufen brauchen Ergebnisse, die es nie erzeugt hat.",
+    "pagesShowing": "{{shown}} von {{count}} Seiten angezeigt.",
+    "pagesShowAll": "Alle {{count}} Seiten anzeigen",
     "notFound": "Dieses Dokument gibt es nicht oder es liegt außerhalb des Bereichs",
     "backToList": "Alle Dokumente",
     "untitled": "Dokument ohne Nummer",
@@ -418,6 +430,12 @@
     }
   },
   "review": {
+    "tenant": "Mandant",
+    "releaseOtherAria": "Prüfaufgabe für {{document}} freigeben, die {{assignee}} hält",
+    "releaseOtherTitle": "Aufgabe für {{document}} freigeben?",
+    "releaseOtherDescription": "{{assignee}} hält diese Aufgabe. Wenn Sie sie freigeben, geht sie zurück in die Warteschlange und die Zuweisung entfällt.",
+    "needsReviewTitle": "Die Prüfwarteschlange braucht eine Prüferrolle",
+    "needsReviewDescription": "Super-Admins, Betreiber, Mandanten-Admins und Prüfer bearbeiten die Warteschlange.",
     "title": "Prüfliste",
     "description": "Offene Prüfaufgaben aller Mandanten, älteste zuerst. Übernehmen Sie eine Aufgabe, bevor Sie das Dokument bearbeiten.",
     "document": "Dokument",

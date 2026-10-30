@@ -62,7 +62,7 @@ export function AppLayout({ nav, appName, logo, headerStart, headerEnd, showTena
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded focus:bg-background focus:px-3 focus:py-2">
         {t("app.skipToContent")}
       </a>
-      <Sidebar collapsible="icon">
+      <Sidebar collapsible="icon" mobileTitle={t("nav.sidebar")} mobileDescription={t("nav.sidebarDescription")}>
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -105,12 +105,12 @@ export function AppLayout({ nav, appName, logo, headerStart, headerEnd, showTena
           </nav>
         </SidebarContent>
         {sidebarFooter && <SidebarFooter>{sidebarFooter}</SidebarFooter>}
-        <SidebarRail />
+        <SidebarRail aria-label={t("nav.toggleSidebar")} title={t("nav.toggleSidebar")} />
       </Sidebar>
       {/* min-w-0: a flex item otherwise grows to its content, so a wide table or the review grid pushed the page off-screen. */}
       <SidebarInset className="min-w-0">
         <header role="banner" className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger className="-ml-1" aria-label={t("nav.toggleSidebar")} />
+          <SidebarTrigger className="-ml-1" label={t("nav.toggleSidebar")} />
           <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
           <div className="flex min-w-0 flex-1 items-center gap-2">{headerStart}</div>
           <div className="flex items-center gap-2">

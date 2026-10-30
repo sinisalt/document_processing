@@ -6,7 +6,9 @@
   },
   "nav": {
     "main": "Hauptnavigation",
-    "toggleSidebar": "Seitenleiste umschalten"
+    "toggleSidebar": "Seitenleiste umschalten",
+    "sidebar": "Navigation",
+    "sidebarDescription": "Die Seiten der Anwendung."
   },
   "auth": {
     "signIn": "Anmelden",
@@ -100,6 +102,9 @@
     "low": "Geringe Konfidenz"
   },
   "table": {
+    "details": "Details",
+    "expandRow": "Details anzeigen",
+    "collapseRow": "Details ausblenden",
     "columns": "Spalten",
     "toggleColumns": "Spalten wählen",
     "sortAscending": "Aufsteigend sortieren",
@@ -129,6 +134,22 @@
     "reload": "Seite neu laden",
     "tryAgain": "Erneut versuchen",
     "goHome": "Zum Dashboard"
+  },
+  "validation": {
+    "required": "Pflichtfeld.",
+    "tooShort": "Mindestens {{minimum}} Zeichen.",
+    "tooLong": "Höchstens {{maximum}} Zeichen.",
+    "tooSmall": "Mindestens {{minimum}}.",
+    "tooBig": "Höchstens {{maximum}}.",
+    "tooFewItems": "Mindestens {{minimum}} auswählen.",
+    "tooManyItems": "Höchstens {{maximum}} Einträge.",
+    "integer": "Eine ganze Zahl.",
+    "number": "Eine Zahl.",
+    "email": "Eine E-Mail-Adresse.",
+    "url": "Eine URL.",
+    "format": "Nicht im erwarteten Format.",
+    "choice": "Eine der Optionen auswählen.",
+    "invalid": "Kein gültiger Wert."
   },
   "notFound": {
     "title": "Seite nicht gefunden",

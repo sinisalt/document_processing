@@ -193,7 +193,7 @@ public static class DocumentEndpoints
         }
 
         var size = PageCursor.ClampLimit(limit);
-        var rows = await DocumentQueries.Rows(query
+        var rows = await DocumentQueries.Rows(db, query
                 .OrderByDescending(d => d.CreatedAt)
                 .ThenByDescending(d => d.Id)
                 .Take(size + 1))

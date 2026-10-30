@@ -45,6 +45,13 @@
     "Tenant": "Tenant key (BYOK)"
   },
   "dashboard": {
+    "ownTenant": "In your tenant",
+    "byStatusOwnTenant": "Documents of your tenant.",
+    "needsPlatform": "Visible to platform operators only.",
+    "needsReview": "Visible to reviewers only.",
+    "platformOnlyTitle": "This console is for platform operators",
+    "platformOnlyDescription": "You are signed in as {{roles}}. The admin console runs the platform: tenants, AI providers and every tenant's documents. Your tenant's work happens in the customer portal; here you only see what your role may read.",
+    "failedDocumentsDescriptionReadOnly": "Documents the pipeline gave up on. Inspect opens a document's timeline.",
     "title": "Dashboard",
     "description": "The platform at a glance.",
     "welcome": "Welcome, {{name}}",
@@ -297,6 +304,7 @@
     }
   },
   "documents": {
+    "tenant": "Tenant",
     "title": "Documents",
     "descriptionPlatform": "Every tenant's documents, newest first. Pick a tenant to narrow the list.",
     "descriptionTenant": "Documents of {{tenant}}, newest first.",
@@ -328,6 +336,10 @@
     "emptyDescription": "No document matches these filters."
   },
   "document": {
+    "fromStageLoading": "Loading the timeline…",
+    "fromStageReached": "The document got as far as {{status}}; later stages need output it never produced.",
+    "pagesShowing": "Showing {{shown}} of {{count}} pages.",
+    "pagesShowAll": "Show all {{count}} pages",
     "notFound": "This document does not exist or is out of scope",
     "backToList": "All documents",
     "untitled": "Untitled document",
@@ -418,6 +430,12 @@
     }
   },
   "review": {
+    "tenant": "Tenant",
+    "releaseOtherAria": "Release review task for {{document}} held by {{assignee}}",
+    "releaseOtherTitle": "Release the task for {{document}}?",
+    "releaseOtherDescription": "{{assignee}} holds this task. Releasing it puts it back in the queue and they lose the claim.",
+    "needsReviewTitle": "The review queue needs a reviewer role",
+    "needsReviewDescription": "Super admins, operators, tenant admins and reviewers work the queue.",
     "title": "Review queue",
     "description": "Open review tasks across every tenant, oldest first. Claim a task before working the document.",
     "document": "Document",

@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   columnVisibilityFeature,
   createColumnHelper,
   createSortedRowModel,
   flexRender,
+  rowExpandingFeature,
   rowSortingFeature,
   sortFn_alphanumeric,
   sortFn_basic,
@@ -12,12 +13,13 @@ import {
   sortFn_text,
   tableFeatures,
   useTable,
+  type ExpandedState,
   type OnChangeFn,
   type RowData,
   type SortingState,
   type TableOptions,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
 import {
   Button,
   DropdownMenu,
@@ -40,11 +42,13 @@ import { EmptyState } from "./EmptyState";
 
 /**
  * The feature set every grid of the apps shares (TanStack Table v9 registers features explicitly): client-side
- * sorting with the stock comparators and column visibility. Pagination is the API's cursor, not the table's.
+ * sorting with the stock comparators, column visibility and row expanding (a detail panel under a row, see
+ * `renderSubRow`). Pagination is the API's cursor, not the table's.
  */
 export const dataTableFeatures = tableFeatures({
   rowSortingFeature,
   columnVisibilityFeature,
+  rowExpandingFeature,
   sortedRowModel: createSortedRowModel(),
   sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text, datetime: sortFn_datetime, basic: sortFn_basic },
 });
@@ -83,6 +87,15 @@ export interface DataTableProps<TData extends RowData> {
   emptyTitle?: ReactNode;
   emptyDescription?: ReactNode;
   emptyAction?: ReactNode;
+  /**
+   * Makes rows expandable: a leading chevron column toggles a full-width panel under the row with this content.
+   * Expanded rows are kept by row id across refetches and re-sorts (pass `getRowId`).
+   */
+  renderSubRow?: (row: TData) => ReactNode;
+  /** Which rows get a chevron when `renderSubRow` is set (default: every row). */
+  getRowCanExpand?: (row: TData) => boolean;
+  /** Extra attributes for a row's `<tr>` (`data-*` hooks for tests and styling). */
+  rowAttributes?: (row: TData) => Record<`data-${string}`, string | undefined>;
   /** Screen-reader caption; shown visually only with `showCaption`. */
   caption?: string;
   showCaption?: boolean;
@@ -91,6 +104,7 @@ export interface DataTableProps<TData extends RowData> {
 }
 
 const EMPTY_SORTING: SortingState = [];
+const EXPANDER_ID = "__expand";
 
 export function DataTable<TData extends RowData>({
   columns,
@@ -109,6 +123,9 @@ export function DataTable<TData extends RowData>({
   emptyTitle,
   emptyDescription,
   emptyAction,
+  renderSubRow,
+  getRowCanExpand,
+  rowAttributes,
   caption,
   showCaption = false,
   className,
@@ -116,15 +133,53 @@ export function DataTable<TData extends RowData>({
 }: DataTableProps<TData>) {
   const { t } = useTranslation("common");
   const [uncontrolledSorting, setUncontrolledSorting] = useState<SortingState>(initialSorting);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const controlled = sorting !== undefined && onSortingChange !== undefined;
+  const expandable = renderSubRow !== undefined;
+
+  // The chevron column is the table's own, so screens only describe their data columns.
+  const allColumns = useMemo<DataTableColumns<TData>>(() => {
+    if (!expandable) return columns;
+    const helper = createColumnHelper<DataTableFeatures, TData>();
+    return [
+      helper.display({
+        id: EXPANDER_ID,
+        enableHiding: false,
+        enableSorting: false,
+        header: () => <span className="sr-only">{t("table.details")}</span>,
+        cell: ({ row }) =>
+          row.getCanExpand() ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-expanded={row.getIsExpanded()}
+              aria-controls={`row-details-${row.id}`}
+              aria-label={row.getIsExpanded() ? t("table.collapseRow") : t("table.expandRow")}
+              onClick={(event) => {
+                event.stopPropagation();
+                row.toggleExpanded();
+              }}
+            >
+              {row.getIsExpanded() ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />}
+            </Button>
+          ) : null,
+      }),
+      ...columns,
+    ] as DataTableColumns<TData>;
+  }, [columns, expandable, t]);
 
   const table = useTable({
     features: dataTableFeatures,
-    columns,
+    columns: allColumns,
     data,
     getRowId,
-    state: { sorting: controlled ? sorting : uncontrolledSorting },
+    state: { sorting: controlled ? sorting : uncontrolledSorting, expanded },
     onSortingChange: controlled ? onSortingChange : setUncontrolledSorting,
+    onExpandedChange: setExpanded,
+    getRowCanExpand: expandable ? (row) => getRowCanExpand?.(row.original) ?? true : () => false,
+    // A refetch (polling) hands a new array; keep what the user opened.
+    autoResetExpanded: false,
     initialState: initialColumnVisibility ? { columnVisibility: initialColumnVisibility } : undefined,
     enableSortingRemoval: true,
     enableMultiSort: false,
@@ -191,12 +246,13 @@ export function DataTable<TData extends RowData>({
                           className="-ml-3 h-8 data-[sorted=true]:text-foreground"
                           data-sorted={sorted !== false}
                           onClick={header.column.getToggleSortingHandler()}
+                          // Name what the click does: numeric and date columns sort descending first.
                           aria-label={
-                            sorted === "asc"
-                              ? t("table.sortDescending")
-                              : sorted === "desc"
-                                ? t("table.clearSort")
-                                : t("table.sortAscending")
+                            header.column.getNextSortingOrder() === "asc"
+                              ? t("table.sortAscending")
+                              : header.column.getNextSortingOrder() === "desc"
+                                ? t("table.sortDescending")
+                                : t("table.clearSort")
                           }
                         >
                           {label}
@@ -231,26 +287,38 @@ export function DataTable<TData extends RowData>({
             )}
             {!isLoading &&
               rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className={cn(onRowClick && "cursor-pointer", rowClassName?.(row.original))}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                  onKeyDown={
-                    onRowClick
-                      ? (event) => {
-                          if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
-                            event.preventDefault();
-                            onRowClick(row.original);
+                <Fragment key={row.id}>
+                  <TableRow
+                    {...rowAttributes?.(row.original)}
+                    data-expanded={expandable ? row.getIsExpanded() : undefined}
+                    className={cn(onRowClick && "cursor-pointer", rowClassName?.(row.original))}
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (event) => {
+                            if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+                              event.preventDefault();
+                              onRowClick(row.original);
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                  tabIndex={onRowClick ? 0 : undefined}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                  ))}
-                </TableRow>
+                        : undefined
+                    }
+                    tabIndex={onRowClick ? 0 : undefined}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id} className={cell.column.id === EXPANDER_ID ? "w-8 py-1" : undefined}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                  {expandable && row.getIsExpanded() && (
+                    <TableRow id={`row-details-${row.id}`} data-slot="sub-row" className="bg-muted/30 hover:bg-muted/30">
+                      <TableCell colSpan={visibleColumnCount} className="whitespace-normal p-4">
+                        {renderSubRow(row.original)}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
               ))}
           </TableBody>
         </Table>
