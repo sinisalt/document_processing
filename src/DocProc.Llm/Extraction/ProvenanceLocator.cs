@@ -382,11 +382,22 @@ public sealed class ProvenanceLocator
             var end = window.Start + window.Length;
             var first = Words[window.Start].Text;
             var last = Words[end - 1].Text;
+
+            // A minus or parenthesis that is a word of its own counts only on the amount's line: a dash bullet or a
+            // dash at the end of the previous line is not the amount's sign.
+            var separateLeadingSign = first.Length == 1 && window.Length > 1;
+            if (separateLeadingSign && !SameLine(window.Start, window.Start + 1))
+            {
+                return null;
+            }
+
             var negative = IsMinus(first[0]) || IsMinus(last[^1]) || first[0] == '(';
-            if (end < Words.Length)
+            if (end < Words.Length && SameLine(end - 1, end))
             {
                 var following = Words[end].Text;
-                var trailingMinus = following.Length == 1 && IsMinus(following[0]);
+
+                // "100,00 - 120,00" is a range: a dash followed by another number on the same line is not a sign.
+                var trailingMinus = following.Length == 1 && IsMinus(following[0]) && !NumberFollowsOnSameLine(end);
                 var closingParenthesis = negative && following == ")";
                 if (trailingMinus || closingParenthesis)
                 {
@@ -395,6 +406,20 @@ public sealed class ProvenanceLocator
             }
 
             return negative ? window : null;
+        }
+
+        private bool NumberFollowsOnSameLine(int signIndex) =>
+            signIndex + 1 < Words.Length
+            && SameLine(signIndex, signIndex + 1)
+            && Words[signIndex + 1].Text.Length > 0
+            && char.IsDigit(Words[signIndex + 1].Text[0]);
+
+        /// <summary>Two words are on one line when their boxes overlap vertically.</summary>
+        private bool SameLine(int a, int b)
+        {
+            var first = Words[a].Box;
+            var second = Words[b].Box;
+            return first.Y0 < second.Y1 && second.Y0 < first.Y1;
         }
 
         private static bool IsMinus(char c) => c is '-' or '−';

@@ -164,6 +164,42 @@ public class ProvenanceLocatorTests
     }
 
     [Fact]
+    public void A_sign_word_counts_only_on_the_amounts_own_line_and_never_inside_a_range()
+    {
+        // A dash bullet starting the next line is not the sign of the amount that ends the line above it.
+        var bulleted = new ProvenanceLocator(new TextLayerBuilder()
+            .Page(1)
+            .Line("Rechnungsbetrag", "120,00")
+            .Line("-", "Lieferung", "vom", "01.10.")
+            .Line("Gutschrift", "-", "120,00")
+            .Build());
+        bulleted.LocateNumber(-120m).ShouldSatisfyAllConditions(
+            m => m.RawText.ShouldBe("- 120,00"),
+            m => (m.Box!.Value.Y1 - m.Box!.Value.Y0).ShouldBeLessThan(30, "the box stays on one line"),
+            m => m.Box!.Value.Y0.ShouldBeGreaterThan(110, "the third line, not the positive amount on the first"));
+
+        // A dash at the end of a line is not the sign of the amount that starts the next one.
+        var trailingDash = new ProvenanceLocator(new TextLayerBuilder()
+            .Page(1)
+            .Line("Zwischensumme", "-")
+            .Line("120,00", "Euro")
+            .Build());
+        trailingDash.LocateNumber(-120m).ShouldSatisfyAllConditions(
+            m => m.RawText.ShouldBe("120,00", "the unsigned fallback, not a window reaching back to the line above"),
+            m => m.Quality.ShouldBe(MatchQuality.Normalized));
+
+        // "100,00 - 120,00" is a range: the dash between two numbers is not the first amount's trailing minus.
+        var range = new ProvenanceLocator(new TextLayerBuilder()
+            .Page(1)
+            .Line("Spanne", "100,00", "-", "120,00")
+            .Line("Gutschrift", "100,00", "-")
+            .Build());
+        range.LocateNumber(-100m).ShouldSatisfyAllConditions(
+            m => m.RawText.ShouldBe("100,00 -"),
+            m => m.Box!.Value.Y0.ShouldBeGreaterThan(range.LocateNumber(120m).Box!.Value.Y0, "the second line, where the dash is a sign"));
+    }
+
+    [Fact]
     public void Identifiers_match_exactly_or_normalised_but_never_fuzzily()
     {
         Locator.LocateIdentifier("RE-2026-0042").Quality.ShouldBe(MatchQuality.Exact);
@@ -204,7 +240,7 @@ public class ProvenanceLocatorTests
     }
 
     [Fact]
-    public void Two_hundred_fuzzy_misses_on_a_ten_thousand_word_layer_finish_within_two_seconds()
+    public void Two_hundred_fuzzy_misses_on_a_ten_thousand_word_layer_finish_within_ten_seconds()
     {
         // 20 pages × 50 lines × 10 words; every page shares vocabulary with the queries so anchors do fire.
         var builder = new TextLayerBuilder();
@@ -232,7 +268,9 @@ public class ProvenanceLocatorTests
         }
 
         stopwatch.Stop();
-        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2), $"200 misses took {stopwatch.ElapsedMilliseconds} ms");
+        // Alone this takes well under a second; the bound leaves room for a busy shared runner while still catching
+        // a quadratic regression, which takes minutes on this layer.
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10), $"200 misses took {stopwatch.ElapsedMilliseconds} ms");
     }
 
     [Fact]

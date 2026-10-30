@@ -11,7 +11,26 @@ public sealed record LlmOptions
 
     public int MaxOutputTokens { get; init; } = 8_192;
 
-    public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// Bounds one network attempt in every adapter. Positive or <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>;
+    /// anything else is refused here, where the options are built, rather than surfacing later as a raw exception
+    /// from the adapter's timer.
+    /// </summary>
+    public TimeSpan Timeout
+    {
+        get => _timeout;
+        init
+        {
+            if (value <= TimeSpan.Zero && value != System.Threading.Timeout.InfiniteTimeSpan)
+            {
+                throw new ArgumentOutOfRangeException(nameof(Timeout), value, "The LLM timeout must be positive or infinite.");
+            }
+
+            _timeout = value;
+        }
+    }
+
+    private readonly TimeSpan _timeout = TimeSpan.FromMinutes(3);
 
     /// <summary>Set when the caller is a backfill or eval that may use the provider's batch endpoint.</summary>
     public bool AllowBatch { get; init; }

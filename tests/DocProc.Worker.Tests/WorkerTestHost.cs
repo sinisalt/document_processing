@@ -39,6 +39,9 @@ internal static class WorkerTestHost
     [
         ("Persistence:Provider", "SqlServer"),
         ("ConnectionStrings:DocProc", "Server=sql.example.test;Database=DocProc;User Id=app;Password=unused;TrustServerCertificate=true"),
+
+        // Resolving the hosted services builds the local blob store, which creates its root: keep it out of the output folder.
+        ("Blobs:RootPath", Path.Combine(Path.GetTempPath(), "docproc-worker-tests", "sql-server-blobs")),
         .. extra,
     ]);
 
