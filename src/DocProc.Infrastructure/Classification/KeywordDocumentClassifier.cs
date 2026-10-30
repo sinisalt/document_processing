@@ -12,9 +12,14 @@ namespace DocProc.Infrastructure.Classification;
 /// pipeline can spend an LLM call with the first page image; it never looks at the image itself.
 /// </summary>
 /// <remarks>
-/// Scoring: each rule counts at most once per page (its best-placed hit), so a statement listing twenty invoice
-/// numbers does not become an invoice. Confidence is the winner's share of all positive evidence, scaled down when
-/// the winner has less than <see cref="KeywordClassifierOptions.StrongEvidenceScore"/> points.
+/// Scoring: each positive rule counts at most once per page (its best-placed hit), so a statement listing twenty
+/// invoice numbers does not become an invoice; each distinct negative phrase counts once per page across languages
+/// ("Proforma" is in four rule tables but is one piece of evidence) and is scaled by position like a title, so one
+/// explicit negation in the header offsets a header title. A title found below the header third of the first page
+/// while another type already has a title in the header is most likely a reference ("Delivery note DN-5" on an
+/// invoice) and is scaled down by <see cref="KeywordClassifierOptions.BodyTitleFactorWhenHeaderTaken"/>. Confidence
+/// is the winner's share of all positive evidence, scaled down when the winner has less than
+/// <see cref="KeywordClassifierOptions.StrongEvidenceScore"/> points.
 /// </remarks>
 public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions> options) : IDocumentClassifier
 {
@@ -45,13 +50,23 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
             allHits.AddRange(hits);
 
             var isFirstPage = page.Page.Number == textLayer.Pages[0].Number;
-            foreach (var perRule in hits.GroupBy(h => h.Rule))
+            var headerOwners = isFirstPage
+                ? hits.Where(h => h.Kind == KeywordKind.Title && h.RelativeY < HeaderFraction).Select(h => h.Rule.Type).ToHashSet()
+                : [];
+
+            foreach (var perType in hits.GroupBy(h => h.Rule.Type))
             {
-                // Positive rules count once per page (their best-placed hit); every distinct negative phrase counts.
-                var contribution = perRule.Key.Kind == KeywordKind.Negative
-                    ? perRule.DistinctBy(h => h.Text.ToUpperInvariant()).Sum(h => Score(h, isFirstPage))
-                    : perRule.Max(h => Score(h, isFirstPage));
-                scores[perRule.Key.Type] = scores.GetValueOrDefault(perRule.Key.Type) + contribution;
+                // Positive rules count once per page (their best-placed hit); every distinct negative phrase counts
+                // once per page, whichever language tables list it.
+                var positiveScore = perType
+                    .Where(h => h.Kind != KeywordKind.Negative)
+                    .GroupBy(h => h.Rule)
+                    .Sum(perRule => perRule.Max(h => Score(h, isFirstPage, headerOwners)));
+                var negativeScore = perType
+                    .Where(h => h.Kind == KeywordKind.Negative)
+                    .GroupBy(h => h.Text.ToUpperInvariant())
+                    .Sum(perPhrase => perPhrase.Min(h => Score(h, isFirstPage, headerOwners)));
+                scores[perType.Key] = scores.GetValueOrDefault(perType.Key) + positiveScore + negativeScore;
             }
         }
 
@@ -72,22 +87,30 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
             : new ClassificationOutcome(DocumentType.Unknown, confidence, TypeSource.Rule, language);
     }
 
-    private double Score(KeywordHit hit, bool isFirstPage)
+    /// <summary>Weight of one hit by kind and position; <paramref name="headerOwners"/> are the types with a title in the header third of this page (first page only).</summary>
+    private double Score(KeywordHit hit, bool isFirstPage, HashSet<DocumentType> headerOwners)
     {
         var weight = hit.Kind switch
         {
             KeywordKind.Title => KeywordRuleSet.TitleWeight,
-            KeywordKind.Label => KeywordRuleSet.LabelWeight,
+            KeywordKind.Label or KeywordKind.DateLabel => KeywordRuleSet.LabelWeight,
             KeywordKind.Reference => KeywordRuleSet.ReferenceWeight,
             KeywordKind.Negative => KeywordRuleSet.NegativeWeight,
             _ => 0,
         };
 
-        var factor = !isFirstPage
-            ? _options.LaterPageFactor
-            : hit.RelativeY < HeaderFraction ? _options.FirstPageHeaderFactor : _options.FirstPageFactor;
+        if (!isFirstPage)
+        {
+            return weight * _options.LaterPageFactor;
+        }
 
-        // Negative evidence is not amplified by position: "keine Rechnung" counts the same wherever it is.
-        return weight < 0 ? weight : weight * factor;
+        if (hit.RelativeY < HeaderFraction)
+        {
+            return weight * _options.FirstPageHeaderFactor;
+        }
+
+        // "Delivery note DN-5" in the body of a page whose header says "Invoice" refers to another document.
+        var referencesAnotherDocument = hit.Kind == KeywordKind.Title && headerOwners.Count > 0 && !headerOwners.Contains(hit.Rule.Type);
+        return weight * _options.FirstPageFactor * (referencesAnotherDocument ? _options.BodyTitleFactorWhenHeaderTaken : 1);
     }
 }

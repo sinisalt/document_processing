@@ -218,6 +218,41 @@ public class PdfPigPdfProcessorTests
     }
 
     [Fact]
+    public async Task Finds_the_attachment_by_its_file_specification_when_the_name_tree_key_is_opaque()
+    {
+        var known = await _processor.FindEmbeddedInvoiceXmlAsync(
+            TestPdfs.AsStream(TestPdfs.InvoiceWithAttachmentUnderOpaqueKey("0001", "factur-x.xml", TestPdfs.FacturXXml)), TestContext.Current.CancellationToken);
+        var sniffed = await _processor.FindEmbeddedInvoiceXmlAsync(
+            TestPdfs.AsStream(TestPdfs.InvoiceWithAttachmentUnderOpaqueKey("6f1c2d3e-9a7b-4c5d-8e2f-0a1b2c3d4e5f", "rechnung.xml", TestPdfs.UblInvoiceXml)), TestContext.Current.CancellationToken);
+        var byKey = await _processor.FindEmbeddedInvoiceXmlAsync(
+            TestPdfs.AsStream(TestPdfs.InvoiceWithAttachmentUnderOpaqueKey("zugferd-invoice.xml", "attachments/einvoice.dat", TestPdfs.FacturXXml)), TestContext.Current.CancellationToken);
+
+        known.ShouldNotBeNull();
+        known.FileName.ShouldBe("factur-x.xml");
+        known.Flavour.ShouldBe(EmbeddedInvoiceFlavours.FacturX);
+        known.Content.ToArray().ShouldBe(TestPdfs.FacturXXml);
+        sniffed.ShouldNotBeNull();
+        sniffed.FileName.ShouldBe("rechnung.xml");
+        sniffed.Flavour.ShouldBe(EmbeddedInvoiceFlavours.Ubl);
+        byKey.ShouldNotBeNull();
+        byKey.FileName.ShouldBe("einvoice.dat");
+        byKey.Flavour.ShouldBe(EmbeddedInvoiceFlavours.Zugferd);
+    }
+
+    [Fact]
+    public async Task Ignores_attachments_larger_than_the_configured_maximum()
+    {
+        var strict = new PdfPigPdfProcessor(Options.Create(new PdfProcessingOptions { MaximumAttachmentBytes = TestPdfs.FacturXXml.Length - 1 }));
+        var pdf = TestPdfs.FacturXInvoice();
+
+        var none = await strict.FindEmbeddedInvoiceXmlAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+        var found = await _processor.FindEmbeddedInvoiceXmlAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+
+        none.ShouldBeNull();
+        found.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task Ignores_attachments_that_are_not_e_invoices()
     {
         var notes = "<?xml version=\"1.0\"?><Notes><Note>hello</Note></Notes>"u8.ToArray();
@@ -243,6 +278,69 @@ public class PdfPigPdfProcessorTests
         inspect.Message.ShouldContain("password");
         extract.Failure.ShouldBe(DocumentProcessingFailure.EncryptedPdf);
         embedded.Failure.ShouldBe(DocumentProcessingFailure.EncryptedPdf);
+    }
+
+    [Fact]
+    public async Task Owner_password_only_pdf_is_processed_and_reported_as_encrypted()
+    {
+        var pdf = TestPdfs.OwnerPasswordProtectedInvoice();
+
+        var info = await _processor.InspectAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+        var layer = await _processor.ExtractTextAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+        var xml = await _processor.FindEmbeddedInvoiceXmlAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+        var pages = new List<RenderedPage>();
+        await foreach (var page in _processor.RenderPagesAsync(TestPdfs.AsStream(pdf), 72, TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        info.IsEncrypted.ShouldBeTrue();
+        info.PageCount.ShouldBe(2);
+        info.HasTextLayer.ShouldBeTrue();
+        layer.Pages[0].PlainText.ShouldContain($"Rechnungsnummer {TestPdfs.InvoiceNumber}");
+        xml.ShouldBeNull();
+        pages.Select(p => p.PageNumber).ShouldBe([1, 2]);
+        pages[0].Png.Span[..PngSignature.Length].ToArray().ShouldBe(PngSignature);
+    }
+
+    [Fact]
+    public async Task Pdf_larger_than_the_configured_maximum_fails_before_it_is_loaded()
+    {
+        var pdf = TestPdfs.GermanInvoice();
+        var strict = new PdfPigPdfProcessor(Options.Create(new PdfProcessingOptions { MaximumPdfBytes = pdf.Length - 1 }));
+        var exact = new PdfPigPdfProcessor(Options.Create(new PdfProcessingOptions { MaximumPdfBytes = pdf.Length }));
+
+        var seekable = await Should.ThrowAsync<DocumentProcessingException>(() => strict.InspectAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken));
+        await using var nonSeekable = new NonSeekableStream(pdf);
+        var streamed = await Should.ThrowAsync<DocumentProcessingException>(() => strict.ExtractTextAsync(nonSeekable, TestContext.Current.CancellationToken));
+        var info = await exact.InspectAsync(TestPdfs.AsStream(pdf), TestContext.Current.CancellationToken);
+
+        seekable.Failure.ShouldBe(DocumentProcessingFailure.TooLarge);
+        streamed.Failure.ShouldBe(DocumentProcessingFailure.TooLarge);
+        info.PageCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Reads_from_the_current_position_of_any_stream()
+    {
+        var pdf = TestPdfs.GermanInvoice();
+        var prefixed = new byte[16 + pdf.Length];
+        pdf.CopyTo(prefixed, 16);
+
+        using var exact = new MemoryStream(prefixed, writable: false);
+        exact.Position = 16;
+        using var sliced = new MemoryStream(prefixed, 16, pdf.Length, writable: false);
+        using var consumed = new MemoryStream(pdf, writable: false);
+        consumed.Position = pdf.Length;
+
+        var fromExact = await _processor.InspectAsync(exact, TestContext.Current.CancellationToken);
+        var fromSliced = await _processor.InspectAsync(sliced, TestContext.Current.CancellationToken);
+        var nothingLeft = await Should.ThrowAsync<DocumentProcessingException>(() => _processor.InspectAsync(consumed, TestContext.Current.CancellationToken));
+
+        fromExact.PageCount.ShouldBe(2);
+        exact.Position.ShouldBe(prefixed.Length);
+        fromSliced.PageCount.ShouldBe(2);
+        nothingLeft.Failure.ShouldBe(DocumentProcessingFailure.CorruptPdf);
     }
 
     [Fact]

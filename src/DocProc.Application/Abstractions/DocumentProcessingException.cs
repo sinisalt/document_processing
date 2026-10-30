@@ -14,6 +14,9 @@ public enum DocumentProcessingFailure
 
     /// <summary>The processor cannot run on this platform (missing native libraries).</summary>
     UnsupportedPlatform,
+
+    /// <summary>The file exceeds the configured size limit and is not loaded into memory.</summary>
+    TooLarge,
 }
 
 /// <summary>

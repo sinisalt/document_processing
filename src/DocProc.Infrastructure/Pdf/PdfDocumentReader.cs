@@ -11,6 +11,8 @@ namespace DocProc.Infrastructure.Pdf;
 /// </summary>
 internal static class PdfDocumentReader
 {
+    private const int CopyBufferSize = 64 * 1024;
+
     private static readonly ParsingOptions Options = new()
     {
         UseLenientParsing = true,
@@ -18,18 +20,41 @@ internal static class PdfDocumentReader
         ClipPaths = false,
     };
 
-    /// <summary>Materialises the stream once; PdfPig and PDFtoImage both need random access and may be called several times per stage.</summary>
-    public static async Task<byte[]> ReadAllAsync(Stream pdf, CancellationToken cancellationToken)
+    /// <summary>
+    /// Materialises the stream from its current position once; PdfPig and PDFtoImage both need random access and may
+    /// be called several times per stage. More than <paramref name="maximumBytes"/> fails with
+    /// <see cref="DocumentProcessingFailure.TooLarge"/> before the whole file sits in memory.
+    /// </summary>
+    public static async Task<byte[]> ReadAllAsync(Stream pdf, long maximumBytes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pdf);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumBytes, 1);
 
-        if (pdf is MemoryStream memory && memory.TryGetBuffer(out var buffer) && buffer.Offset == 0 && buffer.Count == buffer.Array!.Length)
+        if (pdf.CanSeek)
         {
-            return buffer.Array;
+            ThrowIfTooLarge(pdf.Length - pdf.Position, maximumBytes);
+        }
+
+        if (pdf is MemoryStream memory && memory.TryGetBuffer(out var buffer))
+        {
+            // No copy when the stream exposes exactly its bytes; otherwise only the bytes after Position, as any other stream.
+            var position = checked((int)memory.Position);
+            var remaining = buffer.Count - position;
+            memory.Position = buffer.Count;
+            return position == 0 && buffer.Offset == 0 && remaining == buffer.Array!.Length
+                ? buffer.Array
+                : buffer.AsSpan(position, remaining).ToArray();
         }
 
         using var copy = new MemoryStream();
-        await pdf.CopyToAsync(copy, cancellationToken).ConfigureAwait(false);
+        var chunk = new byte[CopyBufferSize];
+        int read;
+        while ((read = await pdf.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            ThrowIfTooLarge(copy.Length + read, maximumBytes);
+            copy.Write(chunk, 0, read);
+        }
+
         return copy.ToArray();
     }
 
@@ -64,6 +89,16 @@ internal static class PdfDocumentReader
                 DocumentProcessingFailure.CorruptPdf,
                 "The PDF's object structure is nested too deeply to be read.",
                 ex);
+        }
+    }
+
+    private static void ThrowIfTooLarge(long length, long maximumBytes)
+    {
+        if (length > maximumBytes)
+        {
+            throw new DocumentProcessingException(
+                DocumentProcessingFailure.TooLarge,
+                $"The PDF is larger than the configured maximum of {maximumBytes} bytes.");
         }
     }
 }

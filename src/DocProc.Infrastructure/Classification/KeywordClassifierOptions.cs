@@ -18,6 +18,13 @@ public sealed class KeywordClassifierOptions
     public double LaterPageFactor { get; set; } = 0.4;
 
     /// <summary>
+    /// Extra multiplier (on top of <see cref="FirstPageFactor"/>) for a title below the header third of the first page
+    /// whose type has no title in the header while another type has one: on an invoice headed "Invoice", a body line
+    /// "Delivery note DN-5" refers to the delivery note rather than being one.
+    /// </summary>
+    public double BodyTitleFactorWhenHeaderTaken { get; set; } = 0.5;
+
+    /// <summary>
     /// Score that counts as full evidence: a title in the first-page header (title weight × header factor). A winning
     /// type with less than this is scaled down, so a single body mention never reaches full confidence.
     /// </summary>

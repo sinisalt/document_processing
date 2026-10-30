@@ -13,4 +13,18 @@ public sealed class PdfProcessingOptions
 
     /// <summary>Upper bound for <see cref="Application.Abstractions.IPdfProcessor.RenderPagesAsync"/>; 600 dpi of an A4 page is already a 35-megapixel raster.</summary>
     public int MaximumRenderDpi { get; set; } = 600;
+
+    /// <summary>
+    /// Largest PDF the processor materialises in memory. PdfPig and PDFium both need random access, so every stage
+    /// reads the whole file into a byte array; a larger file fails with
+    /// <see cref="Application.Abstractions.DocumentProcessingFailure.TooLarge"/> instead of exhausting the worker.
+    /// </summary>
+    public long MaximumPdfBytes { get; set; } = 100 * 1024 * 1024;
+
+    /// <summary>
+    /// Largest embedded file the e-invoice finder decodes, measured both on the stored (usually compressed) stream
+    /// and on its decoded content. Bigger attachments are ignored: a real Factur-X / ZUGFeRD XML is a few hundred
+    /// kilobytes, a decompression bomb is not.
+    /// </summary>
+    public int MaximumAttachmentBytes { get; set; } = 32 * 1024 * 1024;
 }

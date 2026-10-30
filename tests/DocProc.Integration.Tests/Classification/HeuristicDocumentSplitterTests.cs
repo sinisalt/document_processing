@@ -50,6 +50,10 @@ public class HeuristicDocumentSplitterTests
         analysis.Signals.ShouldContain(s => s.Page == 3 && s.Kind == SplitSignalKind.DocumentHeaderRepeated && s.Evidence == "Lieferschein");
         analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.PageNumberingContinued);
         analysis.Signals.ShouldNotContain(s => s.Page == 2 && s.Kind == SplitSignalKind.PageNumberingReset);
+
+        // The invoice references its delivery note ("Lieferschein-Nr. LS-2026-0917" on page 1); that is not the invoice's
+        // number, so the delivery note carrying the same value is not a continuation of the invoice.
+        analysis.Signals.ShouldNotContain(s => s.Page == 3 && s.Kind == SplitSignalKind.DocumentNumberRepeated);
     }
 
     [Fact]
@@ -105,7 +109,106 @@ public class HeuristicDocumentSplitterTests
 
         analysis.Ranges.ShouldBe([new PageRange(1, 2), new PageRange(3, 3)]);
         analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.BlankSeparatorPage);
+
+        // Page 3 shows nothing but the blank page before it; that alone is as uncertain as a page without any signal.
+        analysis.Confidence.ShouldBe(new HeuristicSplitterOptions().NoSignalCertainty);
+        analysis.IsConfident.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Blank_page_followed_by_a_new_document_header_is_a_confident_split()
+    {
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (120, "Invoice"), (150, "Invoice number INV-1"), (300, "Total 100.00")),
+            TextLayers.BlankPage(2),
+            TextLayers.Page(3, (120, "Invoice"), (150, "Invoice number INV-2"), (300, "Total 200.00")));
+
+        var analysis = _splitter.Analyze(layer, 3);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 2), new PageRange(3, 3)]);
+        analysis.Confidence.ShouldBe(1);
         analysis.IsConfident.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Blank_page_inside_a_continuing_invoice_does_not_split_it()
+    {
+        // A duplex scan of a two-page invoice with an empty back page in the middle.
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (120, "Rechnung"), (150, "Rechnungsnummer RE-1"), (800, "Seite 1/2")),
+            TextLayers.BlankPage(2),
+            TextLayers.Page(3, (60, "Rechnung RE-1"), (120, "Übertrag 500,00"), (800, "Seite 2/2")));
+
+        var analysis = _splitter.Analyze(layer, 3);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 3)]);
+        analysis.Confidence.ShouldBe(1);
+        analysis.IsConfident.ShouldBeTrue();
+        analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.BlankSeparatorPage);
+        analysis.Signals.ShouldContain(s => s.Page == 3 && s.Kind == SplitSignalKind.PageNumberingContinued);
+        analysis.Signals.ShouldContain(s => s.Page == 3 && s.Kind == SplitSignalKind.DocumentNumberRepeated);
+        analysis.Signals.ShouldContain(s => s.Page == 3 && s.Kind == SplitSignalKind.ContinuationMarker);
+    }
+
+    [Fact]
+    public void Footer_only_page_inside_a_document_does_not_split_it()
+    {
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (120, "Rechnung"), (150, "Rechnungsnummer RE-1"), (800, "Seite 1/3")),
+            TextLayers.Page(2, (800, "Seite 2/3")),
+            TextLayers.Page(3, (60, "Rechnung RE-1"), (300, "Gesamtbetrag 100,00 EUR"), (800, "Seite 3/3")));
+
+        var analysis = _splitter.Analyze(layer, 3);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 3)]);
+        analysis.IsConfident.ShouldBeTrue();
+        analysis.Signals.ShouldContain(s => s.Page == 3 && s.Kind == SplitSignalKind.PageNumberingContinued);
+    }
+
+    [Fact]
+    public void Two_same_day_one_page_invoices_without_page_numbers_are_two_documents()
+    {
+        // The usual batch scan: same supplier, same date, consecutive numbers; the date must not count as a repeated number.
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (60, "Musterfirma GmbH"), (120, "Rechnung"), (150, "Rechnungsnummer RE-1"), (166, "Rechnungsdatum 15.03.2026"), (300, "Gesamtbetrag 100,00 EUR")),
+            TextLayers.Page(2, (60, "Musterfirma GmbH"), (120, "Rechnung"), (150, "Rechnungsnummer RE-2"), (166, "Rechnungsdatum 15.03.2026"), (300, "Gesamtbetrag 200,00 EUR")));
+
+        var analysis = _splitter.Analyze(layer, 2);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 1), new PageRange(2, 2)]);
+        analysis.Confidence.ShouldBe(1);
+        analysis.IsConfident.ShouldBeTrue();
+        analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.DocumentNumberChanged && s.Evidence == "Rechnungsnummer RE-2");
+        analysis.Signals.ShouldNotContain(s => s.Kind == SplitSignalKind.DocumentNumberRepeated);
+    }
+
+    [Fact]
+    public void A_changed_number_wins_over_a_repeated_one_on_the_same_page()
+    {
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (120, "Rechnung"), (150, "Rechnungsnummer RE-1"), (300, "Gesamtbetrag 100,00 EUR")),
+            TextLayers.Page(2, (120, "Rechnung"), (150, "Rechnungsnummer RE-2"), (166, "Rechnung RE-1 wird hiermit ersetzt."), (300, "Gesamtbetrag 100,00 EUR")));
+
+        var analysis = _splitter.Analyze(layer, 2);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 1), new PageRange(2, 2)]);
+        analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.DocumentNumberChanged);
+        analysis.Signals.ShouldNotContain(s => s.Page == 2 && s.Kind == SplitSignalKind.DocumentNumberRepeated);
+    }
+
+    [Fact]
+    public void A_header_title_of_another_type_starts_a_new_document_even_when_it_carries_a_number()
+    {
+        var layer = TextLayers.Layer(
+            TextLayers.Page(1, (120, "Lieferschein 4711"), (300, "1 Schraube M8 100 Stk")),
+            TextLayers.Page(2, (120, "Rechnung RE-1"), (300, "1 Schraube M8 100 Stk 0,50 EUR 50,00 EUR")));
+
+        var analysis = _splitter.Analyze(layer, 2);
+
+        analysis.Ranges.ShouldBe([new PageRange(1, 1), new PageRange(2, 2)]);
+        analysis.IsConfident.ShouldBeTrue();
+        analysis.Signals.ShouldContain(s => s.Page == 2 && s.Kind == SplitSignalKind.DocumentHeaderRepeated && s.Evidence == "Rechnung");
+        analysis.Signals.ShouldNotContain(s => s.Kind == SplitSignalKind.DocumentNumberRepeated || s.Kind == SplitSignalKind.DocumentNumberChanged);
     }
 
     [Fact]

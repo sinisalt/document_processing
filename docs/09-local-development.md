@@ -93,6 +93,30 @@ The default `dotnet test` run needs only Docker and finishes without any Azure a
 key. Contract and eval runs are tagged and skipped unless their environment variables are
 present.
 
+## PDF fixtures: fonts, PDFsharp and the artifacts switch
+
+The stage 2–4 tests (`tests/DocProc.Integration.Tests/Pdf`, `.../Classification`) generate
+their PDFs at test time with **PDFsharp**; no binary fixtures live in the repository. Three
+things to know:
+
+- **A TrueType font must be installed.** PDFsharp's Core build has no platform font lookup on
+  Linux, so `TestFonts` embeds the first font it finds (DejaVu Sans, Liberation Sans or
+  FreeSans on Linux; Arial on macOS and Windows). Without one, every PDF fixture test fails at
+  type initialisation with `FileNotFoundException: No TrueType font found`. On Debian/Ubuntu
+  run `sudo apt-get install -y fonts-dejavu-core`; the CI job installs it explicitly rather
+  than relying on the runner image. macOS and Windows ship Arial.
+- **PDFsharp is test-only.** Version 6.5 is dual-licensed (AGPL or commercial) and refuses to
+  create a document until a licence is chosen; `TestPdfs.EnsureFonts` calls
+  `PdfSharpLicense.SetAgplLicense()` once per process. The package is referenced only by
+  `DocProc.Integration.Tests`, which is never shipped, so the AGPL terms are met. Do not add
+  PDFsharp to a `src/` project: the production PDF stack is PdfPig (Apache-2.0) and PDFtoImage
+  (MIT), see docs/01. If a product feature ever needs to write PDFs, pin PDFsharp 6.2.x (MIT) or
+  decide on the commercial licence first.
+- **`DOCPROC_TEST_ARTIFACTS`** (optional): set it to a directory before running the tests and
+  the fixtures and rendered pages are written there (`invoice-with-delivery-note.pdf`,
+  `*-page1-200dpi.png`, `image-only-scan.pdf`, ...) for eyeballing. Unset, nothing is written
+  and the tests stay hermetic.
+
 ## What is not testable locally, and the mitigation
 
 | Gap | Mitigation |

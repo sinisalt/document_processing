@@ -9,8 +9,15 @@ internal enum KeywordKind
     /// <summary>A document title ("Rechnung", "Delivery note"): strong evidence, strongest in the header of the first page.</summary>
     Title,
 
-    /// <summary>A document-number or date label ("Rechnungsnummer", "Invoice no."): moderate evidence, also carries the number.</summary>
+    /// <summary>A document-number label ("Rechnungsnummer", "Invoice no."): moderate evidence, also carries the number.</summary>
     Label,
+
+    /// <summary>
+    /// A date label ("Rechnungsdatum", "Invoice date"): the same moderate evidence for the type as a
+    /// <see cref="Label"/>, but the value after it is a date, never a document number, so the splitter does not
+    /// track it (two same-day invoices share the date, not the number).
+    /// </summary>
+    DateLabel,
 
     /// <summary>
     /// A mention of another document ("Ihre Bestellung", "zur Rechnung", "the invoice"): weak evidence. A title
@@ -60,11 +67,16 @@ internal static class KeywordRuleSet
         yield return Title(DocumentType.Invoice, DocumentLanguages.Croatian, "Račun", "Faktura");
         yield return Title(DocumentType.Invoice, DocumentLanguages.Italian, "Fattura");
         yield return Title(DocumentType.Invoice, DocumentLanguages.French, "Facture");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.German, "Rechnungsnummer", "Rechnungs-Nr", "Rechnungsnr", "Rechnungsdatum", "Rechnungs-Datum");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.English, "Invoice number", "Invoice no", "Invoice #", "Invoice date", "Invoice ID");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.Croatian, "Broj računa", "Datum računa");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.Italian, "Numero fattura", "Data fattura");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.French, "Numéro de facture", "N° de facture", "Date de facture");
+        yield return Label(DocumentType.Invoice, DocumentLanguages.German, "Rechnungsnummer", "Rechnungs-Nr", "Rechnungsnr");
+        yield return Label(DocumentType.Invoice, DocumentLanguages.English, "Invoice number", "Invoice no", "Invoice #", "Invoice ID");
+        yield return Label(DocumentType.Invoice, DocumentLanguages.Croatian, "Broj računa");
+        yield return Label(DocumentType.Invoice, DocumentLanguages.Italian, "Numero fattura");
+        yield return Label(DocumentType.Invoice, DocumentLanguages.French, "Numéro de facture", "N° de facture");
+        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.German, "Rechnungsdatum", "Rechnungs-Datum");
+        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.English, "Invoice date");
+        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.Croatian, "Datum računa");
+        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.Italian, "Data fattura");
+        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.French, "Date de facture");
         yield return Negative(DocumentType.Invoice, DocumentLanguages.German, "keine Rechnung", "Rechnung folgt", "nicht als Rechnung", "Proforma", "Pro-forma");
         yield return Negative(DocumentType.Invoice, DocumentLanguages.English, "not an invoice", "invoice to follow", "invoice will follow", "Proforma", "Pro-forma");
         yield return Negative(DocumentType.Invoice, DocumentLanguages.Croatian, "nije račun", "Predračun");
@@ -89,7 +101,8 @@ internal static class KeywordRuleSet
         yield return Title(DocumentType.DeliveryNote, DocumentLanguages.Croatian, "Otpremnica", "Dostavnica");
         yield return Title(DocumentType.DeliveryNote, DocumentLanguages.Italian, "Bolla di consegna", "Documento di trasporto", "DDT", "Bolla di accompagnamento");
         yield return Title(DocumentType.DeliveryNote, DocumentLanguages.French, "Bon de livraison", "Bordereau de livraison", "Bordereau d'expédition");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferscheinnummer", "Lieferschein-Nr", "Lieferscheinnr", "Lieferscheindatum");
+        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferscheinnummer", "Lieferschein-Nr", "Lieferscheinnr");
+        yield return DateLabel(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferscheindatum");
         yield return Label(DocumentType.DeliveryNote, DocumentLanguages.English, "Delivery note number", "Delivery note no", "Delivery no", "Packing slip no");
         yield return Label(DocumentType.DeliveryNote, DocumentLanguages.Croatian, "Broj otpremnice");
         yield return Label(DocumentType.DeliveryNote, DocumentLanguages.Italian, "Numero DDT", "Numero bolla");
@@ -101,7 +114,8 @@ internal static class KeywordRuleSet
         yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.Croatian, "Narudžba", "Narudžbenica", "Nalog za nabavu");
         yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.Italian, "Ordine", "Ordine di acquisto", "Ordine d'acquisto", "Buono d'ordine");
         yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.French, "Bon de commande", "Commande", "Ordre d'achat");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestellnummer", "Bestell-Nr", "Bestellnr", "Bestelldatum");
+        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestellnummer", "Bestell-Nr", "Bestellnr");
+        yield return DateLabel(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestelldatum");
         yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.English, "Purchase order number", "Purchase order no", "PO number", "PO no", "PO #", "Order number", "Order no");
         yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.Croatian, "Broj narudžbe");
         yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.Italian, "Numero ordine");
@@ -127,6 +141,9 @@ internal static class KeywordRuleSet
 
     private static KeywordRule Label(DocumentType type, string language, params string[] phrases) =>
         new(type, language, KeywordKind.Label, Compile(phrases), LabelWeight);
+
+    private static KeywordRule DateLabel(DocumentType type, string language, params string[] phrases) =>
+        new(type, language, KeywordKind.DateLabel, Compile(phrases), LabelWeight);
 
     private static KeywordRule Negative(DocumentType type, string language, params string[] phrases) =>
         new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight);

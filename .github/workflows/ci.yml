@@ -23,6 +23,9 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Install fonts for the PDF test fixtures
+        run: sudo apt-get install -y fonts-dejavu-core
+
       - name: Restore
         run: dotnet restore DocProc.slnx
 
