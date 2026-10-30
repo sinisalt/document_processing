@@ -3,6 +3,7 @@ using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Dev;
 using DocProc.Api.Endpoints;
+using DocProc.Api.Pipeline;
 using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.ServiceDefaults;
@@ -25,6 +26,7 @@ if (builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Env
 // Blob storage: Azure/Azurite as soon as the AppHost injects ConnectionStrings:blobs (or Blobs:ServiceUri is set),
 // otherwise the content-addressed file store under ./data/blobs in the content root (docs/09 "Running without Docker").
 builder.Services.AddDocProcBlobs(builder.Configuration, builder.Environment);
+builder.Services.AddDocProcApiServices();
 
 var app = builder.Build();
 
@@ -69,6 +71,9 @@ v1.MapGet("/version", () => new
 
 v1.MapMe();
 v1.MapApiKeys();
+v1.MapIngestions();
+v1.MapDocuments();
+v1.MapReviewTasks();
 
 // The development token issuer exists only while enabled (never in production: AddDocProcAuthentication refuses to start).
 if (app.Services.GetRequiredService<DevAuthOptions>().Enabled)

@@ -1,0 +1,124 @@
+using System.Text.Json;
+using DocProc.Domain.Documents;
+using DocProc.Domain.Flags;
+using DocProc.Infrastructure.Persistence.Entities;
+
+namespace DocProc.Api.Documents;
+
+/// <summary>One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.</summary>
+public sealed record DocumentSummary(
+    Guid Id,
+    DocumentStatus Status,
+    DocumentType Type,
+    double? TypeConfidence,
+    Guid? SupplierId,
+    string? SupplierName,
+    string? DocumentNumber,
+    DateOnly? IssueDate,
+    string? Currency,
+    decimal? TotalGross,
+    ExtractionMethod? ExtractionMethod,
+    int PageCount,
+    int BlockingFlagCount,
+    int WarningFlagCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? ApprovedAt);
+
+public sealed record DocumentFlagDto(
+    Guid Id,
+    string Code,
+    FlagSeverity Severity,
+    string? Field,
+    string Message,
+    FlagOrigin CreatedBy,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ResolvedAt,
+    string? ResolvedBy);
+
+public sealed record DocumentCostsDto(
+    int LlmInputTokens,
+    int LlmOutputTokens,
+    int LlmCacheReadTokens,
+    int OcrPages,
+    decimal? EstimatedUsd,
+    string? LlmProvider,
+    string? LlmModel,
+    KeyOwner? KeyOwner);
+
+/// <summary>Where the document came from: the ingestion and the attachment it was split from.</summary>
+public sealed record DocumentIngestionRef(Guid IngestionId, Guid ItemId, string FileName, string? SourceFrom, DateTimeOffset ReceivedAt);
+
+/// <summary>
+/// The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
+/// canonical model exactly as stored (<c>Canonical</c>: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
+/// extraction has run), so every <c>FieldValue</c> keeps its provenance and history verbatim. <c>PageImageUrls</c> are
+/// API-relative, in page order (<c>/api/v1/documents/{id}/pages/{n}.png</c>).
+/// </summary>
+public sealed record DocumentDetail(
+    Guid Id,
+    DocumentStatus Status,
+    DocumentType Type,
+    double? TypeConfidence,
+    Guid? SupplierId,
+    string? SupplierName,
+    string? DocumentNumber,
+    DateOnly? IssueDate,
+    string? Currency,
+    decimal? TotalGross,
+    ExtractionMethod? ExtractionMethod,
+    int PageCount,
+    int BlockingFlagCount,
+    int WarningFlagCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? ApprovedAt,
+    string? ApprovedBy,
+    string? FailureReason,
+    JsonElement? Canonical,
+    int? CanonicalSchemaVersion,
+    IReadOnlyList<DocumentFlagDto> Flags,
+    DocumentCostsDto Costs,
+    DocumentIngestionRef? Ingestion,
+    IReadOnlyList<string> PageImageUrls);
+
+public sealed record DocumentEventDto(
+    long Id,
+    string EventType,
+    DocumentStatus? FromStatus,
+    DocumentStatus? ToStatus,
+    string? Actor,
+    JsonElement? Details,
+    DateTimeOffset At);
+
+/// <summary>A page of a list endpoint; <see cref="NextCursor"/> is null on the last page.</summary>
+public sealed record Page<T>(IReadOnlyList<T> Items, string? NextCursor);
+
+public sealed record ApproveDocumentRequest(string? Comment);
+
+public sealed record RejectDocumentRequest(string Reason);
+
+/// <summary>Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").</summary>
+public sealed record ReprocessDocumentRequest(string? FromStage);
+
+/// <summary>
+/// One human correction (docs/05 "PATCH /documents/{id}/fields"). <see cref="Path"/> is a canonical field path as
+/// <c>Invoice.EnumerateAllFields</c> produces it (<c>invoiceNumber</c>, <c>lines[2].quantity</c>, <c>supplier</c>) or a
+/// property inside such a field's value (<c>supplier.vatId</c>); <see cref="Value"/> is the new value in the JSON
+/// shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
+/// clear it.
+/// </summary>
+public sealed record FieldCorrection(string Path, JsonElement? Value, string? Reason);
+
+public sealed record CorrectFieldsRequest(IReadOnlyList<FieldCorrection> Corrections);
+
+public sealed record ReviewTaskDto(
+    Guid Id,
+    Guid DocumentId,
+    string Reason,
+    string? AssignedTo,
+    ReviewTaskStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? SlaDueAt,
+    DateTimeOffset? CompletedAt,
+    DocumentSummary? Document);

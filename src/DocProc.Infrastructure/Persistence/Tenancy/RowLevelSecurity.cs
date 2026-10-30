@@ -28,6 +28,7 @@ public static class RowLevelSecurity
         ("DocumentEvents", "TenantId"),
         ("ReviewTasks", "TenantId"),
         ("Corrections", "TenantId"),
+        ("IdempotencyKeys", "TenantId"),
         ("TenantLlmPolicies", "TenantId"),
         ("LlmUsage", "TenantId"),
     ];
