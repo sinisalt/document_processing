@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
     <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
+    <ProjectReference Include="../DocProc.Pipeline/DocProc.Pipeline.csproj" />
     <ProjectReference Include="../DocProc.ServiceDefaults/DocProc.ServiceDefaults.csproj" />
   </ItemGroup>
   <ItemGroup>

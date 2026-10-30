@@ -30,6 +30,7 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<DocumentEvent> DocumentEvents => Set<DocumentEvent>();
     public DbSet<ReviewTask> ReviewTasks => Set<ReviewTask>();
     public DbSet<Correction> Corrections => Set<Correction>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<LlmProviderConfigRecord> LlmProviderConfigs => Set<LlmProviderConfigRecord>();
     public DbSet<TenantLlmPolicyRecord> TenantLlmPolicies => Set<TenantLlmPolicyRecord>();
     public DbSet<LlmUsageEntry> LlmUsage => Set<LlmUsageEntry>();
@@ -70,6 +71,7 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<DocumentEvent>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<ReviewTask>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<Correction>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutboxMessage>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<TenantLlmPolicyRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<LlmUsageEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 

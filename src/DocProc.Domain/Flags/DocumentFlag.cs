@@ -49,6 +49,7 @@ public static class FlagCodes
     public const string PoUnmatched = "PO_UNMATCHED";
     public const string DateImplausible = "DATE_IMPLAUSIBLE";
     public const string InvalidValue = "INVALID_VALUE";
+    public const string UnsupportedType = "UNSUPPORTED_TYPE";
 
     public sealed record Definition(string Code, FlagSeverity DefaultSeverity, string Description);
 
@@ -71,6 +72,7 @@ public static class FlagCodes
         new(PoUnmatched, FlagSeverity.Info, "A PO reference is present but no matching purchase order was found."),
         new(DateImplausible, FlagSeverity.Warning, "Issue date is in the future or more than a year old."),
         new(InvalidValue, FlagSeverity.Warning, "A value failed its type or format check (for example a malformed currency code)."),
+        new(UnsupportedType, FlagSeverity.Warning, "The document type has no extraction path yet; the reviewer handles it by hand."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);

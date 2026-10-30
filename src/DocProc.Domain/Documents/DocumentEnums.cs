@@ -17,6 +17,9 @@ public enum TypeSource
     Rule,
     Llm,
     Human,
+
+    /// <summary>Read from embedded structured data (an e-invoice XML), not from the page content.</summary>
+    Structured,
 }
 
 public enum ExtractionMethod

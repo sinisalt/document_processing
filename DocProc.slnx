@@ -10,6 +10,7 @@
     <Project Path="src/DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
     <Project Path="src/DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />
     <Project Path="src/DocProc.Llm/DocProc.Llm.csproj" />
+    <Project Path="src/DocProc.Pipeline/DocProc.Pipeline.csproj" />
     <Project Path="src/DocProc.ServiceDefaults/DocProc.ServiceDefaults.csproj" />
     <Project Path="src/DocProc.Worker/DocProc.Worker.csproj" />
   </Folder>
@@ -20,5 +21,6 @@
     <Project Path="tests/DocProc.EInvoice.Tests/DocProc.EInvoice.Tests.csproj" />
     <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />
     <Project Path="tests/DocProc.Llm.Tests/DocProc.Llm.Tests.csproj" />
+    <Project Path="tests/DocProc.Pipeline.Tests/DocProc.Pipeline.Tests.csproj" />
   </Folder>
 </Solution>

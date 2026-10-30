@@ -63,7 +63,7 @@ Document (one logical business document; an item can be split into several)
   id, tenantId, ingestionItemId, pageRange (start, end), pageCount
   normalizedBlobRef (PDF/A or PDF), pageImageRefs[], textLayerRef (positioned words JSON)
   type (Invoice | CreditNote | PurchaseOrder | DeliveryNote | Statement | Reminder | Other | Unknown)
-  typeConfidence, typeSource (Rule | Llm | Human)
+  typeConfidence, typeSource (Rule | Llm | Human | Structured)
   supplierId (nullable until matched), supplierMatchConfidence
   extractorProfileId (nullable), extractionMethod (StructuredXml | Profile | Llm | Manual)
   status  -- see state machine in 03-pipeline.md
@@ -203,6 +203,7 @@ Initial flag codes:
 | PO_UNMATCHED | Info | PO reference present but not found |
 | DATE_IMPLAUSIBLE | Warning | issue date in the future or > 1 year old |
 | INVALID_VALUE | Warning | a value failed its type or format check (malformed currency code, amount in a different currency than the document) |
+| UNSUPPORTED_TYPE | Warning | the document type (purchase order, delivery note, statement, other) has no extraction path yet; the document goes to review without canonical data |
 
 ## 6. Review and audit
 

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Pipeline runner (docs/03): in-process queue, stage handlers, failure policy and the host composition both hosts share.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
+    <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+    <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+    <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
+    <ProjectReference Include="../DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
+    <!-- The vendor adapters the processing stack registers so a host can talk to a real provider. -->
+    <ProjectReference Include="../DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
+    <ProjectReference Include="../DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <!-- Image items are stored as PNG pages (stage 2); the same SkiaSharp the PDF renderer and the LLM thumbnails use. -->
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DocProc.Pipeline.Tests" />
+  </ItemGroup>
+</Project>
