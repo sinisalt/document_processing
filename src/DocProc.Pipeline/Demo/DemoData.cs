@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -21,12 +23,13 @@ public sealed record DemoMember(Guid TenantId, string Username, string Email, st
 /// <summary>
 /// The rows the demo data adds on top of <see cref="DevSeed"/> (docs/09 "Demo data"): the platform Replay provider that
 /// serves <c>fixtures/demo/llm-replay</c>, the tenant members of the development users and two weeks of LLM usage for the
-/// usage charts. Like the seed, every row is recognisable (fixed id, fixed subject, or the <see cref="UsageMarker"/>
-/// request id), so applying it again inserts nothing.
+/// usage charts. They are added once, by the first start-up that finds no synthetic usage row (<see cref="IsAppliedAsync"/>):
+/// the usage rows double as the marker that the demo data was applied, so a member removed through the members screen
+/// or a Replay configuration deleted in the admin console stays removed on later starts.
 /// </summary>
 public static class DemoData
 {
-    /// <summary>The platform Replay configuration; active, so it wins over the disabled Anthropic one until a real key is enabled.</summary>
+    /// <summary>The platform Replay configuration; active, so it serves the demo PDFs while no other platform configuration is.</summary>
     public static readonly Guid PlatformReplayConfig = Guid.Parse("00000000-0003-4000-8000-000000000002");
 
     /// <summary>Prefix of <see cref="LlmUsageEntry.ProviderRequestId"/> on the synthetic usage rows; real calls never carry it.</summary>
@@ -37,6 +40,30 @@ public static class DemoData
     /// <summary>Days of synthetic usage, today included.</summary>
     public const int UsageDays = 14;
 
+    /// <summary>UTC time of day the synthetic calls of a day start from; the calls follow at fixed offsets.</summary>
+    public static readonly TimeSpan UsageDayStart = TimeSpan.FromHours(8);
+
+    /// <summary>
+    /// What a replay miss says in the development mode in place of "re-record the fixture" (<see cref="LlmReplayMissHint"/>):
+    /// only the demo documents have recorded answers, so any other document needs a real provider.
+    /// </summary>
+    public const string ReplayMissHint =
+        "This document has no demo fixture: the development mode answers LLM calls from the recorded demo responses " +
+        "(Llm:Replay:Directory, fixtures/demo/llm-replay), which cover only the demo documents. To process other " +
+        "documents, store a key for the platform Anthropic configuration and enable it in the admin console (LLM " +
+        "providers), or disable the Replay configuration there; see docs/09-local-development.md, \"Demo data\".";
+
+    /// <summary>
+    /// The platform the committed classification fixture was captured on. Its request hash covers the first page as
+    /// PDFium renders it, and PDFium builds rasterise differently elsewhere, so on other platforms the delivery note gets
+    /// a replay miss (docs/09 "Demo data"); the extraction fixture hashes the PDF bytes and replays everywhere.
+    /// </summary>
+    public const string FixtureCapturePlatform = "linux-x64";
+
+    /// <summary>True on <see cref="FixtureCapturePlatform"/>, where the rendered-page hash of the classification fixture matches.</summary>
+    public static bool IsFixtureCapturePlatform =>
+        RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.OSArchitecture == Architecture.X64;
+
     /// <summary>The customer users of <c>DevUsers</c> (and the Keycloak realm), as members of their tenants; <c>DemoDataTests.Demo_members_are_the_customer_dev_users</c> keeps the two lists equal.</summary>
     public static readonly IReadOnlyList<DemoMember> Members =
     [
@@ -46,11 +73,62 @@ public static class DemoData
         new(DevSeed.TenantB, "tenant-b-viewer", "viewer@tenant-b.local", "Vic Viewer", TenantRole.Viewer),
     ];
 
-    /// <summary>Adds the replay provider configuration when it is missing. Returns the number of rows added.</summary>
+    /// <summary>True once the demo rows were added to this database: a synthetic usage row exists.</summary>
+    public static Task<bool> IsAppliedAsync(DocProcDbContext db, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        return db.LlmUsage.AnyAsync(u => u.ProviderRequestId != null && u.ProviderRequestId.StartsWith(UsageMarker), cancellationToken);
+    }
+
+    /// <summary>
+    /// The stage that continues a document an interrupted run left in <paramref name="status"/>: the one after the
+    /// stage that leaves this status behind, which is the status that stage's handler accepts (Received: Normalize, …,
+    /// Extracted: Validate). Null for the states no stage continues: Failed, the review and settled states, and
+    /// Validated (Validate routes the document in the same commit, so the pipeline never persists Validated).
+    /// </summary>
+    public static PipelineStage? ResumeStage(DocumentStatus status)
+    {
+        foreach (var stage in Enum.GetValues<PipelineStage>())
+        {
+            if (PipelineStages.ResultingStatus(stage) == status)
+            {
+                return PipelineStages.Next(stage);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The platform configuration the gateway falls back to, chosen like <c>EfLlmPolicyStore</c> does: an active one
+    /// first, then the newest. Null when the database has none.
+    /// </summary>
+    public static async Task<LlmProviderConfigRecord?> PlatformConfigInUseAsync(DocProcDbContext db, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var configs = await db.LlmProviderConfigs.AsNoTracking()
+            .Where(c => c.Scope == ConfigScope.Platform && c.TenantId == null)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return configs
+            .OrderByDescending(c => c.Status == ProviderConfigStatus.Active)
+            .ThenByDescending(c => c.UpdatedAt)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Adds the replay provider configuration when it is missing and no other platform configuration is active: a
+    /// database that already runs on a real provider keeps it, which the gateway would otherwise give up for the newer
+    /// Replay row. Returns the number of rows added.
+    /// </summary>
     public static async Task<int> EnsureReplayProviderAsync(DocProcDbContext db, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
-        if (await db.LlmProviderConfigs.AnyAsync(c => c.Id == PlatformReplayConfig, cancellationToken).ConfigureAwait(false))
+        var platformActive = await db.LlmProviderConfigs.AnyAsync(
+                c => c.Id == PlatformReplayConfig || (c.Scope == ConfigScope.Platform && c.TenantId == null && c.Status == ProviderConfigStatus.Active),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (platformActive)
         {
             return 0;
         }
@@ -107,7 +185,7 @@ public static class DemoData
     public static async Task<int> EnsureUsageAsync(DocProcDbContext db, PromptCatalogue prompts, PriceTable prices, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
-        if (await db.LlmUsage.AnyAsync(u => u.ProviderRequestId != null && u.ProviderRequestId.StartsWith(UsageMarker), cancellationToken).ConfigureAwait(false))
+        if (await IsAppliedAsync(db, cancellationToken).ConfigureAwait(false))
         {
             return 0;
         }
@@ -121,17 +199,19 @@ public static class DemoData
     /// Two weeks of calls as the gateway records them (docs/08 "Cost attribution"), through the platform Anthropic
     /// configuration: tenant A classifies and extracts every working day with a quiet weekend, tenant B extracts a
     /// little, and two calls failed (a rate limit and an unavailable provider) so the error column has something to show. The
-    /// pattern is a pure function of the day, so every start produces the same shape relative to "now".
+    /// pattern is a pure function of the UTC date, and every row lies on the UTC date it stands for (<see cref="At"/>).
+    /// The rows are written once, so the history stays where the first start-up put it.
     /// </summary>
     public static IReadOnlyList<LlmUsageEntry> Usage(PromptCatalogue prompts, PriceTable prices, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(prompts);
         ArgumentNullException.ThrowIfNull(prices);
 
+        var today = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
         var calls = new List<(Guid TenantId, string TenantKey, int DaysAgo, int Index, LlmStage Stage)>();
         for (var daysAgo = UsageDays - 1; daysAgo >= 0; daysAgo--)
         {
-            var day = now.AddDays(-daysAgo);
+            var day = today.AddDays(-daysAgo);
             var weekend = day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
             var tenantACalls = weekend ? 1 : 3 + (daysAgo % 3);
             for (var i = 0; i < tenantACalls; i++)
@@ -150,12 +230,23 @@ public static class DemoData
         var rateLimited = calls.FindIndex(c => c.TenantKey == "a" && c.DaysAgo < UsageDays - 3);
         var unavailable = calls.FindLastIndex(c => c.TenantKey == "b");
         return calls
-            .Select((c, i) => Row(prompts, prices, c.TenantId, c.TenantKey, c.DaysAgo, c.Index, c.Stage, now,
+            .Select((c, i) => Row(prompts, prices, c.TenantId, c.TenantKey, c.DaysAgo, c.Index, c.Stage, today, now,
                 i == rateLimited ? LlmErrorKind.RateLimited : i == unavailable ? LlmErrorKind.Unavailable : null))
             .ToList();
     }
 
-    private static LlmUsageEntry Row(PromptCatalogue prompts, PriceTable prices, Guid tenantId, string tenantKey, int daysAgo, int index, LlmStage stage, DateTimeOffset now, LlmErrorKind? error)
+    /// <summary>
+    /// When a synthetic call happened: its UTC date at <see cref="UsageDayStart"/> plus a fixed offset per call, so the
+    /// row lies on the day it stands for whatever the time of the start-up (00:10 UTC included). Today's calls that
+    /// would lie in the future are clamped to <paramref name="now"/>.
+    /// </summary>
+    private static DateTimeOffset At(DateTimeOffset today, int daysAgo, int index, int seed, DateTimeOffset now)
+    {
+        var at = today.AddDays(-daysAgo) + UsageDayStart + TimeSpan.FromMinutes((index * 83) + (seed % 17));
+        return at > now ? now : at;
+    }
+
+    private static LlmUsageEntry Row(PromptCatalogue prompts, PriceTable prices, Guid tenantId, string tenantKey, int daysAgo, int index, LlmStage stage, DateTimeOffset today, DateTimeOffset now, LlmErrorKind? error)
     {
         var requestId = string.Create(CultureInfo.InvariantCulture, $"{UsageMarker}{tenantKey}-{daysAgo:00}-{index}");
         var seed = (daysAgo * 7) + (index * 13) + (tenantKey == "a" ? 0 : 5);
@@ -191,8 +282,7 @@ public static class DemoData
             ProviderRequestId = requestId,
             RequestHash = ContentHash.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(requestId)),
             Error = error,
-            // Spread over the working day, never in the future: the latest call of today is a few minutes old.
-            At = now.AddDays(-daysAgo).AddMinutes(-(7 + (index * 83) + (seed % 17))),
+            At = At(today, daysAgo, index, seed, now),
         };
     }
 }

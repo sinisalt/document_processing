@@ -75,7 +75,9 @@ public static class LlmServiceCollectionExtensions
             services.TryAddSingleton<FileReplayStore>(sp => new FileReplayStore(replay.Directory, sp.GetRequiredService<TimeProvider>()));
             services.TryAddSingleton<IReplayStore>(sp => sp.GetRequiredService<FileReplayStore>());
             services.TryAddSingleton<IRecordingReplayStore>(sp => sp.GetRequiredService<FileReplayStore>());
-            services.AddSingleton<ILlmProviderFactory>(sp => new ReplayLlmProviderFactory(sp.GetRequiredService<IReplayStore>()));
+            services.AddSingleton<ILlmProviderFactory>(sp => new ReplayLlmProviderFactory(
+                sp.GetRequiredService<IReplayStore>(),
+                sp.GetService<LlmReplayMissHint>()?.Text));
         }
 
         services.TryAddSingleton<ILlmGateway>(sp => new LlmGateway(
