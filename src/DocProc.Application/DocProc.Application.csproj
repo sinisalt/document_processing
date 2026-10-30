@@ -4,6 +4,5 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
-    <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
   </ItemGroup>
 </Project>
