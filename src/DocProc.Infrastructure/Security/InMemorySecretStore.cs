@@ -23,4 +23,11 @@ public sealed class InMemorySecretStore : ISecretStore
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
         return Task.FromResult(_secrets.TryGetValue(reference, out var secret) ? secret : null);
     }
+
+    public Task DeleteAsync(string reference, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reference);
+        _secrets.TryRemove(reference, out _);
+        return Task.CompletedTask;
+    }
 }

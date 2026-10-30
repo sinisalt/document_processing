@@ -74,16 +74,28 @@ input; every error is a problem-details body, field errors a validation problem.
 | Route | Policy | Notes |
 |---|---|---|
 | `GET /tenants`, `GET /tenants/{id}` | Platform (Operators may read) | `?status=&q=` filters; ordered by slug. |
-| `POST /tenants`, `PATCH /tenants/{id}`, `POST /tenants/{id}:suspend` / `:activate` | PlatformAdmin | Creation also adds the tenant's default `ApiUpload` and `PortalUpload` channels. Runs on a platform-scoped context, so no `X-Tenant-Id` is needed. |
-| `GET /members`; `POST /members`, `PATCH /members/{userId}`, `DELETE /members/{userId}` | Read; TenantAdmin | The last TenantAdmin can be neither demoted nor removed (409). |
-| `GET /channels`; `POST`, `PATCH /channels/{id}`, `DELETE /channels/{id}` | Read; TenantAdmin | `config` is a free JSON object per channel type; the secret reference is write-only (`hasSecret` is all a client sees). Delete is refused once ingestions reference the channel (409). |
-| `GET /suppliers`, `GET /suppliers/{id}`, `GET /suppliers/{id}/activity`; `POST`, `PATCH`, `DELETE` | Read; TenantAdmin | `q` matches the folded name (`Identifiers.NormalizeName`, the same function stage 5 matches with) or the exact VAT id. Delete is refused while documents reference the supplier (409); the activity view is the twenty most recent documents. |
+| `POST /tenants`, `PATCH /tenants/{id}`, `POST /tenants/{id}:suspend` / `:activate` | PlatformAdmin | Creation also adds the tenant's default `ApiUpload` and `PortalUpload` channels. Runs on a platform-scoped context, so no `X-Tenant-Id` is needed. A slug taken between the existence check and the insert (concurrent creates) is the same 409 as one found by the check. |
+| `GET /members`; `POST /members`, `PATCH /members/{userId}`, `DELETE /members/{userId}` | Read; TenantAdmin | The last TenantAdmin can be neither demoted nor removed (409). A `userId` may not contain `/`, whitespace or control characters (it must survive the round trip through the route); a duplicate add racing the check is a 409, not a 500. |
+| `GET /channels`; `POST`, `PATCH /channels/{id}`, `DELETE /channels/{id}` | Read; TenantAdmin | `config` is a free JSON object per channel type, at most 16 KB serialised. The credential is the write-only `secret` field: it goes to `ISecretStore` under the server-generated reference `tenant/{tenantId}/channel/{channelId}` (a client never names a reference, so it cannot point a channel at another tenant's or the platform's key); `PATCH` with a value rotates it, with an empty string removes it; `hasSecret` is all a client sees, and delete removes the secret with the channel. A stored config that is not valid JSON reads as `{}` (logged) instead of failing the list. Delete is refused once ingestions reference the channel (409). |
+| `GET /suppliers`, `GET /suppliers/{id}`, `GET /suppliers/{id}/activity`; `POST`, `PATCH`, `DELETE` | Read; TenantAdmin | `q` matches the folded name (`Identifiers.NormalizeName`, the same function stage 5 matches with) or the exact VAT id. A name is refused when it folds to more than 300 characters (`ß` becomes `SS`), the column width. Delete is refused while documents reference the supplier (409); the activity view is the twenty most recent documents. |
 | `GET /settings`, `PUT /settings` | Read; TenantAdmin | Review policy (`autoApproveConfidenceThreshold` 0..1, `alwaysReviewSupplierIds` of this tenant, `retentionYears` 1..30, `shareExtractorProfiles`) plus the read-only tenant identity. |
 | `GET /llm-policy`, `PUT /llm-policy` | TenantAdmin | Every configuration id must be one of the tenant's own; platform configurations are resolved by the gateway, not chosen here. |
-| `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only: it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. Delete is refused while the policy references the configuration (409). |
+| `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only (8 to 4096 characters, so `keyLast4` never shows most of it): it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. `models` names each stage once (two spellings of one stage are refused rather than merged). Delete is refused while the policy references the configuration (409); otherwise it removes the row and then the key from the secret store. |
 | `GET /llm-usage?from=&to=&groupBy=day\|stage\|model` | Read | Calls, tokens, errors and estimated cost; inclusive UTC dates, last 30 days by default. |
 | `GET /llm/providers`, `POST`, `POST /llm/providers/{id}:disable` / `:enable` | PlatformAdmin | Platform-scope configurations; the key goes to `platform/{configId}`. `:disable` is the kill switch. |
 | `GET /llm/usage?from=&to=&groupBy=tenant\|model\|day` | PlatformAdmin | Across tenants, for invoicing platform-key spend. |
+
+Enum-valued fields (`status`, `type`, `role`, stage names) accept a member name in any case and
+nothing else: a numeric string such as `"0"` is a validation error, never the first member.
+
+**Suspension is enforced at the boundary, for people as well as machines.** `TenantResolutionMiddleware`
+checks the tenant a bearer token's `tenant_id` claim resolves to against the tenant table through
+`TenantStatusCache` (one platform-scoped read per tenant every 30 seconds): a `Suspended` or `Closed`
+tenant answers 403 `Tenant suspended` on every endpoint, a tenant id that does not exist 404 `Unknown
+tenant` (not cached, so a tenant created a moment ago is seen at once). API keys were already refused
+at validation time (`ApiKeyValidator`) and are not checked twice. Platform scope is unaffected, and a
+SuperAdmin acting through `X-Tenant-Id` may still look into a suspended tenant. After `:activate` the
+tenant's users are back within the cache window.
 
 Still to come on these resources: `:test` and `:rotate` for providers (credential validation
 records `validatedAt` / `lastError`), audit logging of who changed what, idempotency keys.

@@ -124,7 +124,7 @@ public static class TenantEndpoints
             await using var db = factory.CreatePlatformScoped();
             if (await db.Tenants.AnyAsync(t => t.Slug == request.Slug, ct))
             {
-                return Conflict("Slug taken", $"A tenant with slug '{request.Slug}' already exists.");
+                return SlugTaken(request.Slug);
             }
 
             var now = clock.GetUtcNow();
@@ -146,7 +146,16 @@ public static class TenantEndpoints
             // Every tenant can receive documents from the start: API uploads for integrations, portal uploads for people.
             db.IngestionChannels.Add(DefaultChannel(tenant.Id, "API upload", ChannelType.ApiUpload, now));
             db.IngestionChannels.Add(DefaultChannel(tenant.Id, "Portal upload", ChannelType.PortalUpload, now));
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                // Concurrent creates with the same slug all pass the check above; the unique index refuses all but
+                // one, and the losers get the same answer the check gives.
+                return SlugTaken(request.Slug);
+            }
 
             return TypedResults.Created($"/api/v1/tenants/{tenant.Id}", TenantResponse.From(tenant));
         })
@@ -266,6 +275,9 @@ public static class TenantEndpoints
 
         return TypedResults.Ok(TenantResponse.From(tenant));
     }
+
+    private static ProblemHttpResult SlugTaken(string slug) =>
+        Conflict("Slug taken", $"A tenant with slug '{slug}' already exists.");
 
     private static IngestionChannel DefaultChannel(Guid tenantId, string name, ChannelType type, DateTimeOffset now) => new()
     {

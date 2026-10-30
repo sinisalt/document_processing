@@ -89,4 +89,12 @@ public sealed class FileSecretStore : ISecretStore
             return null;
         }
     }
+
+    /// <summary>Deletes the secret's file; a reference that was never stored (or was already deleted) is a no-op.</summary>
+    public Task DeleteAsync(string reference, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        File.Delete(PathFor(reference));
+        return Task.CompletedTask;
+    }
 }

@@ -51,6 +51,12 @@ public static class MemberEndpoints
             }
 
             var errors = new Errors().Require("userId", request.UserId, 200).Optional("email", request.Email, 320).Optional("displayName", request.DisplayName, 200);
+            var userId = request.UserId?.Trim() ?? string.Empty;
+            if (userId.Length > 0 && !IsRoutableUserId(userId))
+            {
+                errors.Add("userId", "userId may not contain '/', whitespace or control characters.");
+            }
+
             if (!TryParseEnum<TenantRole>(request.Role, out var role))
             {
                 errors.Add("role", $"Unknown role. Allowed: {Names<TenantRole>()}.");
@@ -66,10 +72,9 @@ public static class MemberEndpoints
                 return UnknownTenant();
             }
 
-            var userId = request.UserId.Trim();
             if (await db.TenantMembers.AnyAsync(m => m.UserId == userId, ct))
             {
-                return Conflict("Already a member", $"User '{userId}' is already a member of this tenant; change the role with PATCH.");
+                return AlreadyMember(userId);
             }
 
             var member = new TenantMember
@@ -82,7 +87,17 @@ public static class MemberEndpoints
                 CreatedAt = clock.GetUtcNow(),
             };
             db.TenantMembers.Add(member);
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                // Two concurrent adds of the same user both pass the check above; the composite key refuses the second
+                // one, which is the same conflict the check reports.
+                return AlreadyMember(userId);
+            }
+
             return TypedResults.Created($"/api/v1/members/{Uri.EscapeDataString(userId)}", MemberResponse.From(member));
         })
         .RequireAuthorization(Policies.TenantAdmin)
@@ -149,8 +164,18 @@ public static class MemberEndpoints
         return group;
     }
 
+    /// <summary>
+    /// A subject must survive the round trip through <c>/members/{userId}</c>: a '/' is a path separator even when
+    /// escaped (routing refuses %2F), and whitespace or control characters would make it unaddressable or unreadable.
+    /// </summary>
+    internal static bool IsRoutableUserId(string userId) =>
+        !userId.Any(c => c == '/' || char.IsWhiteSpace(c) || char.IsControl(c));
+
     private static async Task<bool> IsLastAdminAsync(DocProcDbContext db, CancellationToken ct) =>
         await db.TenantMembers.CountAsync(m => m.Role == TenantRole.TenantAdmin, ct) <= 1;
+
+    private static ProblemHttpResult AlreadyMember(string userId) =>
+        Conflict("Already a member", $"User '{userId}' is already a member of this tenant; change the role with PATCH.");
 
     private static ProblemHttpResult LastAdmin() =>
         Conflict("Last tenant admin", "A tenant must keep at least one TenantAdmin. Promote another member first.");

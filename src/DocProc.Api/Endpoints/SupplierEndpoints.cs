@@ -62,6 +62,9 @@ public static class SupplierEndpoints
 {
     private const int ActivitySize = 20;
 
+    /// <summary>Column width of <c>Name</c> and <c>NormalizedName</c>; folding can lengthen a name ("ß" becomes "SS").</summary>
+    public const int MaxNameLength = 300;
+
     public static RouteGroupBuilder MapSuppliers(this RouteGroupBuilder group)
     {
         var suppliers = group.MapGroup("/suppliers").WithTags("Suppliers");
@@ -112,16 +115,16 @@ public static class SupplierEndpoints
                 return problem;
             }
 
-            var errors = new Errors().Require("name", request.Name, 300).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
+            var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
             if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
             {
                 errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.");
             }
 
             var normalizedName = string.IsNullOrWhiteSpace(request.Name) ? string.Empty : Identifiers.NormalizeName(request.Name);
-            if (!string.IsNullOrWhiteSpace(request.Name) && normalizedName.Length == 0)
+            if (!string.IsNullOrWhiteSpace(request.Name))
             {
-                errors.Add("name", "name must contain at least one letter or digit.");
+                ValidateNormalizedName(errors, normalizedName);
             }
 
             if (errors.ToProblem() is { } invalid)
@@ -185,15 +188,12 @@ public static class SupplierEndpoints
                 return problem;
             }
 
-            var errors = new Errors().Optional("name", request.Name, 300).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
+            var errors = new Errors().Optional("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
             string? normalizedName = null;
             if (request.Name is not null)
             {
                 normalizedName = Identifiers.NormalizeName(request.Name);
-                if (normalizedName.Length == 0)
-                {
-                    errors.Add("name", "name must contain at least one letter or digit.");
-                }
+                ValidateNormalizedName(errors, normalizedName);
             }
 
             if (!string.IsNullOrEmpty(request.DefaultCurrency) && !IsCurrency(request.DefaultCurrency))
@@ -326,5 +326,17 @@ public static class SupplierEndpoints
         .WithSummary("The supplier's twenty most recent documents.");
 
         return group;
+    }
+
+    private static void ValidateNormalizedName(Errors errors, string normalizedName)
+    {
+        if (normalizedName.Length == 0)
+        {
+            errors.Add("name", "name must contain at least one letter or digit.");
+        }
+        else if (normalizedName.Length > MaxNameLength)
+        {
+            errors.Add("name", $"name folds to more than {MaxNameLength} characters for matching; shorten it.");
+        }
     }
 }

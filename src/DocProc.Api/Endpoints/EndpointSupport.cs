@@ -95,9 +95,29 @@ internal static partial class EndpointSupport
     public static bool IsAbsoluteHttpUri(string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
+    /// <summary>
+    /// Accepts an enum member by name, case-insensitively, and nothing else: <see cref="Enum.TryParse{TEnum}(string?, bool, out TEnum)"/>
+    /// would also accept the numeric value ("0" for the first member), which a client never means.
+    /// </summary>
     public static bool TryParseEnum<TEnum>(string? value, out TEnum parsed)
-        where TEnum : struct, Enum =>
-        Enum.TryParse(value, ignoreCase: true, out parsed) && Enum.IsDefined(parsed);
+        where TEnum : struct, Enum
+    {
+        if (value is not null)
+        {
+            var trimmed = value.Trim();
+            foreach (var name in Enum.GetNames<TEnum>())
+            {
+                if (string.Equals(name, trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    parsed = Enum.Parse<TEnum>(name);
+                    return true;
+                }
+            }
+        }
+
+        parsed = default;
+        return false;
+    }
 
     /// <summary>For values <see cref="TryParseEnum{TEnum}"/> already accepted; throws on anything else so a missed validation cannot store a default.</summary>
     public static TEnum ParseEnum<TEnum>(string? value)

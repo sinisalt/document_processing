@@ -69,7 +69,10 @@ public sealed class TenantEndpointsTests(ApiFactory factory) : IClassFixture<Api
     public async Task Listing_filters_by_status_and_text_and_pages_by_slug()
     {
         using var admin = SuperAdmin();
-        foreach (var slug in new[] { "page-a", "page-b", "page-c" })
+        // A prefix of this test's own, so the text search never matches tenants other tests created.
+        var prefix = "pg" + Guid.NewGuid().ToString("N")[..6] + "-";
+        var slugs = new[] { prefix + "a", prefix + "b", prefix + "c" };
+        foreach (var slug in slugs)
         {
             (await admin.PostAsJsonAsync(TenantsUri, NewTenant(slug), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
         }
@@ -78,14 +81,14 @@ public sealed class TenantEndpointsTests(ApiFactory factory) : IClassFixture<Api
         suspended.Items.ShouldAllBe(t => t.Status == nameof(TenantStatus.Suspended));
         suspended.Items.Select(t => t.Id).ShouldContain(ApiFactory.SuspendedTenant);
 
-        var searched = (await admin.GetFromJsonAsync<Page<TenantResponse>>(new Uri("/api/v1/tenants?q=page-", UriKind.Relative), Ct))!;
-        searched.Items.Select(t => t.Slug).ShouldBe(["page-a", "page-b", "page-c"]);
+        var searched = (await admin.GetFromJsonAsync<Page<TenantResponse>>(new Uri($"/api/v1/tenants?q={prefix}", UriKind.Relative), Ct))!;
+        searched.Items.Select(t => t.Slug).ShouldBe(slugs);
 
         var seen = new List<string>();
         string? cursor = null;
         do
         {
-            var uri = new Uri("/api/v1/tenants?q=page-&limit=2" + (cursor is null ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor)), UriKind.Relative);
+            var uri = new Uri($"/api/v1/tenants?q={prefix}&limit=2" + (cursor is null ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor)), UriKind.Relative);
             var page = (await admin.GetFromJsonAsync<Page<TenantResponse>>(uri, Ct))!;
             page.Items.Count.ShouldBeLessThanOrEqualTo(2);
             seen.AddRange(page.Items.Select(t => t.Slug));
@@ -93,7 +96,7 @@ public sealed class TenantEndpointsTests(ApiFactory factory) : IClassFixture<Api
         }
         while (cursor is not null);
 
-        seen.ShouldBe(["page-a", "page-b", "page-c"]);
+        seen.ShouldBe(slugs);
 
         (await admin.GetAsync(new Uri("/api/v1/tenants?status=nope", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await admin.GetAsync(new Uri("/api/v1/tenants?cursor=not-a-cursor!", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);

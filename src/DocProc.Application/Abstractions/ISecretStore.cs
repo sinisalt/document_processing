@@ -13,4 +13,7 @@ public interface ISecretStore
 
     /// <summary>The secret stored under <paramref name="reference"/>, or null when nothing is stored there.</summary>
     Task<string?> GetAsync(string reference, CancellationToken cancellationToken);
+
+    /// <summary>Removes the secret stored under <paramref name="reference"/>; a reference nothing is stored under is not an error.</summary>
+    Task DeleteAsync(string reference, CancellationToken cancellationToken);
 }

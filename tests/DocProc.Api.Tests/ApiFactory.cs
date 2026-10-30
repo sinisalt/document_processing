@@ -353,6 +353,34 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }
+
+    /// <summary>
+    /// A tenant of the test's own, so assertions on lists and counts never see what other tests of the same class
+    /// fixture did to the shared seed tenants. The slug is unique; the identity fields are fixed so a test can assert them.
+    /// </summary>
+    public Guid CreateTenant(string name, TenantStatus status = TenantStatus.Active)
+    {
+        var id = Guid.NewGuid();
+        var now = Clock.GetUtcNow();
+        Run(db => db.Tenants.Add(new Tenant
+        {
+            Id = id,
+            Name = name,
+            Slug = "t-" + id.ToString("N")[..12],
+            LegalName = name + " GmbH",
+            Status = status,
+            DefaultCurrency = "EUR",
+            CountryCode = "DE",
+            TimeZone = "Europe/Berlin",
+            CreatedAt = now,
+            UpdatedAt = now,
+        }));
+        return id;
+    }
+
+    /// <summary>A TenantAdmin client of the given tenant; the subject is unique so members and audit rows never collide.</summary>
+    public HttpClient TenantAdminOf(Guid tenantId) =>
+        ClientFor(new TokenSpec("admin-" + tenantId.ToString("N")[..8], [Auth.Roles.TenantAdmin], tenantId.ToString()));
 }
 
 public sealed record TokenSpec(string Subject, string[] Roles, string? TenantId = null, string? Issuer = null, string? Audience = null, DateTime? Expires = null);

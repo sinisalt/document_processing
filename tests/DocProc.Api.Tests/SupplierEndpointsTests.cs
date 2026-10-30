@@ -77,9 +77,33 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
     }
 
     [Fact]
-    public async Task List_searches_by_folded_name_or_vat_id_and_pages_in_name_order()
+    public async Task A_name_that_folds_to_more_than_300_characters_is_refused()
     {
         using var admin = TenantAdminClient();
+        var name = new string('ß', SupplierEndpoints.MaxNameLength);
+        Identifiers.NormalizeName(name).Length.ShouldBe(2 * SupplierEndpoints.MaxNameLength, "ß folds to SS");
+
+        var created = await admin.PostAsJsonAsync(SuppliersUri, NewSupplier(name), Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await created.Content.ReadAsStringAsync(Ct)).ShouldContain("\"name\"");
+
+        var existing = (await (await admin.PostAsJsonAsync(SuppliersUri, NewSupplier("Short enough"), Ct)).Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        var patched = await admin.PatchAsJsonAsync(SupplierUri(existing.Id), new PatchSupplierRequest(name, null, null, null, null, null, null, null), Ct);
+        patched.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await patched.Content.ReadAsStringAsync(Ct)).ShouldContain("\"name\"");
+        factory.Query(db => db.Suppliers.Single(s => s.Id == existing.Id).Name).ShouldBe("Short enough");
+
+        // Exactly at the limit after folding is fine.
+        var atLimit = new string('ß', SupplierEndpoints.MaxNameLength / 2);
+        (await admin.PostAsJsonAsync(SuppliersUri, NewSupplier(atLimit), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task List_searches_by_folded_name_or_vat_id_and_pages_in_name_order()
+    {
+        // A tenant of its own, so the exact search result cannot pick up other tests' suppliers.
+        var tenant = factory.CreateTenant("Supplier search");
+        using var admin = factory.TenantAdminOf(tenant);
         foreach (var name in new[] { "Zebra Catering", "Äpfel & Birnen", "Metro Deutschland" })
         {
             (await admin.PostAsJsonAsync(SuppliersUri, NewSupplier(name), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -105,9 +129,7 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         }
         while (cursor is not null);
 
-        seen.ShouldBe(seen.Order(StringComparer.Ordinal).ToList());
-        seen.Distinct().Count().ShouldBe(seen.Count);
-        seen.ShouldContain("ZEBRA CATERING");
+        seen.ShouldBe(["APFEL BIRNEN", "KONZUM", "METRO DEUTSCHLAND", "ZEBRA CATERING"]);
     }
 
     [Fact]
