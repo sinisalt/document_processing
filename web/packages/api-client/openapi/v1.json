@@ -533,7 +533,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "The file the document was ingested from, with its original content type and file name.",
+        "summary": "The file the document was ingested from. PDFs and images are served inline with their content type; anything else is an attachment of application/octet-stream.",
         "operationId": "GetDocumentOriginal",
         "parameters": [
           {
@@ -718,7 +718,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage (Normalize, Classify, Extract or Validate; default Extract).",
+        "summary": "Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract).",
         "operationId": "ReprocessDocument",
         "parameters": [
           {
@@ -776,7 +776,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Applies reviewer corrections by canonical field path; each keeps the previous value in the field's history and is recorded as a Correction.",
+        "summary": "Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.",
         "operationId": "CorrectDocumentFields",
         "parameters": [
           {
@@ -1493,7 +1493,7 @@
         "tags": [
           "Channels"
         ],
-        "summary": "Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant.",
+        "summary": "Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant; the credential is write-only.",
         "operationId": "CreateChannel",
         "requestBody": {
           "content": {
@@ -1534,7 +1534,7 @@
         "tags": [
           "Channels"
         ],
-        "summary": "Renames, pauses/resumes or reconfigures a channel.",
+        "summary": "Renames, pauses/resumes or reconfigures a channel; secret rotates (value) or clears (empty string) the credential.",
         "operationId": "UpdateChannel",
         "parameters": [
           {
@@ -1587,7 +1587,7 @@
         "tags": [
           "Channels"
         ],
-        "summary": "Deletes a channel that has never received anything; otherwise 409.",
+        "summary": "Deletes a channel that has never received anything, and its credential; otherwise 409.",
         "operationId": "DeleteChannel",
         "parameters": [
           {
@@ -2010,7 +2010,7 @@
         "tags": [
           "LLM"
         ],
-        "summary": "Deletes a configuration the policy does not reference; usage rows keep its id for cost history.",
+        "summary": "Deletes a configuration the policy does not reference, and its key from the secret store; usage rows keep its id for cost history.",
         "operationId": "DeleteLlmProvider",
         "parameters": [
           {
@@ -2441,7 +2441,7 @@
           "name",
           "type",
           "config",
-          "secretRef"
+          "secret"
         ],
         "type": "object",
         "properties": {
@@ -2461,14 +2461,14 @@
               }
             ]
           },
-          "secretRef": {
+          "secret": {
             "type": [
               "null",
               "string"
             ]
           }
         },
-        "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path); string? CreateChannelRequest.SecretRef names the credential in the secret store."
+        "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.\nstring? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the\nserver generates; the response only ever says whether one exists."
       },
       "CreateLlmProviderRequest": {
         "required": [
@@ -4143,7 +4143,8 @@
         "required": [
           "name",
           "status",
-          "config"
+          "config",
+          "secret"
         ],
         "type": "object",
         "properties": {
@@ -4168,8 +4169,15 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          },
+          "secret": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
-        }
+        },
+        "description": "Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it."
       },
       "PatchSupplierRequest": {
         "required": [

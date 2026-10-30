@@ -12,14 +12,23 @@ namespace DocProc.Api.Auth;
 /// database round trip on every request. An unknown tenant is not cached, so a tenant created a moment ago is seen
 /// at once. Entries are stamped with the application <see cref="TimeProvider"/> (the clock everything else runs on,
 /// and the one tests control); the memory cache's own expiration is only the backstop that frees the memory.
+/// A host without persistence (only the OpenAPI export runs that way) has no tenant table to consult and treats every
+/// tenant as active; no tenant data is reachable in that host anyway.
 /// </summary>
-public sealed class TenantStatusCache(ISystemDbContextFactory contexts, IMemoryCache cache, TimeProvider clock)
+public sealed class TenantStatusCache(IServiceProvider services, IMemoryCache cache, TimeProvider clock)
 {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(30);
+
+    private readonly ISystemDbContextFactory? _contexts = services.GetService<ISystemDbContextFactory>();
 
     /// <summary>The tenant's status, or null when no tenant with that id exists.</summary>
     public async Task<TenantStatus?> GetStatusAsync(Guid tenantId, CancellationToken cancellationToken)
     {
+        if (_contexts is not { } contexts)
+        {
+            return TenantStatus.Active;
+        }
+
         var key = new Key(tenantId);
         var now = clock.GetUtcNow();
         if (cache.TryGetValue(key, out Entry? cached) && cached is not null && cached.FreshUntil > now)

@@ -49,7 +49,7 @@ export interface paths {
         /** Ingestion channels of the current tenant; credentials are never returned. */
         get: operations["ListChannels"];
         put?: never;
-        /** Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant. */
+        /** Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant; the credential is write-only. */
         post: operations["CreateChannel"];
         delete?: never;
         options?: never;
@@ -67,11 +67,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deletes a channel that has never received anything; otherwise 409. */
+        /** Deletes a channel that has never received anything, and its credential; otherwise 409. */
         delete: operations["DeleteChannel"];
         options?: never;
         head?: never;
-        /** Renames, pauses/resumes or reconfigures a channel. */
+        /** Renames, pauses/resumes or reconfigures a channel; secret rotates (value) or clears (empty string) the credential. */
         patch: operations["UpdateChannel"];
         trace?: never;
     };
@@ -152,7 +152,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage (Normalize, Classify, Extract or Validate; default Extract). */
+        /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract). */
         post: operations["ReprocessDocument"];
         delete?: never;
         options?: never;
@@ -190,7 +190,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Applies reviewer corrections by canonical field path; each keeps the previous value in the field's history and is recorded as a Correction. */
+        /** Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction. */
         patch: operations["CorrectDocumentFields"];
         trace?: never;
     };
@@ -201,7 +201,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The file the document was ingested from, with its original content type and file name. */
+        /** The file the document was ingested from. PDFs and images are served inline with their content type; anything else is an attachment of application/octet-stream. */
         get: operations["GetDocumentOriginal"];
         put?: never;
         post?: never;
@@ -326,7 +326,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deletes a configuration the policy does not reference; usage rows keep its id for cost history. */
+        /** Deletes a configuration the policy does not reference, and its key from the secret store; usage rows keep its id for cost history. */
         delete: operations["DeleteLlmProvider"];
         options?: never;
         head?: never;
@@ -772,11 +772,15 @@ export interface components {
             name: string;
             scopes: string[];
         };
-        /** @description JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path); string? CreateChannelRequest.SecretRef names the credential in the secret store. */
+        /**
+         * @description JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.
+         *     string? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the
+         *     server generates; the response only ever says whether one exists.
+         */
         CreateChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
             name: string;
-            secretRef: null | string;
+            secret: null | string;
             type: string;
         };
         /** @description Returned once, on creation: string CreatedApiKey.Key is never retrievable again. */
@@ -1178,9 +1182,11 @@ export interface components {
             items: components["schemas"]["TenantResponse"][];
             nextCursor: null | string;
         };
+        /** @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it. */
         PatchChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
             name: null | string;
+            secret: null | string;
             status: null | string;
         };
         /** @description Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list. */
