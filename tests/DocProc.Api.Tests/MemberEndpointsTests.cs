@@ -20,7 +20,9 @@ public sealed class MemberEndpointsTests(ApiFactory factory) : IClassFixture<Api
     [Fact]
     public async Task Tenant_admin_manages_members_and_cannot_remove_the_last_admin()
     {
-        using var admin = TenantAdminClient();
+        // A tenant of its own: the list and the final count are exact, so no other test's members may be in them.
+        var tenant = factory.CreateTenant("Members");
+        using var admin = factory.TenantAdminOf(tenant);
 
         var first = await admin.PostAsJsonAsync(MembersUri, new AddMemberRequest("user|admin-1", "admin1@example.test", "Admin One", "tenantadmin"), Ct);
         first.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -47,7 +49,7 @@ public sealed class MemberEndpointsTests(ApiFactory factory) : IClassFixture<Api
         (await admin.DeleteAsync(MemberUri("user|admin-1"), Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await admin.DeleteAsync(MemberUri("user|rev-1"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "now the last admin");
 
-        factory.Query(db => db.TenantMembers.Count(m => m.TenantId == ApiFactory.TenantA)).ShouldBe(1);
+        factory.Query(db => db.TenantMembers.Count(m => m.TenantId == tenant)).ShouldBe(1);
     }
 
     [Fact]
@@ -60,6 +62,12 @@ public sealed class MemberEndpointsTests(ApiFactory factory) : IClassFixture<Api
         body.ShouldContain("\"userId\"");
         body.ShouldContain("\"role\"");
 
+        // A role is a name, never its numeric value ("0" would otherwise be TenantAdmin).
+        var numeric = await admin.PostAsJsonAsync(MembersUri, new AddMemberRequest("user|numeric-role", null, null, "0"), Ct);
+        numeric.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await numeric.Content.ReadAsStringAsync(Ct)).ShouldContain("\"role\"");
+        factory.Query(db => db.TenantMembers.Any(m => m.UserId == "user|numeric-role")).ShouldBeFalse();
+
         using var reviewer = factory.ClientFor(new TokenSpec("rev", [Roles.Reviewer], TenantA));
         (await reviewer.GetAsync(MembersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await reviewer.PostAsJsonAsync(MembersUri, new AddMemberRequest("user|x", null, null, "Viewer"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
@@ -69,6 +77,35 @@ public sealed class MemberEndpointsTests(ApiFactory factory) : IClassFixture<Api
 
         using var acting = factory.ClientFor(new TokenSpec("superadmin", [Roles.SuperAdmin]), tenantHeader: Guid.NewGuid().ToString());
         (await acting.PostAsJsonAsync(MembersUri, new AddMemberRequest("user|x", null, null, "Viewer"), Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound, "the overridden tenant does not exist");
+    }
+
+    [Theory]
+    [InlineData("auth0/abc")]
+    [InlineData("user id")]
+    [InlineData("user\tid")]
+    [InlineData("user\u0001id")]
+    [InlineData("/leading")]
+    public async Task A_user_id_that_could_not_be_addressed_again_is_refused(string userId)
+    {
+        using var admin = TenantAdminClient();
+
+        var response = await admin.PostAsJsonAsync(MembersUri, new AddMemberRequest(userId, null, null, "Viewer"), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("\"userId\"");
+        factory.Query(db => db.TenantMembers.Any(m => m.UserId == userId)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_user_id_with_pipes_colons_and_at_signs_round_trips_through_the_route()
+    {
+        var tenant = factory.CreateTenant("Odd subjects");
+        using var admin = factory.TenantAdminOf(tenant);
+        const string userId = "oidc|user:name@idp.example";
+
+        (await admin.PostAsJsonAsync(MembersUri, new AddMemberRequest(userId, null, null, "Viewer"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await admin.PatchAsJsonAsync(MemberUri(userId), new ChangeMemberRoleRequest("Reviewer"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.DeleteAsync(MemberUri(userId), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
 
     [Fact]

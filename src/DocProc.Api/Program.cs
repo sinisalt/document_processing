@@ -17,6 +17,7 @@ builder.AddServiceDefaults();
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<OpenApiSecurityTransformer>());
 builder.Services.AddProblemDetails();
 builder.Services.AddDocProcAuthentication(builder.Configuration, builder.Environment);
+builder.Services.AddTenantStatusCache();
 
 // SQL Server (migrate on start-up everywhere except production, where the release pipeline runs the script) or, for the
 // dependency-free development mode, a SQLite file created from the model (docs/09 "Running without Docker").

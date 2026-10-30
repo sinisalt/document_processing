@@ -86,6 +86,42 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
 
         (await admin.PostAsJsonAsync(ProvidersUri, NewProvider("k") with { Models = null }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         factory.Query(db => db.LlmProviderConfigs.Count(c => c.TenantId == ApiFactory.TenantA && c.Kind == LlmProviderKind.Replay)).ShouldBe(0);
+
+        // A key shorter than eight characters would be revealed almost whole by keyLast4.
+        var shortKey = await admin.PostAsJsonAsync(ProvidersUri, NewProvider("abcdefg"), Ct);
+        shortKey.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await shortKey.Content.ReadAsStringAsync(Ct)).ShouldContain("\"apiKey\"");
+        (await admin.PostAsJsonAsync(ProvidersUri, NewProvider("abcd"), Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var eight = (await (await admin.PostAsJsonAsync(ProvidersUri, NewProvider("abcdefgh"), Ct)).Content.ReadFromJsonAsync<LlmProviderResponse>(Ct))!;
+        eight.KeyLast4.ShouldBe("efgh");
+
+        // Stage names are case-insensitive, so two spellings of one stage are a contradiction, not a merge.
+        var duplicated = await admin.PostAsJsonAsync(ProvidersUri, NewProvider("dup-key-12345678") with { Models = new Dictionary<string, string>(StringComparer.Ordinal) { ["extract"] = "model-a", ["Extract"] = "model-b" } }, Ct);
+        duplicated.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await duplicated.Content.ReadAsStringAsync(Ct)).ShouldContain("\"models\"");
+        factory.Query(db => db.LlmProviderConfigs.Any(c => c.KeyLast4 == "5678")).ShouldBeFalse();
+
+        // Nor is a stage its ordinal.
+        var numericStage = await admin.PostAsJsonAsync(ProvidersUri, NewProvider("num-key-12345678") with { Models = new Dictionary<string, string>(StringComparer.Ordinal) { ["0"] = "model-a" } }, Ct);
+        numericStage.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await numericStage.Content.ReadAsStringAsync(Ct)).ShouldContain("\"models\"");
+    }
+
+    [Fact]
+    public async Task Deleting_a_provider_removes_its_key_from_the_secret_store()
+    {
+        using var admin = TenantAdminClient();
+        const string apiKey = "delete-me-key-00001234";
+        var created = (await (await admin.PostAsJsonAsync(ProvidersUri, NewProvider(apiKey), Ct)).Content.ReadFromJsonAsync<LlmProviderResponse>(Ct))!;
+        var secrets = factory.Services.GetRequiredService<ISecretStore>();
+        var reference = $"tenant/{ApiFactory.TenantA}/{created.Id}";
+        (await secrets.GetAsync(reference, Ct)).ShouldBe(apiKey);
+
+        (await admin.DeleteAsync(new Uri($"/api/v1/llm-providers/{created.Id}", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        factory.Query(db => db.LlmProviderConfigs.Any(c => c.Id == created.Id)).ShouldBeFalse();
+        (await secrets.GetAsync(reference, Ct)).ShouldBeNull("the key does not outlive its configuration");
+        (await admin.DeleteAsync(new Uri($"/api/v1/llm-providers/{created.Id}", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -158,19 +194,21 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
     [Fact]
     public async Task Usage_aggregates_the_tenant_rows_by_day_stage_or_model()
     {
+        // A tenant of its own: the buckets and totals are exact, so no other test's usage rows may be in them.
+        var tenant = factory.CreateTenant("Usage");
         var configId = Guid.CreateVersion7();
         var day1 = new DateTimeOffset(2026, 10, 20, 9, 0, 0, TimeSpan.Zero);
         var day2 = new DateTimeOffset(2026, 10, 21, 23, 30, 0, TimeSpan.Zero);
         factory.Run(db =>
         {
-            db.LlmUsage.Add(Usage(ApiFactory.TenantA, configId, LlmStage.Classify, "haiku", day1, 100, 10, 0.001m));
-            db.LlmUsage.Add(Usage(ApiFactory.TenantA, configId, LlmStage.Extract, "opus", day1.AddHours(2), 5000, 800, 0.2m));
-            db.LlmUsage.Add(Usage(ApiFactory.TenantA, configId, LlmStage.Extract, "opus", day2, 7000, 900, 0.3m, LlmErrorKind.RateLimited));
-            db.LlmUsage.Add(Usage(ApiFactory.TenantA, configId, LlmStage.Split, "haiku", day2.AddDays(5), 1, 1, 0.5m));
+            db.LlmUsage.Add(Usage(tenant, configId, LlmStage.Classify, "haiku", day1, 100, 10, 0.001m));
+            db.LlmUsage.Add(Usage(tenant, configId, LlmStage.Extract, "opus", day1.AddHours(2), 5000, 800, 0.2m));
+            db.LlmUsage.Add(Usage(tenant, configId, LlmStage.Extract, "opus", day2, 7000, 900, 0.3m, LlmErrorKind.RateLimited));
+            db.LlmUsage.Add(Usage(tenant, configId, LlmStage.Split, "haiku", day2.AddDays(5), 1, 1, 0.5m));
             db.LlmUsage.Add(Usage(ApiFactory.TenantB, configId, LlmStage.Extract, "opus", day1, 9999, 9999, 9m));
         });
 
-        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], TenantA));
+        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], tenant.ToString()));
         var byDay = (await viewer.GetFromJsonAsync<LlmUsageResponse>(new Uri("/api/v1/llm-usage?from=2026-10-20&to=2026-10-21&groupBy=day", UriKind.Relative), Ct))!;
 
         byDay.From.ShouldBe(new DateOnly(2026, 10, 20));
@@ -237,15 +275,19 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
         (await op.PostAsync(new Uri($"/api/v1/llm/providers/{created.Id}:disable", UriKind.Relative), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await tenantAdmin.GetAsync(PlatformProvidersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
+        // Two tenants of this test's own on a day no other test writes usage for, so the cross-tenant buckets are exact.
+        var tenantX = factory.CreateTenant("Usage X");
+        var tenantY = factory.CreateTenant("Usage Y");
         var at = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
         factory.Run(db =>
         {
-            db.LlmUsage.Add(Usage(ApiFactory.TenantA, created.Id, LlmStage.Extract, "gpt", at, 10, 1, 0.01m));
-            db.LlmUsage.Add(Usage(ApiFactory.TenantB, created.Id, LlmStage.Extract, "gpt", at, 20, 2, 0.02m));
+            db.LlmUsage.Add(Usage(tenantX, created.Id, LlmStage.Extract, "gpt", at, 10, 1, 0.01m));
+            db.LlmUsage.Add(Usage(tenantY, created.Id, LlmStage.Extract, "gpt", at, 20, 2, 0.02m));
         });
         var usage = (await superAdmin.GetFromJsonAsync<LlmUsageResponse>(new Uri("/api/v1/llm/usage?from=2026-09-01&to=2026-09-01", UriKind.Relative), Ct))!;
         usage.GroupBy.ShouldBe("tenant");
-        usage.Buckets.Select(b => (b.Key, b.InputTokens)).ShouldBe([(ApiFactory.TenantA.ToString(), 10L), (ApiFactory.TenantB.ToString(), 20L)]);
+        usage.Buckets.Select(b => (b.Key, b.InputTokens)).ShouldBe([(tenantX.ToString(), 10L), (tenantY.ToString(), 20L)], ignoreOrder: true);
+        usage.Buckets.Select(b => b.Key).ShouldBeInOrder(SortDirection.Ascending, StringComparer.Ordinal);
         usage.Total.EstimatedCostUsd.ShouldBe(0.03m);
         (await superAdmin.GetAsync(new Uri("/api/v1/llm/usage?groupBy=stage", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }

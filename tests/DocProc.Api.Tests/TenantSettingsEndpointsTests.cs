@@ -17,11 +17,14 @@ public sealed class TenantSettingsEndpointsTests(ApiFactory factory) : IClassFix
     [Fact]
     public async Task Get_returns_the_identity_and_the_defaults()
     {
-        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], TenantA));
+        // A tenant nobody else touches: the PUT test replaces tenant A's settings, so the defaults must be read elsewhere.
+        var tenant = factory.CreateTenant("Untouched");
+        var slug = factory.Query(db => db.Tenants.Single(t => t.Id == tenant).Slug);
+        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], tenant.ToString()));
 
         var response = (await viewer.GetFromJsonAsync<TenantSettingsResponse>(SettingsUri, Ct))!;
 
-        response.Tenant.ShouldBe(new TenantIdentity(ApiFactory.TenantA, "Tenant A", "tenant-a", "Gasthaus zur Post GmbH", null, "EUR", "DE", "Europe/Berlin"));
+        response.Tenant.ShouldBe(new TenantIdentity(tenant, "Untouched", slug, "Untouched GmbH", null, "EUR", "DE", "Europe/Berlin"));
         response.Settings.AutoApproveConfidenceThreshold.ShouldBe(0.8);
         response.Settings.RetentionYears.ShouldBe(10);
         response.Settings.ShareExtractorProfiles.ShouldBeTrue();

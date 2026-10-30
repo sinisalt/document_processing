@@ -47,4 +47,36 @@ public sealed class FileSecretStoreTests : IDisposable
         (await again.GetAsync(reference + "x", Ct)).ShouldBeNull();
         await Should.ThrowAsync<ArgumentException>(() => again.SetAsync(" ", "x", Ct));
     }
+
+    [Fact]
+    public async Task Delete_removes_the_file_and_tolerates_a_reference_that_was_never_stored()
+    {
+        var store = new FileSecretStore(_root);
+        const string reference = "tenant/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/channel/config-2";
+        await store.SetAsync(reference, "to be deleted", Ct);
+        File.Exists(store.PathFor(reference)).ShouldBeTrue();
+
+        await store.DeleteAsync(reference, Ct);
+
+        File.Exists(store.PathFor(reference)).ShouldBeFalse();
+        (await store.GetAsync(reference, Ct)).ShouldBeNull();
+        await store.DeleteAsync(reference, Ct);
+        await store.DeleteAsync("never/stored", Ct);
+        await Should.ThrowAsync<ArgumentException>(() => store.DeleteAsync(" ", Ct));
+    }
+
+    [Fact]
+    public async Task In_memory_store_deletes_and_tolerates_unknown_references()
+    {
+        var store = new InMemorySecretStore();
+        await store.SetAsync("a", "1", Ct);
+        await store.SetAsync("b", "2", Ct);
+
+        await store.DeleteAsync("a", Ct);
+        await store.DeleteAsync("never", Ct);
+
+        store.Count.ShouldBe(1);
+        (await store.GetAsync("a", Ct)).ShouldBeNull();
+        (await store.GetAsync("b", Ct)).ShouldBe("2");
+    }
 }

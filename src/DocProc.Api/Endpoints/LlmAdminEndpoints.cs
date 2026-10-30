@@ -76,6 +76,11 @@ public static class LlmAdminEndpoints
 {
     private const int DefaultUsageWindowDays = 30;
     private const int FingerprintLength = 16;
+
+    /// <summary>Shorter than this and <c>keyLast4</c> would reveal most of the key; no real provider key is this short.</summary>
+    public const int MinApiKeyLength = 8;
+
+    public const int MaxApiKeyLength = 4096;
     private static readonly string[] TenantGroupings = ["day", "stage", "model"];
     private static readonly string[] PlatformGroupings = ["tenant", "model", "day"];
 
@@ -224,7 +229,7 @@ public static class LlmAdminEndpoints
             .WithName("EnableLlmProvider")
             .WithSummary("Re-enables a disabled or invalid configuration.");
 
-        providers.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        providers.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, ISecretStore secrets, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "LLM providers") is { } problem)
             {
@@ -244,12 +249,19 @@ public static class LlmAdminEndpoints
                 return Conflict("Configuration in use", "The LLM policy references this configuration; point the policy elsewhere first.");
             }
 
+            // The row first, the key second: a failed save keeps a working configuration, a failed delete leaves an
+            // unreferenced secret, never a configuration whose reference points at nothing.
             db.LlmProviderConfigs.Remove(record);
             await db.SaveChangesAsync(ct);
+            if (record.SecretRef is { } reference)
+            {
+                await secrets.DeleteAsync(reference, ct);
+            }
+
             return TypedResults.NoContent();
         })
         .WithName("DeleteLlmProvider")
-        .WithSummary("Deletes a configuration the policy does not reference; usage rows keep its id for cost history.");
+        .WithSummary("Deletes a configuration the policy does not reference, and its key from the secret store; usage rows keep its id for cost history.");
     }
 
     private static void MapTenantUsage(RouteGroupBuilder group)
@@ -342,9 +354,9 @@ public static class LlmAdminEndpoints
             errors.Add("endpoint", "endpoint must be an absolute http(s) URL of at most 500 characters.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.ApiKey) || request.ApiKey.Length > 4096 || request.ApiKey.Any(char.IsWhiteSpace))
+        if (string.IsNullOrWhiteSpace(request.ApiKey) || request.ApiKey.Length is < MinApiKeyLength or > MaxApiKeyLength || request.ApiKey.Any(char.IsWhiteSpace))
         {
-            errors.Add("apiKey", "apiKey is required and may not contain whitespace.");
+            errors.Add("apiKey", $"apiKey is required, between {MinApiKeyLength} and {MaxApiKeyLength} characters, and may not contain whitespace.");
         }
 
         if (request.Models is null || request.Models.Count == 0)
@@ -353,11 +365,20 @@ public static class LlmAdminEndpoints
         }
         else
         {
+            var seen = new HashSet<LlmStage>();
             foreach (var (stageName, model) in request.Models)
             {
-                if (!TryParseEnum<LlmStage>(stageName, out _))
+                if (!TryParseEnum<LlmStage>(stageName, out var stage))
                 {
                     errors.Add("models", $"Unknown stage '{stageName}'. Allowed: {Names<LlmStage>()}.");
+                    break;
+                }
+
+                if (!seen.Add(stage))
+                {
+                    // Stage names are matched case-insensitively, so "extract" and "Extract" would silently collapse
+                    // into one entry and the client could not tell which model won.
+                    errors.Add("models", $"Stage '{stage}' is listed more than once.");
                     break;
                 }
 
@@ -403,7 +424,7 @@ public static class LlmAdminEndpoints
             Endpoint = TrimToNull(request.Endpoint),
             ApiVersion = TrimToNull(request.ApiVersion),
             AuthType = LlmAuthType.ApiKey,
-            KeyLast4 = key.Length <= 4 ? key : key[^4..],
+            KeyLast4 = key[^4..],
             KeyFingerprint = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..FingerprintLength],
             Models = models,
             MonthlySpendCapUsd = request.MonthlySpendCapUsd,
