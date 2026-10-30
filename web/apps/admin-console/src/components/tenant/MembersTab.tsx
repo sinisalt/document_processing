@@ -225,7 +225,7 @@ export function MembersTab() {
             );
           },
         }),
-        helper.accessor("createdAt", { header: t("members.since"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("createdAt", { header: t("members.since"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.display({
           id: "actions",
           header: () => <span className="sr-only">{t("members.actions")}</span>,

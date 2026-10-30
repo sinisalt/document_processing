@@ -73,7 +73,7 @@ function DocumentDetailPage() {
         flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
         flagHelper.accessor("message", { header: t("document.flagMessage") }),
         flagHelper.accessor("createdBy", { header: t("document.flagOrigin"), cell: (info) => t(`flagOrigin.${info.getValue()}`, { defaultValue: info.getValue() }) }),
-        flagHelper.accessor("resolvedAt", { header: t("document.flagResolved"), sortingFn: "datetime", cell: (info) => (info.getValue() ? `${formatDateTime(info.getValue(), i18n.language)}${info.row.original.resolvedBy ? ` · ${info.row.original.resolvedBy}` : ""}` : t("document.flagOpen")) }),
+        flagHelper.accessor("resolvedAt", { header: t("document.flagResolved"), sortFn: "datetime", cell: (info) => (info.getValue() ? `${formatDateTime(info.getValue(), i18n.language)}${info.row.original.resolvedBy ? ` · ${info.row.original.resolvedBy}` : ""}` : t("document.flagOpen")) }),
       ]),
     [t, i18n.language],
   );

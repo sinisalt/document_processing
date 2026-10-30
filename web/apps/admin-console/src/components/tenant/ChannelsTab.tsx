@@ -233,7 +233,7 @@ export function ChannelsTab() {
           ),
         }),
         helper.accessor("hasSecret", { header: t("channels.hasSecret"), cell: (info) => (info.getValue() ? t("yes") : t("no")) }),
-        helper.accessor("lastPolledAt", { header: t("channels.lastPolledAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("lastPolledAt", { header: t("channels.lastPolledAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.accessor("lastError", { header: t("channels.lastError"), cell: (info) => <span className="block max-w-xs truncate text-destructive" title={info.getValue() ?? undefined}>{info.getValue() ?? "—"}</span> }),
         helper.display({
           id: "actions",

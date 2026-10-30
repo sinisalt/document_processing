@@ -210,7 +210,7 @@ export function OverviewTab({ tenant }: { tenant: Tenant }) {
         description={suspended ? t("tenant.activateDescription") : t("tenant.suspendDescription")}
         confirmLabel={suspended ? t("tenant.activate") : t("tenant.suspend")}
         isPending={status.isPending}
-        onConfirm={() => status.mutateAsync()}
+        onConfirm={async () => { await status.mutateAsync(); }}
       />
     </Card>
   );

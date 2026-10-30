@@ -81,8 +81,8 @@ function ReviewQueuePage() {
         helper.accessor("status", { header: t("review.status"), cell: (info) => <ReviewTaskStatusBadge status={info.getValue()} /> }),
         helper.accessor((row) => row.document?.status ?? "", { id: "documentStatus", header: t("documents.status"), cell: (info) => (info.row.original.document ? <StatusBadge status={info.row.original.document.status} /> : "—") }),
         helper.accessor("assignedTo", { header: t("review.assignedTo"), cell: (info) => (info.getValue() ? <span className={info.getValue() === me ? "font-medium" : undefined}>{info.getValue() === me ? t("review.you") : info.getValue()}</span> : <span className="text-muted-foreground">{t("review.unassigned")}</span>) }),
-        helper.accessor("createdAt", { header: t("review.waiting"), sortingFn: "datetime", cell: (info) => <span title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
-        helper.accessor("slaDueAt", { header: t("review.slaDue"), sortingFn: "datetime", cell: (info) => (info.getValue() ? <span className={new Date(info.getValue()!) < new Date() ? "text-destructive" : undefined}>{formatDateTime(info.getValue(), i18n.language)}</span> : "—") }),
+        helper.accessor("createdAt", { header: t("review.waiting"), sortFn: "datetime", cell: (info) => <span title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("slaDueAt", { header: t("review.slaDue"), sortFn: "datetime", cell: (info) => (info.getValue() ? <span className={new Date(info.getValue()!) < new Date() ? "text-destructive" : undefined}>{formatDateTime(info.getValue(), i18n.language)}</span> : "—") }),
         helper.display({
           id: "actions",
           header: () => <span className="sr-only">{t("review.actions")}</span>,

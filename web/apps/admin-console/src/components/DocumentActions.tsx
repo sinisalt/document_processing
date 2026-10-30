@@ -46,7 +46,7 @@ export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange,
       description={t("document.reprocessDescription")}
       confirmLabel={t("document.reprocess")}
       isPending={mutation.isPending}
-      onConfirm={() => mutation.mutateAsync(stage)}
+      onConfirm={async () => { await mutation.mutateAsync(stage); }}
     >
       <div className="grid gap-2">
         <Label htmlFor={`reprocess-stage-${documentId}`}>{t("document.fromStage")}</Label>
@@ -94,7 +94,7 @@ export function RejectDialog({ documentId, documentLabel, open, onOpenChange, tr
       confirmLabel={t("document.reject")}
       isPending={mutation.isPending}
       confirmDisabled={reason.trim().length === 0}
-      onConfirm={() => mutation.mutateAsync(reason)}
+      onConfirm={async () => { await mutation.mutateAsync(reason); }}
     >
       <div className="grid gap-2">
         <Label htmlFor={`reject-reason-${documentId}`}>{t("document.rejectReason")}</Label>
@@ -129,7 +129,7 @@ export function ApproveDialog({ documentId, documentLabel, open, onOpenChange, t
       description={t("document.approveDescription")}
       confirmLabel={t("document.approve")}
       isPending={mutation.isPending}
-      onConfirm={() => mutation.mutateAsync(comment)}
+      onConfirm={async () => { await mutation.mutateAsync(comment); }}
     >
       <div className="grid gap-2">
         <Label htmlFor={`approve-comment-${documentId}`}>{t("document.approveComment")}</Label>

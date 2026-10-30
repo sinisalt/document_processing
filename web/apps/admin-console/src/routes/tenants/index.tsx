@@ -53,7 +53,7 @@ function TenantsPage() {
         helper.accessor("legalName", { header: t("tenants.legalName") }),
         helper.accessor("countryCode", { header: t("tenants.country") }),
         helper.accessor("defaultCurrency", { header: t("tenants.currency") }),
-        helper.accessor("createdAt", { header: t("tenants.createdAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("createdAt", { header: t("tenants.createdAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
       ]),
     [t, i18n.language],
   );

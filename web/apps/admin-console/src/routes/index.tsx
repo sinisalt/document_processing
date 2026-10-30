@@ -102,7 +102,7 @@ function DashboardPage() {
         }),
         helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => info.getValue() ?? "—" }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
-        helper.accessor("updatedAt", { header: t("documents.updatedAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("updatedAt", { header: t("documents.updatedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.display({
           id: "actions",
           header: () => <span className="sr-only">{t("dashboard.actions")}</span>,

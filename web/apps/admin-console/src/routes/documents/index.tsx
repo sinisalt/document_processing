@@ -101,7 +101,7 @@ function DocumentsPage() {
         helper.accessor("status", { header: t("documents.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => info.getValue() ?? "—" }),
-        helper.accessor("issueDate", { header: t("documents.issueDate"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDate(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("issueDate", { header: t("documents.issueDate"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDate(info.getValue(), i18n.language)}</span> }),
         helper.accessor("totalGross", { header: t("documents.total"), cell: (info) => <span className="tabular-nums">{formatMoney(info.getValue(), info.row.original.currency, i18n.language)}</span> }),
         helper.display({
           id: "flags",
@@ -120,7 +120,7 @@ function DocumentsPage() {
         }),
         helper.accessor("extractionMethod", { header: t("documents.method"), cell: (info) => (info.getValue() ? t(`common:sourceMethod.${info.getValue()}`, { defaultValue: info.getValue() ?? "" }) : "—") }),
         helper.accessor("pageCount", { header: t("documents.pages"), cell: (info) => <span className="tabular-nums">{String(info.getValue())}</span> }),
-        helper.accessor("createdAt", { header: t("documents.receivedAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("createdAt", { header: t("documents.receivedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
       ]),
     [t, i18n.language],
   );

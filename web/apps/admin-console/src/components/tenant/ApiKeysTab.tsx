@@ -211,8 +211,8 @@ export function ApiKeysTab() {
             </span>
           ),
         }),
-        helper.accessor("createdAt", { header: t("apiKeys.createdAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
-        helper.accessor("lastUsedAt", { header: t("apiKeys.lastUsedAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("createdAt", { header: t("apiKeys.createdAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("lastUsedAt", { header: t("apiKeys.lastUsedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.accessor("revokedAt", {
           header: t("apiKeys.status"),
           cell: (info) => (info.getValue() ? <Badge variant="secondary">{t("apiKeys.revokedAt", { at: formatDateTime(info.getValue(), i18n.language) })}</Badge> : <Badge>{t("apiKeys.active")}</Badge>),

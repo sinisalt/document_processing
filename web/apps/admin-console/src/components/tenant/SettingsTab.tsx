@@ -32,7 +32,7 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
   const { t } = useTranslation("admin");
   const { client } = useApi();
   const queryClient = useQueryClient();
-  const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: toForm(settings) });
+  const form = useForm<z.input<typeof schema>, unknown, FormValues>({ resolver: zodResolver(schema), defaultValues: toForm(settings) });
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => unwrap(await client.PUT("/api/v1/settings", { body: values })),
     meta: { silent: true },

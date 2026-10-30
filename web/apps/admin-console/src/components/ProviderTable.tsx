@@ -80,7 +80,7 @@ export function ProviderTable({ providers, isLoading, scope, queryKey, canManage
         helper.accessor("keyLast4", { header: t("llm.key"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ? `••••${info.getValue()}` : "—"}</span> }),
         helper.accessor("monthlySpendCapUsd", { header: t("llm.spendCap"), cell: (info) => <span className="tabular-nums">{info.getValue() == null ? "—" : formatUsd(info.getValue(), i18n.language)}</span> }),
         helper.accessor("lastError", { header: t("llm.lastError"), cell: (info) => <span className="block max-w-xs truncate text-destructive" title={info.getValue() ?? undefined}>{info.getValue() ?? "—"}</span> }),
-        helper.accessor("updatedAt", { header: t("llm.updatedAt"), sortingFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("updatedAt", { header: t("llm.updatedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.display({
           id: "actions",
           header: () => <span className="sr-only">{t("llm.actions")}</span>,
@@ -123,7 +123,7 @@ export function ProviderTable({ providers, isLoading, scope, queryKey, canManage
           description={pending.status === "Active" ? t("llm.disableDescription") : t("llm.enableDescription")}
           confirmLabel={pending.status === "Active" ? t("llm.disable") : t("llm.enable")}
           isPending={toggle.isPending}
-          onConfirm={() => toggle.mutateAsync(pending)}
+          onConfirm={async () => { await toggle.mutateAsync(pending); }}
         />
       )}
     </>
