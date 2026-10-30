@@ -187,11 +187,23 @@ stage 2: item kinds from extension and content type, zip archives expanded one l
 archives beyond depth 2 are ignored; a corrupt or truncated archive is ignored with the reason
 `unreadable zip archive: <reader message>`; entries over `Pipeline:MaxArchiveEntryBytes` are
 skipped, and the copy itself stops at that limit, so a header that under-declares the entry size
-does not get around it), exact duplicates (same tenant, same SHA-256) linked to the strictly earlier
-item (older `CreatedAt`, or the same instant and the smaller v7 id), so two ingestions of the same
-bytes processed at the same time agree on the one that owns the document and an older item is never
-the duplicate of a newer one, images under 20 KB and `.ics` files ignored with a reason, one
-`Received` document per remaining candidate. One `IStageHandler` per document stage (`Normalize`,
+does not get around it), exact duplicates (same tenant, same SHA-256) linked to the item that
+already owns a document for the bytes or, when none does yet, to the strictly earlier item (older
+`CreatedAt`, or the same instant and the smaller v7 id), so two ingestions of the same bytes
+processed at the same time agree on the one that owns the document, an older item is never the
+duplicate of a newer one that is still undecided, and an existing document is never created a
+second time, images under 20 KB and `.ics` files ignored with a reason, one `Received` document per
+remaining candidate. The handler commits in two units of work: the files unpacked from archives
+are inserted first, as candidates (their `CreatedAt` is the unpacking time; the ingestion's version
+token bumps with them, so a twin message on another node drops out before it inserts a second
+set), and only then are the dispositions decided and the documents created and committed together,
+so two ingestions carrying the same zip see each other's files just as they see the attachments the
+API stored before enqueueing. Within one process the decide-and-commit half runs one ingestion at a
+time per tenant (`IngestCommitGate`, a `KeyedWorkGate` keyed by tenant); unpacking and blob writes
+stay concurrent. Across processes the same race keeps a narrow window (between one handler's
+duplicate query and its commit), which a unique index on the owning item is to close in a later
+block. A retry after a crash between the two commits finds the archive `Unpacked` and its files as
+candidates, and decides them without unpacking again. One `IStageHandler` per document stage (`Normalize`,
 `Split`, `Classify`, `Match`, `Extract`, `Validate`, `Publish`) follows; every handler loads the
 document, compares its status with the one the stage starts from and drops a stale message with a
 log line, so a message delivered twice does nothing the second time. Each stage writes a
