@@ -13,8 +13,12 @@ public static class RowLevelSecurity
     public const string PredicateFunction = "fn_tenant_predicate";
     public const string PolicyName = "tenant_policy";
 
-    /// <summary>Tenant-scoped tables and the column the predicate is evaluated on, in migration order.</summary>
-    public static readonly IReadOnlyList<(string Table, string Column)> ProtectedTables =
+    /// <summary>
+    /// The tables the <c>InitialCreate</c> migration protected, in migration order. Frozen: that migration builds its
+    /// SQL from this list when it runs, so a table added here would be referenced before it exists on a fresh database.
+    /// Later tables go to <see cref="ProtectedTables"/> and their own migration re-creates the policy.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> InitialProtectedTables =
     [
         ("Tenants", "Id"),
         ("TenantMembers", "TenantId"),
@@ -33,12 +37,27 @@ public static class RowLevelSecurity
     ];
 
     /// <summary>
+    /// Every tenant-scoped table and the column the predicate is evaluated on: the initial set plus the tables later
+    /// migrations added. A migration that adds a tenant-scoped table appends it here and runs
+    /// <see cref="DropSql"/> followed by <see cref="CreateSql(IReadOnlyList{ValueTuple{string, string}})"/> with this list.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> ProtectedTables =
+    [
+        .. InitialProtectedTables,
+        ("OutboxMessages", "TenantId"),
+    ];
+
+    /// <summary>The policy exactly as the <c>InitialCreate</c> migration creates it (<see cref="InitialProtectedTables"/>).</summary>
+    public static string CreateSql() => CreateSql(InitialProtectedTables);
+
+    /// <summary>
     /// CREATE FUNCTION and CREATE SECURITY POLICY are issued through EXEC so they run as their own batch: EF's
     /// idempotent script wraps every operation in an IF ... BEGIN/END block, where a bare CREATE FUNCTION is invalid.
     /// </summary>
-    public static string CreateSql()
+    public static string CreateSql(IReadOnlyList<(string Table, string Column)> tables)
     {
-        var predicates = string.Join(",\n", ProtectedTables.Select(t =>
+        ArgumentNullException.ThrowIfNull(tables);
+        var predicates = string.Join(",\n", tables.Select(t =>
             string.Format(
                 CultureInfo.InvariantCulture,
                 "    ADD FILTER PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}],\n    ADD BLOCK PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}] AFTER INSERT",

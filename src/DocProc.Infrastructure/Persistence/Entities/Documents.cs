@@ -37,6 +37,13 @@ public sealed class Document : ITenantScoped
 
     public BlobReference? TextLayerBlob { get; set; }
 
+    /// <summary>
+    /// The structured e-invoice XML stage 2 found: an attachment inside a PDF/A-3 (Factur-X, ZUGFeRD) stored in the
+    /// derived container, or the ingestion item itself when the item is a UBL / CII file. Stage 6a reads it instead
+    /// of the pages (docs/03 "Unpack and normalize": embedded structured data first).
+    /// </summary>
+    public BlobReference? EmbeddedXmlBlob { get; set; }
+
     public DocumentType Type { get; set; } = DocumentType.Unknown;
     public double? TypeConfidence { get; set; }
     public TypeSource? TypeSource { get; set; }
@@ -165,6 +172,24 @@ public sealed class Correction : ITenantScoped
     public required string By { get; set; }
     public DateTimeOffset At { get; set; }
     public string? Reason { get; set; }
+
+    public Document? Document { get; set; }
+}
+
+/// <summary>
+/// Outbox row of docs/05 "Events out" and docs/03 stage 9: one row per published document event, written in the
+/// same transaction as the state change so a delivery job can send webhooks later and mark <see cref="DeliveredAt"/>.
+/// <see cref="PayloadJson"/> is the serialised <c>DocumentEventMessage</c>.
+/// </summary>
+public sealed class OutboxMessage : ITenantScoped
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid DocumentId { get; set; }
+    public required string EventType { get; set; }
+    public required string PayloadJson { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
 
     public Document? Document { get; set; }
 }

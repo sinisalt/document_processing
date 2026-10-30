@@ -11,6 +11,7 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
         b.ToTable("Documents", t => t.IsTemporal());
         b.ComplexProperty(d => d.NormalizedBlob, BlobReferenceMapping.Configure);
         b.ComplexProperty(d => d.TextLayerBlob, BlobReferenceMapping.Configure);
+        b.ComplexProperty(d => d.EmbeddedXmlBlob, BlobReferenceMapping.Configure);
         b.Property(d => d.FailureReason).HasMaxLength(2000);
         b.Property(d => d.CanonicalJson).HasColumnType("json");
         b.Property(d => d.DocumentNumber).HasMaxLength(100);
@@ -89,5 +90,19 @@ internal sealed class CorrectionConfiguration : IEntityTypeConfiguration<Correct
         b.Property(c => c.Reason).HasMaxLength(500);
         b.HasIndex(c => new { c.DocumentId, c.At });
         b.HasOne(c => c.Document).WithMany(d => d.Corrections).HasForeignKey(c => c.DocumentId);
+    }
+}
+
+internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<OutboxMessage> b)
+    {
+        b.ToTable("OutboxMessages");
+        b.Property(m => m.EventType).HasMaxLength(64);
+        b.Property(m => m.PayloadJson).HasColumnType("json");
+        // The delivery job scans undelivered rows oldest first; the document index serves the timeline and idempotent publishing.
+        b.HasIndex(m => new { m.DeliveredAt, m.CreatedAt });
+        b.HasIndex(m => new { m.DocumentId, m.EventType });
+        b.HasOne(m => m.Document).WithMany().HasForeignKey(m => m.DocumentId);
     }
 }

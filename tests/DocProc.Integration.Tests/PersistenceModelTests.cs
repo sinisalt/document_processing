@@ -60,7 +60,7 @@ public class PersistenceModelTests
 
         protectedTables.ShouldBe(tenantTables, ignoreOrder: true);
 
-        var sql = RowLevelSecurity.CreateSql();
+        var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.ProtectedTables);
         sql.ShouldContain("EXEC(N'CREATE FUNCTION");
         sql.ShouldContain("EXEC(N'CREATE SECURITY POLICY");
         sql.ShouldContain("SESSION_CONTEXT(N''TenantId'')");
@@ -68,6 +68,10 @@ public class PersistenceModelTests
         {
             sql.ShouldContain($"ON [dbo].[{table}]");
         }
+
+        // The initial migration builds its policy at run time from the frozen list, so that list must never grow.
+        RowLevelSecurity.InitialProtectedTables.Count.ShouldBe(14);
+        RowLevelSecurity.CreateSql().ShouldNotContain("OutboxMessages");
     }
 
     [Fact]

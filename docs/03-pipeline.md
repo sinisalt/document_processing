@@ -147,3 +147,56 @@ audit trail, the admin timeline view and metrics (time-to-approve, STP rate).
 - Blob keys are content-addressed (`{tenant}/{sha256}`), so re-processing never duplicates storage.
 - LLM calls are recorded with request hash, model, token usage and cost before the result is
   applied, so a crash between the call and the write can be reconciled without paying twice.
+
+## Implementation
+
+The runner lives in `src/DocProc.Pipeline` and is composed into both hosts by one call,
+`builder.AddDocProcProcessingStack()` (API) / `builder.AddDocProcProcessingStack(runInProcessDefault: true)`
+(worker). The helper registers PDF processing, classification and splitting (`DocumentProcessing:*`),
+e-invoice parsing, the LLM gateway with its EF-backed ports (`EfLlmPolicyStore`,
+`ConfigurationLlmCredentialStore`, `EfLlmUsageRecorder`) and the vendor adapters, blob storage
+unless the host registered it already, and the pipeline itself.
+
+**Queue modes.** `InProcessPipelineQueue` implements `IPipelineQueue` over an unbounded
+`System.Threading.Channels` channel; a delayed enqueue (retry with backoff) waits on a background
+continuation that is cancelled on shutdown. It is the transport for local development, the
+dependency-free mode and the tests, and it is not durable: a message in flight when the process
+stops is lost, which the idempotent handlers and a re-process from the API tolerate.
+`Pipeline:RunInProcess` (default: true outside Production; the worker defaults to true everywhere)
+decides whether `PipelineRunnerHostedService` consumes the queue in that process. With it off, only
+the queue is registered so the API can still enqueue; the Service Bus transport that makes this
+durable in Azure is a later block. The runner processes `Pipeline:MaxParallelism` messages at a
+time (default 2), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
+to the message's tenant before any query runs.
+
+**Stages.** `IIngestionHandler` (`IngestHandler`) implements stage 1 and the unpacking half of
+stage 2: item kinds from extension and content type, zip archives expanded one level (nested
+archives beyond depth 2 are ignored), exact duplicates (same tenant, same SHA-256) linked to the
+earlier item, images under 20 KB and `.ics` files ignored with a reason, one `Received` document
+per remaining candidate. One `IStageHandler` per document stage (`Normalize`, `Split`, `Classify`,
+`Match`, `Extract`, `Validate`, `Publish`) follows; every handler loads the document, compares its
+status with the one the stage starts from and drops a stale message with a log line, so a message
+delivered twice does nothing the second time. Each stage writes a `document.stage_completed` event
+with its details (page counts, split signals, classification source, matching method, extraction
+path and cost, validation flags) to the timeline; the validate stage decides between
+`AutoApproved` (plus a `Publish` message) and `NeedsReview` (plus an open `ReviewTask`).
+
+**Failure policy.** A `DocumentProcessingException` (encrypted or corrupt PDF, too large) or a
+`StageFailedException` (unsupported format, XML that is not an e-invoice, no extraction path) is
+about the document: `Failed(reason)` with a `document.stage_failed` event and no retry. A retryable
+`LlmException` (rate limit, transient) is re-enqueued with exponential backoff
+(`Pipeline:RetryBaseDelay`, default 5 s, doubled per attempt, capped by `Pipeline:MaxRetryDelay`)
+up to `Pipeline:MaxAttempts` (default 5); the last attempt ends `Failed` with the
+`LLM_PROVIDER_UNAVAILABLE` flag. An `LlmException` that blocks the tenant (invalid key, quota or
+spend cap, no usable configuration) ends `Failed` with the same flag at once, because a retry
+cannot fix it and the document is waiting for an operator. Anything else retries with the same
+backoff and then fails with the exception as reason. Every retry leaves a `document.stage_failed`
+event marked `retry: true`, so the job inspector shows the attempts.
+
+**Stubbed for later blocks.** OCR (image items and PDFs without a text layer carry
+`UNREADABLE_PAGES` as a warning and go through classification by image only), extractor profiles
+(`ExtractorProfileId` stays null and the profile path has no implementation), Office and text
+items (`Failed: unsupported format`), the Service Bus transport, webhook delivery (stage 9 writes
+the `OutboxMessage` row; nothing reads it yet), exports and the learning loop. The LLM credential
+store reads `Llm:Secrets:<secretRef>` from configuration or `LLM_SECRET_<SECRET_REF>` from the
+environment; the Key Vault store replaces it in Azure.

@@ -225,6 +225,33 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "EmbeddedXmlBlob", "DocProc.Infrastructure.Persistence.Entities.Document.EmbeddedXmlBlob#BlobReference", b1 =>
+                        {
+                            b1.Property<string>("Container")
+                                .IsRequired()
+                                .HasMaxLength(63)
+                                .HasColumnType("nvarchar(63)");
+
+                            b1.Property<string>("ContentType")
+                                .IsRequired()
+                                .HasMaxLength(127)
+                                .HasColumnType("nvarchar(127)");
+
+                            b1.Property<string>("Key")
+                                .IsRequired()
+                                .HasMaxLength(400)
+                                .HasColumnType("nvarchar(400)");
+
+                            b1.Property<string>("Sha256")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("nchar(64)")
+                                .IsFixedLength();
+
+                            b1.Property<long>("SizeBytes")
+                                .HasColumnType("bigint");
+                        });
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "NormalizedBlob", "DocProc.Infrastructure.Persistence.Entities.Document.NormalizedBlob#BlobReference", b1 =>
                         {
                             b1.Property<string>("Container")
@@ -993,6 +1020,44 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("LlmUsage", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.OutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("DeliveredAt", "CreatedAt");
+
+                    b.HasIndex("DocumentId", "EventType");
+
+                    b.ToTable("OutboxMessages", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReviewTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1419,6 +1484,17 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TenantId");
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.OutboxMessage", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReviewTask", b =>
