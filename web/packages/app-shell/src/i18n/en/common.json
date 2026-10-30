@@ -1,0 +1,143 @@
+{
+  "app": {
+    "name": "DocProc",
+    "loading": "Loading…",
+    "skipToContent": "Skip to content"
+  },
+  "nav": {
+    "main": "Main navigation",
+    "toggleSidebar": "Toggle sidebar"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signingIn": "Signing in…",
+    "devTitle": "Development sign-in",
+    "devSubtitle": "Pick one of the users of the local realm. The API signs a token for them; no password.",
+    "devUnavailable": "Development sign-in is not available: {{message}}",
+    "oidcTitle": "Sign in to {{app}}",
+    "oidcSubtitle": "You will be redirected to your organisation's identity provider.",
+    "signInAs": "Sign in as {{name}}",
+    "platformScope": "Platform",
+    "tenant": "Tenant {{id}}",
+    "sessionError": "Sign-in failed: {{message}}",
+    "checking": "Checking your session…",
+    "userError": "Your identity could not be loaded.",
+    "retry": "Try again"
+  },
+  "userMenu": {
+    "open": "Account menu for {{name}}",
+    "roles": "Roles",
+    "scope": "Scope",
+    "language": "Language",
+    "theme": "Appearance",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System"
+  },
+  "languages": {
+    "en": "English",
+    "de": "Deutsch"
+  },
+  "roles": {
+    "SuperAdmin": "Super admin",
+    "Operator": "Operator",
+    "TenantAdmin": "Tenant admin",
+    "Reviewer": "Reviewer",
+    "Viewer": "Viewer"
+  },
+  "scope": {
+    "platform": "Platform scope",
+    "tenant": "Tenant scope"
+  },
+  "tenantSwitcher": {
+    "label": "Act as tenant",
+    "platform": "Platform (all tenants)"
+  },
+  "tenantStatus": {
+    "Active": "Active",
+    "Suspended": "Suspended",
+    "Closed": "Closed"
+  },
+  "documentStatus": {
+    "Received": "Received",
+    "Normalized": "Normalized",
+    "Split": "Split",
+    "Classified": "Classified",
+    "Matched": "Matched",
+    "Extracted": "Extracted",
+    "Validated": "Validated",
+    "AutoApproved": "Auto-approved",
+    "NeedsReview": "Needs review",
+    "Approved": "Approved",
+    "Rejected": "Rejected",
+    "Failed": "Failed"
+  },
+  "reviewTaskStatus": {
+    "Open": "Open",
+    "InProgress": "In progress",
+    "Done": "Done",
+    "Skipped": "Skipped"
+  },
+  "fieldStatus": {
+    "Extracted": "Extracted",
+    "Inferred": "Inferred",
+    "Missing": "Missing",
+    "Unreadable": "Unreadable",
+    "Conflict": "Conflict",
+    "Corrected": "Corrected"
+  },
+  "sourceMethod": {
+    "StructuredXml": "E-invoice XML",
+    "Profile": "Profile",
+    "Llm": "AI",
+    "Ocr": "OCR",
+    "Human": "Reviewer"
+  },
+  "confidence": {
+    "label": "Confidence {{value}}",
+    "unknown": "No confidence",
+    "low": "Low confidence"
+  },
+  "table": {
+    "columns": "Columns",
+    "toggleColumns": "Choose columns",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
+    "clearSort": "Clear sorting",
+    "empty": "Nothing here yet",
+    "emptyDescription": "There is nothing to show for this view.",
+    "loading": "Loading rows…",
+    "loadMore": "Load more",
+    "rowCount": "{{count}} row",
+    "rowCount_other": "{{count}} rows"
+  },
+  "dialog": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "working": "Working…"
+  },
+  "errors": {
+    "requestFailed": "Request failed",
+    "network": "The server could not be reached.",
+    "forbidden": "You are not allowed to do that.",
+    "validation": "Please check your input.",
+    "conflict": "Someone else changed this first.",
+    "title": "Something went wrong",
+    "description": "The page hit an error it could not recover from.",
+    "details": "Technical details",
+    "reload": "Reload page",
+    "tryAgain": "Try again",
+    "goHome": "Go to the dashboard"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "There is nothing at {{path}}.",
+    "goHome": "Go to the dashboard"
+  },
+  "actions": {
+    "close": "Close",
+    "refresh": "Refresh",
+    "back": "Back"
+  }
+}

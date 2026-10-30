@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] },
+    "paths": { "@/*": ["./src/*", "../../packages/ui/src/*"] },
     "types": ["vite/client", "vitest/globals"],
     "noEmit": true
   },

@@ -1,10 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "@docproc/ui/styles.css";
+import { RouterProvider } from "@tanstack/react-router";
+import "@docproc/app-shell/styles.css";
+import "./i18n";
+import { router } from "./router";
 
-// Placeholder shell; replaced by the application (see docs/05-api-and-ui.md).
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <main className="p-8 text-foreground">DocProc Admin</main>
+    <RouterProvider router={router} />
   </StrictMode>,
 );
