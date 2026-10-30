@@ -1,11 +1,10 @@
-using DocProc.Application.Abstractions;
-
-namespace DocProc.Infrastructure.Blobs;
+namespace DocProc.Application.Abstractions;
 
 /// <summary>
 /// <see cref="IBlobStore"/> plus the container to write to. The application-level <see cref="IBlobStore.PutAsync"/>
-/// stores into <see cref="BlobContainers.Raw"/>; pipeline stages that produce derived artefacts or exports use this
-/// overload with the matching container (docs/01 "Blob").
+/// stores into <see cref="BlobContainers.Raw"/>; pipeline stages that produce derived artefacts (stage 2: page
+/// images, normalised PDFs, text layers) or exports (stage 9) use this overload with the matching container
+/// (docs/01 "Blob"). Both interfaces resolve to the same singleton.
 /// </summary>
 public interface IContainerBlobStore : IBlobStore
 {

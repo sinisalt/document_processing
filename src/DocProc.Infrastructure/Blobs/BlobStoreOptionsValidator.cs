@@ -2,7 +2,7 @@ using Microsoft.Extensions.Options;
 
 namespace DocProc.Infrastructure.Blobs;
 
-/// <summary>Fails host start-up on a store that could not work: no root path, or no way to reach Azure.</summary>
+/// <summary>Fails host start-up on a store that could not work: no root path, no way to reach Azure, or a read-URL lifetime Azure refuses.</summary>
 public sealed class BlobStoreOptionsValidator : IValidateOptions<BlobStoreOptions>
 {
     public ValidateOptionsResult Validate(string? name, BlobStoreOptions options)
@@ -13,22 +13,18 @@ public sealed class BlobStoreOptionsValidator : IValidateOptions<BlobStoreOption
         {
             failures.Add($"{BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.MaxReadUrlLifetime)} must be positive.");
         }
+        else if (options.MaxReadUrlLifetime > BlobStoreOptions.MaxSupportedReadUrlLifetime)
+        {
+            failures.Add($"{BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.MaxReadUrlLifetime)} cannot exceed {BlobStoreOptions.MaxSupportedReadUrlLifetime.TotalDays:0} days: Azure caps user-delegation keys at seven days.");
+        }
 
-        switch (options.Provider)
+        switch (options.EffectiveProvider)
         {
             case BlobStoreProvider.FileSystem:
                 ValidateFileSystem(options, failures);
                 break;
             case BlobStoreProvider.Azure:
-                if (string.IsNullOrWhiteSpace(options.ConnectionString) && options.ServiceUri is null)
-                {
-                    failures.Add($"Provider Azure needs ConnectionStrings:{BlobStoreOptions.ConnectionStringName} or {BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.ServiceUri)}.");
-                }
-                else if (options.ServiceUri is { IsAbsoluteUri: false })
-                {
-                    failures.Add($"{BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.ServiceUri)} must be an absolute URI.");
-                }
-
+                ValidateAzure(options, failures);
                 break;
             default:
                 failures.Add($"Unknown {BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.Provider)} '{options.Provider}'.");
@@ -36,6 +32,31 @@ public sealed class BlobStoreOptionsValidator : IValidateOptions<BlobStoreOption
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidateAzure(BlobStoreOptions options, List<string> failures)
+    {
+        if (!options.HasAzureEndpoint)
+        {
+            failures.Add($"Provider Azure needs ConnectionStrings:{BlobStoreOptions.ConnectionStringName} or {BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.ServiceUri)}.");
+            return;
+        }
+
+        if (options.ServiceUri is { IsAbsoluteUri: false })
+        {
+            failures.Add($"{BlobStoreOptions.SectionName}:{nameof(BlobStoreOptions.ServiceUri)} must be an absolute URI.");
+            return;
+        }
+
+        // Resolve applies the connection-string rules (SAS-only strings are refused) without touching the network.
+        try
+        {
+            AzureBlobClients.Resolve(options);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex.Message);
+        }
     }
 
     private static void ValidateFileSystem(BlobStoreOptions options, List<string> failures)

@@ -39,11 +39,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
 
+    /// <summary>Root of the file-system blob store, a temp directory so the test host never writes under the API's content root.</summary>
+    public string BlobRoot { get; } = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"), "blobs");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
         builder.UseSetting("Authentication:Oidc:Audience", Audience);
+        builder.UseSetting("Blobs:RootPath", BlobRoot);
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -70,6 +74,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         if (disposing)
         {
             _connection.Dispose();
+            var directory = Path.GetDirectoryName(BlobRoot)!;
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
     }
 

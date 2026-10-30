@@ -19,13 +19,16 @@ public sealed class AzureBlobStore : IContainerBlobStore
     /// <summary>Blob metadata key under which the content hash is stored, for audits that do not trust the name.</summary>
     public const string Sha256MetadataKey = "sha256";
 
+    /// <summary>The longest validity Azure grants a user-delegation key.</summary>
+    public static readonly TimeSpan MaxDelegationKeyLifetime = TimeSpan.FromDays(7);
+
     private static readonly TimeSpan ClockSkewAllowance = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan DelegationKeyRenewalMargin = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MinDelegationKeyLifetime = TimeSpan.FromHours(1);
 
     private readonly BlobServiceClient _client;
     private readonly TimeProvider _clock;
     private readonly TimeSpan _maxReadUrlLifetime;
-    private readonly string _spoolPath;
     private UserDelegationKey? _delegationKey;
 
     public AzureBlobStore(BlobServiceClient client, TimeProvider clock, TimeSpan maxReadUrlLifetime)
@@ -33,11 +36,19 @@ public sealed class AzureBlobStore : IContainerBlobStore
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxReadUrlLifetime, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxReadUrlLifetime, MaxDelegationKeyLifetime);
         _client = client;
         _clock = clock;
         _maxReadUrlLifetime = maxReadUrlLifetime;
-        _spoolPath = Path.Combine(Path.GetTempPath(), "docproc", "blob-spool");
+        SpoolPath = DefaultSpoolPath;
+        HashedSpool.SweepStale(SpoolPath, clock);
     }
+
+    /// <summary>Where non-seekable uploads are hashed before they go to the service: a per-machine temp folder.</summary>
+    public static string DefaultSpoolPath => Path.Combine(Path.GetTempPath(), "docproc", "blob-spool");
+
+    /// <summary>The spool directory this instance uses (and swept on construction).</summary>
+    public string SpoolPath { get; }
 
     public Task<BlobRef> PutAsync(Guid tenantId, Stream content, string contentType, CancellationToken cancellationToken) =>
         PutAsync(BlobContainers.Raw, tenantId, content, contentType, cancellationToken);
@@ -58,7 +69,7 @@ public sealed class AzureBlobStore : IContainerBlobStore
             return await StoreAsync(container, tenantId, sha256, size, content, contentType, cancellationToken).ConfigureAwait(false);
         }
 
-        await using var spool = await HashedSpool.CreateAsync(content, _spoolPath, cancellationToken).ConfigureAwait(false);
+        await using var spool = await HashedSpool.CreateAsync(content, SpoolPath, cancellationToken).ConfigureAwait(false);
         var file = new FileStream(spool.Path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using (file.ConfigureAwait(false))
         {
@@ -66,11 +77,20 @@ public sealed class AzureBlobStore : IContainerBlobStore
         }
     }
 
+    /// <inheritdoc/>
+    /// <exception cref="BlobNotFoundException">The service answered 404 for the reference.</exception>
     public async Task<Stream> OpenReadAsync(BlobRef reference, CancellationToken cancellationToken)
     {
         BlobKeys.EnsureValid(reference);
-        var response = await BlobFor(reference).DownloadStreamingAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        return response.Value.Content;
+        try
+        {
+            var response = await BlobFor(reference).DownloadStreamingAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            return response.Value.Content;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            throw new BlobNotFoundException(reference, ex);
+        }
     }
 
     public async Task<bool> ExistsAsync(BlobRef reference, CancellationToken cancellationToken)
@@ -183,9 +203,10 @@ public sealed class AzureBlobStore : IContainerBlobStore
             return cached;
         }
 
-        // One key covers many URLs: ask for well beyond the longest URL lifetime so the fetch is rare.
+        // One key covers many URLs: ask for well beyond the longest URL lifetime so the fetch is rare, but never
+        // beyond the seven days Azure allows, or every request would fail with 400.
         var now = _clock.GetUtcNow();
-        var keyLifetime = _maxReadUrlLifetime * 4 > TimeSpan.FromHours(1) ? _maxReadUrlLifetime * 4 : TimeSpan.FromHours(1);
+        var keyLifetime = TimeSpan.FromTicks(Math.Clamp((_maxReadUrlLifetime * 4).Ticks, MinDelegationKeyLifetime.Ticks, MaxDelegationKeyLifetime.Ticks));
         var response = await _client.GetUserDelegationKeyAsync(now - ClockSkewAllowance, now + keyLifetime, cancellationToken).ConfigureAwait(false);
         Volatile.Write(ref _delegationKey, response.Value);
         return response.Value;

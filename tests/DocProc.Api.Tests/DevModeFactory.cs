@@ -20,6 +20,7 @@ public sealed class DevModeFactory : WebApplicationFactory<Program>
     {
         Directory = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"));
         DatabasePath = Path.Combine(Directory, "docproc.db");
+        BlobRoot = Path.Combine(Directory, "blobs");
     }
 
     /// <summary>A factory whose issuer stores its key in the given PEM file, to prove tokens survive a restart.</summary>
@@ -33,11 +34,15 @@ public sealed class DevModeFactory : WebApplicationFactory<Program>
 
     public string DatabasePath { get; }
 
+    /// <summary>Root of the file-system blob store (no blob configuration otherwise, as on a developer machine).</summary>
+    public string BlobRoot { get; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environment);
         builder.UseSetting("Persistence:Provider", "Sqlite");
         builder.UseSetting("Persistence:SqlitePath", DatabasePath);
+        builder.UseSetting("Blobs:RootPath", BlobRoot);
         builder.UseSetting("Authentication:Dev:Enabled", "true");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
         if (SigningKeyPath is not null)

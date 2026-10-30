@@ -7,7 +7,7 @@ namespace DocProc.Infrastructure.Blobs;
 /// <summary>
 /// Creates the Azure containers at start-up when <c>Blobs:CreateContainersOnStartup</c> is on, for environments
 /// where nothing else owns them (a bare Azurite without the AppHost). The file-system store creates its directories
-/// on demand and needs nothing here.
+/// on demand and needs nothing here. Registered once however often <c>AddDocProcBlobs</c> is called.
 /// </summary>
 public sealed class BlobContainersHostedService(IBlobStore store, IOptions<BlobStoreOptions> options) : IHostedService
 {

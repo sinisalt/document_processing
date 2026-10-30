@@ -134,6 +134,7 @@ public sealed class AzureBlobStoreAzuriteTests : IAsyncLifetime
 
         (await _store!.ExistsAsync(reference, ct)).ShouldBeFalse();
         (await _store.FindAsync(reference.Container, reference.Key, ct)).ShouldBeNull();
+        (await Should.ThrowAsync<BlobNotFoundException>(() => _store.OpenReadAsync(reference, ct))).Reference.ShouldBe(reference);
     }
 
     private sealed class ForwardOnlyStream(Stream inner) : Stream
