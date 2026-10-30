@@ -10,11 +10,27 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LlmRouteImport } from './routes/llm'
+import { Route as ReviewRouteImport } from './routes/review'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as DocumentsIndexRouteImport } from './routes/documents/index'
+import { Route as DocumentsDocumentIdRouteImport } from './routes/documents/$documentId'
+import { Route as TenantsIndexRouteImport } from './routes/tenants/index'
+import { Route as TenantsTenantIdRouteImport } from './routes/tenants/$tenantId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LlmRoute = LlmRouteImport.update({
+  id: '/llm',
+  path: '/llm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewRoute = ReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -22,31 +38,100 @@ const SignInRoute = SignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocumentsIndexRoute = DocumentsIndexRouteImport.update({
+  id: '/documents/',
+  path: '/documents/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsDocumentIdRoute = DocumentsDocumentIdRouteImport.update({
+  id: '/documents/$documentId',
+  path: '/documents/$documentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TenantsIndexRoute = TenantsIndexRouteImport.update({
+  id: '/tenants/',
+  path: '/tenants/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TenantsTenantIdRoute = TenantsTenantIdRouteImport.update({
+  id: '/tenants/$tenantId',
+  path: '/tenants/$tenantId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/llm': typeof LlmRoute
+  '/review': typeof ReviewRoute
   '/sign-in': typeof SignInRoute
+  '/documents/$documentId': typeof DocumentsDocumentIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/documents/': typeof DocumentsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/llm': typeof LlmRoute
+  '/review': typeof ReviewRoute
   '/sign-in': typeof SignInRoute
+  '/documents/$documentId': typeof DocumentsDocumentIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/documents': typeof DocumentsIndexRoute
+  '/tenants': typeof TenantsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/llm': typeof LlmRoute
+  '/review': typeof ReviewRoute
   '/sign-in': typeof SignInRoute
+  '/documents/$documentId': typeof DocumentsDocumentIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/documents/': typeof DocumentsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in'
+  fullPaths:
+    | '/'
+    | '/llm'
+    | '/review'
+    | '/sign-in'
+    | '/documents/$documentId'
+    | '/tenants/$tenantId'
+    | '/documents/'
+    | '/tenants/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sign-in'
-  id: '__root__' | '/' | '/sign-in'
+  to:
+    | '/'
+    | '/llm'
+    | '/review'
+    | '/sign-in'
+    | '/documents/$documentId'
+    | '/tenants/$tenantId'
+    | '/documents'
+    | '/tenants'
+  id:
+    | '__root__'
+    | '/'
+    | '/llm'
+    | '/review'
+    | '/sign-in'
+    | '/documents/$documentId'
+    | '/tenants/$tenantId'
+    | '/documents/'
+    | '/tenants/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LlmRoute: typeof LlmRoute
+  ReviewRoute: typeof ReviewRoute
   SignInRoute: typeof SignInRoute
+  DocumentsDocumentIdRoute: typeof DocumentsDocumentIdRoute
+  TenantsTenantIdRoute: typeof TenantsTenantIdRoute
+  DocumentsIndexRoute: typeof DocumentsIndexRoute
+  TenantsIndexRoute: typeof TenantsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,6 +143,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/llm': {
+      id: '/llm'
+      path: '/llm'
+      fullPath: '/llm'
+      preLoaderRoute: typeof LlmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/review': {
+      id: '/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof ReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sign-in': {
       id: '/sign-in'
       path: '/sign-in'
@@ -65,12 +164,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/documents/': {
+      id: '/documents/'
+      path: '/documents'
+      fullPath: '/documents/'
+      preLoaderRoute: typeof DocumentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents/$documentId': {
+      id: '/documents/$documentId'
+      path: '/documents/$documentId'
+      fullPath: '/documents/$documentId'
+      preLoaderRoute: typeof DocumentsDocumentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tenants/': {
+      id: '/tenants/'
+      path: '/tenants'
+      fullPath: '/tenants/'
+      preLoaderRoute: typeof TenantsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tenants/$tenantId': {
+      id: '/tenants/$tenantId'
+      path: '/tenants/$tenantId'
+      fullPath: '/tenants/$tenantId'
+      preLoaderRoute: typeof TenantsTenantIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LlmRoute: LlmRoute,
+  ReviewRoute: ReviewRoute,
   SignInRoute: SignInRoute,
+  DocumentsDocumentIdRoute: DocumentsDocumentIdRoute,
+  TenantsTenantIdRoute: TenantsTenantIdRoute,
+  DocumentsIndexRoute: DocumentsIndexRoute,
+  TenantsIndexRoute: TenantsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
