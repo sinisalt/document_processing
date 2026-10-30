@@ -45,6 +45,7 @@ public static class RowLevelSecurity
     [
         .. InitialProtectedTables,
         ("OutboxMessages", "TenantId"),
+        ("IdempotencyKeys", "TenantId"),
     ];
 
     /// <summary>The policy exactly as the <c>InitialCreate</c> migration creates it (<see cref="InitialProtectedTables"/>).</summary>

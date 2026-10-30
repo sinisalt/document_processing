@@ -63,6 +63,43 @@ public class DocumentStateMachineTests
     }
 
     [Fact]
+    public void A_human_may_decide_a_validated_document_before_the_pipeline_routes_it()
+    {
+        DocumentStateMachine.CanTransition(DocumentStatus.Validated, DocumentStatus.Approved).ShouldBeTrue();
+        DocumentStateMachine.CanTransition(DocumentStatus.Validated, DocumentStatus.Rejected).ShouldBeTrue();
+        DocumentStateMachine.CanTransition(DocumentStatus.Extracted, DocumentStatus.Approved).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(DocumentStatus.Failed)]
+    [InlineData(DocumentStatus.NeedsReview)]
+    [InlineData(DocumentStatus.Rejected)]
+    [InlineData(DocumentStatus.Validated)]
+    public void Reprocess_resets_to_any_pipeline_state_before_validation(DocumentStatus from)
+    {
+        foreach (var target in new[] { DocumentStatus.Received, DocumentStatus.Split, DocumentStatus.Matched, DocumentStatus.Extracted })
+        {
+            DocumentStateMachine.CanReprocess(from, target).ShouldBeTrue($"{from} -> {target}");
+            DocumentStateMachine.Reprocess(from, target).ShouldBe(target);
+        }
+
+        DocumentStateMachine.CanReprocess(from, DocumentStatus.Validated).ShouldBeFalse("Validated is a decision point, not a stage to rerun");
+        DocumentStateMachine.CanReprocess(from, DocumentStatus.Approved).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(DocumentStatus.Approved)]
+    [InlineData(DocumentStatus.AutoApproved)]
+    [InlineData(DocumentStatus.Extracted)]
+    public void Reprocess_is_refused_for_approved_and_in_flight_documents(DocumentStatus from)
+    {
+        DocumentStateMachine.CanReprocess(from, DocumentStatus.Matched).ShouldBeFalse();
+        var ex = Should.Throw<InvalidDocumentTransitionException>(() => DocumentStateMachine.Reprocess(from, DocumentStatus.Matched));
+        ex.From.ShouldBe(from);
+        ex.To.ShouldBe(DocumentStatus.Matched);
+    }
+
+    [Fact]
     public void Approved_covers_both_human_and_automatic_approval()
     {
         DocumentStateMachine.IsApproved(DocumentStatus.Approved).ShouldBeTrue();

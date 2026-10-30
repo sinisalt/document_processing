@@ -67,9 +67,11 @@ Limits, by design: SQLite has no row-level security and no temporal tables (the 
 filters are the only tenancy layer, which is why the mode is refused in Production: the host
 throws at start-up for `Persistence:Provider=Sqlite`, `Persistence:SeedDevData=true` or
 `Authentication:Dev:Enabled=true`),
-and it cannot `ORDER BY` a `DateTimeOffset` column, so lists that sort by time order in memory
-(the API-key list does). Everything SQL Server-specific is exercised by the integration tests
-against a container, not here.
+and it cannot compare or `ORDER BY` a `DateTimeOffset` column stored as text. The context therefore
+stores every timestamp as UTC ticks (an integer) when the provider is SQLite, so the cursor-paginated
+lists, the idempotency window and the timeline order work unchanged; SQL Server keeps `datetimeoffset`.
+A `docproc.db` created before that change must be deleted (as after any model change). Everything
+SQL Server-specific is exercised by the integration tests against a container, not here.
 
 ## Apple Silicon specifics
 
