@@ -22,5 +22,6 @@
     <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />
     <Project Path="tests/DocProc.Llm.Tests/DocProc.Llm.Tests.csproj" />
     <Project Path="tests/DocProc.Pipeline.Tests/DocProc.Pipeline.Tests.csproj" />
+    <Project Path="tests/DocProc.Worker.Tests/DocProc.Worker.Tests.csproj" />
   </Folder>
 </Solution>

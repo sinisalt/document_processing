@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/DocProc.Worker/DocProc.Worker.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The UBL sample of the e-invoice tests, linked rather than copied, so the worker runs the structured path end to end. -->
+    <EmbeddedResource Include="../DocProc.EInvoice.Tests/Fixtures/peppol-bis3-invoice.xml" Link="Fixtures/peppol-bis3-invoice.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Shouldly" />
+  </ItemGroup>
+</Project>

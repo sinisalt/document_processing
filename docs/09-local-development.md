@@ -98,6 +98,17 @@ The default `dotnet test` run needs only Docker and finishes without any Azure a
 key. Contract and eval runs are tagged and skipped unless their environment variables are
 present.
 
+Two checks guard the hosts themselves rather than a layer inside them. `tests/DocProc.Worker.Tests`
+boots the worker exactly as `src/DocProc.Worker/Program.cs` composes it (`WorkerHost.CreateBuilder`,
+settings passed as command-line arguments) on a temporary SQLite file with the scripted LLM
+provider, pushes a UBL invoice through the in-process queue until the document is auto-approved,
+builds the production-like SQL Server configuration with `ValidateOnBuild` without ever connecting,
+and asserts that `Persistence:Provider=Sqlite` and `Persistence:SeedDevData` are refused in
+Production (the worker has no `Authentication:Dev`; that refusal is the API's). The CI `web` job
+runs `web/scripts/export-openapi.sh` against the freshly built API and fails, printing the diff,
+when the committed `web/packages/api-client/openapi/v1.json` or `src/schema.d.ts` differs from
+what the API serves: after changing an endpoint, run the script and commit the result.
+
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 
 The stage 2–4 tests (`tests/DocProc.Integration.Tests/Pdf`, `.../Classification`) generate
