@@ -116,12 +116,16 @@ public static class ReviewTaskEndpoints
         var me = DocumentQueries.ActorName(user);
 
         // First come, first served is decided by the database, not by a read followed by a write: the conditional
-        // UPDATE matches only an unassigned open task, so of N simultaneous claims exactly one changes a row.
+        // UPDATE matches only an unassigned open task, so of N simultaneous claims exactly one changes a row. It bumps
+        // the Version token as a tracked save would, so a unit of work that loaded the task earlier (the pipeline
+        // closing it, a document decision) cannot overwrite the claim unnoticed. One statement, so it needs no
+        // transaction of its own; nothing else is written here.
         var claimed = await db.ReviewTasks
             .Where(t => t.Id == id && t.AssignedTo == null && t.Status == ReviewTaskStatus.Open)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(t => t.AssignedTo, me)
-                    .SetProperty(t => t.Status, ReviewTaskStatus.InProgress),
+                    .SetProperty(t => t.Status, ReviewTaskStatus.InProgress)
+                    .SetProperty(t => t.Version, t => t.Version + 1),
                 ct);
         if (claimed == 0)
         {
@@ -180,7 +184,8 @@ public static class ReviewTaskEndpoints
                 .Where(t => t.Id == id && t.AssignedTo == assignee && t.Status == status)
                 .ExecuteUpdateAsync(
                     s => s.SetProperty(t => t.AssignedTo, (string?)null)
-                        .SetProperty(t => t.Status, ReviewTaskStatus.Open),
+                        .SetProperty(t => t.Status, ReviewTaskStatus.Open)
+                        .SetProperty(t => t.Version, t => t.Version + 1),
                     ct);
             if (released == 0)
             {

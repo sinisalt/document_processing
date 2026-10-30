@@ -20,6 +20,9 @@ namespace DocProc.Api.Endpoints;
 /// work in platform scope for operators, and the actions act on whatever document the scope can see. Every state
 /// change is a conditional <c>UPDATE … WHERE Status = &lt;the status the caller saw&gt;</c>, so two reviewers deciding
 /// the same document at once produce exactly one decision, one event and one publish message; the loser gets 409.
+/// The conditional update bumps the <c>Version</c> token like a tracked save would (so a tracked writer that loaded
+/// the row earlier, the pipeline or <c>PATCH /fields</c>, fails its own save instead of overwriting the decision) and
+/// shares one transaction with the event and the task closures it entails; the queue message goes out after the commit.
 /// </summary>
 public static class DocumentEndpoints
 {
@@ -259,13 +262,15 @@ public static class DocumentEndpoints
 
             // The content type is whatever the uploader claimed. Only formats the viewer renders itself are served
             // inline under that type; everything else (HTML, SVG, Office, archives) downloads as opaque bytes, so a
-            // crafted upload can never run as a page of this origin.
-            var inline = IsInlineSafe(item.MimeType);
+            // crafted upload can never run as a page of this origin. The decision is taken on the bare media type
+            // (no parameters, lower case) and that is also what is served: "image/svg+xml; charset=utf-8" is SVG.
+            var mediaType = ItemKinds.Normalize(item.MimeType);
+            var inline = IsInlineSafe(mediaType);
             var disposition = new ContentDispositionHeaderValue(inline ? "inline" : "attachment");
             disposition.SetHttpFileName(item.FileName);
             context.Response.Headers.ContentDisposition = disposition.ToString();
             NoSniff(context);
-            return TypedResults.Stream(stream, inline ? item.MimeType : ItemKinds.DefaultContentType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
+            return TypedResults.Stream(stream, inline ? mediaType : ItemKinds.DefaultContentType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
         }
         catch (BlobNotFoundException)
         {
@@ -341,13 +346,15 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Approved);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.Documents
             .Where(d => d.Id == id && d.Status == change.From)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
                     .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
                     .SetProperty(d => d.ApprovedBy, actor)
-                    .SetProperty(d => d.UpdatedAt, now),
+                    .SetProperty(d => d.UpdatedAt, now)
+                    .SetProperty(d => d.Version, d => d.Version + 1),
                 ct);
         if (claimed == 0)
         {
@@ -358,9 +365,11 @@ public static class DocumentEndpoints
         document.ApprovedAt = now;
         document.ApprovedBy = actor;
         document.UpdatedAt = now;
+        document.Version++;
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -396,11 +405,13 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Rejected);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.Documents
             .Where(d => d.Id == id && d.Status == change.From)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
-                    .SetProperty(d => d.UpdatedAt, now),
+                    .SetProperty(d => d.UpdatedAt, now)
+                    .SetProperty(d => d.Version, d => d.Version + 1),
                 ct);
         if (claimed == 0)
         {
@@ -409,9 +420,11 @@ public static class DocumentEndpoints
 
         document.Status = DocumentStatus.Rejected;
         document.UpdatedAt = now;
+        document.Version++;
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -467,12 +480,14 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, target);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.Documents
             .Where(d => d.Id == id && d.Status == change.From)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(d => d.Status, target)
                     .SetProperty(d => d.FailureReason, (string?)null)
-                    .SetProperty(d => d.UpdatedAt, now),
+                    .SetProperty(d => d.UpdatedAt, now)
+                    .SetProperty(d => d.Version, d => d.Version + 1),
                 ct);
         if (claimed == 0)
         {
@@ -482,10 +497,12 @@ public static class DocumentEndpoints
         document.Status = target;
         document.FailureReason = null;
         document.UpdatedAt = now;
+        document.Version++;
         // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, ct);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString() }, now);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, stage), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -645,10 +662,13 @@ public static class DocumentEndpoints
         }
     }
 
-    /// <summary>Only PDFs and raster images are rendered by the viewer; served inline under their own type. SVG can carry script, so it downloads like everything else.</summary>
-    private static bool IsInlineSafe(string mimeType) =>
-        string.Equals(mimeType, "application/pdf", StringComparison.OrdinalIgnoreCase)
-        || (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) && !string.Equals(mimeType, "image/svg+xml", StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// Only PDFs and raster images are rendered by the viewer; served inline under their own type. SVG can carry
+    /// script, so it downloads like everything else. Takes a media type normalised by <see cref="ItemKinds.Normalize"/>.
+    /// </summary>
+    private static bool IsInlineSafe(string mediaType) =>
+        string.Equals(mediaType, "application/pdf", StringComparison.Ordinal)
+        || (mediaType.StartsWith("image/", StringComparison.Ordinal) && !string.Equals(mediaType, "image/svg+xml", StringComparison.Ordinal));
 
     /// <summary>Browsers must not second-guess the declared type of streamed bytes (a PDF that starts with HTML stays a PDF).</summary>
     private static void NoSniff(HttpContext context) => context.Response.Headers.XContentTypeOptions = "nosniff";
