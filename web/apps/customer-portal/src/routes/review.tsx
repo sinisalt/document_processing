@@ -15,7 +15,6 @@ import {
   formatDateTime,
   formatMoney,
   queryKeys,
-  relativeTime,
   unwrap,
   useApi,
   useAuth,
@@ -87,28 +86,42 @@ function ReviewQueuePage() {
           sortFn: "basic",
         }),
         helper.accessor("reason", { header: t("queue.columns.reason"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
-        helper.accessor("status", { header: t("queue.columns.status"), cell: (info) => <ReviewTaskStatusBadge status={info.getValue()} /> }),
         helper.accessor((task) => task.document?.status ?? null, {
           id: "documentStatus",
           header: t("inbox.columns.status"),
           cell: ({ row }) => (row.original.document ? <StatusBadge status={row.original.document.status} /> : "—"),
         }),
-        helper.accessor("assignedTo", {
-          header: t("queue.columns.assignedTo"),
-          cell: (info) => {
-            const value = info.getValue();
-            if (!value) return <span className="text-muted-foreground">{t("queue.unassigned")}</span>;
-            return value === me ? <span className="font-medium">{t("queue.you")}</span> : value;
+        // Task status and assignee share a column so the actions stay on screen at laptop widths.
+        helper.accessor("status", {
+          header: t("queue.columns.task"),
+          cell: ({ row }) => {
+            const assignee = row.original.assignedTo;
+            return (
+              <span className="flex flex-wrap items-center gap-2">
+                <ReviewTaskStatusBadge status={row.original.status} />
+                {!assignee ? (
+                  <span className="text-muted-foreground">{t("queue.unassigned")}</span>
+                ) : assignee === me ? (
+                  <span className="font-medium">{t("queue.you")}</span>
+                ) : (
+                  <span>{assignee}</span>
+                )}
+              </span>
+            );
           },
         }),
         helper.accessor("slaDueAt", {
           header: t("queue.columns.slaDue"),
-          cell: (info) => (info.getValue() ? <time dateTime={info.getValue()!}>{formatDateTime(info.getValue(), i18n.language)}</time> : "—"),
-          sortFn: "datetime",
-        }),
-        helper.accessor("createdAt", {
-          header: t("queue.columns.created"),
-          cell: (info) => <time dateTime={info.getValue()}>{relativeTime(info.getValue(), i18n.language)}</time>,
+          cell: (info) => {
+            const created = t("queue.createdAt", { when: formatDateTime(info.row.original.createdAt, i18n.language) });
+            return info.getValue() ? (
+              <time dateTime={info.getValue()!} title={created}>
+                {formatDateTime(info.getValue(), i18n.language)}
+              </time>
+            ) : (
+              <span title={created}>—</span>
+            );
+          },
           sortFn: "datetime",
         }),
         helper.display({
@@ -168,7 +181,7 @@ function ReviewQueuePage() {
             <div className="flex items-center gap-2">
               <Label htmlFor="queue-status">{t("queue.columns.status")}</Label>
               <Select value={status} onValueChange={(value) => setStatus(value as (typeof statusFilters)[number])}>
-                <SelectTrigger id="queue-status" className="w-40" size="sm">
+                <SelectTrigger id="queue-status" className="w-56" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

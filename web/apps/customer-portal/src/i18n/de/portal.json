@@ -223,6 +223,7 @@
     "failedTitle": "Verarbeitung fehlgeschlagen",
     "noCanonicalTitle": "Keine extrahierten Daten",
     "noCanonical": "Für diesen Dokumenttyp gibt es keine Rechnungsdaten zu prüfen.",
+    "noCanonicalExtracted": "Die Extraktion hat für diese Rechnung keine Daten geliefert; siehe den Fehler oben, oder verarbeiten Sie sie neu, sobald die Ursache behoben ist.",
     "noCanonicalProcessing": "Das Dokument wird noch verarbeitet; die Felder erscheinen nach der Extraktion.",
     "tabs": {
       "fields": "Felder",
@@ -335,7 +336,8 @@
       "assignedTo": "Zugewiesen an",
       "slaDue": "Fällig",
       "created": "Erstellt",
-      "actions": "Aktionen"
+      "actions": "Aktionen",
+      "task": "Aufgabe"
     },
     "unassigned": "Nicht zugewiesen",
     "you": "Sie",
@@ -349,7 +351,8 @@
     "openLabel": "{{number}} öffnen",
     "emptyTitle": "Die Prüfliste ist leer",
     "empty": "Kein Dokument wartet auf eine Prüfung.",
-    "emptyMine": "Sie haben keine Aufgaben übernommen."
+    "emptyMine": "Sie haben keine Aufgaben übernommen.",
+    "createdAt": "Erstellt {{when}}"
   },
   "suppliers": {
     "title": "Lieferanten",
@@ -406,6 +409,8 @@
     "tabsLabel": "Einstellungsbereiche",
     "platformScopeTitle": "Mandant wählen",
     "platformScope": "Einstellungen gehören zu einem Mandanten; Plattformkonten verwalten Mandanten in der Admin-Konsole.",
+    "adminOnlyTitle": "Einstellungen sind Mandanten-Admins vorbehalten",
+    "adminOnly": "Bitten Sie einen Admin Ihrer Organisation, Prüfregeln, Mitglieder, Schlüssel, Kanäle oder KI-Anbieter zu ändern.",
     "save": "Speichern",
     "tabs": {
       "general": "Allgemein",

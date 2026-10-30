@@ -69,6 +69,12 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
           header: t("fields.line.lineNumber"),
           cell: (info) => <span className="tabular-nums text-muted-foreground">{info.getValue()}</span>,
         }),
+        // Right after the line number: the grid scrolls horizontally, and the check is what a reviewer looks for first.
+        helper.display({
+          id: "arithmetic",
+          header: t("review.lines.check"),
+          cell: ({ row }) => <ArithmeticIndicator result={arithmetic[row.original.index]} locale={i18n.language} />,
+        }),
         ...lineColumns.map((column) =>
           helper.display({
             id: column.name,
@@ -92,11 +98,6 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
             },
           }),
         ),
-        helper.display({
-          id: "arithmetic",
-          header: t("review.lines.check"),
-          cell: ({ row }) => <ArithmeticIndicator result={arithmetic[row.original.index]} locale={i18n.language} />,
-        }),
       ]),
     [t, i18n.language, label, canonical, disabled, threshold, onHighlight, arithmetic],
   );

@@ -85,7 +85,9 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
 
   if (pageCount <= 0) {
     return (
-      <EmptyState icon={FileText} title={t("review.viewer.noPagesTitle")} description={t("review.viewer.noPages")} className="h-full min-h-64" />
+      <div className="p-4">
+        <EmptyState icon={FileText} title={t("review.viewer.noPagesTitle")} description={t("review.viewer.noPages")} />
+      </div>
     );
   }
 

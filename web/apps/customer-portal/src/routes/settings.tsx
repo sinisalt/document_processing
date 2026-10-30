@@ -28,6 +28,10 @@ function SettingsPage() {
   if (user?.scope !== "tenant") {
     return <EmptyState title={t("settings.platformScopeTitle")} description={t("settings.platformScope")} />;
   }
+  // The sidebar hides Settings from everyone but tenant admins (docs/05 "Role gating"); a deep link gets the same answer.
+  if (!isAdmin) {
+    return <EmptyState title={t("settings.adminOnlyTitle")} description={t("settings.adminOnly")} />;
+  }
 
   return (
     <>

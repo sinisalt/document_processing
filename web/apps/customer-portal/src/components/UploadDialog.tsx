@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { FileUp, Loader2, Upload, X } from "lucide-react";
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, cn } from "@docproc/ui";
 import { formatBytes, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { notifyUploaded } from "@/lib/queries";
 
 export const MAX_UPLOAD_FILES = 20;
 export const MAX_UPLOAD_BYTES = 52_428_800;
@@ -33,6 +34,7 @@ export function UploadDialog({ disabled = false }: { disabled?: boolean }) {
     },
     onSuccess: (created) => {
       toast.success(t("upload.queued", { count: created.items.length }), { description: t("upload.ingestionId", { id: created.id }) });
+      notifyUploaded();
       void queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.ingestions.all });
       setFiles([]);
@@ -112,19 +114,21 @@ export function UploadDialog({ disabled = false }: { disabled?: boolean }) {
           <FileUp className="size-8 text-muted-foreground" aria-hidden />
           <span className="font-medium">{t("upload.dropHere")}</span>
           <span className="text-muted-foreground">{t("upload.orBrowse")}</span>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={ACCEPT}
-            className="sr-only"
-            aria-label={t("upload.chooseFiles")}
-            onChange={(event) => {
-              addFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
         </div>
+        {/* Outside the dropzone: a control nested in role="button" is invisible to assistive technology. */}
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={ACCEPT}
+          className="sr-only"
+          tabIndex={-1}
+          aria-label={t("upload.chooseFiles")}
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
         {files.length > 0 && (
           <ul className="max-h-48 divide-y overflow-auto rounded-md border text-sm" aria-label={t("upload.selected", { count: files.length })}>
             {files.map((file) => (

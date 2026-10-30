@@ -223,6 +223,7 @@
     "failedTitle": "Processing failed",
     "noCanonicalTitle": "No extracted data",
     "noCanonical": "This document type has no canonical invoice data to review.",
+    "noCanonicalExtracted": "Extraction produced no data for this invoice; see the failure above, or reprocess it once the cause is fixed.",
     "noCanonicalProcessing": "The pipeline is still working on this document; the fields appear when extraction has finished.",
     "tabs": {
       "fields": "Fields",
@@ -335,7 +336,8 @@
       "assignedTo": "Assigned to",
       "slaDue": "Due",
       "created": "Created",
-      "actions": "Actions"
+      "actions": "Actions",
+      "task": "Task"
     },
     "unassigned": "Unassigned",
     "you": "You",
@@ -349,7 +351,8 @@
     "openLabel": "Open {{number}}",
     "emptyTitle": "The queue is empty",
     "empty": "No document waits for a review.",
-    "emptyMine": "You have no claimed tasks."
+    "emptyMine": "You have no claimed tasks.",
+    "createdAt": "Created {{when}}"
   },
   "suppliers": {
     "title": "Suppliers",
@@ -406,6 +409,8 @@
     "tabsLabel": "Settings sections",
     "platformScopeTitle": "Choose a tenant",
     "platformScope": "Settings belong to a tenant; platform accounts manage tenants in the admin console.",
+    "adminOnlyTitle": "Settings are for tenant admins",
+    "adminOnly": "Ask a tenant admin of your organisation to change the review policy, members, keys, channels or AI providers.",
     "save": "Save",
     "tabs": {
       "general": "General",

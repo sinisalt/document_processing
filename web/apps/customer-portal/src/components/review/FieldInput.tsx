@@ -89,7 +89,7 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
   }
 
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1", compact && "gap-0.5")}>
+    <div className={cn("flex min-w-0 flex-col gap-1", compact && "gap-0.5")} data-field={spec.path} data-field-status={field?.status}>
       <div className="flex items-center gap-1">
         <div className="min-w-0 flex-1">{control}</div>
         {spec.kind === "money" && currency && (

@@ -5,7 +5,7 @@ import { FormProvider, useForm } from "react-hook-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Badge, Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, ScrollArea, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@docproc/ui";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, ResizableHandle, ResizablePanel, ResizablePanelGroup, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@docproc/ui";
 import {
   ApiError,
   EmptyState,
@@ -258,19 +258,21 @@ function ReviewScreen({ document, canReview, threshold, locale }: ReviewScreenPr
           <FlagsList flags={flags} selectedIndex={selectedFlag} onSelect={setSelectedFlag} onJump={jumpToFlag} fieldLabel={(path) => fieldLabel(path, true)} />
         </section>
 
-        <ResizablePanelGroup orientation="horizontal" className="min-h-[60vh] flex-1 rounded-lg border">
-          <ResizablePanel defaultSize={45} minSize={25}>
+        {/* A bounded height, so the page and the form scroll side by side instead of the whole screen. */}
+        <ResizablePanelGroup orientation="horizontal" className="h-[80vh] min-h-[32rem] shrink-0 rounded-lg border">
+          <ResizablePanel defaultSize={pageCount > 0 ? "45%" : "30%"} minSize="20%">
             <PageViewer documentId={document.id} pageCount={pageCount} boxes={boxes} highlightedPath={highlightedPath} onHover={setHighlightedPath} onSelect={focusField} page={page} onPageChange={setPage} />
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={55} minSize={30}>
+          <ResizablePanel defaultSize={pageCount > 0 ? "55%" : "70%"} minSize="30%">
             <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
               <TabsList className="m-2 w-fit">
                 <TabsTrigger value="fields">{t("review.tabs.fields")}</TabsTrigger>
                 <TabsTrigger value="timeline">{t("review.tabs.timeline")}</TabsTrigger>
                 <TabsTrigger value="original">{t("review.tabs.original")}</TabsTrigger>
               </TabsList>
-              <ScrollArea className="min-h-0 flex-1">
+              {/* A plain scroller: Radix ScrollArea sizes its content as a table, so the form grew to its max-content width. */}
+              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
                 <TabsContent value="fields" className="p-4">
                   {hasCanonical ? (
                     <form onSubmit={(event) => void onSave(event)} className="flex flex-col gap-6" aria-label={t("review.form.label")} data-editable={editable}>
@@ -286,7 +288,7 @@ function ReviewScreen({ document, canReview, threshold, locale }: ReviewScreenPr
                       )}
                     </form>
                   ) : (
-                    <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : t("review.noCanonical")} />
+                    <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : document.type === "Invoice" || document.type === "CreditNote" ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />
                   )}
                 </TabsContent>
                 <TabsContent value="timeline" className="p-4">
@@ -295,7 +297,7 @@ function ReviewScreen({ document, canReview, threshold, locale }: ReviewScreenPr
                 <TabsContent value="original" className="p-4">
                   <OriginalTab document={document} />
                 </TabsContent>
-              </ScrollArea>
+              </div>
             </Tabs>
           </ResizablePanel>
         </ResizablePanelGroup>

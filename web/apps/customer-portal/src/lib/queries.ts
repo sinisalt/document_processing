@@ -23,18 +23,56 @@ export const PROCESSING_POLL_MS = 3_000;
 
 export const EMPTY_ARRAY: never[] = [];
 
-/** Every page of `GET /documents` for one filter set; polls every 3 s while any loaded row is still in the pipeline. */
+/** How long the lists keep polling after an upload, so its documents show up in a tab that did not list them yet. */
+export const UPLOAD_POLL_WINDOW_MS = 60_000;
+
+let lastUploadAt = 0;
+const uploadListeners = new Set<() => void>();
+
+/** Called by the upload dialog: every mounted document list polls for the next minute. */
+export function notifyUploaded(): void {
+  lastUploadAt = Date.now();
+  for (const listener of uploadListeners) listener();
+}
+
+/** True for {@link UPLOAD_POLL_WINDOW_MS} after the last {@link notifyUploaded}. */
+export function useRecentUpload(): boolean {
+  const remaining = () => Math.max(0, UPLOAD_POLL_WINDOW_MS - (Date.now() - lastUploadAt));
+  const [recent, setRecent] = useState(() => remaining() > 0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      clearTimeout(timer);
+      const left = remaining();
+      setRecent(left > 0);
+      if (left > 0) timer = setTimeout(() => setRecent(false), left);
+    };
+    arm();
+    uploadListeners.add(arm);
+    return () => {
+      uploadListeners.delete(arm);
+      clearTimeout(timer);
+    };
+  }, []);
+  return recent;
+}
+
+/**
+ * Every page of `GET /documents` for one filter set; polls every 3 s while any loaded row is still in the pipeline,
+ * and for a minute after an upload (the new documents may belong to a tab that shows nothing in flight).
+ */
 export function useDocumentList(query: DocumentListQuery, enabled = true) {
   const { client } = useApi();
-  const [polling, setPolling] = useState(false);
+  const [inFlight, setInFlight] = useState(false);
+  const recentUpload = useRecentUpload();
   const list = useCursorList<DocumentSummary>({
     queryKey: queryKeys.documents.list(query),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/documents", { params: { query: { ...query, cursor: cursor ?? undefined } } })),
     enabled,
-    refetchInterval: polling ? PROCESSING_POLL_MS : false,
+    refetchInterval: inFlight || recentUpload ? PROCESSING_POLL_MS : false,
   });
-  const inFlight = list.items.some((d) => isInFlight(d.status));
-  useEffect(() => setPolling(inFlight), [inFlight]);
+  const anyInFlight = list.items.some((d) => isInFlight(d.status));
+  useEffect(() => setInFlight(anyInFlight), [anyInFlight]);
   return list;
 }
 
