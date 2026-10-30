@@ -8,9 +8,6 @@ public enum PipelineWorkKind
 {
     Ingestion,
     Document,
-
-    /// <summary>The id is a tenant's: the decide-and-commit half of stage 1 runs one ingestion at a time per tenant (<c>IngestCommitGate</c>).</summary>
-    Tenant,
 }
 
 /// <summary>The unit of serialisation of the runner: one ingestion or one document (docs/03 "Idempotency and retries").</summary>

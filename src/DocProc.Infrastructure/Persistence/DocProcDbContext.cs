@@ -105,6 +105,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
             }
         }
 
+        IngestionItemOwnership.Configure(modelBuilder, sqlite);
+
         // Query filters; the lambda captures this context so the filter follows the scoped tenant.
         modelBuilder.Entity<Tenant>().HasQueryFilter(t => Tenant.IsPlatformScope || t.Id == Tenant.TenantId);
         modelBuilder.Entity<TenantMember>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
