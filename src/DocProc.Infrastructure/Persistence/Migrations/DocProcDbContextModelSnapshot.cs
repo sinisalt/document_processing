@@ -871,6 +871,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "Sha256");
 
+                    b.HasIndex(new[] { "TenantId", "Sha256" }, "UX_IngestionItems_TenantId_Sha256_Accepted")
+                        .IsUnique()
+                        .HasFilter("[Disposition] = N'Accepted'");
+
                     b.ToTable("IngestionItems", (string)null);
                 });
 

@@ -33,7 +33,7 @@ public class IngestHandlerTests
 
             var firstItem = (await host.ItemsAsync(first.Id)).ShouldHaveSingleItem();
             var secondItem = (await host.ItemsAsync(second.Id)).ShouldHaveSingleItem();
-            firstItem.Disposition.ShouldBe(ItemDisposition.Candidate, $"round {round}: the earlier item owns the document");
+            firstItem.Disposition.ShouldBe(ItemDisposition.Accepted, $"round {round}: the earlier item owns the document");
             secondItem.Disposition.ShouldBe(ItemDisposition.Duplicate, $"round {round}: the later item is the duplicate");
             secondItem.DuplicateOfItemId.ShouldBe(firstItem.Id);
 
@@ -68,7 +68,7 @@ public class IngestHandlerTests
         await host.RunUntilIdleAsync();
 
         var olderItem = (await host.ItemsAsync(older.Id)).ShouldHaveSingleItem();
-        olderItem.Disposition.ShouldBe(ItemDisposition.Candidate, "the older item is nobody's duplicate, whatever ran first");
+        olderItem.Disposition.ShouldBe(ItemDisposition.Accepted, "the older item is nobody's duplicate, whatever ran first");
         olderItem.DuplicateOfItemId.ShouldBeNull();
         newerItem.DuplicateOfItemId.ShouldBe(olderItem.Id);
         (await host.WithDbAsync(db => db.Documents.AsNoTracking().ToListAsync())).ShouldHaveSingleItem().IngestionItemId.ShouldBe(olderItem.Id);
@@ -113,7 +113,7 @@ public class IngestHandlerTests
             documents.Count.ShouldBe(2, $"round {round}: one document per distinct file, however many zips carried it");
             foreach (var sameBytes in children.GroupBy(c => c.Sha256))
             {
-                var owner = sameBytes.Where(c => c.Disposition == ItemDisposition.Candidate).ToList().ShouldHaveSingleItem($"round {round}: exactly one owner per file");
+                var owner = sameBytes.Where(c => c.Disposition == ItemDisposition.Accepted).ToList().ShouldHaveSingleItem($"round {round}: exactly one owner per file");
                 var duplicate = sameBytes.Where(c => c.Disposition == ItemDisposition.Duplicate).ToList().ShouldHaveSingleItem($"round {round}: the other copy is the duplicate");
                 duplicate.DuplicateOfItemId.ShouldBe(owner.Id);
                 documents.Where(d => d.IngestionItemId == owner.Id).ToList().ShouldHaveSingleItem();
@@ -142,7 +142,7 @@ public class IngestHandlerTests
         copy.Disposition.ShouldBe(ItemDisposition.Duplicate, "the same bytes already have a document");
         copy.DuplicateOfItemId.ShouldBe(earlierItem.Id);
         var other = items.Single(i => i.FileName == "other.xml");
-        other.Disposition.ShouldBe(ItemDisposition.Candidate);
+        other.Disposition.ShouldBe(ItemDisposition.Accepted);
         other.DuplicateOfItemId.ShouldBeNull();
 
         var itemIds = new[] { earlierItem.Id, copy.Id, other.Id };

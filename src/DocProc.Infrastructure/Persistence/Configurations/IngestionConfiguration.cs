@@ -44,7 +44,8 @@ internal sealed class IngestionItemConfiguration : IEntityTypeConfiguration<Inge
         b.Property(i => i.Sha256).HasMaxLength(64).IsFixedLength();
         b.Property(i => i.DispositionReason).HasMaxLength(500);
         b.ComplexProperty(i => i.Blob, BlobReferenceMapping.Configure);
-        // Exact duplicates: same tenant, same bytes (docs/03 stage 1).
+        // Exact duplicates: same tenant, same bytes (docs/03 stage 1). The filtered unique index that makes one owner
+        // per hash a database rule is provider-specific and added by DocProcDbContext (IngestionItemOwnership).
         b.HasIndex(i => new { i.TenantId, i.Sha256 });
         b.HasOne(i => i.Ingestion).WithMany(i => i.Items).HasForeignKey(i => i.IngestionId);
         b.HasOne<IngestionItem>().WithMany().HasForeignKey(i => i.ParentItemId).OnDelete(DeleteBehavior.NoAction);

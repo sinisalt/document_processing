@@ -240,6 +240,7 @@ internal sealed class PipelineTestHost : IAsyncDisposable
         storedIngestion.UpdatedAt = now;
         var storedItem = await db.IngestionItems.SingleAsync(i => i.Id == item.Id);
         storedItem.Kind = ItemKinds.Detect(item.MimeType, item.FileName);
+        storedItem.Disposition = ItemDisposition.Accepted;
         await db.SaveChangesAsync();
         return document;
     });

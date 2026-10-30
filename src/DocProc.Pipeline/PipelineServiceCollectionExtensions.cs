@@ -57,7 +57,6 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
 
-        services.TryAddSingleton<IngestCommitGate>();
         services.TryAddScoped<IIngestionHandler, IngestHandler>();
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, NormalizeHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, SplitHandler>());
