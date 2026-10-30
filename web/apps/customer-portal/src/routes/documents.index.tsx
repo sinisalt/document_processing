@@ -48,7 +48,9 @@ function InboxPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { hasPolicy } = useAuth();
+  const { hasPolicy, user } = useAuth();
+  // Suppliers belong to a tenant; a platform account would get 400 "Tenant required", so it gets no supplier filter.
+  const tenantScope = user?.scope === "tenant";
   const tab: InboxTab = search.tab ?? "needsReview";
   const [draftQ, setDraftQ] = useState(search.q ?? "");
 
@@ -66,7 +68,7 @@ function InboxPage() {
   );
 
   const list = useDocumentList(query);
-  const suppliers = useSuppliers({ limit: 200 });
+  const suppliers = useSuppliers({ limit: 200 }, tenantScope);
 
   const setSearch = (patch: Partial<InboxSearch>) =>
     void navigate({ search: (previous) => ({ ...previous, ...patch }) });
@@ -167,24 +169,26 @@ function InboxPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">
-                {t("inbox.filters.supplier")}
-              </Label>
-              <Select value={search.supplierId ?? ALL} onValueChange={(value) => setSearch({ supplierId: value === ALL ? undefined : value })}>
-                <SelectTrigger id="inbox-supplier" className="w-48" aria-label={t("inbox.filters.supplier")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>{t("inbox.filters.anySupplier")}</SelectItem>
-                  {suppliers.items.map((supplier) => (
-                    <SelectItem key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {tenantScope && (
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">
+                  {t("inbox.filters.supplier")}
+                </Label>
+                <Select value={search.supplierId ?? ALL} onValueChange={(value) => setSearch({ supplierId: value === ALL ? undefined : value })}>
+                  <SelectTrigger id="inbox-supplier" className="w-48" aria-label={t("inbox.filters.supplier")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>{t("inbox.filters.anySupplier")}</SelectItem>
+                    {suppliers.items.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>
+                        {supplier.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <Label htmlFor="inbox-from" className="text-xs text-muted-foreground">
                 {t("inbox.filters.from")}

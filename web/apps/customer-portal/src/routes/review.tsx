@@ -7,6 +7,7 @@ import { ExternalLink, Hand, Undo2 } from "lucide-react";
 import { Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import {
   DataTable,
+  EmptyState,
   PageHeader,
   Policies,
   ReviewTaskStatusBadge,
@@ -28,7 +29,17 @@ export const Route = createFileRoute("/review")({ component: ReviewQueuePage });
 const helper = createDataTableColumnHelper<ReviewTask>();
 const statusFilters = ["queue", "Open", "InProgress", "Done", "Skipped"] as const;
 
+/** The sidebar hides the queue from roles without Review; a deep link gets an answer instead of a 403 and an empty table. */
 function ReviewQueuePage() {
+  const { t } = useTranslation();
+  const { hasPolicy } = useAuth();
+  if (!hasPolicy(Policies.Review)) {
+    return <EmptyState title={t("queue.reviewersOnlyTitle")} description={t("queue.reviewersOnly")} />;
+  }
+  return <ReviewQueue />;
+}
+
+function ReviewQueue() {
   const { t, i18n } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();

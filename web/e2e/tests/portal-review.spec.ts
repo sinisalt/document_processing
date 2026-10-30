@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Browser, type Page } from "@playwright/test";
 import { apiUrl, portalUrl } from "../playwright.config";
 
 /**
  * Customer portal, end to end against the real API (dev mode: SQLite, in-process pipeline, dev tokens): a tenant admin
- * marks the fixture's supplier "always review", uploads an XRechnung UBL invoice through the inbox, waits for the
- * pipeline to leave Processing, opens the document in the review screen, checks the number, totals and line items,
- * and approves it (Ctrl+Enter opens the confirmation). A viewer of another tenant sees the screens read-only.
+ * marks the fixture's supplier "always review"; a reviewer uploads an XRechnung UBL invoice through the inbox, waits for
+ * the pipeline to leave Processing, opens the document in the review screen, checks the number, totals and line items,
+ * and approves it (Ctrl+Enter opens the confirmation). In another tenant, a viewer opens a document uploaded through
+ * the API and sees the review screen read-only, and the review screen fits a 390 px phone.
  *
  * Opt in with E2E_API_URL and E2E_PORTAL_URL (README "Running without Docker"; `vite --port <n>` with VITE_API_PROXY).
  */
@@ -15,6 +16,7 @@ const fixture = readFileSync(new URL("../fixtures/xrechnung-ubl-invoice.xml", im
 const FIXTURE_NUMBER = "2026/4471";
 const SUPPLIER_NAME = "Getränke Huber GmbH & Co. KG";
 const SUPPLIER_VAT = "DE276543210";
+const IN_FLIGHT = ["Received", "Normalized", "Split", "Classified", "Matched", "Extracted"];
 
 interface DevUser {
   username: string;
@@ -37,12 +39,100 @@ async function devUser(username: string): Promise<DevUser> {
   return user;
 }
 
+/** A bearer token for a dev user, for the API calls that set up what the UI then shows. */
+async function devToken(username: string): Promise<string> {
+  const response = await fetch(`${apiUrl}/dev/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username }) });
+  if (!response.ok) throw new Error(`POST /dev/token for ${username}: ${response.status}`);
+  return ((await response.json()) as { access_token: string }).access_token;
+}
+
+async function api<T>(token: string, method: string, path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${apiUrl}/api/v1${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
+  return (await response.json()) as T;
+}
+
+interface SupplierRow {
+  id: string;
+  vatId: string | null;
+  alwaysReview: boolean;
+}
+
+/** The fixture's supplier with "always review" in the token's tenant: XML invoices of a known supplier auto-approve otherwise. */
+async function ensureAlwaysReviewSupplier(token: string) {
+  const page = await api<{ items: SupplierRow[] }>(token, "GET", `/suppliers?q=${encodeURIComponent(SUPPLIER_VAT)}&limit=50`);
+  const existing = page.items.find((s) => s.vatId === SUPPLIER_VAT);
+  if (!existing) await api(token, "POST", "/suppliers", { name: SUPPLIER_NAME, vatId: SUPPLIER_VAT, alwaysReview: true });
+  else if (!existing.alwaysReview) await api(token, "PATCH", `/suppliers/${existing.id}`, { alwaysReview: true });
+}
+
+/** Uploads the fixture under a fresh number through the API and waits until the pipeline is done with it. */
+async function uploadInvoice(token: string, number: string): Promise<{ id: string; status: string }> {
+  const xml = fixture.replace(`<cbc:ID>${FIXTURE_NUMBER}</cbc:ID>`, `<cbc:ID>${number}</cbc:ID>`);
+  await api(token, "POST", "/ingestions", { fileName: `${number}.xml`, contentType: "application/xml", base64: Buffer.from(xml, "utf8").toString("base64"), channelId: null });
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const list = await api<{ items: { id: string; status: string }[] }>(token, "GET", `/documents?q=${encodeURIComponent(number)}&limit=5`);
+    const document = list.items[0];
+    if (document && !IN_FLIGHT.includes(document.status)) return document;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`${number} did not leave the pipeline within a minute`);
+}
+
+/** A document of tenant B waiting for review, uploaded by its admin through the API (the viewer cannot upload). */
+async function tenantBDocument(prefix: string) {
+  const token = await devToken("tenant-b-admin");
+  await ensureAlwaysReviewSupplier(token);
+  const number = `${prefix}-${Date.now()}`;
+  const document = await uploadInvoice(token, number);
+  expect(document.status).toBe("NeedsReview");
+  return { ...document, number };
+}
+
 async function signIn(page: Page, username: string, path = "/") {
   const user = await devUser(username);
   await page.goto(`${portalUrl}/sign-in?redirect=${encodeURIComponent(path)}`);
   await page.getByRole("button", { name: `Sign in as ${user.displayName}` }).click();
   await expect(page.getByRole("banner").getByRole("button", { name: `Account menu for ${user.displayName}` })).toBeVisible();
   return user;
+}
+
+/** The suppliers screen as a tenant admin: the fixture's supplier exists and has "always review" on. */
+async function suppliersAlwaysReview(browser: Browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await signIn(page, "tenant-a-admin", "/suppliers");
+  await expect(page.getByRole("heading", { level: 1, name: "Suppliers" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search" }).fill(SUPPLIER_VAT);
+  await page.getByRole("search").getByRole("button", { name: "Search" }).click();
+  const supplierTable = page.getByRole("table", { name: "Suppliers" });
+  await expect(supplierTable.getByRole("row").nth(1)).toBeVisible();
+  const existing = supplierTable.getByRole("row", { name: new RegExp(SUPPLIER_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
+  if ((await existing.count()) === 0) {
+    await page.getByRole("button", { name: "New supplier" }).first().click();
+    const sheet = page.getByRole("dialog", { name: "New supplier" });
+    await sheet.getByRole("textbox", { name: "Name" }).fill(SUPPLIER_NAME);
+    await sheet.getByRole("textbox", { name: "VAT ID" }).fill(SUPPLIER_VAT);
+    await sheet.getByRole("switch", { name: "Always review" }).click();
+    await sheet.getByRole("button", { name: "New supplier" }).click();
+    await expect(page.getByText(`Supplier ${SUPPLIER_NAME} created.`)).toBeVisible();
+  } else {
+    await existing.first().click();
+    const sheet = page.getByRole("dialog", { name: SUPPLIER_NAME });
+    const always = sheet.getByRole("switch", { name: "Always review" });
+    if ((await always.getAttribute("aria-checked")) !== "true") {
+      await always.click();
+      await sheet.getByRole("button", { name: "Save" }).click();
+      await expect(page.getByText(`Supplier ${SUPPLIER_NAME} saved.`)).toBeVisible();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  }
+  await context.close();
 }
 
 test.describe("customer portal review flow", () => {
@@ -52,46 +142,22 @@ test.describe("customer portal review flow", () => {
     test.skip(!(await reachable(portalUrl)), `${portalUrl} is not reachable.`);
   });
 
-  test("upload a UBL invoice, review it and approve it", async ({ page }) => {
+  test("upload a UBL invoice, review it and approve it", async ({ browser, page }) => {
     test.setTimeout(120_000);
     // A unique number per run: the API deduplicates uploads by SHA-256, and the review screen is found by it.
     const number = `E2E-${Date.now()}`;
     const xml = fixture.replace(`<cbc:ID>${FIXTURE_NUMBER}</cbc:ID>`, `<cbc:ID>${number}</cbc:ID>`);
     expect(xml).toContain(number);
 
-    await signIn(page, "tenant-a-admin", "/suppliers");
+    // 1. Suppliers, as the tenant admin: the fixture's supplier is always reviewed (else XML invoices auto-approve).
+    await suppliersAlwaysReview(browser);
 
-    // 1. Suppliers: make sure the fixture's supplier exists and is always reviewed (else XML invoices auto-approve).
-    await expect(page.getByRole("heading", { level: 1, name: "Suppliers" })).toBeVisible();
-    await page.getByRole("textbox", { name: "Search" }).fill(SUPPLIER_VAT);
-    await page.getByRole("search").getByRole("button", { name: "Search" }).click();
-    const supplierTable = page.getByRole("table", { name: "Suppliers" });
-    await expect(supplierTable.getByRole("row").nth(1)).toBeVisible();
-    const existing = supplierTable.getByRole("row", { name: new RegExp(SUPPLIER_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
-    if ((await existing.count()) === 0) {
-      await page.getByRole("button", { name: "New supplier" }).first().click();
-      const sheet = page.getByRole("dialog", { name: "New supplier" });
-      await sheet.getByRole("textbox", { name: "Name" }).fill(SUPPLIER_NAME);
-      await sheet.getByRole("textbox", { name: "VAT ID" }).fill(SUPPLIER_VAT);
-      await sheet.getByRole("switch", { name: "Always review" }).click();
-      await sheet.getByRole("button", { name: "New supplier" }).click();
-      await expect(page.getByText(`Supplier ${SUPPLIER_NAME} created.`)).toBeVisible();
-    } else {
-      await existing.first().click();
-      const sheet = page.getByRole("dialog", { name: SUPPLIER_NAME });
-      const always = sheet.getByRole("switch", { name: "Always review" });
-      if ((await always.getAttribute("aria-checked")) !== "true") {
-        await always.click();
-        await sheet.getByRole("button", { name: "Save" }).click();
-        await expect(page.getByText(`Supplier ${SUPPLIER_NAME} saved.`)).toBeVisible();
-      } else {
-        await page.keyboard.press("Escape");
-      }
-    }
+    // Everything after that is a reviewer's job: upload, correct, claim, approve.
+    await signIn(page, "tenant-a-reviewer", "/documents");
+    await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+    await expect(page.getByRole("navigation").getByRole("link", { name: "Settings" })).toHaveCount(0);
 
     // 2. Inbox: upload through the dialog's file input.
-    await page.getByRole("navigation").getByRole("link", { name: "Inbox" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
     await page.getByRole("button", { name: "Upload", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Upload documents" });
     await dialog.getByLabel("Choose files", { exact: true }).setInputFiles({ name: `${number}.xml`, mimeType: "application/xml", buffer: Buffer.from(xml, "utf8") });
@@ -124,6 +190,22 @@ test.describe("customer portal review flow", () => {
     const grid = page.getByTestId("line-item-grid");
     await expect(grid.getByRole("table", { name: "Line items" })).toBeVisible();
     await expect(grid.locator("tr[data-arithmetic]").first()).toHaveAttribute("data-arithmetic", "ok");
+    // Linux Chromium: the approve button names Ctrl+Enter, not the Mac's ⌘↵.
+    await expect(page.getByTestId("approve-shortcut")).toHaveText("Ctrl+Enter");
+
+    // j/k walk the flags without typing into the flagged field: twice j leaves every value and Approve as they were.
+    const flagButtons = page.getByTestId("flags-list").getByRole("button");
+    if ((await flagButtons.count()) > 0) {
+      const values = await form.locator("input").evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+      await page.getByRole("heading", { level: 1 }).click();
+      await page.keyboard.press("j");
+      await expect(flagButtons.first()).toHaveAttribute("aria-current", "true");
+      await page.keyboard.press("j");
+      await expect(flagButtons.nth(Math.min(1, (await flagButtons.count()) - 1))).toHaveAttribute("aria-current", "true");
+      expect(await form.locator("input").evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toEqual(values);
+      await expect(page.getByTestId("save-button")).toBeDisabled();
+      await expect(page.getByTestId("approve-button")).toBeEnabled();
+    }
 
     // A correction: only the changed path is sent, the API marks it Corrected, approve waits until it is saved.
     const dueDate = form.getByLabel("Due date", { exact: true });
@@ -137,6 +219,9 @@ test.describe("customer portal review flow", () => {
     await expect(form.locator('[data-field="dueDate"]')).toHaveAttribute("data-field-status", "Corrected");
     await expect(form.locator('[data-field="dueDate"]')).toContainText("Corrected");
     await expect(page.getByTestId("approve-button")).toBeEnabled();
+    // The API does not re-validate a correction, so an empty flag list no longer claims that every rule passed.
+    const flagsEmpty = page.getByTestId("flags-empty");
+    if ((await flagsEmpty.count()) > 0) await expect(flagsEmpty).toHaveText("Corrections not re-validated: reprocess from Validate to re-check.");
 
     // Timeline tab lists the pipeline's events and the correction.
     await page.getByRole("tab", { name: "Timeline" }).click();
@@ -182,6 +267,9 @@ test.describe("customer portal review flow", () => {
   });
 
   test("a viewer sees read-only screens", async ({ page }) => {
+    test.setTimeout(120_000);
+    const document = await tenantBDocument("E2E-VIEW");
+
     await signIn(page, "tenant-b-viewer", "/documents");
     await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Upload", exact: true })).toHaveCount(0);
@@ -192,5 +280,64 @@ test.describe("customer portal review flow", () => {
     await nav.getByRole("link", { name: "Suppliers" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Suppliers" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New supplier" })).toHaveCount(0);
+
+    // The review queue by direct link: an answer, without a request that would end in a 403 toast.
+    const queueRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/v1/review-tasks")) queueRequests.push(request.url());
+    });
+    await page.goto(`${portalUrl}/review`);
+    await expect(page.getByText("The review queue is for reviewers")).toBeVisible();
+    await expect(page.getByText("The queue is empty")).toHaveCount(0);
+    expect(queueRequests).toEqual([]);
+
+    // The review screen of a document waiting for review: everything visible, nothing to change or decide.
+    await page.goto(`${portalUrl}/documents/${document.id}`);
+    const screen = page.getByTestId("review-screen");
+    await expect(screen).toHaveAttribute("data-status", "NeedsReview");
+    await expect(page.getByTestId("document-number")).toHaveText(document.number);
+    const form = page.getByRole("form", { name: "Canonical data" });
+    await expect(form.getByLabel("Invoice number")).toHaveValue(document.number);
+    await expect(form.getByLabel("Invoice number")).toBeDisabled();
+    await expect(form.getByLabel("Total (gross)")).toBeDisabled();
+    await expect(form.locator("input:not([disabled])")).toHaveCount(0);
+    for (const name of ["Save corrections", "Approve", "Reject", "Reprocess"]) {
+      await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
+    for (const id of ["save-button", "approve-button", "reject-button", "reprocess-button"]) {
+      await expect(page.getByTestId(id)).toHaveCount(0);
+    }
+    // Ctrl+Enter opens no approval for a viewer.
+    await page.getByRole("heading", { level: 1 }).click();
+    await page.keyboard.press("Control+Enter");
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  });
+
+  test("the review screen fits a phone", async ({ browser }) => {
+    test.setTimeout(120_000);
+    const phoneDocument = await tenantBDocument("E2E-PHONE");
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await context.newPage();
+    await signIn(page, "tenant-b-admin", `/documents/${phoneDocument.id}`);
+    await expect(page.getByTestId("review-screen")).toHaveAttribute("data-status", "NeedsReview");
+    const form = page.getByRole("form", { name: "Canonical data" });
+    await expect(form.getByLabel("Invoice number")).toHaveValue(phoneDocument.number);
+
+    // No sideways scrolling, and every action is on screen.
+    const size = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+    expect(size.scrollWidth).toBeLessThanOrEqual(size.innerWidth);
+    for (const id of ["save-button", "approve-button", "reject-button", "reprocess-button"]) {
+      const box = await page.getByTestId(id).boundingBox();
+      expect(box, id).not.toBeNull();
+      expect(box!.x, id).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, id).toBeLessThanOrEqual(size.innerWidth);
+    }
+    // The page viewer sits above the form instead of beside it.
+    const viewer = await page.getByTestId("viewer-panel").boundingBox();
+    const fields = await form.boundingBox();
+    expect(viewer).not.toBeNull();
+    expect(fields).not.toBeNull();
+    expect(viewer!.y + viewer!.height).toBeLessThanOrEqual(fields!.y);
+    await context.close();
   });
 });

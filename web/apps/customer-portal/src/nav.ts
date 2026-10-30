@@ -1,5 +1,5 @@
 import { Building2, ClipboardList, Inbox, LayoutDashboard, Settings } from "lucide-react";
-import { Policies, type NavItem } from "@docproc/app-shell";
+import { Policies, type AuthUser, type NavItem } from "@docproc/app-shell";
 
 /**
  * Sidebar entries of the customer portal, in display order. Screen agents append an entry per screen; labels live in
@@ -12,3 +12,11 @@ export const nav: NavItem[] = [
   { to: "/suppliers", labelKey: "portal:nav.suppliers", icon: Building2, policy: Policies.Read },
   { to: "/settings", labelKey: "portal:nav.settings", icon: Settings, policy: Policies.TenantAdmin },
 ];
+
+/** Screens whose data belongs to a tenant: a platform account (Operator, SuperAdmin without X-Tenant-Id) gets 400 there. */
+const tenantOnly = new Set(["/suppliers", "/settings"]);
+
+/** The entries for this user: `NavItem` filters by policy and role only, so the scope is applied here. */
+export function navFor(user: Pick<AuthUser, "scope"> | null | undefined): NavItem[] {
+  return user?.scope === "platform" ? nav.filter((item) => !tenantOnly.has(item.to)) : nav;
+}

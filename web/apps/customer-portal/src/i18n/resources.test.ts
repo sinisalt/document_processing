@@ -67,6 +67,7 @@ describe("portal i18n resources", () => {
       ...["received", "stage_completed", "stage_failed", "flagged", "review_requested", "auto_approved", "approved", "rejected", "corrected", "reprocessed"].map((event) => `events.document.${event}`),
       ...["Invoice", "CreditNote", "Proforma", "BankTransfer", "DirectDebit", "Card", "Cash", "Other"].map((value) => `enums.${value}`),
       ...["general", "members", "apiKeys", "channels", "ai"].map((tab) => `settings.tabs.${tab}`),
+      ...["none", "notValidated", "stale"].map((state) => `review.flags.${state}`),
       ...["ApiUpload", "Mailbox", "WatchedFolder", "PortalUpload"].flatMap((type) => [`settings.channels.types.${type}`, `settings.channels.configHints.${type}`]),
       ...["Anthropic", "AnthropicFoundry", "OpenAi", "AzureOpenAi", "OpenAiCompatible"].map((kind) => `settings.ai.kinds.${kind}`),
       ...["ingest", "read"].flatMap((scope) => [`settings.apiKeys.scopes.${scope}`, `settings.apiKeys.scopeHints.${scope}`]),

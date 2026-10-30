@@ -1,6 +1,6 @@
 import { createRootRoute } from "@tanstack/react-router";
-import { AppProviders, AppShell } from "@docproc/app-shell";
-import { nav } from "@/nav";
+import { AppProviders, AppShell, useAuth } from "@docproc/app-shell";
+import { navFor } from "@/nav";
 import { shellConfig } from "@/shell-config";
 
 export const Route = createRootRoute({ component: RootLayout });
@@ -9,7 +9,13 @@ export const Route = createRootRoute({ component: RootLayout });
 function RootLayout() {
   return (
     <AppProviders config={shellConfig}>
-      <AppShell nav={nav} appName={shellConfig.appName} />
+      <PortalShell />
     </AppProviders>
   );
+}
+
+/** Inside the providers, so the sidebar can drop the tenant-only entries for a platform account. */
+function PortalShell() {
+  const { user } = useAuth();
+  return <AppShell nav={navFor(user)} appName={shellConfig.appName} />;
 }

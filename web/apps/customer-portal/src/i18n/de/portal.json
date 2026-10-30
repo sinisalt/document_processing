@@ -249,7 +249,9 @@
       "title_other": "{{count}} Hinweise",
       "hint": "Klicken Sie auf einen Hinweis oder drücken Sie j / k, um zum Feld zu springen.",
       "none": "Keine Hinweise: alle Prüfregeln sind erfüllt.",
-      "resolved": "Erledigt"
+      "resolved": "Erledigt",
+      "notValidated": "Noch nicht validiert: Hinweise erscheinen, sobald das Dokument den Schritt „Validieren“ durchlaufen hat.",
+      "stale": "Korrekturen nicht erneut validiert: ab „Validieren“ neu verarbeiten, um sie zu prüfen."
     },
     "save": {
       "button": "Korrekturen speichern",
@@ -274,7 +276,9 @@
       "reprocessDescription": "Das Dokument durchläuft die Verarbeitung ab dem gewählten Schritt erneut; spätere Korrekturen werden neu berechnet.",
       "fromStage": "Ab Schritt",
       "reprocessing": "Neuverarbeitung ab {{stage}}.",
-      "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Korrekturen."
+      "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Korrekturen.",
+      "shortcutApple": "⌘↵",
+      "shortcutOther": "Strg+Enter"
     },
     "viewer": {
       "toolbar": "Seitenansicht",
@@ -288,7 +292,7 @@
       "pageAlt": "Seite {{page}} des Dokuments",
       "pageError": "Das Seitenbild konnte nicht geladen werden.",
       "noPagesTitle": "Keine Seitenbilder",
-      "noPages": "Dieses Dokument hat keine gerenderten Seiten (zum Beispiel eine XML-E-Rechnung); die Felder rechts sind seine Daten."
+      "noPages": "Dieses Dokument hat keine gerenderten Seiten (zum Beispiel eine XML-E-Rechnung); seine Daten stehen in den Feldern."
     },
     "overlay": {
       "label_one": "{{count}} markiertes Feld auf dieser Seite",
@@ -333,9 +337,7 @@
     "columns": {
       "reason": "Grund",
       "status": "Aufgabenstatus",
-      "assignedTo": "Zugewiesen an",
       "slaDue": "Fällig",
-      "created": "Erstellt",
       "actions": "Aktionen",
       "task": "Aufgabe"
     },
@@ -352,7 +354,9 @@
     "emptyTitle": "Die Prüfliste ist leer",
     "empty": "Kein Dokument wartet auf eine Prüfung.",
     "emptyMine": "Sie haben keine Aufgaben übernommen.",
-    "createdAt": "Erstellt {{when}}"
+    "createdAt": "Erstellt {{when}}",
+    "reviewersOnlyTitle": "Die Prüfliste ist für Prüfer",
+    "reviewersOnly": "Ihre Rolle darf Dokumente lesen, aber nicht prüfen. Fragen Sie einen Mandanten-Admin, wenn Sie die Prüfliste bearbeiten sollen."
   },
   "suppliers": {
     "title": "Lieferanten",
@@ -401,7 +405,9 @@
       "listHint": "Ein Eintrag pro Zeile oder durch Kommas getrennt.",
       "alwaysReview": "Immer prüfen",
       "alwaysReviewHint": "Dokumente dieses Lieferanten werden nie automatisch freigegeben."
-    }
+    },
+    "platformScopeTitle": "Mandant wählen",
+    "platformScope": "Lieferanten gehören zu einem Mandanten; Plattformkonten verwalten die Lieferanten eines Mandanten in der Admin-Konsole."
   },
   "settings": {
     "title": "Einstellungen",

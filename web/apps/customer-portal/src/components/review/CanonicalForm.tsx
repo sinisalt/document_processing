@@ -71,12 +71,12 @@ export function CanonicalForm({ canonical, disabled, threshold, onHighlight }: C
               </span>
             )}
           </legend>
-          <div className="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 @lg:grid-cols-2">
             {section.fields.map((spec) => {
               const field = fieldOf(canonical, spec);
               const wide = spec.kind === "text";
               return (
-                <div key={spec.path} className={wide ? "md:col-span-2" : undefined}>
+                <div key={spec.path} className={wide ? "@lg:col-span-2" : undefined}>
                   <Label htmlFor={fieldDomId(spec.path)} className="mb-1 text-xs text-muted-foreground">
                     {label(spec)}
                   </Label>

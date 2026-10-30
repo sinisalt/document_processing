@@ -73,7 +73,17 @@ function toForm(supplier: Supplier | null): SupplierForm {
   };
 }
 
+/** Suppliers belong to a tenant: a platform account (no X-Tenant-Id) would only get 400 "Tenant required". */
 function SuppliersPage() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  if (user?.scope !== "tenant") {
+    return <EmptyState title={t("suppliers.platformScopeTitle")} description={t("suppliers.platformScope")} />;
+  }
+  return <SuppliersScreen />;
+}
+
+function SuppliersScreen() {
   const { t, i18n } = useTranslation();
   const { hasPolicy } = useAuth();
   const canManage = hasPolicy(Policies.TenantAdmin);

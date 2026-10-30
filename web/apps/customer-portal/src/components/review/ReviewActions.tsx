@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Check, RotateCcw, X } from "lucide-react";
 import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
 import { ConfirmDialog, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { isApplePlatform } from "@/lib/platform";
 import type { DocumentDetail } from "@/lib/queries";
 
 export const reprocessStages = ["Normalize", "Classify", "Extract", "Validate"] as const;
@@ -65,6 +66,7 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   });
 
   const decidable = canDecide(document.status) && !hasUnsavedChanges;
+  const apple = isApplePlatform();
 
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("review.actions.label")}>
@@ -77,10 +79,12 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
         onConfirm={() => approve.mutateAsync().then(() => undefined)}
         isPending={approve.isPending}
         trigger={
-          <Button disabled={!decidable} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} data-testid="approve-button">
+          <Button disabled={!decidable} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} aria-keyshortcuts={apple ? "Meta+Enter" : "Control+Enter"} data-testid="approve-button">
             <Check aria-hidden />
             {t("review.actions.approve")}
-            <kbd className="ml-1 hidden rounded border px-1 text-[10px] text-primary-foreground/80 lg:inline">⌘↵</kbd>
+            <kbd className="ml-1 hidden rounded border px-1 text-[10px] text-primary-foreground/80 lg:inline" aria-hidden data-testid="approve-shortcut">
+              {apple ? t("review.actions.shortcutApple") : t("review.actions.shortcutOther")}
+            </kbd>
           </Button>
         }
       />

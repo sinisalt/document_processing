@@ -17,7 +17,7 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-/** Tenant settings: General, Members, API keys, Channels, AI providers. API keys and AI providers need TenantAdmin. */
+/** Tenant settings: General, Members, API keys, Channels, AI providers; all of them for tenant admins only. */
 function SettingsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -40,29 +40,25 @@ function SettingsPage() {
         <TabsList aria-label={t("settings.tabsLabel")} className="flex-wrap">
           <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
           <TabsTrigger value="members">{t("settings.tabs.members")}</TabsTrigger>
-          {isAdmin && <TabsTrigger value="apiKeys">{t("settings.tabs.apiKeys")}</TabsTrigger>}
+          <TabsTrigger value="apiKeys">{t("settings.tabs.apiKeys")}</TabsTrigger>
           <TabsTrigger value="channels">{t("settings.tabs.channels")}</TabsTrigger>
-          {isAdmin && <TabsTrigger value="ai">{t("settings.tabs.ai")}</TabsTrigger>}
+          <TabsTrigger value="ai">{t("settings.tabs.ai")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="pt-4">
-          <GeneralTab canEdit={isAdmin} />
+          <GeneralTab canEdit />
         </TabsContent>
         <TabsContent value="members" className="pt-4">
-          <MembersTab canEdit={isAdmin} />
+          <MembersTab canEdit />
         </TabsContent>
-        {isAdmin && (
-          <TabsContent value="apiKeys" className="pt-4">
-            <ApiKeysTab />
-          </TabsContent>
-        )}
+        <TabsContent value="apiKeys" className="pt-4">
+          <ApiKeysTab />
+        </TabsContent>
         <TabsContent value="channels" className="pt-4">
-          <ChannelsTab canEdit={isAdmin} />
+          <ChannelsTab canEdit />
         </TabsContent>
-        {isAdmin && (
-          <TabsContent value="ai" className="pt-4">
-            <AiProvidersTab />
-          </TabsContent>
-        )}
+        <TabsContent value="ai" className="pt-4">
+          <AiProvidersTab />
+        </TabsContent>
       </Tabs>
     </>
   );

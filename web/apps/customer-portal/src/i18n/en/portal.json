@@ -249,7 +249,9 @@
       "title_other": "{{count}} flags",
       "hint": "Click a flag or press j / k to jump to its field.",
       "none": "No flags: every validation rule passed.",
-      "resolved": "Resolved"
+      "resolved": "Resolved",
+      "notValidated": "Not validated yet: flags appear once the document has passed the Validate stage.",
+      "stale": "Corrections not re-validated: reprocess from Validate to re-check."
     },
     "save": {
       "button": "Save corrections",
@@ -274,7 +276,9 @@
       "reprocessDescription": "The document is sent back through the pipeline from the selected stage; corrections made after that stage are recomputed.",
       "fromStage": "From stage",
       "reprocessing": "Reprocessing from {{stage}}.",
-      "saveFirst": "Save or discard your corrections first."
+      "saveFirst": "Save or discard your corrections first.",
+      "shortcutApple": "⌘↵",
+      "shortcutOther": "Ctrl+Enter"
     },
     "viewer": {
       "toolbar": "Page viewer",
@@ -288,7 +292,7 @@
       "pageAlt": "Page {{page}} of the document",
       "pageError": "The page image could not be loaded.",
       "noPagesTitle": "No page images",
-      "noPages": "This document has no rendered pages (an XML e-invoice, for example); the fields on the right are its data."
+      "noPages": "This document has no rendered pages (an XML e-invoice, for example); its data is in the fields."
     },
     "overlay": {
       "label_one": "{{count}} highlighted field on this page",
@@ -333,9 +337,7 @@
     "columns": {
       "reason": "Reason",
       "status": "Task status",
-      "assignedTo": "Assigned to",
       "slaDue": "Due",
-      "created": "Created",
       "actions": "Actions",
       "task": "Task"
     },
@@ -352,7 +354,9 @@
     "emptyTitle": "The queue is empty",
     "empty": "No document waits for a review.",
     "emptyMine": "You have no claimed tasks.",
-    "createdAt": "Created {{when}}"
+    "createdAt": "Created {{when}}",
+    "reviewersOnlyTitle": "The review queue is for reviewers",
+    "reviewersOnly": "Your role can read documents but not review them. Ask a tenant admin if you should work the queue."
   },
   "suppliers": {
     "title": "Suppliers",
@@ -401,7 +405,9 @@
       "listHint": "One per line or separated by commas.",
       "alwaysReview": "Always review",
       "alwaysReviewHint": "Documents of this supplier are never auto-approved."
-    }
+    },
+    "platformScopeTitle": "Choose a tenant",
+    "platformScope": "Suppliers belong to a tenant; platform accounts manage a tenant's suppliers in the admin console."
   },
   "settings": {
     "title": "Settings",
