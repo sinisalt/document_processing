@@ -1,0 +1,19 @@
+{
+  "name": "@docproc/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "echo 'e2e runs via pnpm e2e (needs the API and both apps)'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo skip",
+    "build": "echo skip",
+    "e2e": "playwright test",
+    "e2e:screenshots": "playwright test --grep @screenshot"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.6",
+    "typescript": "~5.9.3"
+  }
+}
