@@ -4,6 +4,7 @@ using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace DocProc.Api.Endpoints;
@@ -28,7 +29,7 @@ public static class ApiKeyEndpoints
     {
         var keys = group.MapGroup("/api-keys").RequireAuthorization(Policies.TenantAdmin).WithTags("API keys");
 
-        keys.MapGet("/", async Task<Results<Ok<IReadOnlyList<ApiKeySummary>>, ProblemHttpResult>> (DocProcDbContext db, ITenantContext tenant, CancellationToken ct) =>
+        keys.MapGet("/", async Task<Results<Ok<IReadOnlyList<ApiKeySummary>>, ProblemHttpResult>> ([FromServices] DocProcDbContext db, ITenantContext tenant, CancellationToken ct) =>
         {
             if (RequireTenant(tenant) is { } problem)
             {
@@ -45,7 +46,7 @@ public static class ApiKeyEndpoints
         .WithName("ListApiKeys")
         .WithSummary("API keys of the current tenant; secrets are never returned.");
 
-        keys.MapPost("/", async Task<Results<Created<CreatedApiKey>, ValidationProblem, ProblemHttpResult>> (CreateApiKeyRequest request, DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        keys.MapPost("/", async Task<Results<Created<CreatedApiKey>, ValidationProblem, ProblemHttpResult>> (CreateApiKeyRequest request, [FromServices] DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant) is { } problem)
             {
@@ -79,7 +80,7 @@ public static class ApiKeyEndpoints
         .WithName("CreateApiKey")
         .WithSummary("Creates a key for the current tenant. The full key is returned once; store it now.");
 
-        keys.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        keys.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant) is { } problem)
             {

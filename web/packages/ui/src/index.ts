@@ -1,0 +1,31 @@
+// Barrel for the shared design system. Components come from shadcn/ui (Radix primitives + Tailwind v4);
+// see docs/05-api-and-ui.md "Shared UI decisions". Add components with `pnpm dlx shadcn@latest add <name>`
+// inside packages/ui, then export them here.
+export * from "./lib/utils";
+export * from "./components/alert";
+export * from "./components/avatar";
+export * from "./components/badge";
+export * from "./components/breadcrumb";
+export * from "./components/button";
+export * from "./components/card";
+export * from "./components/checkbox";
+export * from "./components/dialog";
+export * from "./components/dropdown-menu";
+export * from "./components/form";
+export * from "./components/input";
+export * from "./components/label";
+export * from "./components/popover";
+export * from "./components/progress";
+export * from "./components/scroll-area";
+export * from "./components/select";
+export * from "./components/separator";
+export * from "./components/sheet";
+export * from "./components/sidebar";
+export * from "./components/skeleton";
+export * from "./components/sonner";
+export * from "./components/switch";
+export * from "./components/table";
+export * from "./components/tabs";
+export * from "./components/textarea";
+export * from "./components/tooltip";
+export * from "./hooks/use-mobile";

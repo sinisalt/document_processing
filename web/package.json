@@ -1,0 +1,19 @@
+{
+  "name": "docproc-web",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/**' build && pnpm -r --filter './apps/**' build",
+    "dev:portal": "pnpm --filter @docproc/customer-portal dev",
+    "dev:admin": "pnpm --filter @docproc/admin-console dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "generate:api": "pnpm --filter @docproc/api-client generate"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "prettier": "^3.6.2"
+  }
+}

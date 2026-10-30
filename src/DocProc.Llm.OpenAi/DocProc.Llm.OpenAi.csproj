@@ -7,5 +7,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
   </ItemGroup>
 </Project>
