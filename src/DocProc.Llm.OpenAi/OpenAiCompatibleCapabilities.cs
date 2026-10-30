@@ -25,11 +25,22 @@ public static class OpenAiCompatibleCapabilities
         MaxInputTokens = 32_000,
     };
 
-    /// <summary>The descriptor the adapter uses for a provider kind; <see cref="LlmProviderKind.OpenAiCompatible"/> is the self-hosted profile.</summary>
-    public static LlmCapabilities For(LlmProviderKind kind) => kind switch
+    /// <summary>The provider kinds this adapter serves.</summary>
+    public static bool Supports(LlmProviderKind kind) => kind is LlmProviderKind.OpenAi or LlmProviderKind.AzureOpenAi or LlmProviderKind.OpenAiCompatible;
+
+    /// <summary>Throws unless <paramref name="kind"/> is one this adapter serves.</summary>
+    public static void EnsureSupported(LlmProviderKind kind, string parameterName)
     {
-        LlmProviderKind.OpenAi or LlmProviderKind.AzureOpenAi => OpenAi,
-        LlmProviderKind.OpenAiCompatible => SelfHosted,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "This adapter serves OpenAI, Azure OpenAI and OpenAI-compatible endpoints only."),
-    };
+        if (!Supports(kind))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, kind, "This adapter serves OpenAI, Azure OpenAI and OpenAI-compatible endpoints only.");
+        }
+    }
+
+    /// <summary>The descriptor the adapter uses for a provider kind; <see cref="LlmProviderKind.OpenAiCompatible"/> is the self-hosted profile.</summary>
+    public static LlmCapabilities For(LlmProviderKind kind)
+    {
+        EnsureSupported(kind, nameof(kind));
+        return kind == LlmProviderKind.OpenAiCompatible ? SelfHosted : OpenAi;
+    }
 }

@@ -118,6 +118,45 @@ public class OpenAiCompatibleProviderTests
     }
 
     [Fact]
+    public async Task Degrades_a_rejected_effort_value_to_the_nearest_supported_level_and_remembers_it()
+    {
+        var handler = new FakeOpenAiHandler()
+            .Enqueue(HttpStatusCode.BadRequest, FakeOpenAiHandler.ErrorJson("Unsupported value: 'high' is not supported with this model. Supported values are: 'low' and 'medium'.", param: "reasoning_effort", code: "unsupported_value"))
+            .EnqueueCompletion()
+            .EnqueueCompletion();
+        var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey);
+        var request = Request(null, model: "gpt-5-mini") with { Options = new LlmOptions { Effort = ReasoningEffort.High } };
+
+        await provider.CompleteAsync(request, CancellationToken.None);
+        await provider.CompleteAsync(request, CancellationToken.None);
+
+        handler.Requests.Count.ShouldBe(3);
+        handler.Requests[0].Body.GetProperty("reasoning_effort").GetString().ShouldBe("high");
+        handler.Requests[1].Body.GetProperty("reasoning_effort").GetString().ShouldBe("medium");
+        handler.Requests[2].Body.GetProperty("reasoning_effort").GetString().ShouldBe("medium", "the accepted level is remembered per model and requested level");
+    }
+
+    [Fact]
+    public async Task Walks_the_effort_ladder_down_when_the_server_names_no_supported_values()
+    {
+        var rejection = FakeOpenAiHandler.ErrorJson("Invalid value for reasoning_effort.", param: "reasoning_effort", code: "invalid_value");
+        var handler = new FakeOpenAiHandler()
+            .Enqueue(HttpStatusCode.BadRequest, rejection)
+            .Enqueue(HttpStatusCode.BadRequest, rejection)
+            .Enqueue(HttpStatusCode.BadRequest, rejection)
+            .EnqueueCompletion()
+            .EnqueueCompletion();
+        var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey);
+        var request = Request(null) with { Options = new LlmOptions { Effort = ReasoningEffort.High } };
+
+        await provider.CompleteAsync(request, CancellationToken.None);
+        await provider.CompleteAsync(Request(null) with { Options = new LlmOptions { Effort = ReasoningEffort.Low } }, CancellationToken.None);
+
+        handler.Requests.Select(r => r.Body.TryGetProperty("reasoning_effort", out var effort) ? effort.GetString() : null)
+            .ShouldBe(["high", "medium", "low", null, "low"]);
+    }
+
+    [Fact]
     public async Task Does_not_retry_an_unrelated_bad_request_or_a_second_rejection()
     {
         var unrelated = new FakeOpenAiHandler().Enqueue(HttpStatusCode.BadRequest, FakeOpenAiHandler.ErrorJson("Invalid schema", param: "response_format"));
@@ -190,6 +229,33 @@ public class OpenAiCompatibleProviderTests
         var provider = Provider(new FakeOpenAiHandler().EnqueueCompletion(), Config(LlmProviderKind.OpenAi), ApiKey);
 
         await Should.ThrowAsync<OperationCanceledException>(() => provider.CompleteAsync(Request(null), cts.Token));
+    }
+
+    [Fact]
+    public async Task The_request_timeout_bounds_the_call_and_is_a_transient_error()
+    {
+        var handler = new FakeOpenAiHandler().EnqueueHang();
+        var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey);
+        var request = Request(null) with { Options = new LlmOptions { Timeout = TimeSpan.FromMilliseconds(50) } };
+
+        var error = await Should.ThrowAsync<LlmException>(() => provider.CompleteAsync(request, CancellationToken.None));
+
+        error.Kind.ShouldBe(LlmErrorKind.Transient);
+        error.IsRetryable.ShouldBeTrue();
+        error.Message.ShouldContain("did not answer");
+        handler.Requests.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(LlmProviderKind.Anthropic)]
+    [InlineData(LlmProviderKind.AnthropicFoundry)]
+    [InlineData(LlmProviderKind.Replay)]
+    public void The_provider_rejects_kinds_this_adapter_does_not_serve(LlmProviderKind kind)
+    {
+        var client = new OpenAI.OpenAIClient(new System.ClientModel.ApiKeyCredential("sk-test"));
+
+        Should.Throw<ArgumentOutOfRangeException>(() => new OpenAiCompatibleProvider(client, kind, OpenAiCompatibleCapabilities.OpenAi, "gpt-5-mini"));
+        Should.Throw<ArgumentOutOfRangeException>(() => new OpenAiCompatibleProvider(client, kind, "gpt-5-mini"));
     }
 
     [Fact]

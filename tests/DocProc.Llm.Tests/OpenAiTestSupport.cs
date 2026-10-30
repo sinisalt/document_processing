@@ -63,13 +63,13 @@ internal static class OpenAiTestSupport
 /// <summary>Scripted HTTP responses for the OpenAI SDK's transport; every request is recorded for assertions.</summary>
 internal sealed class FakeOpenAiHandler : HttpMessageHandler
 {
-    private readonly Queue<Func<HttpResponseMessage>> _responses = new();
+    private readonly Queue<Func<CancellationToken, Task<HttpResponseMessage>>> _responses = new();
 
     public List<RecordedRequest> Requests { get; } = [];
 
     public FakeOpenAiHandler Enqueue(HttpStatusCode status, string body, params (string Name, string Value)[] headers)
     {
-        _responses.Enqueue(() =>
+        _responses.Enqueue(_ =>
         {
             var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
             foreach (var (name, value) in headers)
@@ -77,7 +77,18 @@ internal sealed class FakeOpenAiHandler : HttpMessageHandler
                 response.Headers.TryAddWithoutValidation(name, value);
             }
 
-            return response;
+            return Task.FromResult(response);
+        });
+        return this;
+    }
+
+    /// <summary>A server that never answers: the request completes only when the SDK's token cancels it.</summary>
+    public FakeOpenAiHandler EnqueueHang()
+    {
+        _responses.Enqueue(async cancellationToken =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("unreachable");
         });
         return this;
     }
@@ -132,7 +143,7 @@ internal sealed class FakeOpenAiHandler : HttpMessageHandler
             throw new InvalidOperationException($"No scripted response for request #{Requests.Count} to {request.RequestUri}.");
         }
 
-        return _responses.Dequeue()();
+        return await _responses.Dequeue()(cancellationToken);
     }
 }
 

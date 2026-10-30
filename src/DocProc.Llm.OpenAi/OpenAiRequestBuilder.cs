@@ -32,18 +32,15 @@ public static class OpenAiRequestBuilder
 
         var options = new ChatCompletionOptions
         {
+            // max_completion_tokens on the wire; the factory's OpenAI-compatible client renames it to max_tokens (LegacyMaxTokensPolicy).
             MaxOutputTokenCount = request.Options.MaxOutputTokens,
             ReasoningEffortLevel = MapEffort(request.Options.Effort),
             ResponseFormat = BuildResponseFormat(request.OutputSchema, capabilities),
         };
 
-        if (request.DocumentId is { } documentId)
-        {
-            // Correlation only; the same value the Anthropic adapter sends as metadata.user_id.
-            options.EndUserId = documentId.ToString("N");
-        }
-
-        return new OpenAiChatRequest(request.Model, messages, options);
+        // LlmRequest.DocumentId is correlation for usage rows and logs only; it is never sent to the provider (no
+        // `user` field: OpenAI expects a stable end-user id there, and Ollama rejects the field outright).
+        return new OpenAiChatRequest(request.Model, messages, options) { Timeout = request.Options.Timeout };
     }
 
     /// <summary><see cref="ReasoningEffort.None"/> omits the parameter; the others map one to one (docs/08 "Reasoning/effort").</summary>
