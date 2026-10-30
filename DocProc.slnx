@@ -17,6 +17,7 @@
     <Project Path="tests/DocProc.Api.Tests/DocProc.Api.Tests.csproj" />
     <Project Path="tests/DocProc.AppHost.Tests/DocProc.AppHost.Tests.csproj" />
     <Project Path="tests/DocProc.Domain.Tests/DocProc.Domain.Tests.csproj" />
+    <Project Path="tests/DocProc.EInvoice.Tests/DocProc.EInvoice.Tests.csproj" />
     <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />
     <Project Path="tests/DocProc.Llm.Tests/DocProc.Llm.Tests.csproj" />
   </Folder>
