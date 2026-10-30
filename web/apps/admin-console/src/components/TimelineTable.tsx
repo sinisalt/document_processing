@@ -85,7 +85,7 @@ export function TimelineTable({ events, isLoading = false }: TimelineTableProps)
                   <TableCell>{stage ?? "—"}</TableCell>
                   <TableCell>
                     {event.fromStatus || event.toStatus ? (
-                      <span className="inline-flex flex-wrap items-center gap-1">
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
                         {event.fromStatus ? <StatusBadge status={event.fromStatus} /> : <span className="text-muted-foreground">—</span>}
                         <span aria-hidden className="text-muted-foreground">
                           →
@@ -103,13 +103,13 @@ export function TimelineTable({ events, isLoading = false }: TimelineTableProps)
                 </TableRow>
                 {expanded && (
                   <TableRow id={`event-details-${id}`} className="bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={7} className="p-4">
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" aria-label={t("timeline.details")}>
+                    <TableCell colSpan={7} className="whitespace-normal p-4">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm" aria-label={t("timeline.details")}>
                           {rows.map((row) => (
                             <Fragment key={row.path}>
                               <dt className="font-mono text-xs text-muted-foreground">{row.path}</dt>
-                              <dd className={cn("break-words", row.kind !== "string" && "font-mono text-xs")}>{row.value}</dd>
+                              <dd className={cn("min-w-0 whitespace-normal break-words", row.kind !== "string" && "font-mono text-xs")}>{row.value}</dd>
                             </Fragment>
                           ))}
                         </dl>

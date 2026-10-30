@@ -30,7 +30,7 @@ function PolicyForm({ policy, providers }: { policy: Policy; providers: LlmProvi
     },
   });
 
-  const providerLabel = (p: LlmProvider) => `${p.kind} · ${p.dataResidency}${p.keyLast4 ? ` · ••••${p.keyLast4}` : ""}`;
+  const providerLabel = (p: LlmProvider) => `${p.kind} · ${t(`llm.residency.${p.dataResidency}`, { defaultValue: p.dataResidency })}${p.keyLast4 ? ` · ••••${p.keyLast4}` : ""}`;
   const providerSelect = (id: string, value: string | null, onChange: (next: string | null) => void, label: string) => (
     <Select value={value ?? NONE} onValueChange={(next) => onChange(next === NONE ? null : next)}>
       <SelectTrigger id={id} className="w-full" aria-label={label}>

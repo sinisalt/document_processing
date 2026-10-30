@@ -20,7 +20,9 @@ describe("formatCanonicalValue", () => {
     expect(formatCanonicalValue("2026-10-30", "en")).toBe("Oct 30, 2026");
     expect(formatCanonicalValue(null, "en")).toBe("—");
     expect(formatCanonicalValue(["a", "b"], "en")).toBe("a, b");
-    expect(formatCanonicalValue({ weird: true }, "en")).toBe('{"weird":true}');
+    expect(formatCanonicalValue({ verbatim: "2026/4471 ", normalized: "2026/4471" }, "en")).toBe("2026/4471");
+    expect(formatCanonicalValue({ dueDate: "2026-11-28", paymentMeans: "BankTransfer", iban: null }, "en")).toBe("dueDate: Nov 28, 2026 · paymentMeans: BankTransfer");
+    expect(formatCanonicalValue({ nested: { deep: true } }, "en")).toBe('{"nested":{"deep":true}}');
   });
 });
 
@@ -32,10 +34,13 @@ describe("canonicalRows", () => {
         totalGross: { value: { amount: 100, currency: "EUR" }, status: "Corrected" },
         lines: [{}, {}, {}],
         extra: "raw",
+        servicePeriod: { status: "Missing", history: [], hasValue: false },
       },
       "en",
     );
-    expect(rows.map((r) => r.path)).toEqual(["invoiceNumber", "totalGross", "lines", "extra"]);
+    expect(rows.map((r) => r.path)).toEqual(["invoiceNumber", "totalGross", "lines", "extra", "servicePeriod"]);
+    expect(rows[4]!.value).toBe("—");
+    expect(rows[4]!.field?.status).toBe("Missing");
     expect(rows[0]!.value).toBe("INV-7");
     expect(rows[0]!.field?.status).toBe("Extracted");
     expect(rows[1]!.value).toBe("€100.00");

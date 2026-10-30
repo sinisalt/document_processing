@@ -36,7 +36,7 @@ function ReviewQueuePage() {
 
   const query = { status: search.status, assignedTo: search.mine ? "me" : undefined };
   const tasks = useCursorList<ReviewTask>({
-    queryKey: queryKeys.reviewTasks.list(query),
+    queryKey: [...queryKeys.reviewTasks.list(query), "pages"],
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/review-tasks", { params: { query: { ...query, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
     refetchInterval: 15_000,
   });

@@ -1,5 +1,5 @@
 import type { components } from "@docproc/api-client";
-import { formatDate, formatMoney, isFieldValue, type FieldValue } from "@docproc/app-shell";
+import { fieldStatuses, formatDate, formatMoney, isFieldValue, type FieldValue } from "@docproc/app-shell";
 
 export type DocumentStatus = components["schemas"]["DocumentStatus"];
 export type DocumentType = components["schemas"]["DocumentType"];
@@ -90,6 +90,17 @@ export function formatCanonicalValue(value: unknown, locale?: string): string {
     if ("start" in value || "end" in value) {
       return `${formatCanonicalValue(value.start, locale)} – ${formatCanonicalValue(value.end, locale)}`;
     }
+    // Document numbers keep the printed form next to the normalised one; the normalised form is what matching uses.
+    if ("verbatim" in value || "normalized" in value) {
+      const shown = value.normalized ?? value.verbatim;
+      return typeof shown === "string" || typeof shown === "number" ? String(shown) : "—";
+    }
+    // Flat records (payment terms): "key: value" pairs instead of JSON.
+    const entries = Object.entries(value).filter(([, v]) => v !== null && v !== undefined);
+    if (entries.length > 0 && entries.every(([, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean")) {
+      const text = entries.map(([k, v]) => `${k}: ${formatCanonicalValue(v, locale)}`).join(" · ");
+      return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+    }
     try {
       const json = JSON.stringify(value);
       return json.length > 120 ? `${json.slice(0, 117)}…` : json;
@@ -98,6 +109,10 @@ export function formatCanonicalValue(value: unknown, locale?: string): string {
     }
   }
   return String(value);
+}
+
+function isValuelessField(value: unknown): value is Omit<FieldValue, "value"> {
+  return isRecord(value) && !("value" in value) && typeof value.status === "string" && (fieldStatuses as readonly string[]).includes(value.status);
 }
 
 /**
@@ -112,6 +127,10 @@ export function canonicalRows(canonical: unknown, locale?: string): CanonicalRow
       rows.push({ path, value: String(raw.length), field: null, count: raw.length });
     } else if (isFieldValue(raw)) {
       rows.push({ path, value: formatCanonicalValue(raw.value, locale), field: raw, count: null });
+    } else if (isValuelessField(raw)) {
+      // The API omits `value` when it is null (a Missing or Unreadable field).
+      const field: FieldValue = { ...raw, value: null };
+      rows.push({ path, value: "—", field, count: null });
     } else {
       rows.push({ path, value: formatCanonicalValue(raw, locale), field: null, count: null });
     }

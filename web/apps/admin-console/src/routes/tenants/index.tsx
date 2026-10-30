@@ -33,7 +33,8 @@ function TenantsPage() {
   const q = search.q?.trim() ? search.q.trim() : undefined;
 
   const tenants = useCursorList<Tenant>({
-    queryKey: queryKeys.tenants.list({ q, status: search.status }),
+    // "pages": an infinite query must not share its key with the plain `{limit: 200}` lookups (filterKey drops limit).
+    queryKey: [...queryKeys.tenants.list({ q, status: search.status }), "pages"],
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/tenants", { params: { query: { q, status: search.status, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
   });
 

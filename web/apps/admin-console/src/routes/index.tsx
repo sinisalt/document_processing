@@ -179,7 +179,7 @@ function DashboardPage() {
                 return (
                   <li key={status}>
                     <Link to="/documents" search={{ status }} className="flex flex-col gap-1 rounded-md border p-3 transition-colors hover:bg-accent/40" data-status={status}>
-                      <StatusBadge status={status} className="w-fit" />
+                      <StatusBadge status={status} className="w-fit max-w-full truncate" />
                       <span className="text-2xl font-semibold tabular-nums">{result.data ? pageCountLabel(result.data.items.length, result.data.nextCursor, PAGE) : result.isError ? "—" : <Skeleton className="h-8 w-10" />}</span>
                     </Link>
                   </li>

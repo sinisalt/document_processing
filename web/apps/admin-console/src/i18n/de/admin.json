@@ -78,6 +78,7 @@
     "title": "Mandanten",
     "description": "Alle Kunden der Plattform. Operatoren dürfen sehen, nur Super-Admins ändern.",
     "create": "Neuer Mandant",
+    "submit": "Mandant anlegen",
     "createTitle": "Mandant anlegen",
     "createDescription": "Die Identität eines Mandanten. Slug, Währung, Land und Zeitzone lassen sich später nicht ändern.",
     "created": "Mandant {{name}} angelegt.",

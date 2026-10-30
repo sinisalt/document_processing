@@ -230,7 +230,7 @@ export function SuppliersTab() {
   const q = search.trim() === "" ? undefined : search.trim();
 
   const suppliers = useCursorList<Supplier>({
-    queryKey: queryKeys.suppliers.list({ q }),
+    queryKey: [...queryKeys.suppliers.list({ q }), "pages"],
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/suppliers", { params: { query: { q, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
   });
 

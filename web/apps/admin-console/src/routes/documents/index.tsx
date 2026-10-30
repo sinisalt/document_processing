@@ -79,7 +79,7 @@ function DocumentsPage() {
   );
 
   const documents = useCursorList<DocumentSummary>({
-    queryKey: [...queryKeys.documents.list(query), tenantId],
+    queryKey: [...queryKeys.documents.list(query), tenantId, "pages"],
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/documents", { params: { query: { ...query, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
   });
 

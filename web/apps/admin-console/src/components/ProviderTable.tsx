@@ -60,7 +60,7 @@ export function ProviderTable({ providers, isLoading, scope, queryKey, canManage
             </Badge>
           ),
         }),
-        helper.accessor("dataResidency", { header: t("llm.dataResidency") }),
+        helper.accessor("dataResidency", { header: t("llm.dataResidency"), cell: (info) => t(`llm.residency.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         helper.accessor("models", {
           header: t("llm.models"),
           enableSorting: false,

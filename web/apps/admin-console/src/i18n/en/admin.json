@@ -78,6 +78,7 @@
     "title": "Tenants",
     "description": "Every customer of the platform. Operators may look; only super admins change anything.",
     "create": "New tenant",
+    "submit": "Create tenant",
     "createTitle": "Create a tenant",
     "createDescription": "The identity fields of a tenant. Slug, currency, country and time zone cannot be changed afterwards.",
     "created": "Tenant {{name}} created.",

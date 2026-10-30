@@ -232,7 +232,7 @@ export function TenantFormDialog() {
                 {t("common:dialog.cancel")}
               </Button>
               <Button type="submit" disabled={mutation.isPending} aria-busy={mutation.isPending}>
-                {t("tenants.create")}
+                {t("tenants.submit")}
               </Button>
             </DialogFooter>
           </form>
