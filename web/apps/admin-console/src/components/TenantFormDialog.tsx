@@ -10,6 +10,7 @@ import { Plus } from "lucide-react";
 import type { components } from "@docproc/api-client";
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input } from "@docproc/ui";
 import { isApiError, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 
 type CreateTenantRequest = components["schemas"]["CreateTenantRequest"];
 
@@ -36,13 +37,13 @@ function isTimeZone(value: string): boolean {
 }
 
 const schema = z.object({
-  name: z.string().trim().min(1, "required").max(200),
-  slug: z.string().trim().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "slug").max(64),
-  legalName: z.string().trim().min(1, "required").max(300),
+  name: z.string().trim().min(1, translated("tenants.validation.required")).max(200),
+  slug: z.string().trim().min(1, translated("tenants.validation.required")).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, translated("tenants.validation.slug")).max(64),
+  legalName: z.string().trim().min(1, translated("tenants.validation.required")).max(300),
   vatId: z.string().trim().max(32).optional(),
-  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "currency"),
-  countryCode: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "country"),
-  timeZone: z.string().trim().min(1, "required").refine(isTimeZone, "timeZone"),
+  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, translated("tenants.validation.currency")),
+  countryCode: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, translated("tenants.validation.country")),
+  timeZone: z.string().trim().min(1, translated("tenants.validation.required")).refine(isTimeZone, translated("tenants.validation.timeZone")),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -98,8 +99,6 @@ export function TenantFormDialog() {
     },
   });
 
-  const message = (code: string | undefined) => (code && ["required", "slug", "currency", "country", "timeZone"].includes(code) ? t(`tenants.validation.${code}`) : code);
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -130,7 +129,7 @@ export function TenantFormDialog() {
                       }}
                     />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.name?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -151,7 +150,7 @@ export function TenantFormDialog() {
                     />
                   </FormControl>
                   <FormDescription>{t("tenants.slugHint")}</FormDescription>
-                  <FormMessage>{message(form.formState.errors.slug?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -164,7 +163,7 @@ export function TenantFormDialog() {
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.legalName?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -191,7 +190,7 @@ export function TenantFormDialog() {
                     <FormControl>
                       <Input {...field} maxLength={3} className="uppercase" />
                     </FormControl>
-                    <FormMessage>{message(form.formState.errors.defaultCurrency?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -204,7 +203,7 @@ export function TenantFormDialog() {
                     <FormControl>
                       <Input {...field} maxLength={2} className="uppercase" />
                     </FormControl>
-                    <FormMessage>{message(form.formState.errors.countryCode?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -217,7 +216,7 @@ export function TenantFormDialog() {
                     <FormControl>
                       <Input {...field} list="tenant-time-zones" />
                     </FormControl>
-                    <FormMessage>{message(form.formState.errors.timeZone?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

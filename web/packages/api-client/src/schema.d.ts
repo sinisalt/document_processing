@@ -927,7 +927,11 @@ export interface components {
          * @enum {unknown}
          */
         DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed";
-        /** @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON. */
+        /**
+         * @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
+         *     `TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's
+         *     cross-tenant documents list and global review queue) can show whose row it is.
+         */
         DocumentSummary: {
             /** Format: date-time */
             approvedAt: null | string;
@@ -948,6 +952,9 @@ export interface components {
             /** Format: uuid */
             supplierId: null | string;
             supplierName: null | string;
+            /** Format: uuid */
+            tenantId: string;
+            tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
             type: components["schemas"]["DocumentType"];
@@ -1228,6 +1235,7 @@ export interface components {
         ReprocessDocumentRequest: {
             fromStage: null | string;
         };
+        /** @description A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary). */
         ReviewTaskDto: {
             assignedTo: null | string;
             /** Format: date-time */
@@ -1243,6 +1251,9 @@ export interface components {
             /** Format: date-time */
             slaDueAt: null | string;
             status: components["schemas"]["ReviewTaskStatus"];
+            /** Format: uuid */
+            tenantId: string;
+            tenantName: null | string;
         };
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";

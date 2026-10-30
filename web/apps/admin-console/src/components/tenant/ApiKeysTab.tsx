@@ -30,6 +30,7 @@ import {
   Input,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 
 type ApiKey = components["schemas"]["ApiKeySummary"];
 type CreatedApiKey = components["schemas"]["CreatedApiKey"];
@@ -38,8 +39,8 @@ type CreatedApiKey = components["schemas"]["CreatedApiKey"];
 export const apiKeyScopes = ["ingest", "read"] as const;
 
 const schema = z.object({
-  name: z.string().trim().min(1, "required").max(200),
-  scopes: z.array(z.enum(apiKeyScopes)).min(1, "scopes"),
+  name: z.string().trim().min(1, translated("tenants.validation.required")).max(200),
+  scopes: z.array(z.enum(apiKeyScopes)).min(1, translated("apiKeys.validation.scopes")),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -84,7 +85,6 @@ function CreateApiKeyDialog() {
     setOpen(next);
     if (!next) setCreated(null);
   };
-  const message = (code: string | undefined) => (code === "required" ? t("tenants.validation.required") : code === "scopes" ? t("apiKeys.validation.scopes") : code);
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -132,7 +132,7 @@ function CreateApiKeyDialog() {
                     <FormControl>
                       <Input {...field} />
                     </FormControl>
-                    <FormMessage>{message(form.formState.errors.name?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -156,7 +156,7 @@ function CreateApiKeyDialog() {
                         );
                       })}
                     </ul>
-                    <FormMessage>{message(form.formState.errors.scopes?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

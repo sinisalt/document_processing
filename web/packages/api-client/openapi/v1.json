@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5199/"
+      "url": "http://127.0.0.1:5592/"
     }
   ],
   "paths": {
@@ -3121,6 +3121,8 @@
       "DocumentSummary": {
         "required": [
           "id",
+          "tenantId",
+          "tenantName",
           "status",
           "type",
           "typeConfidence",
@@ -3143,6 +3145,16 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/DocumentStatus"
@@ -3250,7 +3262,7 @@
             "format": "date-time"
           }
         },
-        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON."
+        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is."
       },
       "DocumentType": {
         "enum": [
@@ -4359,6 +4371,8 @@
       "ReviewTaskDto": {
         "required": [
           "id",
+          "tenantId",
+          "tenantName",
           "documentId",
           "reason",
           "assignedTo",
@@ -4373,6 +4387,16 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "documentId": {
             "type": "string",
@@ -4418,7 +4442,8 @@
               }
             ]
           }
-        }
+        },
+        "description": "A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary)."
       },
       "ReviewTaskStatus": {
         "enum": [

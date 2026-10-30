@@ -72,6 +72,49 @@ public sealed class ReviewTaskEndpointTests(ApiFactory factory) : IClassFixture<
     }
 
     [Fact]
+    public async Task Queue_entries_name_the_owning_tenant_in_platform_and_tenant_scope()
+    {
+        var east = Guid.NewGuid();
+        var west = Guid.NewGuid();
+        factory.Query(db =>
+        {
+            foreach (var (id, name) in new[] { (east, "Tenant East"), (west, "Tenant West") })
+            {
+                db.Tenants.Add(new Tenant { Id = id, Name = name, Slug = "queue-names-" + id.ToString("N")[..8], LegalName = name + " GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = factory.Clock.GetUtcNow(), UpdatedAt = factory.Clock.GetUtcNow() });
+            }
+
+            return db.SaveChanges();
+        });
+
+        // Oldest of all, so the queue's first page (oldest first) holds them whatever other tests seeded.
+        var at = factory.Clock.GetUtcNow().AddYears(-5);
+        var eastDoc = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = east, ReviewTask = true, CreatedAt = at });
+        var westDoc = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = west, ReviewTask = true, CreatedAt = at.AddSeconds(1) });
+
+        using var operatorClient = factory.ClientFor(new TokenSpec("ops", [Roles.Operator]));
+        var platform = (await operatorClient.GetFromJsonAsync<Page<ReviewTaskDto>>(Tasks("?limit=10"), ApiFactory.Json, Ct))!.Items;
+        var eastTask = platform.Where(t => t.Id == eastDoc.ReviewTaskId).ShouldHaveSingleItem();
+        eastTask.TenantId.ShouldBe(east);
+        eastTask.TenantName.ShouldBe("Tenant East");
+        eastTask.Document!.TenantId.ShouldBe(east);
+        eastTask.Document.TenantName.ShouldBe("Tenant East");
+        var westTask = platform.Where(t => t.Id == westDoc.ReviewTaskId).ShouldHaveSingleItem();
+        westTask.TenantId.ShouldBe(west);
+        westTask.TenantName.ShouldBe("Tenant West");
+        westTask.Document!.TenantName.ShouldBe("Tenant West");
+
+        using var westReviewer = factory.ClientFor(new TokenSpec("west-reviewer", [Roles.Reviewer], west.ToString()));
+        var own = (await westReviewer.GetFromJsonAsync<Page<ReviewTaskDto>>(Tasks(), ApiFactory.Json, Ct))!.Items.ShouldHaveSingleItem();
+        own.Id.ShouldBe(westDoc.ReviewTaskId!.Value);
+        own.TenantId.ShouldBe(west);
+        own.TenantName.ShouldBe("Tenant West");
+
+        // The claim response goes through the same projection, so it names the tenant too.
+        var claimed = (await (await westReviewer.PostAsync(Task(own.Id, "claim"), null, Ct)).Content.ReadFromJsonAsync<ReviewTaskDto>(ApiFactory.Json, Ct))!;
+        claimed.TenantName.ShouldBe("Tenant West");
+    }
+
+    [Fact]
     public async Task Claim_is_first_come_first_served_and_release_returns_the_task_to_the_queue()
     {
         var seeded = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true });

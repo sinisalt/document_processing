@@ -1,8 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn } from "@docproc/ui";
-import { EmptyState, StatusBadge, formatDateTime } from "@docproc/app-shell";
+import { Badge, cn } from "@docproc/ui";
+import { DataTable, StatusBadge, createDataTableColumnHelper, formatDateTime, type DataTableColumns } from "@docproc/app-shell";
 import { detailRows, eventKind, eventStage, failureKinds, humanKinds, summarizeEvent, type DocumentEvent } from "@/lib/timeline";
 import { JsonBlock } from "./KeyValue";
 
@@ -11,118 +10,107 @@ export interface TimelineTableProps {
   isLoading?: boolean;
 }
 
+const helper = createDataTableColumnHelper<DocumentEvent>();
+
+function hasDetails(event: DocumentEvent): boolean {
+  return event.details !== null && event.details !== undefined;
+}
+
+/** The expanded panel: the details JSON as a key/value list next to the raw document. */
+function EventDetails({ event }: { event: DocumentEvent }) {
+  const { t } = useTranslation("admin");
+  const rows = detailRows(event.details);
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm" aria-label={t("timeline.details")}>
+        {rows.map((row) => (
+          <Fragment key={row.path}>
+            <dt className="font-mono text-xs text-muted-foreground">{row.path}</dt>
+            <dd className={cn("min-w-0 whitespace-normal break-words", row.kind !== "string" && "font-mono text-xs")}>{row.value}</dd>
+          </Fragment>
+        ))}
+      </dl>
+      <JsonBlock value={event.details} />
+    </div>
+  );
+}
+
 /**
- * The job inspector's timeline: one row per `DocumentEventDto`, oldest first as the API sends them, with the stage,
- * the status transition, the actor and a one-line summary; a row expands into the details JSON as a key/value list
- * plus the raw document.
+ * The job inspector's timeline on the shell's DataTable: one row per `DocumentEventDto`, oldest first as the API sends
+ * them, with the stage, the status transition, the actor and a one-line summary. It sorts and hides columns like the
+ * other grids; a row with details expands into the details JSON as a key/value list plus the raw document.
  */
 export function TimelineTable({ events, isLoading = false }: TimelineTableProps) {
   const { t, i18n } = useTranslation("admin");
-  const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const toggle = (id: string) =>
-    setOpen((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
-  if (!isLoading && events.length === 0) {
-    return <EmptyState title={t("timeline.empty")} description={t("timeline.emptyDescription")} />;
-  }
+  const columns = useMemo<DataTableColumns<DocumentEvent>>(
+    () =>
+      helper.columns([
+        helper.accessor("at", {
+          header: t("timeline.at"),
+          sortFn: "datetime",
+          cell: (info) => <span className="whitespace-nowrap tabular-nums">{formatDateTime(info.getValue(), i18n.language, { dateStyle: "medium", timeStyle: "medium" })}</span>,
+        }),
+        helper.accessor((event) => eventKind(event.eventType), {
+          id: "event",
+          header: t("timeline.event"),
+          cell: (info) => {
+            const kind = info.getValue();
+            const variant = failureKinds.includes(kind) ? "destructive" : humanKinds.includes(kind) ? "default" : "secondary";
+            return (
+              <Badge variant={variant} data-event-kind={kind}>
+                {t(`timeline.eventType.${kind}`, { defaultValue: kind })}
+              </Badge>
+            );
+          },
+        }),
+        helper.accessor((event) => eventStage(event) ?? "", { id: "stage", header: t("timeline.stage"), cell: (info) => info.getValue() || "—" }),
+        helper.accessor((event) => event.toStatus ?? event.fromStatus ?? "", {
+          id: "transition",
+          header: t("timeline.transition"),
+          cell: (info) => {
+            const { fromStatus, toStatus } = info.row.original;
+            if (!fromStatus && !toStatus) return "—";
+            return (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                {fromStatus ? <StatusBadge status={fromStatus} /> : <span className="text-muted-foreground">—</span>}
+                <span aria-hidden className="text-muted-foreground">
+                  →
+                </span>
+                {toStatus ? <StatusBadge status={toStatus} /> : <span className="text-muted-foreground">—</span>}
+              </span>
+            );
+          },
+        }),
+        helper.accessor((event) => event.actor ?? "", { id: "actor", header: t("timeline.actor"), cell: (info) => <span className="whitespace-nowrap">{info.getValue() || "—"}</span> }),
+        helper.accessor((event) => summarizeEvent(event) ?? "", {
+          id: "summary",
+          header: t("timeline.summary"),
+          enableSorting: false,
+          cell: (info) => (
+            <span className="block max-w-md truncate" title={info.getValue() || undefined}>
+              {info.getValue() || "—"}
+            </span>
+          ),
+        }),
+      ]),
+    [t, i18n.language],
+  );
 
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-8">
-              <span className="sr-only">{t("timeline.details")}</span>
-            </TableHead>
-            <TableHead>{t("timeline.at")}</TableHead>
-            <TableHead>{t("timeline.event")}</TableHead>
-            <TableHead>{t("timeline.stage")}</TableHead>
-            <TableHead>{t("timeline.transition")}</TableHead>
-            <TableHead>{t("timeline.actor")}</TableHead>
-            <TableHead>{t("timeline.summary")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {events.map((event) => {
-            const id = String(event.id);
-            const kind = eventKind(event.eventType);
-            const failed = failureKinds.includes(kind);
-            const human = humanKinds.includes(kind);
-            const stage = eventStage(event);
-            const summary = summarizeEvent(event);
-            const expanded = open.has(id);
-            const hasDetails = event.details !== null && event.details !== undefined;
-            const rows = expanded ? detailRows(event.details) : [];
-            return (
-              <Fragment key={id}>
-                <TableRow data-event-type={event.eventType} className={cn(failed && "bg-destructive/5")}>
-                  <TableCell className="py-1">
-                    {hasDetails && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-expanded={expanded}
-                        aria-controls={`event-details-${id}`}
-                        aria-label={expanded ? t("timeline.hideDetails") : t("timeline.showDetails")}
-                        onClick={() => toggle(id)}
-                      >
-                        {expanded ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />}
-                      </Button>
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(event.at, i18n.language, { dateStyle: "medium", timeStyle: "medium" })}</TableCell>
-                  <TableCell>
-                    <Badge variant={failed ? "destructive" : human ? "default" : "secondary"} data-event-kind={kind}>
-                      {t(`timeline.eventType.${kind}`, { defaultValue: kind })}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{stage ?? "—"}</TableCell>
-                  <TableCell>
-                    {event.fromStatus || event.toStatus ? (
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                        {event.fromStatus ? <StatusBadge status={event.fromStatus} /> : <span className="text-muted-foreground">—</span>}
-                        <span aria-hidden className="text-muted-foreground">
-                          →
-                        </span>
-                        {event.toStatus ? <StatusBadge status={event.toStatus} /> : <span className="text-muted-foreground">—</span>}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{event.actor ?? "—"}</TableCell>
-                  <TableCell className="max-w-md truncate" title={summary ?? undefined}>
-                    {summary ?? "—"}
-                  </TableCell>
-                </TableRow>
-                {expanded && (
-                  <TableRow id={`event-details-${id}`} className="bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={7} className="whitespace-normal p-4">
-                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm" aria-label={t("timeline.details")}>
-                          {rows.map((row) => (
-                            <Fragment key={row.path}>
-                              <dt className="font-mono text-xs text-muted-foreground">{row.path}</dt>
-                              <dd className={cn("min-w-0 whitespace-normal break-words", row.kind !== "string" && "font-mono text-xs")}>{row.value}</dd>
-                            </Fragment>
-                          ))}
-                        </dl>
-                        <JsonBlock value={event.details} />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <DataTable
+      columns={columns}
+      data={events as DocumentEvent[]}
+      getRowId={(event) => String(event.id)}
+      isLoading={isLoading}
+      caption={t("timeline.title")}
+      emptyTitle={t("timeline.empty")}
+      emptyDescription={t("timeline.emptyDescription")}
+      enableColumnVisibility
+      renderSubRow={(event) => <EventDetails event={event} />}
+      getRowCanExpand={hasDetails}
+      rowAttributes={(event) => ({ "data-event-type": event.eventType })}
+      rowClassName={(event) => (failureKinds.includes(eventKind(event.eventType)) ? "bg-destructive/5" : undefined)}
+    />
   );
 }

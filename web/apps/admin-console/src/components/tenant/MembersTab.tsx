@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 
 type Member = components["schemas"]["MemberResponse"];
 
@@ -38,7 +39,7 @@ type Member = components["schemas"]["MemberResponse"];
 export const tenantRoles = ["TenantAdmin", "Reviewer", "Viewer"] as const;
 
 const schema = z.object({
-  userId: z.string().trim().min(1, "required").max(200),
+  userId: z.string().trim().min(1, translated("tenants.validation.required")).max(200),
   email: z.string().trim().max(320),
   displayName: z.string().trim().max(200),
   role: z.enum(tenantRoles),
@@ -102,7 +103,7 @@ function AddMemberDialog() {
                     <Input {...field} className="font-mono" />
                   </FormControl>
                   <FormDescription>{t("members.userIdHint")}</FormDescription>
-                  <FormMessage>{form.formState.errors.userId?.message === "required" ? t("tenants.validation.required") : form.formState.errors.userId?.message}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />

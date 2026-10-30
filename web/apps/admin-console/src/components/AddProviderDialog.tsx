@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@docproc/ui";
 import { isApiError, unwrap, useApi } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 import type { ProviderScope } from "./ProviderTable";
 
 type CreateLlmProviderRequest = components["schemas"]["CreateLlmProviderRequest"];
@@ -51,10 +52,10 @@ const schema = z
     monthlySpendCapUsd: z.string().trim().optional(),
     models: z.object({ Classify: z.string().trim().max(100), Split: z.string().trim().max(100), Extract: z.string().trim().max(100), Synthesize: z.string().trim().max(100) }),
   })
-  .refine((v) => Object.values(v.models).some((m) => m !== ""), { path: ["models", "Extract"], message: "atLeastOneModel" })
+  .refine((v) => Object.values(v.models).some((m) => m !== ""), { path: ["models", "Extract"], ...translated("llm.atLeastOneModel") })
   .refine((v) => v.monthlySpendCapUsd === undefined || v.monthlySpendCapUsd === "" || (Number.isFinite(Number(v.monthlySpendCapUsd)) && Number(v.monthlySpendCapUsd) >= 0), {
     path: ["monthlySpendCapUsd"],
-    message: "invalidCap",
+    ...translated("llm.invalidCap"),
   });
 
 type FormValues = z.infer<typeof schema>;
@@ -108,7 +109,6 @@ export function AddProviderDialog({ scope, queryKey }: { scope: ProviderScope; q
     },
   });
 
-  const fieldError = (message: string | undefined) => (message === "atLeastOneModel" ? t("llm.atLeastOneModel") : message === "invalidCap" ? t("llm.invalidCap") : message);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -226,7 +226,7 @@ export function AddProviderDialog({ scope, queryKey }: { scope: ProviderScope; q
                   <FormControl>
                     <Input inputMode="decimal" placeholder="100" {...field} />
                   </FormControl>
-                  <FormMessage>{fieldError(form.formState.errors.monthlySpendCapUsd?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -244,7 +244,7 @@ export function AddProviderDialog({ scope, queryKey }: { scope: ProviderScope; q
                         <FormControl>
                           <Input placeholder={t("llm.modelPlaceholder")} {...field} />
                         </FormControl>
-                        <FormMessage>{fieldError(form.formState.errors.models?.[stage]?.message)}</FormMessage>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />

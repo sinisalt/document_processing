@@ -33,6 +33,7 @@ import {
   Textarea,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 import { JsonBlock } from "../KeyValue";
 
 type Channel = components["schemas"]["ChannelResponse"];
@@ -41,9 +42,9 @@ type Channel = components["schemas"]["ChannelResponse"];
 export const channelTypes = ["Mailbox", "WatchedFolder", "ApiUpload", "PortalUpload"] as const;
 
 const schema = z.object({
-  name: z.string().trim().min(1, "required").max(200),
+  name: z.string().trim().min(1, translated("tenants.validation.required")).max(200),
   type: z.enum(channelTypes),
-  config: z.string().trim().refine((value) => value === "" || isJsonObject(value), "json"),
+  config: z.string().trim().refine((value) => value === "" || isJsonObject(value), translated("channels.validation.json")),
   secret: z.string().max(4096),
 });
 type FormValues = z.infer<typeof schema>;
@@ -88,7 +89,6 @@ function CreateChannelDialog() {
       toast.error(isApiError(error) ? error.title : t("channels.createFailed"), { description: isApiError(error) ? error.problem?.detail ?? undefined : undefined });
     },
   });
-  const message = (code: string | undefined) => (code === "required" ? t("tenants.validation.required") : code === "json" ? t("channels.validation.json") : code);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -114,7 +114,7 @@ function CreateChannelDialog() {
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.name?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -152,7 +152,7 @@ function CreateChannelDialog() {
                     <Textarea {...field} rows={4} className="font-mono text-xs" placeholder='{ "address": "invoices@example.com" }' />
                   </FormControl>
                   <FormDescription>{t("channels.configHint")}</FormDescription>
-                  <FormMessage>{message(form.formState.errors.config?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />

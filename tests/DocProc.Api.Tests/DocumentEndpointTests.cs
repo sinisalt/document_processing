@@ -176,6 +176,46 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task Summaries_name_the_owning_tenant_in_platform_and_tenant_scope()
+    {
+        var north = Guid.NewGuid();
+        var south = Guid.NewGuid();
+        factory.Query(db =>
+        {
+            foreach (var (id, name) in new[] { (north, "Tenant North"), (south, "Tenant South") })
+            {
+                db.Tenants.Add(new Tenant { Id = id, Name = name, Slug = "names-" + id.ToString("N")[..8], LegalName = name + " GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = factory.Clock.GetUtcNow(), UpdatedAt = factory.Clock.GetUtcNow() });
+            }
+
+            return db.SaveChanges();
+        });
+
+        // Newest of all, so the platform list's first page holds them whatever other tests seeded.
+        var at = factory.Clock.GetUtcNow().AddYears(5);
+        var northDoc = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = north, CreatedAt = at, Invoice = TestInvoices.Valid("N-1") });
+        var southDoc = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = south, CreatedAt = at.AddSeconds(1), Invoice = TestInvoices.Valid("S-1") });
+
+        using var operatorClient = factory.ClientFor(new TokenSpec("ops", [Roles.Operator]));
+        var platform = (await operatorClient.GetFromJsonAsync<Page<DocumentSummary>>(Documents("?limit=10"), ApiFactory.Json, Ct))!.Items;
+        var northRow = platform.Where(d => d.Id == northDoc.DocumentId).ShouldHaveSingleItem();
+        northRow.TenantId.ShouldBe(north);
+        northRow.TenantName.ShouldBe("Tenant North");
+        var southRow = platform.Where(d => d.Id == southDoc.DocumentId).ShouldHaveSingleItem();
+        southRow.TenantId.ShouldBe(south);
+        southRow.TenantName.ShouldBe("Tenant South");
+
+        var json = JsonDocument.Parse(await operatorClient.GetStringAsync(Documents("?limit=1"), Ct)).RootElement.GetProperty("items")[0];
+        json.GetProperty("tenantId").GetString().ShouldBe(south.ToString());
+        json.GetProperty("tenantName").GetString().ShouldBe("Tenant South");
+
+        using var northViewer = factory.ClientFor(new TokenSpec("north-viewer", [Roles.Viewer], north.ToString()));
+        var own = (await northViewer.GetFromJsonAsync<Page<DocumentSummary>>(Documents(), ApiFactory.Json, Ct))!.Items.ShouldHaveSingleItem();
+        own.Id.ShouldBe(northDoc.DocumentId);
+        own.TenantId.ShouldBe(north);
+        own.TenantName.ShouldBe("Tenant North", "a tenant sees its own tenant row, so the name is there in tenant scope too");
+    }
+
+    [Fact]
     public async Task Page_image_original_and_text_stream_the_stored_bytes()
     {
         var png = TestInvoices.FakePng();

@@ -29,15 +29,16 @@ import {
   Label,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, isApiError, queryKeys, unwrap, useApi, useCursorList, type DataTableColumns } from "@docproc/app-shell";
+import { translated } from "@/lib/validation";
 import { LoadMore } from "../LoadMore";
 
 type Supplier = components["schemas"]["SupplierResponse"];
 
 const schema = z.object({
-  name: z.string().trim().min(1, "required").max(300),
+  name: z.string().trim().min(1, translated("tenants.validation.required")).max(300),
   vatId: z.string().trim().max(32),
   taxId: z.string().trim().max(32),
-  defaultCurrency: z.string().trim().toUpperCase().refine((v) => v === "" || /^[A-Z]{3}$/.test(v), "currency"),
+  defaultCurrency: z.string().trim().toUpperCase().refine((v) => v === "" || /^[A-Z]{3}$/.test(v), translated("tenants.validation.currency")),
   emailDomains: z.string().trim(),
   aliases: z.string().trim(),
   alwaysReview: z.boolean(),
@@ -94,7 +95,6 @@ function CreateSupplierDialog() {
       toast.error(isApiError(error) ? error.title : t("suppliers.createFailed"), { description: isApiError(error) ? error.problem?.detail ?? undefined : undefined });
     },
   });
-  const message = (code: string | undefined) => (code === "required" ? t("tenants.validation.required") : code === "currency" ? t("tenants.validation.currency") : code);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -120,7 +120,7 @@ function CreateSupplierDialog() {
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <FormMessage>{message(form.formState.errors.name?.message)}</FormMessage>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -160,7 +160,7 @@ function CreateSupplierDialog() {
                     <FormControl>
                       <Input {...field} maxLength={3} className="uppercase" />
                     </FormControl>
-                    <FormMessage>{message(form.formState.errors.defaultCurrency?.message)}</FormMessage>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

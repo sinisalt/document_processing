@@ -66,7 +66,7 @@ export function useDocumentList(query: DocumentListQuery, enabled = true) {
   const [inFlight, setInFlight] = useState(false);
   const recentUpload = useRecentUpload();
   const list = useCursorList<DocumentSummary>({
-    queryKey: queryKeys.documents.list(query),
+    queryKey: queryKeys.documents.pages(query),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/documents", { params: { query: { ...query, cursor: cursor ?? undefined } } })),
     enabled,
     refetchInterval: inFlight || recentUpload ? PROCESSING_POLL_MS : false,
@@ -99,7 +99,7 @@ export function useDocumentEvents(id: string, enabled = true) {
 export function useSuppliers(query: SupplierListQuery = {}, enabled = true) {
   const { client } = useApi();
   return useCursorList<Supplier>({
-    queryKey: queryKeys.suppliers.list(query),
+    queryKey: queryKeys.suppliers.pages(query),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/suppliers", { params: { query: { ...query, cursor: cursor ?? undefined } } })),
     enabled,
     staleTime: 60_000,

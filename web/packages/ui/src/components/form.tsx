@@ -133,9 +133,15 @@ function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
   )
 }
 
-function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
+/**
+ * The field's message. Children win when given (an app passes a translated text for the error it knows); without
+ * children it shows the error's own `message`, which is what a schema built with translated messages provides.
+ * (shadcn's original rendered `error.message` whenever there was an error and dropped the children.)
+ */
+function FormMessage({ className, children, ...props }: React.ComponentProps<"p">) {
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message ?? "") : props.children
+  const hasChildren = children !== undefined && children !== null && children !== false && children !== ""
+  const body = hasChildren ? children : error ? String(error.message ?? "") : null
 
   if (!body) {
     return null

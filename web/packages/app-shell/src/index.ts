@@ -46,6 +46,7 @@ export * from "./lib/fieldPath";
 export * from "./lib/fieldValue";
 
 // i18n, config, providers
+export { zodIssueMessage, installZodErrorMap } from "./i18n/zodErrors";
 export { createI18n, i18n, supportedLanguages, isSupportedLanguage, currentLanguage, commonResources, LANGUAGE_STORAGE_KEY, type SupportedLanguage, type CreateI18nOptions } from "./i18n";
 export { readShellConfig, type ShellConfig } from "./env";
 export { AppProviders, THEME_STORAGE_KEY, type AppProvidersProps } from "./providers/AppProviders";

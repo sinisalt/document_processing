@@ -2,12 +2,13 @@ import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Building2, ClipboardList, Coins, RotateCcw } from "lucide-react";
+import { AlertTriangle, Building2, ClipboardList, Coins, Info, RotateCcw } from "lucide-react";
 import type { components } from "@docproc/api-client";
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from "@docproc/ui";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from "@docproc/ui";
 import { DataTable, Policies, StatusBadge, createDataTableColumnHelper, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
 import { documentStatuses, pageCountLabel } from "@/lib/documents";
 import { formatUsd, monthRange, usageRows } from "@/lib/usage";
+import { statValue } from "@/lib/dashboard";
 import { ReprocessDialog } from "@/components/DocumentActions";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
@@ -50,24 +51,29 @@ function DashboardPage() {
   const switcher = useTenantSwitcherOptional();
   const tenantId = switcher?.tenantId ?? null;
   const isPlatformAdmin = hasPolicy(Policies.PlatformAdmin);
+  // GET /tenants needs Platform (a tenant user would get a Forbidden toast), the review queue and :reprocess need Review.
+  const isPlatform = hasPolicy(Policies.Platform);
+  const canReview = hasPolicy(Policies.Review);
   const [retrying, setRetrying] = useState<DocumentSummary | null>(null);
 
   const tenants = useQuery({
     queryKey: queryKeys.tenants.list({ limit: PAGE }),
     queryFn: async () => unwrap(await client.GET("/api/v1/tenants", { params: { query: { limit: PAGE } } })),
+    enabled: isPlatform,
   });
 
   const byStatus = useQueries({
     queries: documentStatuses.map((status) => ({
-      queryKey: [...queryKeys.documents.list({ status }), "count", tenantId],
+      queryKey: queryKeys.documents.list({ status, limit: PAGE }),
       queryFn: async () => unwrap(await client.GET("/api/v1/documents", { params: { query: { status, limit: PAGE } } })),
       staleTime: 30_000,
     })),
   });
 
   const backlog = useQuery({
-    queryKey: [...queryKeys.reviewTasks.list({}), "count", tenantId],
+    queryKey: queryKeys.reviewTasks.list({ limit: PAGE }),
     queryFn: async () => unwrap(await client.GET("/api/v1/review-tasks", { params: { query: { limit: PAGE } } })),
+    enabled: canReview,
   });
 
   const month = useMemo(() => monthRange(), []);
@@ -78,7 +84,7 @@ function DashboardPage() {
   });
 
   const failed = useQuery({
-    queryKey: [...queryKeys.documents.list({ status: "Failed" }), "dashboard", tenantId],
+    queryKey: queryKeys.documents.list({ status: "Failed", limit: FAILED_PAGE }),
     queryFn: async () => unwrap(await client.GET("/api/v1/documents", { params: { query: { status: "Failed", limit: FAILED_PAGE } } })),
   });
 
@@ -88,6 +94,8 @@ function DashboardPage() {
   }, [tenants.data]);
   const spendRows = useMemo(() => (spend.data ? usageRows(spend.data, tenantName).slice(0, 5) : []), [spend.data, tenantName]);
   const selectedTenant = tenantId ? tenantName(tenantId) ?? tenantId : null;
+  // Platform roles see every tenant unless one is picked; anyone else is pinned to their own tenant by the API.
+  const scopeHint = selectedTenant ? t("dashboard.inTenant", { tenant: selectedTenant }) : isPlatform ? t("dashboard.acrossTenants") : t("dashboard.ownTenant");
 
   const failedColumns = useMemo<DataTableColumns<DocumentSummary>>(
     () =>
@@ -108,10 +116,12 @@ function DashboardPage() {
           header: () => <span className="sr-only">{t("dashboard.actions")}</span>,
           cell: (info) => (
             <div className="flex justify-end gap-1">
-              <Button variant="outline" size="sm" onClick={() => setRetrying(info.row.original)} aria-label={t("dashboard.retryAria", { document: info.row.original.documentNumber ?? info.row.original.id })}>
-                <RotateCcw aria-hidden />
-                {t("dashboard.retry")}
-              </Button>
+              {canReview && (
+                <Button variant="outline" size="sm" onClick={() => setRetrying(info.row.original)} aria-label={t("dashboard.retryAria", { document: info.row.original.documentNumber ?? info.row.original.id })}>
+                  <RotateCcw aria-hidden />
+                  {t("dashboard.retry")}
+                </Button>
+              )}
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/documents/$documentId" params={{ documentId: info.row.original.id }}>
                   {t("dashboard.inspect")}
@@ -121,7 +131,7 @@ function DashboardPage() {
           ),
         }),
       ]),
-    [t, i18n.language],
+    [t, i18n.language, canReview],
   );
 
   return (
@@ -131,25 +141,40 @@ function DashboardPage() {
         <p className="text-sm text-muted-foreground">{t("dashboard.welcome", { name: user?.displayName })}</p>
       </div>
 
+      {user && !isPlatform && (
+        // The shell lets every role sign in; say plainly that this console is not the tenant users' tool.
+        <Alert data-testid="platform-only-notice">
+          <Info aria-hidden />
+          <AlertTitle>{t("dashboard.platformOnlyTitle")}</AlertTitle>
+          <AlertDescription>{t("dashboard.platformOnlyDescription", { roles: user.roles.map((role) => t(`common:roles.${role}`, { defaultValue: role })).join(", ") })}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title={t("dashboard.tenants")}
-          value={tenants.data ? pageCountLabel(tenants.data.items.length, tenants.data.nextCursor, PAGE) : <Skeleton className="h-9 w-16" />}
-          hint={tenants.data ? t("dashboard.tenantsHint", { active: tenants.data.items.filter((x) => x.status === "Active").length, suspended: tenants.data.items.filter((x) => x.status === "Suspended").length }) : undefined}
+          value={statValue(tenants, isPlatform, (data) => pageCountLabel(data.items.length, data.nextCursor, PAGE), <Skeleton className="h-9 w-16" />)}
+          hint={
+            !isPlatform
+              ? t("dashboard.needsPlatform")
+              : tenants.data
+                ? t("dashboard.tenantsHint", { active: tenants.data.items.filter((x) => x.status === "Active").length, suspended: tenants.data.items.filter((x) => x.status === "Suspended").length })
+                : undefined
+          }
           icon={Building2}
-          to="/tenants"
+          to={isPlatform ? "/tenants" : undefined}
         />
         <StatCard
           title={t("dashboard.backlog")}
-          value={backlog.data ? pageCountLabel(backlog.data.items.length, backlog.data.nextCursor, PAGE) : <Skeleton className="h-9 w-16" />}
-          hint={selectedTenant ? t("dashboard.inTenant", { tenant: selectedTenant }) : t("dashboard.acrossTenants")}
+          value={statValue(backlog, canReview, (data) => pageCountLabel(data.items.length, data.nextCursor, PAGE), <Skeleton className="h-9 w-16" />)}
+          hint={canReview ? scopeHint : t("dashboard.needsReview")}
           icon={ClipboardList}
-          to="/review"
+          to={canReview ? "/review" : undefined}
         />
         <StatCard
           title={t("dashboard.failed")}
-          value={failed.data ? pageCountLabel(failed.data.items.length, failed.data.nextCursor, FAILED_PAGE) : <Skeleton className="h-9 w-16" />}
-          hint={selectedTenant ? t("dashboard.inTenant", { tenant: selectedTenant }) : t("dashboard.acrossTenants")}
+          value={statValue(failed, true, (data) => pageCountLabel(data.items.length, data.nextCursor, FAILED_PAGE), <Skeleton className="h-9 w-16" />)}
+          hint={scopeHint}
           icon={AlertTriangle}
           to="/documents"
         />
@@ -170,7 +195,7 @@ function DashboardPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>{t("dashboard.byStatus")}</CardTitle>
-            <CardDescription>{selectedTenant ? t("dashboard.byStatusTenant", { tenant: selectedTenant }) : t("dashboard.byStatusPlatform")}</CardDescription>
+            <CardDescription>{selectedTenant ? t("dashboard.byStatusTenant", { tenant: selectedTenant }) : isPlatform ? t("dashboard.byStatusPlatform") : t("dashboard.byStatusOwnTenant")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" aria-label={t("dashboard.byStatus")}>
@@ -180,7 +205,7 @@ function DashboardPage() {
                   <li key={status}>
                     <Link to="/documents" search={{ status }} className="flex flex-col gap-1 rounded-md border p-3 transition-colors hover:bg-accent/40" data-status={status}>
                       <StatusBadge status={status} className="w-fit max-w-full truncate" />
-                      <span className="text-2xl font-semibold tabular-nums">{result.data ? pageCountLabel(result.data.items.length, result.data.nextCursor, PAGE) : result.isError ? "—" : <Skeleton className="h-8 w-10" />}</span>
+                      <span className="text-2xl font-semibold tabular-nums">{statValue(result, true, (data) => pageCountLabel(data.items.length, data.nextCursor, PAGE), <Skeleton className="h-8 w-10" />)}</span>
                     </Link>
                   </li>
                 );
@@ -222,7 +247,7 @@ function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>{t("dashboard.failedDocuments")}</CardTitle>
-          <CardDescription>{t("dashboard.failedDocumentsDescription")}</CardDescription>
+          <CardDescription>{canReview ? t("dashboard.failedDocumentsDescription") : t("dashboard.failedDocumentsDescriptionReadOnly")}</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -247,7 +272,7 @@ function DashboardPage() {
       </Card>
 
       {retrying && (
-        <ReprocessDialog documentId={retrying.id} documentLabel={retrying.documentNumber ?? retrying.id.slice(0, 8)} open onOpenChange={(open) => !open && setRetrying(null)} />
+        <ReprocessDialog documentId={retrying.id} documentLabel={retrying.documentNumber ?? retrying.id.slice(0, 8)} status={retrying.status} open onOpenChange={(open) => !open && setRetrying(null)} />
       )}
     </>
   );

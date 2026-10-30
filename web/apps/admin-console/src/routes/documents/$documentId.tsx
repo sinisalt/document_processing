@@ -35,12 +35,14 @@ import { PageThumbnails } from "@/components/PageThumbnails";
 import { ApproveDialog, RejectDialog, ReprocessDialog } from "@/components/DocumentActions";
 
 type DocumentFlag = components["schemas"]["DocumentFlagDto"];
+type DocumentEvent = components["schemas"]["DocumentEventDto"];
 
 export const Route = createFileRoute("/documents/$documentId")({ component: DocumentDetailPage });
 
 const flagHelper = createDataTableColumnHelper<DocumentFlag>();
 const canonicalHelper = createDataTableColumnHelper<CanonicalRow>();
 const NO_FLAGS: DocumentFlag[] = [];
+const NO_EVENTS: DocumentEvent[] = [];
 
 /** The job inspector: read-only summary, flags, costs, the canonical fields, page thumbnails and the event timeline. */
 function DocumentDetailPage() {
@@ -62,6 +64,7 @@ function DocumentDetailPage() {
     refetchInterval: document.data && ["Received", "Normalized", "Split", "Classified", "Matched", "Extracted"].includes(document.data.status) ? 3_000 : false,
   });
 
+  // Review is SuperAdmin, Operator, TenantAdmin and Reviewer (Roles.cs), so an Operator sees Approve/Reject too, by design.
   const canReview = hasPolicy(Policies.Review);
   const rows = useMemo(() => canonicalRows(document.data?.canonical, i18n.language), [document.data?.canonical, i18n.language]);
 
@@ -240,13 +243,13 @@ function DocumentDetailPage() {
           <CardDescription>{t("timeline.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <TimelineTable events={events.data ?? []} isLoading={events.isPending} />
+          <TimelineTable events={events.data ?? NO_EVENTS} isLoading={events.isPending} />
         </CardContent>
       </Card>
 
       {doc && (
         <>
-          <ReprocessDialog documentId={doc.id} documentLabel={label} open={action === "reprocess"} onOpenChange={(open) => !open && setAction(null)} />
+          <ReprocessDialog documentId={doc.id} documentLabel={label} status={doc.status} events={events.data} open={action === "reprocess"} onOpenChange={(open) => !open && setAction(null)} />
           <RejectDialog documentId={doc.id} documentLabel={label} open={action === "reject"} onOpenChange={(open) => !open && setAction(null)} />
           <ApproveDialog documentId={doc.id} documentLabel={label} open={action === "approve"} onOpenChange={(open) => !open && setAction(null)} />
         </>

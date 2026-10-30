@@ -9,6 +9,7 @@ import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectT
 import {
   DataTable,
   PageHeader,
+  Policies,
   Roles,
   StatusBadge,
   createDataTableColumnHelper,
@@ -46,12 +47,14 @@ export const Route = createFileRoute("/documents/")({ validateSearch: searchSche
 
 const helper = createDataTableColumnHelper<DocumentSummary>();
 const PAGE_SIZE = 50;
+const PLATFORM_COLUMNS = { extractionMethod: false, pageCount: false };
+const TENANT_COLUMNS = { ...PLATFORM_COLUMNS, tenant: false };
 
 /** Cross-tenant document list (platform scope) with the portal's filters; the header's tenant switcher narrows it to one tenant. */
 function DocumentsPage() {
   const { t, i18n } = useTranslation("admin");
   const { client } = useApi();
-  const { hasRole } = useAuth();
+  const { hasRole, hasPolicy } = useAuth();
   const switcher = useTenantSwitcherOptional();
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -79,7 +82,7 @@ function DocumentsPage() {
   );
 
   const documents = useCursorList<DocumentSummary>({
-    queryKey: [...queryKeys.documents.list(query), tenantId, "pages"],
+    queryKey: queryKeys.documents.pages(query),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/documents", { params: { query: { ...query, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
   });
 
@@ -97,6 +100,11 @@ function DocumentsPage() {
               {info.getValue() ?? <span className="font-mono text-xs">{info.row.original.id.slice(0, 8)}</span>}
             </Link>
           ),
+        }),
+        helper.accessor((row) => row.tenantName ?? row.tenantId, {
+          id: "tenant",
+          header: t("documents.tenant"),
+          cell: (info) => (info.row.original.tenantName ? <span className="whitespace-nowrap">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{info.row.original.tenantId.slice(0, 8)}</span>),
         }),
         helper.accessor("status", { header: t("documents.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
@@ -136,7 +144,8 @@ function DocumentsPage() {
         caption={t("documents.caption")}
         emptyTitle={t("documents.empty")}
         emptyDescription={t("documents.emptyDescription")}
-        initialColumnVisibility={{ extractionMethod: false, pageCount: false }}
+        // The Tenant column says whose row it is in platform scope; a tenant user only ever sees their own.
+        initialColumnVisibility={hasPolicy(Policies.Platform) ? PLATFORM_COLUMNS : TENANT_COLUMNS}
         enableColumnVisibility
         toolbar={
           <>

@@ -3,6 +3,7 @@ import LanguageDetector from "i18next-browser-languagedetector";
 import { initReactI18next } from "react-i18next";
 import enCommon from "./en/common.json";
 import deCommon from "./de/common.json";
+import { installZodErrorMap } from "./zodErrors";
 
 export const supportedLanguages = ["en", "de"] as const;
 export type SupportedLanguage = (typeof supportedLanguages)[number];
@@ -41,10 +42,12 @@ function mergeResources(extra: Resource | undefined): Resource {
 /**
  * Initialises the shared i18next instance once per app (call it from the app's `src/i18n/index.ts` before rendering):
  * `common` from this package plus the app's namespaces, en and de, language from `localStorage` then the browser.
- * A second call only adds resources, so tests and HMR do not re-initialise.
+ * A second call only adds resources, so tests and HMR do not re-initialise. It also installs zod's global error map
+ * (`zodErrors.ts`), so a schema check without a message of its own shows a translated text, never zod's English.
  */
 export function createI18n(options: CreateI18nOptions = {}): typeof i18n {
   const resources = mergeResources(options.resources);
+  installZodErrorMap(i18n.t.bind(i18n));
   if (i18n.isInitialized) {
     for (const [language, namespaces] of Object.entries(resources)) {
       for (const [ns, bundle] of Object.entries(namespaces)) {

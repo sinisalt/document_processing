@@ -5,9 +5,15 @@ using DocProc.Infrastructure.Persistence.Entities;
 
 namespace DocProc.Api.Documents;
 
-/// <summary>One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.</summary>
+/// <summary>
+/// One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
+/// <c>TenantId</c> / <c>TenantName</c> name the owning tenant, so a platform-scope list (the admin console's
+/// cross-tenant documents list and global review queue) can show whose row it is.
+/// </summary>
 public sealed record DocumentSummary(
     Guid Id,
+    Guid TenantId,
+    string? TenantName,
     DocumentStatus Status,
     DocumentType Type,
     double? TypeConfidence,
@@ -109,8 +115,11 @@ public sealed record FieldCorrection(string Path, JsonElement? Value, string? Re
 
 public sealed record CorrectFieldsRequest(IReadOnlyList<FieldCorrection> Corrections);
 
+/// <summary>A review-queue entry; <c>TenantId</c> / <c>TenantName</c> name the owning tenant (see <see cref="DocumentSummary"/>).</summary>
 public sealed record ReviewTaskDto(
     Guid Id,
+    Guid TenantId,
+    string? TenantName,
     Guid DocumentId,
     string Reason,
     string? AssignedTo,
