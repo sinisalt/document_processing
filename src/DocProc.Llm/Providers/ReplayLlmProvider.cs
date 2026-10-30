@@ -23,11 +23,21 @@ public sealed class InMemoryReplayStore : IReplayStore
 }
 
 /// <summary>
-/// Serves recorded responses keyed by request hash, so the full pipeline runs in CI without a provider or a key
-/// (docs/09 "LLM providers"). A miss is an <see cref="LlmErrorKind.InvalidRequest"/>: the fixture is out of date.
+/// What a replay miss tells the reader in place of the default "re-record the fixture" advice. A host registers one
+/// when a miss means something else than a stale fixture: the development demo data does, because there a miss means
+/// the document has no demo fixture at all (docs/09 "Demo data").
 /// </summary>
-public sealed class ReplayLlmProvider(IReplayStore store) : ILlmProvider
+public sealed record LlmReplayMissHint(string Text);
+
+/// <summary>
+/// Serves recorded responses keyed by request hash, so the full pipeline runs in CI without a provider or a key
+/// (docs/09 "LLM providers"). A miss is an <see cref="LlmErrorKind.InvalidRequest"/>: the fixture is out of date, or,
+/// with a <paramref name="missHint"/>, whatever the hint says.
+/// </summary>
+public sealed class ReplayLlmProvider(IReplayStore store, string? missHint = null) : ILlmProvider
 {
+    public const string DefaultMissHint = "Re-record the fixture with LLM_LIVE=1.";
+
     public static readonly LlmCapabilities ReplayCapabilities = new(
         NativePdfInput: true, JsonSchemaOutput: true, PromptCaching: true, Batch: true, Vision: true,
         MaxPagesPerRequest: 600, MaxInputTokens: 200_000);
@@ -46,7 +56,7 @@ public sealed class ReplayLlmProvider(IReplayStore store) : ILlmProvider
 
         throw new LlmException(
             LlmErrorKind.InvalidRequest,
-            $"No recorded response for request {hash[..12]} (stage {request.Stage}, model {request.Model}, prompt {request.Prompt.CacheKey}). Re-record the fixture with LLM_LIVE=1.");
+            $"No recorded response for request {hash[..12]} (stage {request.Stage}, model {request.Model}, prompt {request.Prompt.CacheKey}). {(string.IsNullOrWhiteSpace(missHint) ? DefaultMissHint : missHint)}");
     }
 
     public async Task<BatchHandle> SubmitBatchAsync(IReadOnlyList<LlmRequest> requests, CancellationToken cancellationToken)
@@ -79,9 +89,9 @@ public sealed class ReplayLlmProvider(IReplayStore store) : ILlmProvider
     private readonly ConcurrentDictionary<string, BatchResult> _batches = new(StringComparer.Ordinal);
 }
 
-public sealed class ReplayLlmProviderFactory(IReplayStore store) : ILlmProviderFactory
+public sealed class ReplayLlmProviderFactory(IReplayStore store, string? missHint = null) : ILlmProviderFactory
 {
     public bool Supports(LlmProviderKind kind) => kind == LlmProviderKind.Replay;
 
-    public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential) => new ReplayLlmProvider(store);
+    public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential) => new ReplayLlmProvider(store, missHint);
 }

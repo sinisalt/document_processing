@@ -86,9 +86,9 @@ clean checkout without Docker or an LLM key:
 | What | Rows |
 |---|---|
 | Documents | Every file under `fixtures/demo/<tenant slug>/` is ingested for that tenant through the same `UploadIntake` code path as `POST /ingestions` (raw blob, ingestion with one candidate item, `ProcessIngestion` on the in-process queue), from the tenant admin's address. The pipeline then processes them like any upload. |
-| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. A request with no fixture (any other PDF you upload) is retried and then ends `Failed` with "No recorded response" instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. |
+| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) is retried and then ends `Failed` with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use. |
 | Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
-| LLM usage | About 50 `LlmUsageEntry` rows over the last 14 days (both tenants, platform Anthropic configuration, classify and extract, two failed calls), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. |
+| LLM usage | About 50 `LlmUsageEntry` rows over the 14 UTC days up to the first start (both tenants, platform Anthropic configuration, classify and extract, two failed calls), each at 08:00 UTC of its day plus a fixed offset (today's clamped to the start time), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. The rows are written once: the history does not move forward with later starts; reset `data/` to refresh it. |
 
 The demo documents and their designed outcome:
 
@@ -102,14 +102,28 @@ The demo documents and their designed outcome:
 | `tenant-a/BioHof-Mueller_Lieferung_L-2026-0457.pdf` | one-page delivery slip titled "Lieferung" that says "Die Rechnung folgt", so the keyword rules find no type | classified `DeliveryNote` by the (replayed) LLM classifier; `NeedsReview` with `UNSUPPORTED_TYPE` |
 | `tenant-b/Konzum_Racun_04518-2026-P12.xml` | XRechnung 3.0 (UBL) from Konzum plus, 25 % and 5 % VAT | `AutoApproved` |
 
-Everything is idempotent: a demo file counts as present when its tenant has an ingestion with that source file
-name, and members, usage and the replay configuration are recognised by key, so a restart adds nothing.
+Everything is idempotent. The replay configuration, the members and the usage are added once, on the first
+start-up of a database: the `demo-usage-` rows are the marker, so a member removed through the members screen or a
+Replay configuration deleted in the admin console stays removed after a restart. A demo file counts as present when
+its tenant has an ingestion with that source file name, so a restart ingests only files added to the folder since.
+A missing demo folder is logged as a warning, and the documents go through the tenant's oldest active API-upload
+channel (none active: the tenant's files are skipped with a warning).
+
+The in-process queue is not durable, so a start-up that stops before it drains (Ctrl+C, a `dotnet watch` restart,
+a crash) loses the queued work. Every start therefore resumes the demo work it finds unfinished, and logs each item
+as "Resumed demo …": a demo ingestion still `Received` gets its `ProcessIngestion` again, and a demo document in a
+pipeline state gets the `ProcessDocument` of the stage whose handler accepts that state (`Received` → Normalize,
+`Normalized` → Split, … `Extracted` → Validate; `DemoData.ResumeStage`). `Failed`, `NeedsReview`, `AutoApproved`,
+`Approved` and `Rejected` are left alone, as is a document persisted `Validated` (which the pipeline never does; it is
+logged). Every handler drops a message whose work is already done, so a twin is harmless.
 `DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table
-above and that a second start-up seeds nothing. The invoice dates are fixed (late October 2026); from a year
+above and that a second start-up seeds nothing; `DemoDataHostTests` (`tests/DocProc.Pipeline.Tests/Demo`) interrupts
+a start-up with the delivery note mid-pipeline and six ingestions queued, restarts, and asserts that all seven
+documents reach the outcome above and that a further restart resumes nothing. The invoice dates are fixed (late October 2026); from a year
 after that, stage 7 adds a `DATE_IMPLAUSIBLE` warning, which changes no outcome.
 
 **Reset.** Stop the API and delete `src/DocProc.Api/data/` (database, blobs, secrets, signing key); the next
-start seeds and ingests everything again. To keep the data but drop the demo documents, set
+start seeds and ingests everything again, with a usage history that ends today. To keep the data but drop the demo documents, set
 `Persistence:SeedDemoDocuments=false` before the first start.
 
 **Replay fixtures.** `fixtures/demo/llm-replay/<request hash>.json` are `FileReplayStore` files: a readable
@@ -134,9 +148,14 @@ demo document, drop the file into the tenant folder; if it is a PDF that needs a
 `DemoAnswers` (and its expected request to the fixture test) and regenerate.
 
 The classification hash covers the PNG that PDFium renders. The committed fixtures are generated on linux-x64 (the
-CI platform); a machine whose PDFium build rasterises the page differently gets a replay miss for the delivery note,
-which then ends `Failed`, and the fixture test reports the classification fixture as missing there. Do not commit
-fixtures regenerated on such a machine; the extraction fixture hashes the PDF bytes and is platform-independent.
+CI platform, `DemoData.FixtureCapturePlatform`); a machine whose PDFium build rasterises the page differently gets a
+replay miss for the delivery note, which then ends `Failed`, and the API logs a warning saying so at start-up. On any
+platform other than linux-x64 (`RuntimeInformation`: Linux and X64), `DemoFixtureTests` compares only the extraction
+fixture, which hashes the PDF bytes and is platform-independent, `UPDATE_DEMO_FIXTURES=1` rewrites only that one, and
+`DemoDataTests` skips the delivery-note assertions; both tests then report themselves skipped with this explanation.
+Do not commit a classification fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
+keeps every file's bytes exactly as committed on every checkout, whatever `core.autocrlf` says, since the bytes key
+the request hashes.
 
 ## Apple Silicon specifics
 

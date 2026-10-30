@@ -1,4 +1,5 @@
-using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Llm;
@@ -9,9 +10,7 @@ using DocProc.Pipeline.Queue;
 using DocProc.Pipeline.Tests.Pdf;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 
 namespace DocProc.Pipeline.Tests.Demo;
@@ -19,12 +18,14 @@ namespace DocProc.Pipeline.Tests.Demo;
 /// <summary>
 /// Keeps the committed demo data of <c>fixtures/demo</c> (docs/09 "Demo data") in step with the code. The replay test
 /// boots the processing stack with the API's own <c>appsettings.json</c> and <c>appsettings.Development.json</c> and the
-/// demo data switched on, exactly as <c>dotnet run --project src/DocProc.Api</c> does, except that a capturing provider
-/// stands in for the replay store. Every LLM request the real stage code sends for the two demo PDFs is hashed with
-/// <see cref="RequestHasher"/> (the gateway's hash, computed on the request the provider receives) and paired with its
-/// hand-authored answer from <see cref="DemoAnswers"/>; the resulting <see cref="FileReplayStore"/> files must equal the
-/// committed ones in <c>fixtures/demo/llm-replay</c>. A prompt, schema, option or PDF change changes a hash and fails
-/// here with the instruction to regenerate.
+/// demo data switched on, exactly as <c>dotnet run --project src/DocProc.Api</c> does (<see cref="DemoStack"/>), except
+/// that a capturing provider stands in for the replay store. Every LLM request the real stage code sends for the two
+/// demo PDFs is hashed with <see cref="RequestHasher"/> (the gateway's hash, computed on the request the provider
+/// receives) and paired with its hand-authored answer from <see cref="DemoAnswers"/>; the resulting
+/// <see cref="FileReplayStore"/> files must equal the committed ones in <c>fixtures/demo/llm-replay</c>. A prompt, schema,
+/// option or PDF change changes a hash and fails here with the instruction to regenerate. The classification fixture
+/// hashes the page PDFium renders, which only matches on <see cref="DemoData.FixtureCapturePlatform"/>: elsewhere only
+/// the extraction fixture is compared and the test reports itself skipped.
 /// </summary>
 public sealed class DemoFixtureTests
 {
@@ -36,6 +37,13 @@ public sealed class DemoFixtureTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>Why the classification fixture is not compared on this machine (docs/09 "Demo data").</summary>
+    internal static string OtherPlatformExplanation =>
+        $"The classification fixture of the demo delivery note hashes its first page as PDFium renders it on {DemoData.FixtureCapturePlatform}, " +
+        $"where the committed fixtures are captured; this machine is {RuntimeInformation.RuntimeIdentifier} and rasterises differently, so the " +
+        "delivery note gets a replay miss here and only the platform-independent checks ran. See docs/09-local-development.md, \"Demo data\"; " +
+        "do not commit a classification fixture regenerated on this machine.";
+
     [Fact]
     public async Task Llm_replay_fixtures_answer_exactly_the_requests_the_demo_pdfs_produce()
     {
@@ -43,11 +51,11 @@ public sealed class DemoFixtureTests
         var committed = Path.Combine(repository, "fixtures", "demo", "llm-replay");
         var work = Path.Combine(Path.GetTempPath(), "docproc-demo-fixtures", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
-        var capture = new CapturingProviderFactory();
+        var capture = new DemoAnswersProvider();
 
         try
         {
-            using (var host = await StartDevelopmentStackAsync(repository, work, capture))
+            using (var host = await DemoStack.StartAsync(work, capture))
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
                 cts.CancelAfter(TimeSpan.FromMinutes(2));
@@ -80,7 +88,7 @@ public sealed class DemoFixtureTests
                     store.Put(RequestHasher.Hash(request), request, DemoAnswers.For(request));
                 }
 
-                CompareOrUpdate(generated, committed);
+                CompareOrUpdate(generated, committed, DemoData.IsFixtureCapturePlatform);
             }
         }
         finally
@@ -90,6 +98,46 @@ public sealed class DemoFixtureTests
             {
                 Directory.Delete(work, recursive: true);
             }
+        }
+
+        if (!DemoData.IsFixtureCapturePlatform)
+        {
+            Assert.Skip(OtherPlatformExplanation);
+        }
+    }
+
+    [Fact]
+    public void Off_the_capture_platform_only_the_fixtures_keyed_by_document_bytes_are_compared()
+    {
+        if (Environment.GetEnvironmentVariable(UpdateVariable) == "1")
+        {
+            Assert.Skip($"{UpdateVariable}=1 rewrites instead of comparing.");
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "docproc-demo-compare", Guid.NewGuid().ToString("N"));
+        var generated = Directory.CreateDirectory(Path.Combine(root, "generated")).FullName;
+        var committed = Directory.CreateDirectory(Path.Combine(root, "committed")).FullName;
+        static string Fixture(string stage, string answer) => $$"""{ "header": { "stage": "{{stage}}" }, "json": { "answer": "{{answer}}" } }""";
+        try
+        {
+            File.WriteAllText(Path.Combine(generated, "aaaa.json"), Fixture("Extract", "invoice"));
+            File.WriteAllText(Path.Combine(generated, "bbbb.json"), Fixture("Classify", "delivery note"));
+            File.WriteAllText(Path.Combine(committed, "aaaa.json"), Fixture("Extract", "invoice"));
+            // The classification fixture captured on linux-x64: another PNG, so another hash than this machine computes.
+            File.WriteAllText(Path.Combine(committed, "cccc.json"), Fixture("Classify", "delivery note"));
+
+            Should.NotThrow(() => CompareOrUpdate(generated, committed, includeRenderedPages: false));
+            Should.Throw<ShouldAssertException>(() => CompareOrUpdate(generated, committed, includeRenderedPages: true))
+                .Message.ShouldSatisfyAllConditions(m => m.ShouldContain("missing bbbb.json"), m => m.ShouldContain("stale cccc.json"));
+
+            // The extraction fixture stays strict everywhere.
+            File.WriteAllText(Path.Combine(committed, "aaaa.json"), Fixture("Extract", "an older answer"));
+            Should.Throw<ShouldAssertException>(() => CompareOrUpdate(generated, committed, includeRenderedPages: false))
+                .Message.ShouldContain("changed aaaa.json");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 
@@ -111,48 +159,21 @@ public sealed class DemoFixtureTests
         }
     }
 
-    /// <summary>The processing stack composed like the API in development mode, with the capturing provider ahead of every other adapter.</summary>
-    private static async Task<IHost> StartDevelopmentStackAsync(string repository, string work, CapturingProviderFactory capture)
+    /// <param name="generated">The fixtures the current code produces.</param>
+    /// <param name="committed">The repository's fixtures.</param>
+    /// <param name="includeRenderedPages">
+    /// False off the capture platform: the fixtures keyed by a rendered page (classification) are neither compared nor
+    /// rewritten there, only the ones keyed by document bytes.
+    /// </param>
+    internal static void CompareOrUpdate(string generated, string committed, bool includeRenderedPages)
     {
-        var api = Path.Combine(repository, "src", "DocProc.Api");
-        var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
-        {
-            EnvironmentName = "Testing",
-            ContentRootPath = api,
-            ApplicationName = "DocProc.Pipeline.Tests",
-        });
-        builder.Configuration
-            .AddJsonFile(Path.Combine(api, "appsettings.json"), optional: false)
-            .AddJsonFile(Path.Combine(api, "appsettings.Development.json"), optional: false)
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Persistence:SqlitePath"] = Path.Combine(work, "docproc.db"),
-                ["Blobs:RootPath"] = Path.Combine(work, "blobs"),
-                // A replay store must be configured for the demo data to add the Replay provider, but it must not be
-                // the committed folder: the capturing factory answers instead, and a stale fixture must not hide a change.
-                ["Llm:Replay:Directory"] = Path.Combine(work, "empty-replay"),
-                ["Pipeline:RetryBaseDelay"] = "00:00:00.050",
-                ["Pipeline:MaxAttempts"] = "2",
-            });
-        builder.Services.AddLogging();
-        // Registered first: the gateway takes the first factory that supports the Replay kind.
-        builder.Services.AddSingleton<ILlmProviderFactory>(capture);
-        builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Environment, migrateByDefault: false).ShouldBeTrue();
-        builder.AddDocProcProcessingStack(runInProcessDefault: true);
-        builder.AddDocProcDemoData();
+        bool Compared(string content) => includeRenderedPages || !IsRenderedPageFixture(content);
 
-        var host = builder.Build();
-        await host.StartAsync(Ct);
-        return host;
-    }
-
-    private static void CompareOrUpdate(string generated, string committed)
-    {
-        var expected = ReadFixtures(generated);
+        var expected = ReadFixtures(generated).Where(f => Compared(f.Value)).ToDictionary(StringComparer.Ordinal);
         if (Environment.GetEnvironmentVariable(UpdateVariable) == "1")
         {
             Directory.CreateDirectory(committed);
-            foreach (var stale in Directory.EnumerateFiles(committed, "*.json"))
+            foreach (var stale in Directory.EnumerateFiles(committed, "*.json").Where(p => Compared(File.ReadAllText(p))))
             {
                 File.Delete(stale);
             }
@@ -165,7 +186,9 @@ public sealed class DemoFixtureTests
             return;
         }
 
-        var actual = Directory.Exists(committed) ? ReadFixtures(committed) : [];
+        var actual = Directory.Exists(committed)
+            ? ReadFixtures(committed).Where(f => Compared(f.Value)).ToDictionary(StringComparer.Ordinal)
+            : [];
         var problems = new List<string>();
         problems.AddRange(expected.Keys.Except(actual.Keys).Select(n => $"missing {n}"));
         problems.AddRange(actual.Keys.Except(expected.Keys).Select(n => $"stale {n}"));
@@ -175,6 +198,10 @@ public sealed class DemoFixtureTests
             $"option, model or PDF changed). Regenerate them with {UpdateVariable}=1 dotnet test --project tests/DocProc.Pipeline.Tests " +
             "and commit fixtures/demo/llm-replay; review the answers in tests/DocProc.Pipeline.Tests/Demo/DemoAnswers.cs if the contract changed.");
     }
+
+    /// <summary>A classification fixture: its request carries the first page as a PNG, whose bytes depend on the PDFium build.</summary>
+    private static bool IsRenderedPageFixture(string content) =>
+        JsonNode.Parse(content)?["header"]?["stage"]?.GetValue<string>() == nameof(LlmStage.Classify);
 
     private static Dictionary<string, string> ReadFixtures(string directory) =>
         Directory.EnumerateFiles(directory, "*.json").ToDictionary(p => Path.GetFileName(p), p => File.ReadAllText(p).ReplaceLineEndings("\n"), StringComparer.Ordinal);
@@ -190,35 +217,5 @@ public sealed class DemoFixtureTests
         }
 
         throw new DirectoryNotFoundException($"No DocProc.slnx above {AppContext.BaseDirectory}.");
-    }
-
-    /// <summary>Records every request and answers it from <see cref="DemoAnswers"/>, whatever the order the runner sends them in.</summary>
-    private sealed class CapturingProviderFactory : ILlmProviderFactory, ILlmProvider
-    {
-        private readonly ConcurrentQueue<LlmRequest> _requests = new();
-
-        public IReadOnlyList<LlmRequest> Requests => _requests.ToList();
-
-        public LlmProviderKind Kind => LlmProviderKind.Replay;
-
-        public LlmCapabilities Capabilities => ReplayLlmProvider.ReplayCapabilities;
-
-        public bool Supports(LlmProviderKind kind) => kind == LlmProviderKind.Replay;
-
-        public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential) => this;
-
-        public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken cancellationToken)
-        {
-            _requests.Enqueue(request);
-            return Task.FromResult(DemoAnswers.For(request));
-        }
-
-        public Task<BatchHandle> SubmitBatchAsync(IReadOnlyList<LlmRequest> requests, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("The demo data never batches.");
-
-        public Task<BatchResult> GetBatchAsync(BatchHandle handle, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("The demo data never batches.");
-
-        public Task ValidateCredentialAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

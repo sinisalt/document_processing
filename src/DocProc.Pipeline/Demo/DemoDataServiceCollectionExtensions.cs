@@ -1,7 +1,9 @@
 using DocProc.Application.Abstractions;
 using DocProc.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
+using DocProc.Llm.Providers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace DocProc.Pipeline.Demo;
@@ -40,6 +42,9 @@ public static class DemoDataServiceCollectionExtensions
 
         var path = string.IsNullOrWhiteSpace(settings.DemoDocumentsPath) ? PersistenceSettings.DefaultDemoDocumentsPath : settings.DemoDocumentsPath;
         builder.Services.AddSingleton(new DemoDataLocation(RepositoryPaths.ResolveUpwards(path, builder.Environment.ContentRootPath)));
+        // With the demo data the Replay configuration is the active provider, so a miss means "no demo fixture for
+        // this document", not "the fixture is stale": the error says so and how to switch to a real provider.
+        builder.Services.TryAddSingleton(new LlmReplayMissHint(DemoData.ReplayMissHint));
         builder.Services.AddHostedService<DemoDataHostedService>();
         return builder;
     }
