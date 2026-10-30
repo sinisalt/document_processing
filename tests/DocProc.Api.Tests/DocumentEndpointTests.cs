@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
+using DocProc.Api.Endpoints;
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;

@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace DocProc.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class AddOutboxAndEmbeddedXml : Migration
+    public partial class AddPipelineAndApiTables : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -48,6 +48,24 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 nullable: true);
 
             migrationBuilder.CreateTable(
+                name: "IdempotencyKeys",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Key = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    RequestHash = table.Column<string>(type: "nchar(64)", fixedLength: true, maxLength: 64, nullable: false),
+                    StatusCode = table.Column<int>(type: "int", nullable: false),
+                    ResponseJson = table.Column<string>(type: "json", nullable: false),
+                    Location = table.Column<string>(type: "nvarchar(400)", maxLength: 400, nullable: true),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_IdempotencyKeys", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "OutboxMessages",
                 columns: table => new
                 {
@@ -71,6 +89,22 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_IdempotencyKeys_CreatedAt",
+                table: "IdempotencyKeys",
+                column: "CreatedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_IdempotencyKeys_TenantId",
+                table: "IdempotencyKeys",
+                column: "TenantId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_IdempotencyKeys_TenantId_Key",
+                table: "IdempotencyKeys",
+                columns: new[] { "TenantId", "Key" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_OutboxMessages_DeliveredAt_CreatedAt",
                 table: "OutboxMessages",
                 columns: new[] { "DeliveredAt", "CreatedAt" });
@@ -85,7 +119,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 table: "OutboxMessages",
                 column: "TenantId");
 
-            // The security policy is re-created over the full table list so the outbox is tenant-filtered too.
+            // The security policy is re-created over the full table list so the outbox and idempotency tables are
+            // tenant-filtered too (RowLevelSecurity.ProtectedTables).
             migrationBuilder.Sql(RowLevelSecurity.DropSql());
             migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.ProtectedTables));
         }
@@ -94,6 +129,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql(RowLevelSecurity.DropSql());
+
+            migrationBuilder.DropTable(
+                name: "IdempotencyKeys");
 
             migrationBuilder.DropTable(
                 name: "OutboxMessages");

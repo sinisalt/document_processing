@@ -4,7 +4,6 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using DocProc.Api.Auth;
-using DocProc.Api.Documents;
 using DocProc.Api.Endpoints;
 using DocProc.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;

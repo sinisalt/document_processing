@@ -149,14 +149,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         db.SaveChanges();
     }
 
-    /// <summary>Runs a platform-scoped query against the test database (every tenant visible), for assertions on stored rows.</summary>
-    public T Query<T>(Func<DocProcDbContext, T> query)
-    {
-        _ = Server;
-        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
-        return query(db);
-    }
-
     /// <summary>
     /// Inserts a document the way the pipeline would have left it: an ingestion with one item whose bytes are in the
     /// raw store, the canonical invoice JSON, denormalised columns, flags, timeline events, optionally a review task

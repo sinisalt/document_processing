@@ -91,9 +91,6 @@ public sealed record DocumentEventDto(
     JsonElement? Details,
     DateTimeOffset At);
 
-/// <summary>A page of a list endpoint; <see cref="NextCursor"/> is null on the last page.</summary>
-public sealed record Page<T>(IReadOnlyList<T> Items, string? NextCursor);
-
 public sealed record ApproveDocumentRequest(string? Comment);
 
 public sealed record RejectDocumentRequest(string Reason);
