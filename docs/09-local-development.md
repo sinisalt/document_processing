@@ -49,6 +49,8 @@ checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
 | `Persistence:Provider` | `Sqlite` (default is `SqlServer` whenever `ConnectionStrings:DocProc` is set) | `DocProcDbContext` on a SQLite file; the schema comes from the model with `EnsureCreated`, because the migrations are SQL Server-only. |
 | `Persistence:SqlitePath` | `./data/docproc.db` (relative to the content root, i.e. the project folder under `dotnet run`, whatever the working directory; the folder is created) | Delete the file after a model change; there is no migration path for SQLite. |
 | `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. |
+| `Persistence:SeedDemoDocuments` | `true` (default `false`; refused in Production; only acts where the seed runs, so not under the AppHost) | After the seed, the API ingests the demo documents of `Persistence:DemoDocumentsPath` (`fixtures/demo`) and adds members and two weeks of LLM usage; see "Demo data" below. |
+| `Llm:Replay:Directory` | `fixtures/demo/llm-replay` | Registers the file replay provider. A relative path is searched upwards from the content root until its first folder (`fixtures`) exists, so `src/DocProc.Api` finds the repository's folder; an absolute path is taken as it is. |
 | `Authentication:Dev:Enabled` | `true` | The API signs its own tokens (`POST /dev/token`, `GET /dev/users`, tagged "Development") with an RSA key and the bearer handler trusts issuer `docproc-dev` instead of the OIDC authority. The endpoints are not mapped at all when disabled. |
 | `Authentication:Dev:SigningKeyPath` | `./data/dev-signing-key.pem` (relative to the content root) | Unset: a key per process, tokens die on restart. Set: loaded, or generated and written on first start (owner-only permissions on Unix), so tokens survive restarts. The key is loaded at start-up, so a corrupt file stops the host rather than the first request. |
 | `Blobs:Provider` | unset: inferred. `Azure` whenever `ConnectionStrings:blobs` (injected by the AppHost) or `Blobs:ServiceUri` is present, `FileSystem` otherwise; an explicit value wins. | `FileSystem` is a content-addressed store on disk (`<root>/<container>/<tenant>/<sha256>` plus a `.meta.json` sidecar). Both files appear by atomic rename, the sidecar before the blob, and readers key on the blob file: a blob that exists always has its metadata, a sidecar on its own (a put that crashed between the two steps) reads as not found and is completed by the next upload of the same bytes, and concurrent uploads of the same bytes all succeed with one stored copy. It cannot issue short-lived read URLs (`GetReadUrlAsync` throws `NotSupportedException`), so the API streams bytes itself in this mode. |
@@ -66,13 +68,75 @@ curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/js
 
 Limits, by design: SQLite has no row-level security and no temporal tables (the EF query
 filters are the only tenancy layer, which is why the mode is refused in Production: the host
-throws at start-up for `Persistence:Provider=Sqlite`, `Persistence:SeedDevData=true` or
-`Authentication:Dev:Enabled=true`),
+throws at start-up for `Persistence:Provider=Sqlite`, `Persistence:SeedDevData=true`,
+`Persistence:SeedDemoDocuments=true` or `Authentication:Dev:Enabled=true`),
 and it cannot compare or `ORDER BY` a `DateTimeOffset` column stored as text. The context therefore
 stores every timestamp as UTC ticks (an integer) when the provider is SQLite, so the cursor-paginated
 lists, the idempotency window and the timeline order work unchanged; SQL Server keeps `datetimeoffset`.
 A `docproc.db` created before that change must be deleted (as after any model change). Everything
 SQL Server-specific is exercised by the integration tests against a container, not here.
+
+### Demo data
+
+With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
+`DemoDataHostedService` (`src/DocProc.Pipeline/Demo`) runs after the seed and fills the dev database with
+something worth looking at, so the portal, the admin console and the screenshots show real documents on a
+clean checkout without Docker or an LLM key:
+
+| What | Rows |
+|---|---|
+| Documents | Every file under `fixtures/demo/<tenant slug>/` is ingested for that tenant through the same `UploadIntake` code path as `POST /ingestions` (raw blob, ingestion with one candidate item, `ProcessIngestion` on the in-process queue), from the tenant admin's address. The pipeline then processes them like any upload. |
+| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. A request with no fixture (any other PDF you upload) is retried and then ends `Failed` with "No recorded response" instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. |
+| Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
+| LLM usage | About 50 `LlmUsageEntry` rows over the last 14 days (both tenants, platform Anthropic configuration, classify and extract, two failed calls), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. |
+
+The demo documents and their designed outcome:
+
+| File (`fixtures/demo/…`) | Format | Ends as |
+|---|---|---|
+| `tenant-a/METRO_Rechnung_RG-2026-882140.xml` | PEPPOL BIS 3 (UBL) invoice, VAT id of the METRO supplier row | `AutoApproved`, no flags |
+| `tenant-a/METRO_Gutschrift_GS-2026-31207.xml` | PEPPOL BIS 3 credit note for that invoice | `AutoApproved`, type `CreditNote` |
+| `tenant-a/Getraenke-Hoffmann_RE-2026-55318.xml` | ZUGFeRD / Factur-X EN 16931 (CII) with deposit lines; matched by name (the supplier row has no VAT id) | `AutoApproved` |
+| `tenant-a/BioHof-Mueller_Rechnung_2026-118.xml` | UBL invoice whose lines sum to 230.00 while the printed subtotal is 240.00 | `NeedsReview`, Blocking `TOTALS_MISMATCH`, open review task |
+| `tenant-a/BioHof-Mueller_Rechnung_2026-131.pdf` | two-page PDF invoice with a text layer | extracted by the LLM path from the replay fixture; `NeedsReview` with `LOW_CONFIDENCE` on `dueDate` (the model inferred it from "14 Tagen", it is not printed) |
+| `tenant-a/BioHof-Mueller_Lieferung_L-2026-0457.pdf` | one-page delivery slip titled "Lieferung" that says "Die Rechnung folgt", so the keyword rules find no type | classified `DeliveryNote` by the (replayed) LLM classifier; `NeedsReview` with `UNSUPPORTED_TYPE` |
+| `tenant-b/Konzum_Racun_04518-2026-P12.xml` | XRechnung 3.0 (UBL) from Konzum plus, 25 % and 5 % VAT | `AutoApproved` |
+
+Everything is idempotent: a demo file counts as present when its tenant has an ingestion with that source file
+name, and members, usage and the replay configuration are recognised by key, so a restart adds nothing.
+`DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table
+above and that a second start-up seeds nothing. The invoice dates are fixed (late October 2026); from a year
+after that, stage 7 adds a `DATE_IMPLAUSIBLE` warning, which changes no outcome.
+
+**Reset.** Stop the API and delete `src/DocProc.Api/data/` (database, blobs, secrets, signing key); the next
+start seeds and ingests everything again. To keep the data but drop the demo documents, set
+`Persistence:SeedDemoDocuments=false` before the first start.
+
+**Replay fixtures.** `fixtures/demo/llm-replay/<request hash>.json` are `FileReplayStore` files: a readable
+header, the usage and a hand-authored, schema-valid answer (`tests/DocProc.Pipeline.Tests/Demo/DemoAnswers.cs`).
+The hash is `RequestHasher.Hash` over model, prompt, task text, schema, options and the document bytes the
+stage sends (the PDF for extraction, the rendered first page PNG for classification).
+`DemoFixtureTests.Llm_replay_fixtures_answer_exactly_the_requests_the_demo_pdfs_produce` boots the processing
+stack with the API's `appsettings.json` and `appsettings.Development.json`, lets the demo data run with a capturing
+provider in place of the replay store, hashes every request the real stages send and compares the resulting files
+with the committed ones. After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
+demo PDF it fails and says so; regenerate and commit:
+
+```bash
+UPDATE_DEMO_FIXTURES=1 dotnet test --project tests/DocProc.Pipeline.Tests -c Release -- --filter-class DocProc.Pipeline.Tests.Demo.DemoFixtureTests
+git add fixtures/demo/llm-replay
+```
+
+The two PDFs are committed bytes, drawn once by `tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` with PDFsharp
+(test-only, see below). PDFsharp writes a new document id on every save, so the normal run never rewrites them;
+after editing `DemoPdfs`, run once with `REGENERATE_DEMO_PDFS=1` and then with `UPDATE_DEMO_FIXTURES=1`. To add a
+demo document, drop the file into the tenant folder; if it is a PDF that needs an LLM call, add its answer to
+`DemoAnswers` (and its expected request to the fixture test) and regenerate.
+
+The classification hash covers the PNG that PDFium renders. The committed fixtures are generated on linux-x64 (the
+CI platform); a machine whose PDFium build rasterises the page differently gets a replay miss for the delivery note,
+which then ends `Failed`, and the fixture test reports the classification fixture as missing there. Do not commit
+fixtures regenerated on such a machine; the extraction fixture hashes the PDF bytes and is platform-independent.
 
 ## Apple Silicon specifics
 
@@ -112,8 +176,8 @@ what the API serves: after changing an endpoint, run the script and commit the r
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 
 The stage 2–4 tests (`tests/DocProc.Integration.Tests/Pdf`, `.../Classification`) generate
-their PDFs at test time with **PDFsharp**; no binary fixtures live in the repository. Three
-things to know:
+their PDFs at test time with **PDFsharp**; the only committed PDFs are the two demo documents of
+`fixtures/demo` ("Demo data" above), whose bytes key the replay fixtures. Three things to know:
 
 - **A TrueType font must be installed.** PDFsharp's Core build has no platform font lookup on
   Linux, so `TestFonts` embeds the first font it finds (DejaVu Sans, Liberation Sans or

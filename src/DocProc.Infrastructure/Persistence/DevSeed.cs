@@ -39,6 +39,17 @@ public static class DevSeed
         [nameof(LlmStage.Synthesize)] = "claude-opus-5-5",
     };
 
+    /// <summary>
+    /// The <c>sub</c> the development identity provider issues for a user (a GUID in Keycloak's shape, derived from the
+    /// username so it never changes); <c>DocProc.Api.Dev.DevUsers</c> and the demo members (docs/09 "Demo data") share it.
+    /// </summary>
+    public static string SubjectFor(string username)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("docproc-dev:" + username.ToLowerInvariant()));
+        return new Guid(hash.AsSpan(0, 16)).ToString();
+    }
+
     /// <summary>Inserts every missing row and returns how many were inserted. Must run in platform scope.</summary>
     public static async Task<int> ApplyAsync(DocProcDbContext db, TimeProvider clock, CancellationToken cancellationToken)
     {

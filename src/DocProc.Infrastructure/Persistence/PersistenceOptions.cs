@@ -141,6 +141,12 @@ public static class PersistenceHostExtensions
                 $"{PersistenceSettings.SectionName}:SeedDevData is development-only (it inserts the demo tenants with fixed, publicly known ids) and cannot be used when the environment is Production. Set {PersistenceSettings.SectionName}:SeedDevData=false.");
         }
 
+        if (settings.SeedDemoDocuments && environment.IsProduction())
+        {
+            throw new InvalidOperationException(
+                $"{PersistenceSettings.SectionName}:SeedDemoDocuments is development-only (it ingests the demo invoices of fixtures/demo for the demo tenants and seeds members and LLM usage for the development users) and cannot be used when the environment is Production. Set {PersistenceSettings.SectionName}:SeedDemoDocuments=false.");
+        }
+
         switch (provider)
         {
             case null:

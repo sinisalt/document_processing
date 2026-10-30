@@ -49,6 +49,9 @@ public sealed class DevModeFactory : WebApplicationFactory<Program>
         // Explicitly unset by default: appsettings.Development.json names a PEM under the content root, and a test must
         // not write a key into the source tree.
         builder.UseSetting("Authentication:Dev:SigningKeyPath", SigningKeyPath ?? string.Empty);
+        // The demo documents (on in appsettings.Development.json) would put seven documents into every test's
+        // database; DemoDataTests switches them on with its own factory.
+        builder.UseSetting("Persistence:SeedDemoDocuments", "false");
     }
 
     protected override void Dispose(bool disposing)
