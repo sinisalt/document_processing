@@ -25,10 +25,16 @@ Done so far (see the README for how to build and test):
   migration with temporal tables and the row-level security policy; tenant query filters and
   the SESSION_CONTEXT interceptor. Model checks run without a database; the migration, RLS and
   temporal behaviour are exercised against the SQL Server 2025 container in CI.
-- `DocProc.Api` / `DocProc.Worker`: hosts with health and OpenAPI endpoints, no business endpoints yet.
+- `DocProc.Api` / `DocProc.Worker`: hosts with health, readiness, OpenAPI and a Scalar API
+  reference; no business endpoints yet. `DocProc.ServiceDefaults` wires OpenTelemetry, health
+  checks, service discovery and HTTP resilience into both.
+- `DocProc.AppHost`: Aspire orchestration with SQL Server 2025, Azurite, the Service Bus emulator
+  (queue per stage), Keycloak with a seeded realm (platform roles, two tenants), Lowkey Vault and
+  GreenMail; model-level tests pin names, images, waits and the realm contents.
 
-Still open in Phase 0: Aspire AppHost with the containers, OIDC login and roles, API keys at the
-API boundary, the generated TypeScript client, Bicep, and the three decisions below.
+Still open in Phase 0: OIDC login and roles in the API (Keycloak is up, the API does not validate
+tokens yet), API keys at the API boundary, the generated TypeScript client, Bicep, and the three
+decisions below.
 
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server

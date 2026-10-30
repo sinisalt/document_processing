@@ -61,15 +61,41 @@ dotnet ef migrations script --idempotent --project src/DocProc.Infrastructure --
 The hosts apply pending migrations on start-up when `ConnectionStrings:DocProc` is configured
 and `Persistence:MigrateOnStartup` is true (the default outside production).
 
-Run the API locally and check it answers:
+### Running everything locally
+
+The Aspire app host starts every dependency as a container plus the API, the worker and the
+Aspire dashboard (traces, logs, metrics). It needs Docker Desktop or OrbStack; on Apple Silicon
+enable Rosetta, because SQL Server and the Service Bus emulator are amd64-only images.
+
+```bash
+dotnet run --project src/DocProc.AppHost
+```
+
+What comes up (resource name → what the hosts read it as):
+
+| Resource | Local implementation | Notes |
+|---|---|---|
+| `sql` / `DocProc` | `mcr.microsoft.com/mssql/server:2025-latest` | `ConnectionStrings:DocProc`; the API applies migrations on start |
+| `storage` / `blobs` | Azurite | containers `raw`, `derived`, `exports` |
+| `messaging` | Azure Service Bus emulator | one queue per pipeline stage, topic `document-events` |
+| `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-viewer`; password = username |
+| `vault` | Lowkey Vault (Key Vault emulator) on https://localhost:8443 | vault name `docproc`, for the BYOK secret flow |
+| `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled |
+| `api`, `worker` | the two hosts | the worker waits for the API so migrations run once |
+
+Stateful containers keep named volumes (`docproc-*`) and survive restarts of the app host. The SQL
+password is an Aspire parameter; set it once with `dotnet user-secrets set Parameters:sql-password
+<value> --project src/DocProc.AppHost` or let Aspire generate it. `aspire publish` can emit a
+docker-compose file from the same definition for people who prefer compose.
+
+Run the API on its own (no database, health stays green, readiness has nothing to check):
 
 ```bash
 dotnet run --project src/DocProc.Api
 ```
 
-```bash
-curl http://localhost:5000/health
-```
+The interactive API reference (Scalar) is at `/scalar`, the OpenAPI document at
+`/openapi/v1.json`, liveness at `/alive`, health at `/health`, readiness at `/health/ready`.
 
 ## Repository layout
 
@@ -83,11 +109,14 @@ src/
   DocProc.Llm.OpenAi/         OpenAI / Azure OpenAI adapter (capabilities only until Phase 1)
   DocProc.Extraction.Profiles/ deterministic extractor-profile engine (Phase 4)
   DocProc.Extraction.EInvoice/ Factur-X / UBL parsers (Phase 2)
-  DocProc.Api/                ASP.NET Core host
+  DocProc.Api/                ASP.NET Core host (OpenAPI + Scalar reference, health, readiness)
   DocProc.Worker/             pipeline worker host
+  DocProc.ServiceDefaults/    OpenTelemetry, health checks, service discovery, HTTP resilience
+  DocProc.AppHost/            Aspire local orchestration and the seeded Keycloak realm
 tests/
   DocProc.Domain.Tests/       validation rules, state machine, value types
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, Anthropic adapter
+  DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers
   DocProc.Integration.Tests/  model/snapshot checks; Testcontainers (SQL Server 2025) for migrations, RLS and temporal tables, skipped without Docker
 schemas/                      committed JSON schemas sent to providers
 docs/                         plan and design

@@ -23,6 +23,19 @@ by configuration.
 | Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts API, worker, both React apps and all containers above with one `dotnet run`; `docker compose` file generated from it for people who prefer that. | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
 | Observability | Azure Monitor / Application Insights | Aspire dashboard (traces, logs, metrics via OpenTelemetry). | Same instrumentation, different exporter. | n/a |
 
+## What the AppHost actually starts
+
+`src/DocProc.AppHost/AppHost.cs` is the executable version of the table above. Resource names
+double as connection-string names: `DocProc` (database), `blobs`, `messaging`, `keycloak`.
+The Keycloak realm is imported from `src/DocProc.AppHost/realms/docproc-realm.json`: realm
+roles `SuperAdmin`, `Operator`, `TenantAdmin`, `Reviewer`, `Viewer`, clients `docproc-api`
+(bearer-only audience), `docproc-portal` and `docproc-admin` (public, PKCE), a `tenant_id`
+claim from a user attribute, and six users across the platform and two tenants (see README).
+Secrets for BYOK go to Lowkey Vault (`vault`, HTTPS 8443); mail flows use GreenMail (`mail`).
+Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
+assert the resource set, images, waits and realm contents, so a rename is caught before anyone
+runs the stack.
+
 ## Apple Silicon specifics
 
 - Enable **"Use Rosetta for x86_64/amd64 emulation"** in Docker Desktop (or Rosetta in
