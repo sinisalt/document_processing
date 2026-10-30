@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Dev;
 using DocProc.Api.Endpoints;
@@ -22,7 +23,20 @@ if (builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Env
 
 var app = builder.Build();
 
-app.UseExceptionHandler();
+// Every unhandled exception becomes a ProblemDetails. A request that cannot be bound (empty or malformed JSON body:
+// BadHttpRequestException from the minimal-API binder when RouteHandlerOptions.ThrowOnBadRequest is on, which is the
+// Development default; JsonException from a handler that parses JSON itself) is the client's fault and answers 400,
+// not 500. The log stays quiet for those; genuine 5xx are still logged as errors.
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = exception => exception switch
+    {
+        BadHttpRequestException bad => bad.StatusCode,
+        JsonException => StatusCodes.Status400BadRequest,
+        _ => StatusCodes.Status500InternalServerError,
+    },
+    SuppressDiagnosticsCallback = context => context.HttpContext.Response.StatusCode < StatusCodes.Status500InternalServerError,
+});
 app.UseStatusCodePages();
 
 app.UseAuthentication();
@@ -55,6 +69,9 @@ v1.MapApiKeys();
 if (app.Services.GetRequiredService<DevAuthOptions>().Enabled)
 {
     app.Logger.LogWarning("DEVELOPMENT AUTHENTICATION IS ENABLED: POST /dev/token signs a bearer token for any listed user without a password, and the OIDC authority is ignored. Set Authentication:Dev:Enabled=false for anything but a local machine.");
+
+    // Load or create the signing key now, so a corrupt or unreadable PEM fails the start-up instead of the first request.
+    _ = app.Services.GetRequiredService<DevTokenIssuer>();
     app.MapDevAuth();
 }
 

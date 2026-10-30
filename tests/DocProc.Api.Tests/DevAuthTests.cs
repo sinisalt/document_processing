@@ -1,10 +1,14 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Dev;
 using DocProc.Api.Endpoints;
+using DocProc.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.Api.Tests;
 
@@ -34,32 +38,35 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
     [Fact]
     public async Task Dev_users_mirror_the_keycloak_realm()
     {
-        using var client = factory.CreateClient();
+        // The realm the AppHost imports into Keycloak (copied to the test output by the project file), so a change to
+        // either side fails here until the other follows.
+        var realmPath = Path.Combine(AppContext.BaseDirectory, "realms", "docproc-realm.json");
+        File.Exists(realmPath).ShouldBeTrue($"realm file not copied to output: {realmPath}");
+        using var realm = JsonDocument.Parse(await File.ReadAllTextAsync(realmPath, Ct));
+        var expected = realm.RootElement.GetProperty("users").EnumerateArray()
+            .Select(u => RealmUser(
+                u.GetProperty("username").GetString()!,
+                u.GetProperty("email").GetString()!,
+                u.GetProperty("firstName").GetString()!,
+                u.GetProperty("lastName").GetString()!,
+                u.GetProperty("realmRoles").EnumerateArray().Select(r => r.GetString()!),
+                u.TryGetProperty("attributes", out var attributes) && attributes.TryGetProperty("tenant_id", out var tenant) ? Guid.Parse(tenant[0].GetString()!) : null))
+            .OrderBy(u => u.Username, StringComparer.Ordinal)
+            .ToList();
+        expected.Count.ShouldBe(6);
 
+        using var client = factory.CreateClient();
         var users = (await client.GetFromJsonAsync<List<DevUser>>(UsersUri, Ct))!;
 
-        users.Count.ShouldBe(6);
-        users.Select(u => u.Username).ShouldBe(["superadmin", "operator", "tenant-a-admin", "tenant-a-reviewer", "tenant-b-admin", "tenant-b-viewer"]);
-        users.Single(u => u.Username == "superadmin").Roles.ShouldBe([Roles.SuperAdmin]);
-        users.Single(u => u.Username == "superadmin").TenantId.ShouldBeNull();
-        users.Single(u => u.Username == "operator").Roles.ShouldBe([Roles.Operator]);
-        users.Single(u => u.Username == "tenant-a-admin").ShouldSatisfyAllConditions(
-            u => u.Roles.ShouldBe([Roles.TenantAdmin]),
-            u => u.TenantId.ShouldBe(DevUsers.TenantA),
-            u => u.Email.ShouldBe("admin@tenant-a.local"),
-            u => u.FirstName.ShouldBe("Anna"),
-            u => u.LastName.ShouldBe("Admin"));
-        users.Single(u => u.Username == "tenant-a-reviewer").ShouldSatisfyAllConditions(
-            u => u.Roles.ShouldBe([Roles.Reviewer]),
-            u => u.TenantId.ShouldBe(DevUsers.TenantA));
-        users.Single(u => u.Username == "tenant-b-admin").ShouldSatisfyAllConditions(
-            u => u.Roles.ShouldBe([Roles.TenantAdmin]),
-            u => u.TenantId.ShouldBe(DevUsers.TenantB));
-        users.Single(u => u.Username == "tenant-b-viewer").ShouldSatisfyAllConditions(
-            u => u.Roles.ShouldBe([Roles.Viewer]),
-            u => u.TenantId.ShouldBe(DevUsers.TenantB),
-            u => u.Email.ShouldBe("viewer@tenant-b.local"));
+        users.Select(u => RealmUser(u.Username, u.Email, u.FirstName, u.LastName, u.Roles, u.TenantId))
+            .OrderBy(u => u.Username, StringComparer.Ordinal)
+            .ShouldBe(expected);
+        users.Select(u => u.Username).ShouldBe(DevUsers.All.Select(u => u.Username), "the endpoint lists DevUsers.All as is");
     }
+
+    private static (string Username, string Email, string FirstName, string LastName, string Roles, Guid? TenantId) RealmUser(
+        string username, string email, string firstName, string lastName, IEnumerable<string> roles, Guid? tenantId) =>
+        (username, email, firstName, lastName, string.Join(",", roles.Order(StringComparer.Ordinal)), tenantId);
 
     [Fact]
     public async Task Token_response_has_the_oauth_shape()
@@ -148,6 +155,10 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
             }
 
             File.Exists(keyPath).ShouldBeTrue();
+            if (!OperatingSystem.IsWindows())
+            {
+                File.GetUnixFileMode(keyPath).ShouldBe(UnixFileMode.UserRead | UnixFileMode.UserWrite, "the private key is readable by its owner only");
+            }
 
             using var second = DevModeFactory.WithSigningKeyFile(keyPath);
             using var client = second.ClientWithToken(token);
@@ -158,6 +169,60 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
         finally
         {
             Directory.Delete(Path.GetDirectoryName(keyPath)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Corrupt_signing_key_file_fails_at_start_up()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"));
+        var keyPath = Path.Combine(directory, "dev-signing-key.pem");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(keyPath, "-----BEGIN RSA PRIVATE KEY-----\nnot a key\n-----END RSA PRIVATE KEY-----\n");
+        try
+        {
+            using var broken = DevModeFactory.WithSigningKeyFile(keyPath);
+
+            // The issuer is resolved while the host is built, so nothing answers a request with a 500 later.
+            var error = Should.Throw<Exception>(() => broken.CreateClient());
+
+            Flatten(error).ShouldContain(e => e is InvalidOperationException && e.Message.Contains(keyPath, StringComparison.Ordinal) && e.Message.Contains("SigningKeyPath", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Relative_database_and_key_paths_are_anchored_to_the_content_root()
+    {
+        // Not the process working directory: an IDE run configuration or `dotnet <dll>` from elsewhere must find the same files.
+        var contentRoot = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(contentRoot);
+        try
+        {
+            using var host = new SettingsFactory("Testing", new Dictionary<string, string?>
+            {
+                ["contentRoot"] = contentRoot,
+                ["Persistence:Provider"] = "Sqlite",
+                ["Persistence:SqlitePath"] = "./data/anchored.db",
+                ["Authentication:Dev:Enabled"] = "true",
+                ["Authentication:Dev:SigningKeyPath"] = "data/anchored-key.pem",
+                ["Authentication:Oidc:Authority"] = string.Empty,
+            });
+            using var client = host.CreateClient();
+
+            (await client.GetAsync(new Uri("/health/ready", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+            host.Services.GetRequiredService<SqliteDatabaseLocation>().Path.ShouldBe(Path.Combine(contentRoot, "data", "anchored.db"));
+            File.Exists(Path.Combine(contentRoot, "data", "anchored.db")).ShouldBeTrue();
+            File.Exists(Path.Combine(contentRoot, "data", "anchored-key.pem")).ShouldBeTrue();
+            Path.GetFullPath("./data/anchored.db").ShouldNotBe(Path.Combine(contentRoot, "data", "anchored.db"), "the working directory is somewhere else");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(contentRoot, recursive: true);
         }
     }
 
@@ -189,6 +254,24 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
         var error = Should.Throw<Exception>(() => production.CreateClient());
 
         Flatten(error).ShouldContain(e => e is InvalidOperationException && e.Message.Contains("Production", StringComparison.Ordinal) && e.Message.Contains("Sqlite", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Seed_dev_data_in_production_refuses_to_start()
+    {
+        // SQL Server in production with the demo seed on: the seed's tenants have fixed, publicly known ids and must never land there.
+        using var production = new SettingsFactory("Production", new Dictionary<string, string?>
+        {
+            ["Authentication:Dev:Enabled"] = "false",
+            ["Authentication:Oidc:Authority"] = "https://login.example.test/realms/docproc",
+            ["Persistence:Provider"] = "SqlServer",
+            ["ConnectionStrings:DocProc"] = "Server=sql.example.test;Database=DocProc;User Id=app;Password=unused;TrustServerCertificate=true",
+            ["Persistence:SeedDevData"] = "true",
+        });
+
+        var error = Should.Throw<Exception>(() => production.CreateClient());
+
+        Flatten(error).ShouldContain(e => e is InvalidOperationException && e.Message.Contains("Production", StringComparison.Ordinal) && e.Message.Contains("SeedDevData", StringComparison.Ordinal));
     }
 
     private static IEnumerable<Exception> Flatten(Exception error)

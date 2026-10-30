@@ -27,10 +27,10 @@ public sealed class PersistenceSettings
 
     public PersistenceProvider? Provider { get; set; }
 
-    /// <summary>SQLite database file; relative paths resolve against the working directory and the folder is created.</summary>
+    /// <summary>SQLite database file; relative paths resolve against the host's content root (the project folder under <c>dotnet run</c>) and the folder is created.</summary>
     public string SqlitePath { get; set; } = DefaultSqlitePath;
 
-    /// <summary>Inserts the demo tenants, suppliers and LLM configuration (<see cref="DevSeed"/>). Implied by <see cref="PersistenceProvider.Sqlite"/>.</summary>
+    /// <summary>Inserts the demo tenants, suppliers and LLM configuration (<see cref="DevSeed"/>). Implied by <see cref="PersistenceProvider.Sqlite"/>; refused in production.</summary>
     public bool SeedDevData { get; set; }
 
     public static PersistenceSettings From(IConfiguration configuration) =>

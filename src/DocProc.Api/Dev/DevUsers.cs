@@ -16,7 +16,8 @@ public sealed record DevUser(string Username, string Email, string FirstName, st
 /// <summary>
 /// The users of <c>src/DocProc.AppHost/realms/docproc-realm.json</c>, mirrored exactly (usernames, roles,
 /// <c>tenant_id</c> attributes, e-mails and names), so a front end behaves the same against the dev issuer and
-/// against Keycloak (docs/09 "Identity").
+/// against Keycloak (docs/09 "Running without Docker"). <c>Dev_users_mirror_the_keycloak_realm</c> compares this list
+/// with the realm file.
 /// </summary>
 public static class DevUsers
 {

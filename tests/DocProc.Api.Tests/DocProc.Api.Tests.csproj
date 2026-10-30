@@ -10,6 +10,10 @@
     <PackageReference Include="Shouldly" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The Keycloak realm the dev users must mirror (Dev_users_mirror_the_keycloak_realm). -->
+    <None Include="../../src/DocProc.AppHost/realms/docproc-realm.json" Link="realms/docproc-realm.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="Shouldly" />
   </ItemGroup>
