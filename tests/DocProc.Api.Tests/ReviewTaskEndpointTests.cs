@@ -112,4 +112,28 @@ public sealed class ReviewTaskEndpointTests(ApiFactory factory) : IClassFixture<
         using var tenantB = factory.ClientFor(new TokenSpec("rev-b", [Roles.Reviewer], TenantB));
         (await tenantB.PostAsync(Task(taskId, "claim"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task Release_only_undoes_the_assignment_the_caller_saw()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true, AssignedTo = "holder" });
+        var taskId = seeded.ReviewTaskId!.Value;
+        using var holder = factory.ClientFor(new TokenSpec("holder", [Roles.Reviewer], TenantA));
+        using var admin = factory.ClientFor(new TokenSpec("admin-a", [Roles.TenantAdmin], TenantA));
+
+        (await holder.PostAsync(Task(taskId, "release"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await holder.PostAsync(Task(taskId, "release"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "releasing an open task is idempotent");
+
+        // A task that was closed in the meantime (the document got decided) is refused and left alone, assignment included.
+        (await holder.PostAsync(Task(taskId, "claim"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Run(db =>
+        {
+            var task = db.ReviewTasks.Single(t => t.Id == taskId);
+            task.Status = ReviewTaskStatus.Done;
+            task.CompletedAt = factory.Clock.GetUtcNow();
+        });
+        var closed = await admin.PostAsync(Task(taskId, "release"), null, Ct);
+        closed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        factory.Query(db => db.ReviewTasks.AsNoTracking().Single(t => t.Id == taskId).AssignedTo).ShouldBe("holder", "a closed task is left alone");
+    }
 }

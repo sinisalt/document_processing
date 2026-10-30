@@ -163,6 +163,10 @@ public sealed class CanonicalPatcherTests
     [InlineData("invoiceNumber[0]", "single field")]
     [InlineData("currency.code", "cannot be addressed inside")]
     [InlineData("supplier.vatid", "not a property")]
+    [InlineData("supplier.normalizedVatId", "not a property")]
+    [InlineData("supplier.normalizedIban", "not a property")]
+    [InlineData("invoiceNumber.normalized", "corrected as a whole")]
+    [InlineData("invoiceNumber.verbatim", "corrected as a whole")]
     [InlineData("lines[0]quantity", "not a valid path segment")]
     public void Unknown_or_unaddressable_paths_are_refused_with_the_path(string path, string expected)
     {
@@ -189,6 +193,82 @@ public sealed class CanonicalPatcherTests
         Should.Throw<CanonicalPatchException>(() => CanonicalPatcher.Apply(typeof(Invoice), noCurrency, [new FieldCorrection("amountDue", Value(1m), null)], "anna", At)).Message.ShouldContain("currency");
         CanonicalDocumentSerializer.DeserializeInvoice(CanonicalPatcher.Apply(typeof(Invoice), noCurrency, [new FieldCorrection("amountDue", Value(1m), null)], "anna", At, fallbackCurrency: "HRK").Json)
             .AmountDue.Value.ShouldBe(new Money(1m, "HRK"), "the tenant default is the last resort");
+    }
+
+    [Fact]
+    public void Computed_properties_are_not_addressable_so_a_correction_never_becomes_a_recorded_no_op()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var ex = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("supplier.normalizedVatId", Value("DE811177936"), null)));
+
+        ex.Path.ShouldBe("supplier.normalizedVatId");
+        ex.Message.ShouldContain("not a property");
+
+        // The real property next to it still works, and the computed one follows it.
+        var result = Apply(json, new FieldCorrection("supplier.vatId", Value("DE 811 177 937"), null));
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(result.Json);
+        invoice.Supplier.Value!.VatId.ShouldBe("DE 811 177 937");
+        invoice.Supplier.Value.NormalizedVatId.ShouldBe("DE811177937");
+    }
+
+    [Fact]
+    public void Identifiers_are_rebuilt_from_the_verbatim_text_whatever_the_input_shape()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var asObject = Apply(json, new FieldCorrection("invoiceNumber", Value(new { verbatim = "re 2026/0100", normalized = "SOMETHING ELSE" }), null));
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(asObject.Json);
+        invoice.InvoiceNumber.Value!.Verbatim.ShouldBe("re 2026/0100");
+        invoice.InvoiceNumber.Value.Normalized.ShouldBe("RE 2026/0100", "the normalized form is derived, never taken from the client");
+
+        var asString = Apply(json, new FieldCorrection("invoiceNumber", Value("re 2026/0100"), null));
+        CanonicalDocumentSerializer.DeserializeInvoice(asString.Json).InvoiceNumber.Value.ShouldBe(invoice.InvoiceNumber.Value);
+
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("invoiceNumber", Value(new { verbatim = "   " }), null))).Message.ShouldContain("blank");
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("invoiceNumber", Value(new { normalized = "X" }), null))).Message.ShouldContain("blank");
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("invoiceNumber", Value(42), null))).Message.ShouldContain("string");
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("orderReferences[0]", Value(new { normalized = "PO-1" }), null)))
+            .Path.ShouldBe("orderReferences[0]");
+    }
+
+    [Fact]
+    public void Currency_codes_are_normalised_and_anything_but_a_three_letter_code_is_refused()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var result = Apply(
+            json,
+            new FieldCorrection("currency", Value(" usd "), null),
+            new FieldCorrection("totalGross", Value(new { amount = 166.50m, currency = "usd" }), null),
+            new FieldCorrection("lines[0].unitPrice", Value(new Money(10m, "chf")), null));
+
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(result.Json);
+        invoice.Currency.Value.ShouldBe("USD");
+        invoice.TotalGross.Value.ShouldBe(new Money(166.50m, "USD"));
+        invoice.Lines[0].UnitPrice.Value.ShouldBe(new Money(10m, "CHF"));
+        result.Applied[0].NewValueJson.ShouldBe("\"USD\"");
+
+        foreach (var (path, value) in new (string, object)[]
+        {
+            ("currency", "EURO"),
+            ("currency", "E"),
+            ("currency", "12E"),
+            ("totalGross", new { amount = 1, currency = "EURO" }),
+            ("totalGross", new { amount = 1, currency = "" }),
+            ("lines[1].unitPrice", new { amount = 1, currency = "Euro€" }),
+        })
+        {
+            var ex = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection(path, Value(value), null)), path);
+            ex.Path.ShouldBe(path);
+            ex.Message.ShouldContain("ISO 4217");
+        }
+
+        // Money is a value type: its currency is corrected with the amount, never on its own.
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("totalGross.currency", Value("EURO"), null))).Message.ShouldContain("cannot be addressed inside");
+
+        // Nothing else is a currency: a note that happens to be long is a note.
+        CanonicalDocumentSerializer.DeserializeInvoice(Apply(json, new FieldCorrection("notes", Value("EURO"), null)).Json).Notes.Value.ShouldBe("EURO");
     }
 
     [Fact]

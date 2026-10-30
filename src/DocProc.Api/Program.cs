@@ -44,6 +44,7 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
     {
         BadHttpRequestException bad => bad.StatusCode,
         JsonException => StatusCodes.Status400BadRequest,
+        Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status500InternalServerError,
     },
     SuppressDiagnosticsCallback = context => context.HttpContext.Response.StatusCode < StatusCodes.Status500InternalServerError,

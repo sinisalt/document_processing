@@ -353,6 +353,39 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }
+
+    /// <summary>
+    /// Appends the timeline the pipeline would have written for a document that ran through every stage up to
+    /// <paramref name="reached"/> (one <c>stage_completed</c> transition per state, in order). The seed itself writes
+    /// only the jump from Received to the seeded status; <c>:reprocess</c> refuses a stage the timeline shows the
+    /// document never got to, so tests that reprocess call this first.
+    /// </summary>
+    public void RecordPipelineProgress(Guid documentId, DocumentStatus reached)
+    {
+        DocumentStatus[] order = [DocumentStatus.Received, DocumentStatus.Normalized, DocumentStatus.Split, DocumentStatus.Classified, DocumentStatus.Matched, DocumentStatus.Extracted, DocumentStatus.Validated];
+        var upTo = Array.IndexOf(order, reached);
+        if (upTo < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(reached), reached, "Only pipeline progress states have a stage timeline.");
+        }
+
+        Run(db =>
+        {
+            var document = db.Documents.AsNoTracking().Single(d => d.Id == documentId);
+            var at = Clock.GetUtcNow();
+            for (var i = 1; i <= upTo; i++)
+            {
+                db.DocumentEvents.Add(new DocumentEvent { TenantId = document.TenantId, DocumentId = documentId, EventType = DocumentEventTypes.StageCompleted, FromStatus = order[i - 1], ToStatus = order[i], Actor = "pipeline", At = at });
+            }
+        });
+    }
+
+    /// <summary>Whether the raw store holds bytes with this hash for the tenant, whatever the database says.</summary>
+    public Task<bool> RawBlobExistsAsync(Guid tenantId, byte[] bytes)
+    {
+        var sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        return Services.GetRequiredService<IBlobStore>().ExistsAsync(new BlobRef(BlobContainers.Raw, $"{tenantId}/{sha256}", sha256, bytes.Length, "application/octet-stream"), CancellationToken.None);
+    }
 }
 
 public sealed record TokenSpec(string Subject, string[] Roles, string? TenantId = null, string? Issuer = null, string? Audience = null, DateTime? Expires = null);

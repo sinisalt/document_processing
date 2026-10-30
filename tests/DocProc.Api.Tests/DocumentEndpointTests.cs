@@ -317,7 +317,9 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     {
         using var reviewer = ReviewerA();
 
+        // The seed only records the jump to the seeded status; these documents ran through the whole pipeline first.
         var failed = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Failed, ReviewTask = false });
+        factory.RecordPipelineProgress(failed.DocumentId, DocumentStatus.Validated);
         var response = await reviewer.PostAsync(Document(failed.DocumentId, ":reprocess"), null, Ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var detail = (await response.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!;
@@ -326,6 +328,7 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         factory.Queue.Documents.ShouldContain(m => m.DocumentId == failed.DocumentId && m.Stage == PipelineStage.Extract);
 
         var review = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true });
+        factory.RecordPipelineProgress(review.DocumentId, DocumentStatus.Validated);
         var classify = await reviewer.PostAsJsonAsync(Document(review.DocumentId, ":reprocess"), new ReprocessDocumentRequest("classify"), Ct);
         classify.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await classify.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Status.ShouldBe(DocumentStatus.Split);
@@ -337,6 +340,7 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         reprocessed.DetailsJson!.ShouldContain("Classify");
 
         var rejected = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Rejected });
+        factory.RecordPipelineProgress(rejected.DocumentId, DocumentStatus.Validated);
         var validate = await reviewer.PostAsJsonAsync(Document(rejected.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Validate"), Ct);
         (await validate.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Status.ShouldBe(DocumentStatus.Extracted);
 
@@ -469,6 +473,162 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         (await Patch(noCanonical.DocumentId, new FieldCorrection("notes", JsonSerializer.SerializeToElement("x"), null))).StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         (await Patch(Guid.NewGuid(), new FieldCorrection("notes", JsonSerializer.SerializeToElement("x"), null))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Reprocess_refuses_a_stage_the_document_never_reached()
+    {
+        using var reviewer = ReviewerA();
+
+        // Failed straight after Received (the seed records Received → Failed only): Extract would run with no text layer.
+        var earlyFailure = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Failed, Invoice = null });
+        var refused = await reviewer.PostAsync(Document(earlyFailure.DocumentId, ":reprocess"), null, Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var problem = JsonDocument.Parse(await refused.Content.ReadAsStringAsync(Ct)).RootElement;
+        problem.GetProperty("title").GetString().ShouldBe("Stage not reached");
+        problem.GetProperty("detail").GetString()!.ShouldContain("Normalize", customMessage: "the latest stage it may rerun from is named");
+        factory.Query(db => db.Documents.AsNoTracking().Single(d => d.Id == earlyFailure.DocumentId).Status).ShouldBe(DocumentStatus.Failed, "nothing changed");
+        factory.Queue.Documents.ShouldNotContain(m => m.DocumentId == earlyFailure.DocumentId);
+
+        var normalize = await reviewer.PostAsJsonAsync(Document(earlyFailure.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Normalize"), Ct);
+        normalize.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await normalize.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Status.ShouldBe(DocumentStatus.Received);
+        factory.Queue.Documents.ShouldContain(m => m.DocumentId == earlyFailure.DocumentId && m.Stage == PipelineStage.Normalize);
+
+        // Failed after classification: Classify may rerun, Extract and Validate may not.
+        var classified = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Failed, Invoice = null });
+        factory.RecordPipelineProgress(classified.DocumentId, DocumentStatus.Classified);
+        (await reviewer.PostAsJsonAsync(Document(classified.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Validate"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await reviewer.PostAsJsonAsync(Document(classified.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Extract"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var classify = await reviewer.PostAsJsonAsync(Document(classified.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Classify"), Ct);
+        classify.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await classify.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Status.ShouldBe(DocumentStatus.Split);
+    }
+
+    [Fact]
+    public async Task Patch_fields_is_refused_while_the_pipeline_is_mid_flight_and_allowed_on_failed_documents()
+    {
+        using var reviewer = ReviewerA();
+        var correction = new CorrectFieldsRequest([new FieldCorrection("notes", JsonSerializer.SerializeToElement("checked"), null)]);
+
+        foreach (var inFlight in new[] { DocumentStatus.Classified, DocumentStatus.Matched, DocumentStatus.Extracted })
+        {
+            var seeded = await factory.SeedDocumentAsync(new DocumentSeed { Status = inFlight });
+            var response = await reviewer.PatchAsJsonAsync(Document(seeded.DocumentId, "/fields"), correction, Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.Conflict, inFlight.ToString());
+            var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement;
+            problem.GetProperty("title").GetString().ShouldBe("Document not correctable");
+            problem.GetProperty("detail").GetString()!.ShouldContain("pipeline");
+            factory.Query(db => db.Corrections.Count(c => c.DocumentId == seeded.DocumentId)).ShouldBe(0);
+        }
+
+        var failed = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Failed });
+        var corrected = await reviewer.PatchAsJsonAsync(Document(failed.DocumentId, "/fields"), correction, Ct);
+        corrected.StatusCode.ShouldBe(HttpStatusCode.OK, "a failed document keeps its canonical data and may be fixed by hand");
+        (await corrected.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Status.ShouldBe(DocumentStatus.Failed);
+
+        var validated = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Validated });
+        (await reviewer.PatchAsJsonAsync(Document(validated.DocumentId, "/fields"), correction, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Patch_fields_validates_currency_codes_before_touching_the_document()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed());
+        using var reviewer = ReviewerA();
+
+        async Task<HttpResponseMessage> Patch(params FieldCorrection[] corrections) =>
+            await reviewer.PatchAsJsonAsync(Document(seeded.DocumentId, "/fields"), new CorrectFieldsRequest(corrections), Ct);
+
+        var spelledOut = await Patch(new FieldCorrection("currency", JsonSerializer.SerializeToElement("EURO"), null));
+        spelledOut.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "Document.Currency is char(3); the UPDATE must never be the place this fails");
+        var problem = JsonDocument.Parse(await spelledOut.Content.ReadAsStringAsync(Ct)).RootElement;
+        problem.GetProperty("errors").GetProperty("currency")[0].GetString()!.ShouldContain("ISO 4217");
+
+        (await Patch(new FieldCorrection("totalGross", JsonSerializer.SerializeToElement(new { amount = 10, currency = "EURO" }), null))).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await Patch(new FieldCorrection("totalGross.currency", JsonSerializer.SerializeToElement("EURO"), null))).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await Patch(new FieldCorrection("lines[0].unitPrice", JsonSerializer.SerializeToElement(new { amount = 10, currency = "" }), null))).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        factory.Query(db => db.Corrections.Count(c => c.DocumentId == seeded.DocumentId)).ShouldBe(0);
+        factory.Query(db => db.Documents.AsNoTracking().Single(d => d.Id == seeded.DocumentId).Currency).ShouldBe("EUR");
+
+        // A lower-case code is normalised, not refused, and reaches the list column in its stored form.
+        var lowerCase = await Patch(new FieldCorrection("currency", JsonSerializer.SerializeToElement("usd"), "paid in dollars"));
+        lowerCase.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = JsonDocument.Parse(await lowerCase.Content.ReadAsStringAsync(Ct)).RootElement;
+        json.GetProperty("currency").GetString().ShouldBe("USD");
+        json.GetProperty("canonical").GetProperty("currency").GetProperty("value").GetString().ShouldBe("USD");
+        factory.Query(db => db.Documents.AsNoTracking().Single(d => d.Id == seeded.DocumentId).Currency).ShouldBe("USD");
+    }
+
+    [Fact]
+    public async Task Platform_scope_writes_carry_the_documents_tenant()
+    {
+        // docs/05: operators work the global review queue without X-Tenant-Id. Every row they write must still belong
+        // to the document's tenant, or the tenant would never see its own corrections and timeline.
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = ApiFactory.TenantB, ReviewTask = true });
+        using var operatorClient = factory.ClientFor(new TokenSpec("ops", [Roles.Operator]));
+
+        (await operatorClient.PostAsync(new Uri($"/api/v1/review-tasks/{seeded.ReviewTaskId}:claim", UriKind.Relative), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var patched = await operatorClient.PatchAsJsonAsync(Document(seeded.DocumentId, "/fields"), new CorrectFieldsRequest([new FieldCorrection("invoiceNumber", JsonSerializer.SerializeToElement("RE-OPS-1"), "fixed by operator")]), Ct);
+        patched.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await operatorClient.PostAsJsonAsync(Document(seeded.DocumentId, ":approve"), new ApproveDocumentRequest("ok"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var task = factory.Query(db => db.ReviewTasks.AsNoTracking().Single(t => t.Id == seeded.ReviewTaskId));
+        task.TenantId.ShouldBe(ApiFactory.TenantB);
+        task.AssignedTo.ShouldBe("ops");
+        task.Status.ShouldBe(ReviewTaskStatus.Done);
+
+        var corrections = factory.Query(db => db.Corrections.AsNoTracking().Where(c => c.DocumentId == seeded.DocumentId).ToList());
+        corrections.ShouldHaveSingleItem().TenantId.ShouldBe(ApiFactory.TenantB);
+
+        var events = factory.Query(db => db.DocumentEvents.AsNoTracking().Where(e => e.DocumentId == seeded.DocumentId && e.Actor == "ops").ToList());
+        events.Select(e => e.EventType).ShouldBe([DocumentEventTypes.Corrected, DocumentEventTypes.Approved], ignoreOrder: true);
+        events.ShouldAllBe(e => e.TenantId == ApiFactory.TenantB);
+        factory.Queue.Documents.ShouldContain(m => m.DocumentId == seeded.DocumentId && m.Stage == PipelineStage.Publish && m.TenantId == ApiFactory.TenantB);
+
+        // Tenant B sees everything the operator did through its own scope.
+        using var tenantB = factory.ClientFor(new TokenSpec("reviewer-b", [Roles.Reviewer], TenantB));
+        var detail = (await tenantB.GetFromJsonAsync<DocumentDetail>(Document(seeded.DocumentId), ApiFactory.Json, Ct))!;
+        detail.Status.ShouldBe(DocumentStatus.Approved);
+        detail.DocumentNumber.ShouldBe("RE-OPS-1");
+    }
+
+    [Fact]
+    public async Task Original_is_inline_only_for_pdf_and_raster_images_and_never_sniffed()
+    {
+        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], TenantA));
+
+        static string? NoSniff(HttpResponseMessage response) =>
+            response.Headers.TryGetValues("X-Content-Type-Options", out var values) ? values.Single() : null;
+
+        var html = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "invoice.html", ContentType = "text/html", OriginalBytes = "<html><script>alert(document.cookie)</script></html>"u8.ToArray() });
+        var htmlResponse = await viewer.GetAsync(Document(html.DocumentId, "/original"), Ct);
+        htmlResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        htmlResponse.Content.Headers.ContentType!.MediaType.ShouldBe("application/octet-stream", "the uploader's type is not trusted for anything the viewer does not render");
+        htmlResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("attachment");
+        htmlResponse.Content.Headers.ContentDisposition.FileNameStar.ShouldBe("invoice.html");
+        NoSniff(htmlResponse).ShouldBe("nosniff");
+        (await htmlResponse.Content.ReadAsByteArrayAsync(Ct)).ShouldBe(html.OriginalBytes);
+
+        var svg = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "logo.svg", ContentType = "image/svg+xml", OriginalBytes = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>1</script></svg>"u8.ToArray() });
+        var svgResponse = await viewer.GetAsync(Document(svg.DocumentId, "/original"), Ct);
+        svgResponse.Content.Headers.ContentType!.MediaType.ShouldBe("application/octet-stream", "SVG can carry script");
+        svgResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("attachment");
+
+        var jpeg = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "scan.jpg", ContentType = "image/jpeg", OriginalBytes = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3] });
+        var jpegResponse = await viewer.GetAsync(Document(jpeg.DocumentId, "/original"), Ct);
+        jpegResponse.Content.Headers.ContentType!.MediaType.ShouldBe("image/jpeg");
+        jpegResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("inline");
+        NoSniff(jpegResponse).ShouldBe("nosniff");
+
+        var pdf = await factory.SeedDocumentAsync(new DocumentSeed { PagePng = TestInvoices.FakePng(), TextLayerJson = "{\"pages\":[]}" });
+        var pdfResponse = await viewer.GetAsync(Document(pdf.DocumentId, "/original"), Ct);
+        pdfResponse.Content.Headers.ContentType!.MediaType.ShouldBe("application/pdf");
+        pdfResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("inline");
+        NoSniff(pdfResponse).ShouldBe("nosniff");
+        NoSniff(await viewer.GetAsync(Document(pdf.DocumentId, "/pages/1.png"), Ct)).ShouldBe("nosniff");
+        NoSniff(await viewer.GetAsync(Document(pdf.DocumentId, "/text"), Ct)).ShouldBe("nosniff");
     }
 
     [Fact]
