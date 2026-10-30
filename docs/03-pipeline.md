@@ -205,7 +205,8 @@ without unpacking again.
 **Durable ownership.** The rule "one owner per tenant and bytes" is enforced by the database, not by
 the query: the filtered unique index `UX_IngestionItems_TenantId_Sha256_Accepted` on
 `IngestionItems(TenantId, Sha256) WHERE Disposition = 'Accepted'` (migration `AddItemOwnershipIndex`,
-which also back-fills `Accepted` for the items that already own a document; the SQLite schema carries
+which also back-fills `Accepted` for the items that already own a document, in platform scope because neither
+migration path sets a tenant for the row-level security policy; the SQLite schema carries
 the same index with its own filter syntax) admits at most one `Accepted` item per tenant and SHA-256.
 When another process accepts the same bytes between one handler's duplicate query and its commit,
 that commit fails on the index (`IngestionItemOwnership.IsViolation` recognises the failure on both

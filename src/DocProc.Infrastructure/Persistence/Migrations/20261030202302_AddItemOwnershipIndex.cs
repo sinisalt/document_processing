@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -15,13 +16,16 @@ namespace DocProc.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // Items that already own a document were left Candidate by earlier builds; they are the owners the index protects.
-            migrationBuilder.Sql(
+            // IngestionItems and Documents sit behind the row-level security policy, and neither migration path (the
+            // release script run with sqlcmd, MigrationHostedService with an anonymous tenant context) sets a tenant, so
+            // the statement switches the session to platform scope for itself and clears it again afterwards.
+            migrationBuilder.Sql(InPlatformScope(
                 """
                 UPDATE [i] SET [i].[Disposition] = N'Accepted'
                 FROM [IngestionItems] AS [i]
                 WHERE [i].[Disposition] = N'Candidate'
                   AND EXISTS (SELECT 1 FROM [Documents] AS [d] WHERE [d].[IngestionItemId] = [i].[Id]);
-                """);
+                """));
 
             migrationBuilder.CreateIndex(
                 name: "UX_IngestionItems_TenantId_Sha256_Accepted",
@@ -38,7 +42,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 name: "UX_IngestionItems_TenantId_Sha256_Accepted",
                 table: "IngestionItems");
 
-            migrationBuilder.Sql("UPDATE [IngestionItems] SET [Disposition] = N'Candidate' WHERE [Disposition] = N'Accepted';");
+            migrationBuilder.Sql(InPlatformScope("UPDATE [IngestionItems] SET [Disposition] = N'Candidate' WHERE [Disposition] = N'Accepted';"));
         }
+
+        /// <summary>Runs a data statement with the row-level security predicate open (platform scope), then closes it.</summary>
+        internal static string InPlatformScope(string statement) =>
+            $"""
+            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = N'{TenantSessionContextInterceptor.PlatformScopeValue}', @read_only = 0;
+            {statement}
+            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = NULL, @read_only = 0;
+            """;
     }
 }
