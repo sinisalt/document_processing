@@ -21,6 +21,12 @@ public sealed class LlmExtractionOptions
     /// <summary>How much of every page's text the splitter sees: the first lines carry the headers and footers it needs.</summary>
     public int SplitTextCharsPerPage { get; set; } = 300;
 
+    /// <summary>Long edge in pixels of the page thumbnails the splitter attaches; a boundary is visible well below full render size.</summary>
+    public int SplitThumbnailLongEdge { get; set; } = 768;
+
+    /// <summary>How many page thumbnails the splitter attaches at most (the first ones); later pages are decided from text. Zero attaches none.</summary>
+    public int SplitMaxThumbnailPages { get; set; } = 40;
+
     public LlmOptions ToLlmOptions() => new() { Effort = Effort, MaxOutputTokens = MaxOutputTokens };
 
     public LlmOptions ToAuxiliaryLlmOptions() => new() { Effort = ReasoningEffort.Low, MaxOutputTokens = MaxAuxiliaryOutputTokens };

@@ -46,7 +46,7 @@ public sealed class LlmGateway(
             await usage.RecordAsync(
                 Record(tenantId, effective, resolved, result.Usage, result.Model, result.StopReason, result.ProviderRequestId, latency, hash, error: null),
                 cancellationToken).ConfigureAwait(false);
-            return result with { Latency = latency };
+            return result with { Latency = latency, Provider = resolved.Config.Kind, KeyOwner = resolved.KeyOwner };
         }
         catch (LlmException ex)
         {

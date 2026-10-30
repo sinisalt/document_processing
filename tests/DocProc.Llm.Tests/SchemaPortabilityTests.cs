@@ -84,7 +84,7 @@ public class SchemaPortabilityTests
             {
               "kind": "Invoice", "invoiceNumber": "RE-2026-0042", "issueDate": "2026-10-27", "deliveryDate": null,
               "servicePeriodFrom": null, "servicePeriodTo": null, "dueDate": "2026-11-10", "currency": "EUR",
-              "supplier": { "name": "METRO Deutschland GmbH", "vatId": "DE811177936", "taxId": null, "registrationNumber": null,
+              "supplier": { "name": "Musterhandel GmbH", "vatId": "DE000000000", "taxId": null, "registrationNumber": null,
                             "addressLine1": null, "addressLine2": null, "postalCode": null, "city": null, "countryCode": "DE",
                             "email": null, "phone": null, "iban": null, "bic": null },
               "customer": null, "orderReferences": ["PO-77"], "deliveryNoteReferences": [], "originalInvoiceReference": null,
@@ -103,7 +103,7 @@ public class SchemaPortabilityTests
 
         parsed.Kind.ShouldBe(ExtractedInvoiceKind.Invoice);
         parsed.IssueDate.ShouldBe(new DateOnly(2026, 10, 27));
-        parsed.Supplier!.VatId.ShouldBe("DE811177936");
+        parsed.Supplier!.VatId.ShouldBe("DE000000000");
         parsed.Lines.ShouldHaveSingleItem().Quantity.ShouldBe(10m);
         parsed.UnreadableRegions.ShouldHaveSingleItem().Page.ShouldBe(2);
         parsed.Customer.ShouldBeNull();

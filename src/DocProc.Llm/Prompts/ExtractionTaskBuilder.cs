@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using DocProc.Application.Abstractions;
+using DocProc.Domain.Common;
 using DocProc.Domain.Invoices;
 
 namespace DocProc.Llm.Prompts;
@@ -115,7 +116,12 @@ public static class ExtractionTaskBuilder
             if (line.Quantity.HasValue)
             {
                 sb.Append(line.Quantity.Value.ToString(CultureInfo.InvariantCulture)).Append(' ');
-                sb.Append(line.UnitRaw ?? line.Unit.Value.ToString()).Append(' ');
+                // Only a unit the approved invoice actually carried; a missing unit (or the Other bucket without raw text) is not invented.
+                var unit = line.UnitRaw ?? (line.Unit is { HasValue: true, Value: not UnitOfMeasure.Other } ? line.Unit.Value.ToString() : null);
+                if (unit is not null)
+                {
+                    sb.Append(unit).Append(' ');
+                }
             }
 
             if (line.UnitPrice.HasValue)

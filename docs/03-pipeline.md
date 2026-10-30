@@ -63,7 +63,9 @@ delivery note. Splitting runs before classification:
    header block repeating, blank separator pages).
 2. If heuristics are uncertain or the file has more than ~6 pages, ask the LLM for split points
    using page thumbnails plus the first lines of text of each page. This is a tiny request
-   compared with extraction and runs once per attachment.
+   compared with extraction and runs once per attachment: the splitter downscales the stage 2
+   renders to thumbnails (long edge 768 px) and attaches at most the first 40 pages; the text of
+   every page is always sent, and the model is told when thumbnails were left out.
 3. Each resulting page range becomes a `Document`. Single-document files skip the LLM step.
 
 ## Stage 4 – Classify

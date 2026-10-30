@@ -45,7 +45,7 @@ public class LlmDocumentClassifierTests
         var request = gateway.Requests.Single();
         request.Document.ShouldBeNull();
         request.Prompt.Task.ShouldContain("no page image is available");
-        request.Prompt.Task.ShouldContain("The first 12 characters of the text layer:\n<text>\nMETRO Deutsc\n</text>");
+        request.Prompt.Task.ShouldContain("The first 12 characters of the text layer:\n<text>\nMusterhandel\n</text>");
     }
 
     [Fact]
@@ -94,5 +94,31 @@ public class LlmDocumentClassifierTests
         await Should.ThrowAsync<LlmExtractionException>(() => Classifier(truncated).ClassifyAsync(Inputs.TenantId, Inputs.SampleTextLayer(), null, CancellationToken.None));
         var ex = await Should.ThrowAsync<LlmException>(() => Classifier(refused).ClassifyAsync(Inputs.TenantId, Inputs.SampleTextLayer(), null, CancellationToken.None));
         ex.Kind.ShouldBe(LlmErrorKind.ContentRefused);
+    }
+
+
+    [Fact]
+    public void Excerpt_takes_pages_in_order_and_stops_at_the_budget()
+    {
+        var layer = new TextLayerBuilder().Page(2).Line("second", "page").Page(1).Line("first", "page", "words").Page(3).Line("third").Build();
+
+        LlmDocumentClassifier.Excerpt(layer, 1_000).ShouldBe("first page words\nsecond page\nthird");
+        LlmDocumentClassifier.Excerpt(layer, 20).ShouldBe("first page words\nsec");
+        LlmDocumentClassifier.Excerpt(layer, 5).ShouldBe("first");
+        LlmDocumentClassifier.Excerpt(layer, 0).ShouldBe(string.Empty);
+        LlmDocumentClassifier.Excerpt(null, 5).ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public async Task The_document_id_rides_on_the_request_when_the_caller_knows_it()
+    {
+        var gateway = new FakeGateway().Answer(SampleAnswers.Classification).Answer(SampleAnswers.Classification);
+        Application.Abstractions.IDocumentClassifier classifier = Classifier(gateway);
+
+        await classifier.ClassifyAsync(Inputs.TenantId, Inputs.DocumentId, Inputs.SampleTextLayer(), null, CancellationToken.None);
+        await classifier.ClassifyAsync(Inputs.TenantId, Inputs.SampleTextLayer(), null, CancellationToken.None);
+
+        gateway.Requests[0].DocumentId.ShouldBe(Inputs.DocumentId);
+        gateway.Requests[1].DocumentId.ShouldBeNull();
     }
 }

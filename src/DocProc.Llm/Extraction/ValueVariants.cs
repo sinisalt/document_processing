@@ -42,10 +42,33 @@ public static class ValueVariants
         [InvoiceKind.Proforma] = ["Proforma", "PROFORMA", "Pro forma", "Pro-forma", "Proforma Invoice", "Predračun", "Proformarechnung"],
     };
 
-    /// <summary>All plausible printed forms of a decimal: printed scale, two decimals and (for integers) no decimals, with every separator convention.</summary>
+    /// <summary>
+    /// All plausible printed forms of a decimal: printed scale, two decimals and (for integers) no decimals, with every
+    /// separator convention. Negative values add the forms credit notes and SAP-style listings print: leading minus,
+    /// trailing minus ("12,00-"), parentheses ("(12,00)") and the Unicode minus sign U+2212.
+    /// </summary>
     public static IReadOnlyList<string> Number(decimal value)
     {
-        var abs = Math.Abs(value);
+        var unsigned = Unsigned(Math.Abs(value));
+        if (value >= 0)
+        {
+            return unsigned;
+        }
+
+        var negatives = new List<string>(unsigned.Count * 4);
+        foreach (var form in unsigned)
+        {
+            negatives.Add("-" + form);
+            negatives.Add(form + "-");
+            negatives.Add("(" + form + ")");
+            negatives.Add("\u2212" + form);
+        }
+
+        return negatives;
+    }
+
+    private static List<string> Unsigned(decimal abs)
+    {
         var scale = abs.Scale;
         var decimals = new HashSet<int> { scale, 2 };
         if (abs == decimal.Truncate(abs))
@@ -54,7 +77,6 @@ public static class ValueVariants
         }
 
         var result = new List<string>();
-        var sign = value < 0 ? "-" : string.Empty;
         foreach (var d in decimals.OrderBy(x => x))
         {
             var fixedPoint = abs.ToString("F" + d.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
@@ -72,7 +94,7 @@ public static class ValueVariants
                 var grouped = Group(integerPart, thousands);
                 if (fraction.Length == 0)
                 {
-                    result.Add(sign + grouped);
+                    result.Add(grouped);
                     continue;
                 }
 
@@ -83,7 +105,7 @@ public static class ValueVariants
                         continue;
                     }
 
-                    result.Add(sign + grouped + dec + fraction);
+                    result.Add(grouped + dec + fraction);
                 }
             }
         }

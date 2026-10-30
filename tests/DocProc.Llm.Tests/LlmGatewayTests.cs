@@ -91,6 +91,8 @@ public class LlmGatewayTests
         var result = await f.Build().CompleteAsync(TenantId, request, CancellationToken.None);
 
         result.Json.ShouldBe("{}");
+        result.Provider.ShouldBe(LlmProviderKind.Replay, "the resolved provider kind travels on the result for cost attribution");
+        result.KeyOwner.ShouldBe(KeyOwner.Platform);
         f.RequestedCredentials.ShouldHaveSingleItem().ShouldBe(Platform);
         var row = f.Records.ShouldHaveSingleItem();
         row.TenantId.ShouldBe(TenantId);

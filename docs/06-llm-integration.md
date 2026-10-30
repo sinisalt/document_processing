@@ -90,6 +90,17 @@ sanity check: a required value that cannot be found anywhere in the text layer g
 `LOW_CONFIDENCE`. This works for scans too, which citations do not, and keeps structured
 outputs available on the same request.
 
+Fuzzy matching applies to free text only (party names, descriptions, notes, payment terms).
+Identifier-like values (invoice number, order and delivery note references, VAT and tax ids,
+IBAN/BIC, SKU, GTIN, lot numbers) must match exactly or after normalisation: a document number
+one digit off from the printed one is a different document number, so it is reported as not
+found rather than confidently anchored to the wrong text. The text layer is indexed once per
+document and the fuzzy pass only compares windows anchored on a word within one edit of the
+value's first or last token, so hundreds of lookups per invoice stay in the millisecond range.
+
+A region the model reports as unreadable becomes `UNREADABLE_PAGES`: blocking when a required
+header field came back empty (the region may be what hid it), a warning otherwise.
+
 ## Confidence
 
 LLM self-reported confidence is not calibrated enough to gate automation on (recent work

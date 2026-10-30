@@ -1,7 +1,7 @@
 Text layer, page 1 of 1 (German, digital PDF):
 
-METRO Deutschland GmbH · Metro-Straße 1 · 40235 Düsseldorf
-USt-IdNr. DE811177936   IBAN DE89 3704 0044 0532 0130 00   BIC COBADEFFXXX
+Musterhandel GmbH · Musterstraße 1 · 12345 Musterstadt
+USt-IdNr. DE000000000   IBAN DE02 1203 0000 0000 2020 51   BIC MUSTDEFFXXX
 Rechnung Nr. 4711-2026-00917          Rechnungsdatum: 27.10.2026   Lieferdatum: 27.10.2026
 Kunde: Gasthaus zur Post GmbH, Hauptstraße 12, 80331 München, USt-IdNr. DE123456789
 Ihre Bestellung: PO-77   Lieferschein: LS-55021
