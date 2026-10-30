@@ -41,6 +41,7 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 | `05-api-and-ui.md` | API-first principles, roles, resource model, the admin console and the customer portal. |
 | `06-llm-integration.md` | Claude capabilities used, model per stage, cost model, prompt design, provenance, confidence, data handling, evals. |
 | `07-roadmap.md` | Six phases with exit criteria, risks and open decisions. |
+| `08-llm-providers-and-byok.md` | Provider-neutral LLM gateway (Anthropic, Claude on Microsoft Foundry, OpenAI, Azure OpenAI, OpenAI-compatible), schema and prompt portability, per-tenant bring-your-own-key with Key Vault, cost attribution and spend caps. |
 
 ## Key research findings (checked 2026-10-30)
 
@@ -51,6 +52,10 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 - MassTransit v9 is commercial; v8 stays Apache-2.0 but is maintenance-only. Wolverine (MIT)
   is the recommended messaging/outbox layer; Hangfire (LGPL) and Quartz.NET (Apache) remain
   options for pure scheduling.
+- LLM access is provider-neutral: a gateway over `Microsoft.Extensions.AI` with Anthropic
+  and OpenAI-compatible adapters, and tenants may bring their own key or Azure resource.
+  Claude is generally available in Microsoft Foundry with Azure billing, so a tenant can BYOK
+  with an Anthropic key, a Foundry resource or an Azure OpenAI deployment.
 - Hosting is Azure with SQL Server as the only database: Azure SQL Database in production,
   the SQL Server 2025 container locally. EF Core 10's SQL Server provider covers native `json`
   columns and the vector type, so fingerprint similarity stays inside the database.

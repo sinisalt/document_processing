@@ -1,7 +1,12 @@
-# LLM integration (Claude)
+# LLM integration (Claude adapter defaults)
 
-Facts below were checked against the Anthropic platform docs on 2026-10-30; prices are
-USD per million tokens and change, so the eval harness re-reads them from configuration.
+The pipeline talks to a provider-neutral gateway (`08-llm-providers-and-byok.md`); this
+document covers the Anthropic adapter, which is the first implementation and the platform
+default, and the request design that the other adapters mirror. Facts below were checked
+against the Anthropic platform docs on 2026-10-30; prices are USD per million tokens and
+change, so the eval harness re-reads them from configuration. An OpenAI-compatible adapter
+(OpenAI, Azure OpenAI) ships alongside it; its default models are chosen by the same eval
+harness rather than listed here.
 
 ## What we use and why
 
@@ -24,8 +29,8 @@ USD per million tokens and change, so the eval harness re-reads them from config
 | Profile synthesis (writes extractor profiles) | `claude-opus-5-5` at `high` effort | Rare, high-value, offline. |
 | Evals / judge | same as extraction, batch mode | |
 
-The eval harness (`tests/DocProc.Evals`) runs the gold set against each candidate model and
-prompt version and reports field accuracy, STP and cost. Whether Sonnet 5.5 or Haiku 5.5 is
+The eval harness (`tests/DocProc.Evals`) runs the gold set against each enabled provider,
+candidate model and prompt version and reports field accuracy, STP and cost. Whether Sonnet 5.5 or Haiku 5.5 is
 good enough for extraction on this corpus is an eval result, not an assumption; the design
 makes the model per stage a configuration value.
 
@@ -103,7 +108,9 @@ and supplier so thresholds can be loosened where reviewers never correct anythin
 ## Data handling
 
 - Send documents inline (base64) rather than persisting them in the Files API, so nothing
-  tenant-related is stored at the provider beyond the request. If Files API is ever used,
+  tenant-related is stored at the provider beyond the request. BYOK tenants can point the
+  adapter at Claude on Microsoft Foundry or their own Anthropic account so the data agreement
+  is theirs. If Files API is ever used,
   note that files are workspace-scoped and the docs recommend one workspace per tenant.
 - Batches keep results for 29 days at the provider; use them only for tenants whose data
   processing agreement allows it, otherwise stay on standard requests.

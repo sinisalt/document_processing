@@ -15,3 +15,4 @@ The repository currently holds the research and implementation plan:
 - [`docs/05-api-and-ui.md`](docs/05-api-and-ui.md)
 - [`docs/06-llm-integration.md`](docs/06-llm-integration.md)
 - [`docs/07-roadmap.md`](docs/07-roadmap.md)
+- [`docs/08-llm-providers-and-byok.md`](docs/08-llm-providers-and-byok.md)

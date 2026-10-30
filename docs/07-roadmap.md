@@ -13,6 +13,7 @@ front-end developer; adjust to the team.
 - Canonical domain model and JSON schema (versioned) from `02-data-model.md`; validation rules
   with unit tests.
 - Tenancy, OIDC login, roles, API keys; OpenAPI published; generated TS client.
+- LLM gateway and provider interface with the Anthropic adapter; schema-portability test.
 - Decisions to close: Entra External ID vs another OIDC provider for customer users, Azure
   SQL tier (serverless for dev/test, provisioned for production), Container Apps vs AKS.
 
@@ -22,7 +23,8 @@ front-end developer; adjust to the team.
   Graph notifications; `.eml` retained; attachment unpacking; duplicate detection by hash.
 - Normalisation: PDF text layer (PdfPig), page rasters (PDFtoImage), Tesseract OCR for scans.
 - Classification (rules + Haiku), extraction with Opus 5.5 and structured outputs, validation
-  and flags, review tasks.
+  and flags, review tasks; OpenAI-compatible adapter against Azure OpenAI with platform keys,
+  so both provider families are exercised by the first pilot.
 - Customer portal: inbox, review screen with highlights, approve/reject, corrections stored.
 - Admin console: tenants, channels, document timeline, failed jobs, LLM usage.
 - Exit criterion: a pilot restaurant's mailbox processed end-to-end; gold set started.
@@ -36,6 +38,8 @@ front-end developer; adjust to the team.
 - Purchase orders and delivery notes as document types; reference matching (invoice ↔ PO ↔
   delivery note) and the three-way match view.
 - Webhooks and exports (JSON, CSV, UBL).
+- **BYOK**: tenant provider configs, Key Vault flow, credential validation, per-stage model
+  selection, portal settings screen; tenant policy for platform-key fallback.
 
 ## Phase 3 – Measurement and cost controls (2 weeks, overlaps Phase 2)
 
@@ -43,6 +47,8 @@ front-end developer; adjust to the team.
   and for prompt versions; batch-mode runs.
 - Prompt caching verified (cache-read tokens non-zero), supplier memory in the prompt,
   per-tenant auto-approval thresholds tuned from correction rates.
+- Cost attribution by key owner, price tables, spend caps and `LLM_PROVIDER_UNAVAILABLE`
+  handling; tenant usage dashboard.
 - Decision point: which model per stage; whether the volume/supplier repetition justifies
   Phase 4 now or later.
 
@@ -75,6 +81,8 @@ front-end developer; adjust to the team.
 | ZUGFeRD-csharp deprecation (Dec 2026) and its commercial successor | Pin last Apache release behind an interface; evaluate cost of the commercial package vs maintaining a fork when Phase 2 starts. |
 | Retention periods differ by country (Germany 8 years since 2025, Croatia 11, France 10) | Retention is a tenant setting with per-country defaults; legal review before launch in each country. |
 | Template drift when a supplier redesigns its invoice | Validation-gated fallback, drift metrics, automatic re-synthesis; never let a profile answer without arithmetic checks passing. |
+| Provider feature drift (one vendor adds or removes a structured-output or PDF capability) | Capability descriptor per adapter, document input falls back to page images, CI schema test per provider, eval per provider before promotion. |
+| A BYOK tenant's key leaks through logs or errors | Key Vault references only, redaction filter, per-job fetch with short TTL, audit log, secret scanning in CI. |
 | Reviewer fatigue if thresholds are too strict | Per-field correction-rate reporting; raise auto-approval only where corrections are near zero. |
 | Azure SQL cost at scale (JSON documents, page-text layers) | Keep page images and text layers in Blob Storage, not in the database; store only the canonical document, flags and indexes in SQL; use the serverless tier for dev/test. |
 | SQL Server 2025 container vs Azure SQL feature drift (json, vector, RLS) | Pin the compatibility level; integration tests run against the container and a nightly run against an Azure SQL dev database. |

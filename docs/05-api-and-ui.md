@@ -35,6 +35,9 @@ Auth0, decision deferred to the roadmap). Machine clients use per-tenant API key
 /tenants/{id}/channels           mailbox / folder / api channels
 /tenants/{id}/suppliers
 /tenants/{id}/settings           review policy, thresholds, retention
+/tenants/{id}/llm-providers      BYOK configs: create (key goes to Key Vault), :test, :rotate, disable
+/tenants/{id}/llm-policy         default config, per-stage overrides, platform-key fallback
+/tenants/{id}/llm-usage          tokens and estimated cost per day / stage / supplier
 
 /ingestions                      POST (upload), GET list, GET {id} with items
 /documents                       GET list (filters: status, type, supplier, flag, date range, q)
@@ -52,7 +55,8 @@ PATCH /documents/{id}/fields     corrections (JSON Patch over the canonical mode
 
 /extractor-profiles              (SuperAdmin/Operator) list, get, activate, retire, test-against-document
 /extractor-profiles/{id}/runs    success history
-/llm/prompts, /llm/usage         prompt versions, token and cost reporting per tenant/model
+/llm/prompts, /llm/usage         prompt versions, token and cost reporting per tenant/model/key owner
+/llm/providers                   (SuperAdmin) platform default configs per region, price tables, kill switch
 
 /webhooks                        per tenant: subscriptions, deliveries, redeliver
 /health, /metrics                liveness/readiness, Prometheus/OpenTelemetry
@@ -71,8 +75,10 @@ One monorepo, two apps sharing a component and API-client package:
   sample documents, "synthesize profile" and "test profile against document" actions,
   activate / retire.
 - Global review queue (cross-tenant) for operators.
-- Prompt and model management: prompt versions, which model per stage, eval results
-  against the gold set.
+- Prompt and model management: prompt versions, which provider and model per stage, eval
+  results against the gold set per provider/model.
+- Platform AI providers: default configs per region, price tables, per-tenant BYOK overview,
+  per-provider kill switch.
 - Job inspector: pipeline timeline per document, retry/re-run, dead-letter list.
 
 ### Customer portal (TenantAdmin, Reviewer, Viewer)
@@ -84,7 +90,8 @@ One monorepo, two apps sharing a component and API-client package:
 - Suppliers: list, aliases, default settings ("always review", expected currency), activity.
 - Purchase orders and delivery notes: three-way match view (PO ↔ delivery note ↔ invoice).
 - Settings: members and roles, mailbox address and forwarding instructions, folder/API
-  credentials, webhooks, export formats, review policy thresholds.
+  credentials, webhooks, export formats, review policy thresholds, **AI providers (BYOK)**:
+  add provider, test, pick models per stage, spend cap, usage chart.
 
 ### Shared UI decisions
 

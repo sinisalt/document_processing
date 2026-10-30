@@ -24,9 +24,10 @@
                                       └───┬─────────┬──────────┬────────────────┘
                                           │         │          │
                                  ┌────────▼──┐ ┌────▼─────┐ ┌──▼──────────────┐
-                                 │ Azure Blob│ │ OCR      │ │ Claude API      │
-                                 │ (local:   │ │ Tesseract│ │ (Anthropic SDK) │
-                                 │ Azurite)  │ │ / Azure  │ │                 │
+                                 │ Azure Blob│ │ OCR      │ │ LLM gateway:    │
+                                 │ (local:   │ │ Tesseract│ │ Anthropic /     │
+                                 │ Azurite)  │ │ / Azure  │ │ OpenAI-compat.  │
+                                 │           │ │ Layout   │ │ platform or BYOK│
                                  └───────────┘ │ Layout   │ └─────────────────┘
                                                └──────────┘
 ```
@@ -51,7 +52,7 @@ orchestration and the dashboard, not as a production dependency.
 | PDF | **PdfPig** (Apache-2.0) for words with positions; **PDFtoImage** (MIT, PDFium + SkiaSharp) for rasterising pages | iText is AGPL (source-disclosure for SaaS or paid licence). Docnet is stale. |
 | OCR | `IOcrProvider`: **TesseractOCR** NuGet (Apache-2.0, Tesseract 5.5) first; **Azure AI Document Intelligence** `prebuilt-layout` (~$10 / 1 000 pages, positioned words + tables) as the premium provider for poor scans | AWS Textract and Google Document AI are equivalent alternatives behind the same interface. |
 | E-invoice XML | **ZUGFeRD-csharp** (Apache-2.0) for Factur-X/ZUGFeRD/XRechnung CII; UBL 2.1 via generated classes from the OASIS XSDs (no maintained OSS .NET UBL library found) | ZUGFeRD-csharp is deprecated from Dec 2026 with a commercial successor (FactoorSharp). Pin the last Apache version, wrap it behind an interface, decide later whether to pay or maintain a fork. |
-| LLM | **Anthropic C# SDK** (`Anthropic` NuGet): native PDF input, structured outputs (JSON schema), citations, prompt caching, Message Batches | Details and costs in `06-llm-integration.md`. Provider abstraction kept thin: one `IDocumentExtractor` interface, Claude is the first implementation. |
+| LLM | **Provider-neutral gateway** over `Microsoft.Extensions.AI`, with adapters for the **Anthropic C# SDK** (`Anthropic`, `Anthropic.Foundry` for Claude on Microsoft Foundry) and the **OpenAI / Azure OpenAI SDKs** (any OpenAI-compatible endpoint); **BYOK** per tenant with keys in Key Vault | Design in `08-llm-providers-and-byok.md`; Anthropic-specific defaults and costs in `06-llm-integration.md`. |
 | Identity | **Microsoft Entra External ID** (customer portal users) and Entra ID (platform staff) via OIDC; ASP.NET Core authorization policies; per-tenant API keys hashed at rest | Managed identities for service-to-service access (SQL, Blob, Service Bus, Key Vault): no connection-string secrets in production. |
 | Observability | OpenTelemetry (traces, metrics, logs) exported to Azure Monitor / Application Insights; Aspire dashboard locally; per-document cost and token metrics as first-class data | |
 | Front end | Vite + React 19 + TypeScript, TanStack Query/Table, shadcn/ui, PDF.js, generated OpenAPI client, i18next | Two apps, one shared package. |
@@ -66,7 +67,10 @@ document_processing/
 ├── src/
 │   ├── DocProc.Domain/            canonical model, flags, state machine, validation rules (no deps)
 │   ├── DocProc.Application/       use cases, pipeline stage handlers, interfaces (IBlobStore, IOcrProvider, IDocumentExtractor, IMailSource)
-│   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI, Anthropic
+│   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Key Vault, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI
+│   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, schema portability tests
+│   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter
+│   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
 │   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
 │   ├── DocProc.Api/               ASP.NET Core host

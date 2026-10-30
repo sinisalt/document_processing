@@ -24,6 +24,10 @@ Tenant (customer, e.g. one restaurant or a restaurant group)
 TenantMember
   tenantId, userId, role (TenantAdmin | Reviewer | Viewer)
 
+LlmProviderConfig / TenantLlmPolicy  (see 08-llm-providers-and-byok.md)
+  which provider, endpoint and models each stage uses; key stored in Key Vault by reference;
+  spend caps; whether the platform key may be used as fallback
+
 IngestionChannel (one tenant has many)
   id, tenantId, type (Mailbox | WatchedFolder | ApiUpload | PortalUpload)
   config: mailbox address / IMAP or Graph settings; folder path; API key id
@@ -64,7 +68,7 @@ Document (one logical business document; an item can be split into several)
   extractorProfileId (nullable), extractionMethod (StructuredXml | Profile | Llm | Manual)
   status  -- see state machine in 03-pipeline.md
   flags: DocumentFlag[]
-  costs: { llmInputTokens, llmOutputTokens, ocrPages, usd }
+  costs: { llmInputTokens, llmOutputTokens, ocrPages, usd, llmProvider, llmModel, keyOwner (Platform | Tenant) }
   createdAt, updatedAt, approvedAt, approvedBy
 ```
 
@@ -193,6 +197,7 @@ Initial flag codes:
 | LOW_CONFIDENCE | Warning | any field confidence below tenant threshold |
 | DUPLICATE_SUSPECTED | Blocking | same supplier + number (+ amount/date) already exists |
 | PROFILE_FALLBACK | Info | extractor profile failed and the LLM path was used |
+| LLM_PROVIDER_UNAVAILABLE | Blocking | the tenant's LLM provider key is invalid, over quota or capped; document waits |
 | MULTI_DOCUMENT_SPLIT | Info | the attachment was split into several documents |
 | CURRENCY_INFERRED | Info | currency not printed, tenant default assumed |
 | PO_UNMATCHED | Info | PO reference present but not found |
