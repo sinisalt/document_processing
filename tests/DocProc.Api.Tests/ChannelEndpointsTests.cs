@@ -123,6 +123,54 @@ public sealed class ChannelEndpointsTests(ApiFactory factory) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task A_legacy_row_pointing_at_a_foreign_reference_can_neither_overwrite_nor_delete_that_secret()
+    {
+        // Rows written before references were server-generated may carry a client-chosen reference such as the
+        // platform's LLM key. Rotate, clear and delete must never reach the store through it.
+        var tenant = factory.CreateTenant("Legacy references");
+        var platformReference = $"platform/{Guid.NewGuid()}";
+        await Secrets.SetAsync(platformReference, "the-platform-llm-key", Ct);
+        var rotated = Guid.CreateVersion7();
+        var cleared = Guid.CreateVersion7();
+        var deleted = Guid.CreateVersion7();
+        var now = factory.Clock.GetUtcNow();
+        factory.Run(db =>
+        {
+            foreach (var id in new[] { rotated, cleared, deleted })
+            {
+                db.IngestionChannels.Add(new IngestionChannel { Id = id, TenantId = tenant, Name = "Legacy " + id.ToString("N")[..6], Type = ChannelType.Mailbox, SecretRef = platformReference, CreatedAt = now });
+            }
+        });
+        using var admin = factory.TenantAdminOf(tenant);
+
+        // Rotate: the new value lands under the channel's own reference; the row is repointed; the platform key is untouched.
+        var rotateResponse = await admin.PatchAsJsonAsync(ChannelUri(rotated), new PatchChannelRequest(null, null, null, "x"), Ct);
+        rotateResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await rotateResponse.Content.ReadFromJsonAsync<ChannelResponse>(Ct))!.HasSecret.ShouldBeTrue();
+        var ownReference = ChannelEndpoints.SecretReference(tenant, rotated);
+        factory.Query(db => db.IngestionChannels.Single(c => c.Id == rotated).SecretRef).ShouldBe(ownReference);
+        (await Secrets.GetAsync(ownReference, Ct)).ShouldBe("x");
+        (await Secrets.GetAsync(platformReference, Ct)).ShouldBe("the-platform-llm-key");
+
+        // Clear on the repointed row removes the channel's own secret only.
+        (await admin.PatchAsJsonAsync(ChannelUri(rotated), new PatchChannelRequest(null, null, null, string.Empty), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await Secrets.GetAsync(ownReference, Ct)).ShouldBeNull();
+        (await Secrets.GetAsync(platformReference, Ct)).ShouldBe("the-platform-llm-key");
+
+        // Clear on a legacy row detaches it from the foreign reference without deleting anything.
+        var clearResponse = await admin.PatchAsJsonAsync(ChannelUri(cleared), new PatchChannelRequest(null, null, null, string.Empty), Ct);
+        clearResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await clearResponse.Content.ReadFromJsonAsync<ChannelResponse>(Ct))!.HasSecret.ShouldBeFalse();
+        factory.Query(db => db.IngestionChannels.Single(c => c.Id == cleared).SecretRef).ShouldBeNull();
+        (await Secrets.GetAsync(platformReference, Ct)).ShouldBe("the-platform-llm-key");
+
+        // Delete of a legacy row removes the row only.
+        (await admin.DeleteAsync(ChannelUri(deleted), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        factory.Query(db => db.IngestionChannels.Any(c => c.Id == deleted)).ShouldBeFalse();
+        (await Secrets.GetAsync(platformReference, Ct)).ShouldBe("the-platform-llm-key", "the platform secret survives rotate, clear and delete");
+    }
+
+    [Fact]
     public async Task Patch_changes_name_status_and_config_and_delete_refuses_a_channel_with_ingestions()
     {
         using var admin = TenantAdminClient();

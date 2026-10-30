@@ -22,8 +22,10 @@ public sealed class AnthropicProvider : ILlmProvider
 
     private readonly IAnthropicClient _client;
     private readonly string _validationModel;
+    private readonly TimeProvider _clock;
 
-    public AnthropicProvider(IAnthropicClient client, LlmProviderKind kind, string validationModel)
+    /// <summary>The optional <paramref name="clock"/> drives the per-request timeout (<see cref="LlmOptions.Timeout"/>); <see cref="TimeProvider.System"/> when null.</summary>
+    public AnthropicProvider(IAnthropicClient client, LlmProviderKind kind, string validationModel, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         if (kind is not (LlmProviderKind.Anthropic or LlmProviderKind.AnthropicFoundry))
@@ -34,6 +36,7 @@ public sealed class AnthropicProvider : ILlmProvider
         _client = client;
         Kind = kind;
         _validationModel = validationModel;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public LlmProviderKind Kind { get; }
@@ -42,22 +45,10 @@ public sealed class AnthropicProvider : ILlmProvider
 
     public async Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
         var parameters = AnthropicRequestBuilder.Build(request, Kind);
         var started = Stopwatch.GetTimestamp();
-        Message message;
-        try
-        {
-            message = await _client.Messages.Create(parameters, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not LlmException)
-        {
-            throw AnthropicErrorMapper.Map(ex);
-        }
-
+        var message = await SendAsync(parameters, request.Options.Timeout, cancellationToken).ConfigureAwait(false);
         return ToResult(message, Stopwatch.GetElapsedTime(started));
     }
 
@@ -67,6 +58,7 @@ public sealed class AnthropicProvider : ILlmProvider
     public Task<BatchResult> GetBatchAsync(BatchHandle handle, CancellationToken cancellationToken) =>
         throw new LlmException(LlmErrorKind.InvalidRequest, "Message Batches are not wired up yet.");
 
+    /// <summary>A one-token completion on the classify model, bounded by the default request timeout.</summary>
     public async Task ValidateCredentialAsync(CancellationToken cancellationToken)
     {
         var probe = new MessageCreateParams
@@ -76,18 +68,7 @@ public sealed class AnthropicProvider : ILlmProvider
             Messages = [new MessageParam(new UserMessageParam(new MessageContentParam("ping")))],
         };
 
-        try
-        {
-            await _client.Messages.Create(probe, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not LlmException)
-        {
-            throw AnthropicErrorMapper.Map(ex);
-        }
+        await SendAsync(probe, LlmOptions.Default.Timeout, cancellationToken).ConfigureAwait(false);
     }
 
     internal static LlmResult ToResult(Message message, TimeSpan latency)
@@ -122,11 +103,48 @@ public sealed class AnthropicProvider : ILlmProvider
             Latency = latency,
         };
     }
+
+    /// <summary>
+    /// One network attempt bounded by <paramref name="timeout"/> (<see cref="LlmOptions.Timeout"/>); the client's own
+    /// timeout (<see cref="AnthropicProviderFactory.NetworkTimeout"/>) stays the hard ceiling. The timer runs on the
+    /// injected clock, so a test drives the expiry instead of waiting for it. Expiry is a transient, retryable error
+    /// (the worker owns the retry); the caller's own cancellation is passed through untouched.
+    /// </summary>
+    private async Task<Message> SendAsync(MessageCreateParams parameters, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var expiry = new CancellationTokenSource(timeout, _clock);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+
+        try
+        {
+            return await _client.Messages.Create(parameters, attempt.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not LlmException && expiry.IsCancellationRequested)
+        {
+            // The SDK may surface the cancelled attempt as its own exception type; either way the request timed out.
+            throw new LlmException(LlmErrorKind.Transient, $"The provider did not answer within {timeout}.", AnthropicErrorMapper.DefaultTransientDelay, ex);
+        }
+        catch (Exception ex) when (ex is not LlmException)
+        {
+            throw AnthropicErrorMapper.Map(ex);
+        }
+    }
 }
 
 /// <summary>Builds an <see cref="AnthropicProvider"/> per configuration. The client holds the key; nothing else does.</summary>
-public sealed class AnthropicProviderFactory : ILlmProviderFactory
+/// <param name="clock">Drives every provider's per-request timeout; the host's <see cref="TimeProvider"/>, <see cref="TimeProvider.System"/> when null.</param>
+public sealed class AnthropicProviderFactory(TimeProvider? clock = null) : ILlmProviderFactory
 {
+    /// <summary>The hard ceiling on one network call; <see cref="LlmOptions.Timeout"/> bounds each request below it.</summary>
+    public static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>The clock the providers built here time their requests with.</summary>
+    public TimeProvider Clock { get; } = clock ?? TimeProvider.System;
+
     public bool Supports(LlmProviderKind kind) => kind is LlmProviderKind.Anthropic or LlmProviderKind.AnthropicFoundry;
 
     public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential)
@@ -144,16 +162,16 @@ public sealed class AnthropicProviderFactory : ILlmProviderFactory
                 ApiKey = credential.ApiKey,
                 BaseUrl = endpoint.ToString().TrimEnd('/'),
                 MaxRetries = 0, // the worker owns retry policy via LlmException.IsRetryable
-                Timeout = TimeSpan.FromMinutes(5),
+                Timeout = NetworkTimeout,
             }
             : new AnthropicClient
             {
                 ApiKey = credential.ApiKey,
                 MaxRetries = 0,
-                Timeout = TimeSpan.FromMinutes(5),
+                Timeout = NetworkTimeout,
             };
 
         var validationModel = config.ModelFor(LlmStage.Classify) ?? config.Models.Values.FirstOrDefault() ?? "claude-haiku-5-5";
-        return new AnthropicProvider(client, config.Kind, validationModel);
+        return new AnthropicProvider(client, config.Kind, validationModel, Clock);
     }
 }

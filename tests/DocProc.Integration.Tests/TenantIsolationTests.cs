@@ -114,7 +114,7 @@ public sealed class TenantIsolationTests : IAsyncLifetime
             var channel = new IngestionChannel { Id = Guid.CreateVersion7(), TenantId = tenantId, Name = "api", Type = ChannelType.ApiUpload, CreatedAt = now };
             var blob = new BlobReference { Container = "raw", Key = $"{tenantId}/{number}", Sha256 = new string('0', 64), SizeBytes = 1, ContentType = "application/pdf" };
             var ingestion = new Ingestion { Id = Guid.CreateVersion7(), TenantId = tenantId, ChannelId = channel.Id, ReceivedAt = now, RawBlob = blob, UpdatedAt = now };
-            var item = new IngestionItem { Id = Guid.CreateVersion7(), TenantId = tenantId, IngestionId = ingestion.Id, FileName = "a.pdf", MimeType = "application/pdf", Sha256 = new string('0', 64), Blob = blob, Kind = ItemKind.Pdf, CreatedAt = now };
+            var item = new IngestionItem { Id = Guid.CreateVersion7(), TenantId = tenantId, IngestionId = ingestion.Id, FileName = "a.pdf", MimeType = "application/pdf", Sha256 = new string('0', 64), Blob = blob, Kind = ItemKind.Pdf, Disposition = ItemDisposition.Accepted, CreatedAt = now };
             context.Tenants.Add(new Tenant { Id = tenantId, Name = slug, Slug = slug, LegalName = slug, DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
             context.IngestionChannels.Add(channel);
             context.Ingestions.Add(ingestion);

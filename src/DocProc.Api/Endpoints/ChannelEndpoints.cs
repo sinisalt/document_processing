@@ -202,17 +202,20 @@ public static class ChannelEndpoints
                 channel.ConfigJson = config.GetRawText();
             }
 
-            // Rotate: write the new value (under the existing reference, or a fresh one) before the row. Clear: the
-            // row first, the secret second, so a failed save never leaves a reference to a deleted secret.
+            // Rotate: write the new value under the channel's own reference before the row. Clear: the row first, the
+            // secret second, so a failed save never leaves a reference to a deleted secret. The reference is always
+            // computed, never read from the row (see OwnsSecret).
+            var reference = SecretReference(channel.TenantId, channel.Id);
             string? clearedReference = null;
             if (request.Secret is { Length: > 0 } secret)
             {
-                channel.SecretRef ??= SecretReference(channel.TenantId, channel.Id);
-                await secrets.SetAsync(channel.SecretRef, secret, ct);
+                _ = OwnsSecret(channel, reference, logger);
+                channel.SecretRef = reference;
+                await secrets.SetAsync(reference, secret, ct);
             }
             else if (request.Secret is not null)
             {
-                clearedReference = channel.SecretRef;
+                clearedReference = OwnsSecret(channel, reference, logger) ? reference : null;
                 channel.SecretRef = null;
             }
 
@@ -228,7 +231,7 @@ public static class ChannelEndpoints
         .WithName("UpdateChannel")
         .WithSummary("Renames, pauses/resumes or reconfigures a channel; secret rotates (value) or clears (empty string) the credential.");
 
-        channels.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, ISecretStore secrets, CancellationToken ct) =>
+        channels.MapDelete("/{id:guid}", async Task<Results<NoContent, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, ISecretStore secrets, ILogger<ChannelResponse> logger, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Channels") is { } problem)
             {
@@ -246,9 +249,11 @@ public static class ChannelEndpoints
                 return Conflict("Channel in use", "Ingestions reference this channel; pause it instead of deleting it.");
             }
 
+            var reference = SecretReference(channel.TenantId, channel.Id);
+            var ownsSecret = OwnsSecret(channel, reference, logger);
             db.IngestionChannels.Remove(channel);
             await db.SaveChangesAsync(ct);
-            if (channel.SecretRef is { } reference)
+            if (ownsSecret)
             {
                 await secrets.DeleteAsync(reference, ct);
             }
@@ -264,6 +269,29 @@ public static class ChannelEndpoints
 
     /// <summary>The server-generated secret reference of a channel; never taken from a request.</summary>
     internal static string SecretReference(Guid tenantId, Guid channelId) => $"tenant/{tenantId}/channel/{channelId}";
+
+    /// <summary>
+    /// Whether the stored reference is the channel's own, the only one this API ever writes or deletes through. A row
+    /// written before references were server-generated may carry a client-chosen one such as <c>platform/{configId}</c>
+    /// or another tenant's key reference: that is legacy data. It is logged, dropped from the row on the next rotate or
+    /// clear, and never touched in the store, so a tenant admin can neither overwrite nor delete a secret that is not
+    /// the channel's.
+    /// </summary>
+    private static bool OwnsSecret(IngestionChannel channel, string reference, ILogger logger)
+    {
+        if (channel.SecretRef is null)
+        {
+            return false;
+        }
+
+        if (string.Equals(channel.SecretRef, reference, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        logger.LogWarning("Channel {ChannelId} carries a secret reference that is not its own; the row is detached from it and the store is left untouched.", channel.Id);
+        return false;
+    }
 
     private static void ValidateConfig(Errors errors, JsonElement? config)
     {

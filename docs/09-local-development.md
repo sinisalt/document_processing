@@ -51,7 +51,7 @@ checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
 | `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. |
 | `Authentication:Dev:Enabled` | `true` | The API signs its own tokens (`POST /dev/token`, `GET /dev/users`, tagged "Development") with an RSA key and the bearer handler trusts issuer `docproc-dev` instead of the OIDC authority. The endpoints are not mapped at all when disabled. |
 | `Authentication:Dev:SigningKeyPath` | `./data/dev-signing-key.pem` (relative to the content root) | Unset: a key per process, tokens die on restart. Set: loaded, or generated and written on first start (owner-only permissions on Unix), so tokens survive restarts. The key is loaded at start-up, so a corrupt file stops the host rather than the first request. |
-| `Blobs:Provider` | unset: inferred. `Azure` whenever `ConnectionStrings:blobs` (injected by the AppHost) or `Blobs:ServiceUri` is present, `FileSystem` otherwise; an explicit value wins. | `FileSystem` is a content-addressed store on disk (`<root>/<container>/<tenant>/<sha256>` plus a `.meta.json` sidecar). It cannot issue short-lived read URLs (`GetReadUrlAsync` throws `NotSupportedException`), so the API streams bytes itself in this mode. |
+| `Blobs:Provider` | unset: inferred. `Azure` whenever `ConnectionStrings:blobs` (injected by the AppHost) or `Blobs:ServiceUri` is present, `FileSystem` otherwise; an explicit value wins. | `FileSystem` is a content-addressed store on disk (`<root>/<container>/<tenant>/<sha256>` plus a `.meta.json` sidecar). Both files appear by atomic rename, the sidecar before the blob, and readers key on the blob file: a blob that exists always has its metadata, a sidecar on its own (a put that crashed between the two steps) reads as not found and is completed by the next upload of the same bytes, and concurrent uploads of the same bytes all succeed with one stored copy. It cannot issue short-lived read URLs (`GetReadUrlAsync` throws `NotSupportedException`), so the API streams bytes itself in this mode. |
 | `Blobs:RootPath` | `./data/blobs` (relative to the content root; the folder is created at start-up) | Both hosts must point at the same root, or the worker cannot read what the API ingested; under the AppHost both use Azurite instead. |
 | `Pipeline:RunInProcess` | `true` (the default outside Production; the worker defaults to true everywhere) | The API process consumes its own in-process queue, so an upload is processed without a running worker. `Pipeline:MaxParallelism`, `RetryBaseDelay`, `MaxAttempts` and the `DocumentProcessing:*` tunables sit next to it in `appsettings.Development.json` (docs/03 "Implementation"). |
 | `Llm:Secrets:<secretRef>` | empty for `llm-platform-eu` | Provider keys by secret reference (user secrets or `Llm__Secrets__<secretRef>`); the environment variable `LLM_SECRET_<SECRET_REF>` works too. Unset, any LLM stage ends the document `Failed` with `LLM_PROVIDER_UNAVAILABLE`; the structured e-invoice path never needs a key. |
@@ -97,6 +97,17 @@ SQL Server-specific is exercised by the integration tests against a container, n
 The default `dotnet test` run needs only Docker and finishes without any Azure account or API
 key. Contract and eval runs are tagged and skipped unless their environment variables are
 present.
+
+Two checks guard the hosts themselves rather than a layer inside them. `tests/DocProc.Worker.Tests`
+boots the worker exactly as `src/DocProc.Worker/Program.cs` composes it (`WorkerHost.CreateBuilder`,
+settings passed as command-line arguments) on a temporary SQLite file with the scripted LLM
+provider, pushes a UBL invoice through the in-process queue until the document is auto-approved,
+builds the production-like SQL Server configuration with `ValidateOnBuild` without ever connecting,
+and asserts that `Persistence:Provider=Sqlite` and `Persistence:SeedDevData` are refused in
+Production (the worker has no `Authentication:Dev`; that refusal is the API's). The CI `web` job
+runs `web/scripts/export-openapi.sh` against the freshly built API and fails, printing the diff,
+when the committed `web/packages/api-client/openapi/v1.json` or `src/schema.d.ts` differs from
+what the API serves: after changing an endpoint, run the script and commit the result.
 
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 

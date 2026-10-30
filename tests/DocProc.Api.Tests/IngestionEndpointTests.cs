@@ -193,7 +193,7 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
         replay.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         (await replay.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id.ShouldBe(secondId);
 
-        // And an immediate retry does not run into "Upload in progress".
+        // And an immediate retry replays the stored response.
         (await Upload(key, "day-2.pdf", dayTwo)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
     }
 
@@ -235,6 +235,21 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
         var truncated = new DbUpdateException("save failed", new InvalidOperationException("String or binary data would be truncated in table 'IdempotencyKeys', column 'Location'."));
         IdempotencyConflicts.IsUniqueKeyViolation(truncated).ShouldBeFalse("a save failure on the same table that is not the index is a real error");
         IdempotencyConflicts.IsUniqueKeyViolation(new DbUpdateException("no inner exception")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_lost_delete_of_an_expired_key_row_counts_as_the_race_only_when_one_was_being_replaced()
+    {
+        var lostDelete = new DbUpdateConcurrencyException("The database operation was expected to affect 1 row(s), but actually affected 0 row(s).");
+        IdempotencyConflicts.IsConcurrentKeyWrite(lostDelete, replacedExpiredRow: true).ShouldBeTrue("the other upload replaced the stale row first");
+        IdempotencyConflicts.IsConcurrentKeyWrite(lostDelete, replacedExpiredRow: false).ShouldBeFalse("a concurrency failure on a plain insert is a bug, not the race");
+
+        var uniqueIndex = new DbUpdateException("save failed", new InvalidOperationException("Cannot insert duplicate key row in object 'dbo.IdempotencyKeys' with unique index 'IX_IdempotencyKeys_TenantId_Key'."));
+        IdempotencyConflicts.IsConcurrentKeyWrite(uniqueIndex, replacedExpiredRow: false).ShouldBeTrue();
+        IdempotencyConflicts.IsConcurrentKeyWrite(uniqueIndex, replacedExpiredRow: true).ShouldBeTrue();
+
+        var other = new DbUpdateException("save failed", new InvalidOperationException("String or binary data would be truncated in table 'IdempotencyKeys', column 'Location'."));
+        IdempotencyConflicts.IsConcurrentKeyWrite(other, replacedExpiredRow: true).ShouldBeFalse();
     }
 
     [Fact]

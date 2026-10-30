@@ -1064,8 +1064,13 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
-        /** @enum {unknown} */
-        ItemDisposition: "Candidate" | "Ignored" | "Unpacked" | "Duplicate";
+        /**
+         * @description What stage 1 decided about an item. ItemDisposition.Candidate is the undecided state the channels store; every other
+         *     value is final. Exactly one ItemDisposition.Accepted item per tenant and SHA-256 may exist: the filtered unique index
+         *     IngestionItemOwnership enforces it in the database.
+         * @enum {unknown}
+         */
+        ItemDisposition: "Candidate" | "Ignored" | "Unpacked" | "Duplicate" | "Accepted";
         /** @enum {unknown} */
         ItemKind: "Pdf" | "Image" | "Xml" | "Office" | "Text" | "Archive" | "Other";
         JsonElement: unknown;

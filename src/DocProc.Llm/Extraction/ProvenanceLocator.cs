@@ -50,8 +50,28 @@ public sealed class ProvenanceLocator
     public ProvenanceMatch LocateIdentifier(string? value, int? preferredPage = null) =>
         string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: false);
 
-    public ProvenanceMatch LocateNumber(decimal? value, int? preferredPage = null) =>
-        value is null ? ProvenanceMatch.None : Locate(ValueVariants.Number(value.Value), preferredPage, fuzzy: false);
+    /// <summary>
+    /// Amounts in their printed formats. A negative amount (credit notes, discounts) is searched with its sign first:
+    /// a credit note quotes the original invoice amount next to the credited one, so the unsigned token must not win
+    /// when a signed one is on the page. Only when no signed token exists does the unsigned spelling count, and then
+    /// at most as a normalised match, since the printed text lacks the sign.
+    /// </summary>
+    public ProvenanceMatch LocateNumber(decimal? value, int? preferredPage = null)
+    {
+        if (value is not { } amount)
+        {
+            return ProvenanceMatch.None;
+        }
+
+        var signed = Locate(ValueVariants.Number(amount), preferredPage, fuzzy: false, requireNegativeSign: amount < 0);
+        if (amount >= 0 || signed.IsFound)
+        {
+            return signed;
+        }
+
+        var unsigned = Locate(ValueVariants.Number(Math.Abs(amount)), preferredPage, fuzzy: false);
+        return unsigned.Quality == MatchQuality.Exact ? unsigned with { Quality = MatchQuality.Normalized } : unsigned;
+    }
 
     public ProvenanceMatch LocateDate(DateOnly? value, int? preferredPage = null) =>
         value is null ? ProvenanceMatch.None : Locate(ValueVariants.Date(value.Value), preferredPage, fuzzy: false);
@@ -60,7 +80,13 @@ public sealed class ProvenanceLocator
     public ProvenanceMatch LocateAny(IReadOnlyList<string> variants, int? preferredPage = null, bool fuzzy = false) =>
         Locate(variants, preferredPage, fuzzy);
 
-    private ProvenanceMatch Locate(IReadOnlyList<string> variants, int? preferredPage, bool fuzzy)
+    /// <summary>
+    /// Exact, then normalised, then (when asked) fuzzy, on the preferred page first. With <paramref name="requireNegativeSign"/>
+    /// the variants spell a negative number: a normalised match must carry a minus (leading, trailing or as a word of
+    /// its own) or parentheses, so an unsigned token with the same digits is skipped. Edge punctuation is stripped
+    /// from both sides of that comparison, so without the flag the sign would not take part in the normalised pass.
+    /// </summary>
+    private ProvenanceMatch Locate(IReadOnlyList<string> variants, int? preferredPage, bool fuzzy, bool requireNegativeSign = false)
     {
         ArgumentNullException.ThrowIfNull(variants);
         if (!HasText || variants.Count == 0)
@@ -87,7 +113,7 @@ public sealed class ProvenanceLocator
             foreach (var variant in variants)
             {
                 var compact = Compact(variant);
-                if (compact.Length > 0 && page.FindCompact(compact) is { } normalized)
+                if (compact.Length > 0 && page.FindCompact(compact, requireNegativeSign) is { } normalized)
                 {
                     return page.ToMatch(MatchQuality.Normalized, normalized);
                 }
@@ -306,7 +332,7 @@ public sealed class ProvenanceLocator
             return null;
         }
 
-        public Window? FindCompact(string compact)
+        public Window? FindCompact(string compact, bool requireNegativeSign)
         {
             for (var i = 0; i < Words.Length; i++)
             {
@@ -327,13 +353,51 @@ public sealed class ProvenanceLocator
                     length += piece.Length;
                     if (length == compact.Length && piece.Length > 0)
                     {
-                        return new Window(i, j - i + 1);
+                        var window = new Window(i, j - i + 1);
+                        if (!requireNegativeSign)
+                        {
+                            return window;
+                        }
+
+                        if (WithNegativeSign(window) is { } signed)
+                        {
+                            return signed;
+                        }
+
+                        // The same digits without a sign: a different (positive) amount, keep looking.
+                        break;
                     }
                 }
             }
 
             return null;
         }
+
+        /// <summary>
+        /// The window when its text carries a negative marker (a leading or trailing minus, a minus word of its own,
+        /// an opening parenthesis), extended by the closing sign word when one follows; null for an unsigned token.
+        /// </summary>
+        private Window? WithNegativeSign(Window window)
+        {
+            var end = window.Start + window.Length;
+            var first = Words[window.Start].Text;
+            var last = Words[end - 1].Text;
+            var negative = IsMinus(first[0]) || IsMinus(last[^1]) || first[0] == '(';
+            if (end < Words.Length)
+            {
+                var following = Words[end].Text;
+                var trailingMinus = following.Length == 1 && IsMinus(following[0]);
+                var closingParenthesis = negative && following == ")";
+                if (trailingMinus || closingParenthesis)
+                {
+                    return new Window(window.Start, window.Length + 1);
+                }
+            }
+
+            return negative ? window : null;
+        }
+
+        private static bool IsMinus(char c) => c is '-' or '−';
 
         public Window? FindFuzzy(string variant)
         {

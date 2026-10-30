@@ -263,6 +263,47 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task Approve_bumps_the_version_token_so_a_stale_tracked_writer_fails_its_save()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true });
+        using var reviewer = ReviewerA();
+
+        // The pipeline (or PATCH /fields) loaded the document before the reviewer decided it.
+        await using var stale = factory.PlatformDb();
+        var loadedBefore = await stale.Documents.SingleAsync(d => d.Id == seeded.DocumentId, Ct);
+        var versionBefore = loadedBefore.Version;
+
+        (await reviewer.PostAsync(Document(seeded.DocumentId, ":approve"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var stored = factory.Query(db => db.Documents.Single(d => d.Id == seeded.DocumentId));
+        stored.Status.ShouldBe(DocumentStatus.Approved);
+        stored.Version.ShouldBe(versionBefore + 1, "the conditional update bumps the token exactly once, like a tracked save would");
+        factory.Query(db => db.DocumentEvents.Count(e => e.DocumentId == seeded.DocumentId && e.EventType == DocumentEventTypes.Approved)).ShouldBe(1);
+        factory.Query(db => db.ReviewTasks.Single(t => t.Id == seeded.ReviewTaskId).Status).ShouldBe(ReviewTaskStatus.Done);
+
+        loadedBefore.FailureReason = "written over the approval";
+        await Should.ThrowAsync<DbUpdateConcurrencyException>(() => stale.SaveChangesAsync(Ct));
+        factory.Query(db => db.Documents.Single(d => d.Id == seeded.DocumentId)).FailureReason.ShouldBeNull("the stale write did not land");
+    }
+
+    [Fact]
+    public async Task Reject_and_reprocess_bump_the_version_token_too()
+    {
+        using var reviewer = ReviewerA();
+
+        var rejected = await factory.SeedDocumentAsync(new DocumentSeed());
+        var before = factory.Query(db => db.Documents.Single(d => d.Id == rejected.DocumentId).Version);
+        (await reviewer.PostAsJsonAsync(Document(rejected.DocumentId, ":reject"), new RejectDocumentRequest("duplicate"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Query(db => db.Documents.Single(d => d.Id == rejected.DocumentId).Version).ShouldBe(before + 1);
+
+        var reprocessed = await factory.SeedDocumentAsync(new DocumentSeed());
+        factory.RecordPipelineProgress(reprocessed.DocumentId, DocumentStatus.Validated);
+        before = factory.Query(db => db.Documents.Single(d => d.Id == reprocessed.DocumentId).Version);
+        (await reviewer.PostAsJsonAsync(Document(reprocessed.DocumentId, ":reprocess"), new ReprocessDocumentRequest("Extract"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Query(db => db.Documents.Single(d => d.Id == reprocessed.DocumentId).Version).ShouldBe(before + 1);
+    }
+
+    [Fact]
     public async Task Approve_also_works_from_validated_and_without_a_body()
     {
         var seeded = await factory.SeedDocumentAsync(new DocumentSeed { Status = DocumentStatus.Validated });
@@ -616,11 +657,29 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         svgResponse.Content.Headers.ContentType!.MediaType.ShouldBe("application/octet-stream", "SVG can carry script");
         svgResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("attachment");
 
+        // A parameter or odd casing on the stored type must not slip SVG past the image/* test.
+        foreach (var disguised in new[] { "image/svg+xml; charset=utf-8", "IMAGE/SVG+XML", " image/svg+xml ;q=1" })
+        {
+            var seeded = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "logo.svg", ContentType = disguised, OriginalBytes = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>2</script></svg>"u8.ToArray() });
+            var response = await viewer.GetAsync(Document(seeded.DocumentId, "/original"), Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK, disguised);
+            response.Content.Headers.ContentType!.MediaType.ShouldBe("application/octet-stream", disguised);
+            response.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("attachment", disguised);
+            NoSniff(response).ShouldBe("nosniff", disguised);
+        }
+
         var jpeg = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "scan.jpg", ContentType = "image/jpeg", OriginalBytes = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3] });
         var jpegResponse = await viewer.GetAsync(Document(jpeg.DocumentId, "/original"), Ct);
         jpegResponse.Content.Headers.ContentType!.MediaType.ShouldBe("image/jpeg");
         jpegResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("inline");
         NoSniff(jpegResponse).ShouldBe("nosniff");
+
+        // A raster image with parameters is still inline, served under the bare lower-case media type.
+        var jpegWithParameters = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "scan2.jpg", ContentType = "Image/JPEG; charset=binary", OriginalBytes = [0xFF, 0xD8, 0xFF, 0xE0, 4, 5, 6] });
+        var parameterised = await viewer.GetAsync(Document(jpegWithParameters.DocumentId, "/original"), Ct);
+        parameterised.Content.Headers.ContentType!.MediaType.ShouldBe("image/jpeg");
+        parameterised.Content.Headers.ContentType.CharSet.ShouldBeNull();
+        parameterised.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("inline");
 
         var pdf = await factory.SeedDocumentAsync(new DocumentSeed { PagePng = TestInvoices.FakePng(), TextLayerJson = "{\"pages\":[]}" });
         var pdfResponse = await viewer.GetAsync(Document(pdf.DocumentId, "/original"), Ct);
