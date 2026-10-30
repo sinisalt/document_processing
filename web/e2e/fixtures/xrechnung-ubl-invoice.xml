@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ubl:Invoice xmlns:ubl="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+             xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+             xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0</cbc:CustomizationID>
+  <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+  <cbc:ID>2026/4471</cbc:ID>
+  <cbc:IssueDate>2026-10-29</cbc:IssueDate>
+  <cbc:DueDate>2026-11-28</cbc:DueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:Note>Getränkelieferung KW 44.</cbc:Note>
+  <cbc:Note>Leergut wird separat abgerechnet.</cbc:Note>
+  <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cbc:BuyerReference>04011000-12345-67</cbc:BuyerReference>
+  <cac:OrderReference>
+    <cbc:ID>B-2026-3310</cbc:ID>
+  </cac:OrderReference>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">faktura@getraenke-huber.example</cbc:EndpointID>
+      <cac:PartyName>
+        <cbc:Name>Getränke Huber</cbc:Name>
+      </cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>Landsberger Straße 410</cbc:StreetName>
+        <cbc:CityName>München</cbc:CityName>
+        <cbc:PostalZone>81241</cbc:PostalZone>
+        <cbc:CountrySubentity>Bayern</cbc:CountrySubentity>
+        <cac:Country>
+          <cbc:IdentificationCode>DE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>DE276543210</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>143/167/89012</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>FC</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Getränke Huber GmbH &amp; Co. KG</cbc:RegistrationName>
+        <cbc:CompanyID schemeID="0002">HRA 98765</cbc:CompanyID>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>Fakturierung</cbc:Name>
+        <cbc:Telephone>+49 89 555 0199</cbc:Telephone>
+        <cbc:ElectronicMail>faktura@getraenke-huber.example</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">einkauf@gasthaus-zur-post.example</cbc:EndpointID>
+      <cac:PostalAddress>
+        <cbc:StreetName>Hauptstraße 12</cbc:StreetName>
+        <cbc:CityName>Rosenheim</cbc:CityName>
+        <cbc:PostalZone>83022</cbc:PostalZone>
+        <cac:Country>
+          <cbc:IdentificationCode>DE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>DE123456789</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Gasthaus zur Post GmbH</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>Küche</cbc:Name>
+        <cbc:ElectronicMail>einkauf@gasthaus-zur-post.example</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:Delivery>
+    <cbc:ActualDeliveryDate>2026-10-29</cbc:ActualDeliveryDate>
+  </cac:Delivery>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode name="SEPA credit transfer">58</cbc:PaymentMeansCode>
+    <cbc:PaymentID>2026/4471</cbc:PaymentID>
+    <cac:PayeeFinancialAccount>
+      <cbc:ID>DE75512108001245126199</cbc:ID>
+      <cbc:Name>Getränke Huber GmbH &amp; Co. KG</cbc:Name>
+      <cac:FinancialInstitutionBranch>
+        <cbc:ID>SOGEDEFFXXX</cbc:ID>
+      </cac:FinancialInstitutionBranch>
+    </cac:PayeeFinancialAccount>
+  </cac:PaymentMeans>
+  <cac:PaymentTerms>
+    <cbc:Note>Zahlbar bis 28.11.2026 ohne Abzug.</cbc:Note>
+  </cac:PaymentTerms>
+  <cac:AllowanceCharge>
+    <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+    <cbc:AllowanceChargeReasonCode>95</cbc:AllowanceChargeReasonCode>
+    <cbc:AllowanceChargeReason>Treuerabatt</cbc:AllowanceChargeReason>
+    <cbc:Amount currencyID="EUR">10.00</cbc:Amount>
+    <cac:TaxCategory>
+      <cbc:ID>S</cbc:ID>
+      <cbc:Percent>19</cbc:Percent>
+      <cac:TaxScheme>
+        <cbc:ID>VAT</cbc:ID>
+      </cac:TaxScheme>
+    </cac:TaxCategory>
+  </cac:AllowanceCharge>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="EUR">22.80</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">120.00</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">22.80</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="EUR">130.00</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="EUR">120.00</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="EUR">142.80</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="EUR">10.00</cbc:AllowanceTotalAmount>
+    <cbc:PayableAmount currencyID="EUR">142.80</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="CS">10</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">68.00</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Mineralwasser medium 12 × 0,75 l</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>MW-075-12</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:StandardItemIdentification>
+        <cbc:ID schemeID="0088">4260123456789</cbc:ID>
+      </cac:StandardItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">6.80</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="BX">5</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">62.00</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Apfelsaft naturtrüb 6 × 1 l</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>AS-100-6</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">62.00</cbc:PriceAmount>
+      <cbc:BaseQuantity unitCode="BX">5</cbc:BaseQuantity>
+    </cac:Price>
+  </cac:InvoiceLine>
+</ubl:Invoice>
