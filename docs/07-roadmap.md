@@ -7,13 +7,14 @@ front-end developer; adjust to the team.
 
 ## Phase 0 – Foundations (1–2 weeks)
 
-- Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with Postgres,
-  RabbitMQ, blob emulator; CI with build, tests, container images.
+- Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server
+  2025 container, Service Bus emulator and Azurite; EF Core migrations; CI with build, tests
+  against Testcontainers, container images; Bicep for the Azure dev environment.
 - Canonical domain model and JSON schema (versioned) from `02-data-model.md`; validation rules
   with unit tests.
 - Tenancy, OIDC login, roles, API keys; OpenAPI published; generated TS client.
-- Decisions to close: identity provider, cloud (Azure vs AWS) for blob/queue/secrets,
-  queue transport.
+- Decisions to close: Entra External ID vs another OIDC provider for customer users, Azure
+  SQL tier (serverless for dev/test, provisioned for production), Container Apps vs AKS.
 
 ## Phase 1 – Ingest → LLM extract → review (3–5 weeks)
 
@@ -75,4 +76,5 @@ front-end developer; adjust to the team.
 | Retention periods differ by country (Germany 8 years since 2025, Croatia 11, France 10) | Retention is a tenant setting with per-country defaults; legal review before launch in each country. |
 | Template drift when a supplier redesigns its invoice | Validation-gated fallback, drift metrics, automatic re-synthesis; never let a profile answer without arithmetic checks passing. |
 | Reviewer fatigue if thresholds are too strict | Per-field correction-rate reporting; raise auto-approval only where corrections are near zero. |
-| Which cloud, which IdP, which queue transport | Phase 0 decisions; the code is written against interfaces so the choice is reversible at low cost. |
+| Azure SQL cost at scale (JSON documents, page-text layers) | Keep page images and text layers in Blob Storage, not in the database; store only the canonical document, flags and indexes in SQL; use the serverless tier for dev/test. |
+| SQL Server 2025 container vs Azure SQL feature drift (json, vector, RLS) | Pin the compatibility level; integration tests run against the container and a nightly run against an Azure SQL dev database. |

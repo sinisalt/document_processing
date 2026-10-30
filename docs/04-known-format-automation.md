@@ -127,8 +127,9 @@ of the matched supplier (and, when no supplier matched, with the global registry
 - layout signals: presence and approximate position of the profile's anchor tokens
   (`minAnchorHits`), page size, number of columns detected in the line-item header;
 - optional: a text-shingle hash of the first page with digits masked, used for near-duplicate
-  detection and as a fast pre-filter when the registry grows large (pgvector or a MinHash
-  index, decision deferred until volume justifies it).
+  detection and as a fast pre-filter when the registry grows large (SQL Server's native
+  `VECTOR` type and distance functions, or a MinHash index; decision deferred until volume
+  justifies it).
 
 A profile only claims a document when the exact signals agree *and* the layout signals pass.
 A supplier may have several Active profiles (invoice vs credit note, old vs new layout).

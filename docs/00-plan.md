@@ -34,7 +34,7 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 
 | Doc | Content |
 |---|---|
-| `01-architecture-and-stack.md` | Two .NET 10 processes (API, worker) over Postgres, a queue and blob storage; library and vendor choices with licences; solution layout; multi-tenancy and data protection. |
+| `01-architecture-and-stack.md` | Two .NET 10 processes (API, worker) over SQL Server (Azure SQL in production, container locally), Azure Service Bus and Azure Blob Storage; library and vendor choices with licences; solution layout; multi-tenancy and data protection. |
 | `02-data-model.md` | The canonical model: tenants, channels, suppliers, documents, field provenance, the fields we collect for invoices, purchase orders and delivery notes, and the flag catalogue for unreadable or missing data. |
 | `03-pipeline.md` | Nine stages from ingest to publish, three extraction paths (XML, profile, LLM), validation rules, review, state machine, idempotency. |
 | `04-known-format-automation.md` | Extractor profiles: what they are, lifecycle, fingerprinting, cross-tenant sharing, why not the alternatives, success metrics. |
@@ -51,7 +51,9 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 - MassTransit v9 is commercial; v8 stays Apache-2.0 but is maintenance-only. Wolverine (MIT)
   is the recommended messaging/outbox layer; Hangfire (LGPL) and Quartz.NET (Apache) remain
   options for pure scheduling.
-- MinIO's community edition was archived in April 2026; do not plan self-hosting on it.
+- Hosting is Azure with SQL Server as the only database: Azure SQL Database in production,
+  the SQL Server 2025 container locally. EF Core 10's SQL Server provider covers native `json`
+  columns and the vector type, so fingerprint similarity stays inside the database.
 - PdfPig (Apache-2.0) for positioned text and PDFtoImage (MIT, PDFium) for rendering are
   active; iText is AGPL; Docnet is stale.
 - Microsoft Graph change notifications + delta queries handle M365 mailboxes (application
@@ -98,7 +100,8 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 
 ## Immediate next steps
 
-1. Review this plan; decide cloud, identity provider and queue transport (Phase 0 decisions).
+1. Review this plan; confirm the remaining Phase 0 decisions (Entra External ID for customer
+   login, Azure Container Apps for hosting, Azure SQL tier).
 2. Collect 50–100 real documents from two or three pilot suppliers (mix of digital PDF, scan,
    photo, XML) to seed the gold set and the first profile experiments.
 3. Start Phase 0 (solution skeleton, canonical model, tenancy, CI).
