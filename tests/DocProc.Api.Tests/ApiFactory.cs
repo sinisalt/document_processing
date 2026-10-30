@@ -57,12 +57,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Root of the file-system blob store, a temp directory so the test host never writes under the API's content root.</summary>
     public string BlobRoot { get; } = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"), "blobs");
 
+    /// <summary>Root of the file secret store, next to the blobs so both go when the factory is disposed.</summary>
+    public string SecretRoot => Path.Combine(Path.GetDirectoryName(BlobRoot)!, "secrets");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
         builder.UseSetting("Authentication:Oidc:Audience", Audience);
         builder.UseSetting("Blobs:RootPath", BlobRoot);
+        builder.UseSetting("Secrets:Path", SecretRoot);
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -116,6 +120,24 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
         var hash = ApiKeys.Hash(key);
         return db.ApiKeys.AsNoTracking().SingleOrDefault(k => k.Hash == hash);
+    }
+
+    /// <summary>Runs a seed or fix-up against a platform-scoped context and saves it; rows must carry their TenantId.</summary>
+    public void Run(Action<DocProcDbContext> action)
+    {
+        _ = Server;
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
+        action(db);
+        db.SaveChanges();
+    }
+
+    /// <summary>Reads through a platform-scoped, no-tracking context: what is really in the database, whatever the API returned.</summary>
+    public T Query<T>(Func<DocProcDbContext, T> query)
+    {
+        _ = Server;
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
+        db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        return query(db);
     }
 
     private void Seed(DocProcDbContext db)
