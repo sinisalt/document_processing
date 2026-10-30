@@ -8,8 +8,11 @@ namespace DocProc.Infrastructure.Blobs;
 /// <c>&lt;root&gt;/&lt;container&gt;/&lt;tenant&gt;/&lt;sha256&gt;</c> with a <c>.meta.json</c> sidecar carrying the content
 /// type and size, so a <see cref="BlobRef"/> can be rebuilt from the key alone. Uploads are spooled to a temp file
 /// under the root while hashing and then moved into place, so a crash never leaves a partial blob at its final path
-/// and two concurrent uploads of the same bytes cannot corrupt each other. Spool files a crashed process left
-/// behind are swept when the store is constructed.
+/// and two concurrent uploads of the same bytes cannot corrupt each other. The sidecar lands (by atomic rename)
+/// before the blob does and readers key on the blob file, so a reader sees either nothing or a complete pair: a blob
+/// that exists always has its metadata, and a sidecar orphaned by a crash between the two steps reads as not found
+/// until the next upload of the same bytes completes it. Spool files a crashed process left behind are swept when
+/// the store is constructed.
 /// </summary>
 public sealed class FileSystemBlobStore : IContainerBlobStore
 {
@@ -51,16 +54,22 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
         var key = BlobKeys.ForContent(tenantId, spool.Sha256);
         var path = PathFor(container, key);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-
         var metadata = new BlobMetadata(spool.Sha256, spool.SizeBytes, contentType);
-        if (TryMoveIntoPlace(spool.Path, path))
+
+        if (!File.Exists(path))
         {
+            // Sidecar first, blob last. Readers key on the blob file, so once it is visible its metadata already is;
+            // a crash in between leaves a sidecar without a blob, which reads as "not found" and is overwritten by
+            // the next upload of the same bytes. Both files appear by rename, never half-written.
             await WriteMetadataAsync(path, metadata, cancellationToken).ConfigureAwait(false);
-            return new BlobRef(container, key, spool.Sha256, spool.SizeBytes, contentType);
+            if (TryMoveIntoPlace(spool.Path, path))
+            {
+                return new BlobRef(container, key, spool.Sha256, spool.SizeBytes, contentType);
+            }
         }
 
-        // Same content was stored before (or by a concurrent caller): keep whatever is there and report it. If the
-        // concurrent writer has not finished its sidecar yet, write ours; both describe the same bytes.
+        // Same content was stored before, or by a concurrent caller whose sidecar describes the same bytes: keep
+        // whatever is there and report it. A blob whose sidecar was removed by hand gets ours.
         var existing = await ReadMetadataAsync(path, cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
@@ -88,6 +97,7 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
         }
     }
 
+    /// <summary>Whether the blob file is in place; a sidecar on its own (a put that crashed half-way) does not count.</summary>
     public Task<bool> ExistsAsync(BlobRef reference, CancellationToken cancellationToken)
     {
         BlobKeys.EnsureValid(reference);
@@ -153,31 +163,42 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
         }
     }
 
+    /// <summary>Writes the sidecar to a temp name in the blob's directory and renames it into place, so it is never seen half-written.</summary>
     private static async Task WriteMetadataAsync(string blobPath, BlobMetadata metadata, CancellationToken cancellationToken)
     {
         var target = blobPath + MetadataSuffix;
         var temp = $"{target}.{Guid.NewGuid():N}.tmp";
-        var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, FileOptions.Asynchronous);
-        await using (file.ConfigureAwait(false))
+        try
         {
-            await JsonSerializer.SerializeAsync(file, metadata, JsonOptions, cancellationToken).ConfigureAwait(false);
-        }
+            var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, FileOptions.Asynchronous);
+            await using (file.ConfigureAwait(false))
+            {
+                await JsonSerializer.SerializeAsync(file, metadata, JsonOptions, cancellationToken).ConfigureAwait(false);
+            }
 
-        File.Move(temp, target, overwrite: true);
+            File.Move(temp, target, overwrite: true);
+        }
+        catch
+        {
+            File.Delete(temp);
+            throw;
+        }
     }
 
     private static async Task<BlobMetadata?> ReadMetadataAsync(string blobPath, CancellationToken cancellationToken)
     {
         var target = blobPath + MetadataSuffix;
-        if (!File.Exists(target))
+        try
+        {
+            var file = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous);
+            await using (file.ConfigureAwait(false))
+            {
+                return await JsonSerializer.DeserializeAsync<BlobMetadata>(file, JsonOptions, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
-        }
-
-        var file = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous);
-        await using (file.ConfigureAwait(false))
-        {
-            return await JsonSerializer.DeserializeAsync<BlobMetadata>(file, JsonOptions, cancellationToken).ConfigureAwait(false);
         }
     }
 

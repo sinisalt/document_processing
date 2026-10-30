@@ -414,6 +414,59 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>A TenantAdmin client of the given tenant; the subject is unique so members and audit rows never collide.</summary>
     public HttpClient TenantAdminOf(Guid tenantId) =>
         ClientFor(new TokenSpec("admin-" + tenantId.ToString("N")[..8], [Auth.Roles.TenantAdmin], tenantId.ToString()));
+
+    /// <summary>
+    /// A platform-scoped, tracking context on the shared connection that the caller owns and disposes: for a test
+    /// that loads a row, lets the API change it and then tries to save its own stale copy (the concurrency token).
+    /// </summary>
+    public DocProcDbContext PlatformDb()
+    {
+        _ = Server;
+        return new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
+    }
+
+    /// <summary>Mints a token with claims beyond what <see cref="TokenSpec"/> carries, for tokens that try to look like something they are not.</summary>
+    public static string MintWithClaims(TokenSpec spec, IReadOnlyDictionary<string, object> extraClaims)
+    {
+        var claims = new Dictionary<string, object>
+        {
+            ["sub"] = spec.Subject,
+            ["preferred_username"] = spec.Subject,
+            ["email"] = $"{spec.Subject}@example.test",
+            ["roles"] = spec.Roles,
+        };
+        if (spec.TenantId is not null)
+        {
+            claims["tenant_id"] = spec.TenantId;
+        }
+
+        foreach (var (type, value) in extraClaims)
+        {
+            claims[type] = value;
+        }
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = spec.Issuer ?? Issuer,
+            Audience = spec.Audience ?? Audience,
+            Claims = claims,
+            IssuedAt = DateTime.UtcNow.AddMinutes(-1),
+            NotBefore = DateTime.UtcNow.AddMinutes(-1),
+            Expires = spec.Expires ?? DateTime.UtcNow.AddMinutes(10),
+            SigningCredentials = new SigningCredentials(SigningKey, SecurityAlgorithms.RsaSha256),
+            Subject = new ClaimsIdentity(),
+        };
+
+        return new JsonWebTokenHandler().CreateToken(descriptor);
+    }
+
+    /// <summary>A client sending an already minted bearer token.</summary>
+    public HttpClient ClientForBearer(string token)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
 }
 
 public sealed record TokenSpec(string Subject, string[] Roles, string? TenantId = null, string? Issuer = null, string? Audience = null, DateTime? Expires = null);

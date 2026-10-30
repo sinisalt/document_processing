@@ -38,7 +38,7 @@ public static class IngestionLimits
     /// <summary>How long a key replays its first response; after that the key may be used for a new upload.</summary>
     public static readonly TimeSpan IdempotencyWindow = TimeSpan.FromHours(24);
 
-    /// <summary>A key row younger than this at the moment our insert collides with it was written by a request that is still running (or just finished): the caller retries for its result.</summary>
+    /// <summary>A key row younger than this at the moment our save collides with it was written by the request we raced; its response is replayed. An older one should have been found by the lookup, so that collision is a bug and surfaces as the error it is.</summary>
     public static readonly TimeSpan ConcurrentUploadWindow = TimeSpan.FromSeconds(60);
 }
 
@@ -160,13 +160,12 @@ public static class IngestionEndpoints
             var earlier = await db.IdempotencyKeys.SingleOrDefaultAsync(k => k.Key == idempotencyKey, ct);
             if (earlier is not null && earlier.CreatedAt >= now - IngestionLimits.IdempotencyWindow)
             {
-                if (!string.Equals(earlier.RequestHash, requestHash, StringComparison.Ordinal))
+                if (!IsSameRequest(earlier, requestHash))
                 {
-                    return TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Idempotency key reused", detail: $"{IngestionLimits.IdempotencyKeyHeader} '{idempotencyKey}' was already used for a different upload.");
+                    return KeyReused(idempotencyKey);
                 }
 
-                var replay = JsonSerializer.Deserialize<IngestionCreated>(earlier.ResponseJson, StoredResponseOptions)!;
-                return TypedResults.Accepted(earlier.Location ?? LocationOf(replay.Id), replay);
+                return Replay(earlier);
             }
 
             expired = earlier;
@@ -251,18 +250,26 @@ public static class IngestionEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (idempotencyKey is not null && IdempotencyConflicts.IsUniqueKeyViolation(ex))
+        catch (DbUpdateException ex) when (idempotencyKey is not null && IdempotencyConflicts.IsConcurrentKeyWrite(ex, replacedExpiredRow: expired is not null))
         {
-            // The unique (TenantId, Key) index fired: a request with the same key committed between our lookup and our
-            // insert. Only a row written moments ago is that race; an older one means the lookup should have found it,
-            // which is a bug worth a 500, not a "retry later".
+            // A request with the same key committed between our lookup and our save: either its insert made ours fire
+            // the unique (TenantId, Key) index, or it replaced the expired row we were replacing too, so our delete of
+            // that row affected nothing. Our own rows were rolled back with the failed save and the winner's are
+            // committed, so the caller gets what its retry would get: the winner's response for the same request, 422
+            // for a different one. Only a row written moments ago is that race; an older one means the lookup should
+            // have found it, which is a bug worth a 500, not a "retry later".
             var winner = await db.IdempotencyKeys.AsNoTracking().SingleOrDefaultAsync(k => k.Key == idempotencyKey, ct);
             if (winner is null || winner.CreatedAt < now - IngestionLimits.ConcurrentUploadWindow)
             {
                 throw;
             }
 
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Upload in progress", detail: $"Another upload with {IngestionLimits.IdempotencyKeyHeader} '{idempotencyKey}' is being processed; retry to get its result.");
+            if (!IsSameRequest(winner, requestHash))
+            {
+                return KeyReused(idempotencyKey);
+            }
+
+            return Replay(winner);
         }
 
         await queue.EnqueueAsync(new ProcessIngestion(tenantId, ingestion.Id), ct);
@@ -379,6 +386,18 @@ public static class IngestionEndpoints
     }
 
     private static string LocationOf(Guid ingestionId) => $"/api/v1/ingestions/{ingestionId}";
+
+    private static bool IsSameRequest(IdempotencyKey earlier, string requestHash) => string.Equals(earlier.RequestHash, requestHash, StringComparison.Ordinal);
+
+    /// <summary>The first response again, exactly as stored, with its Location.</summary>
+    private static Accepted<IngestionCreated> Replay(IdempotencyKey earlier)
+    {
+        var replay = JsonSerializer.Deserialize<IngestionCreated>(earlier.ResponseJson, StoredResponseOptions)!;
+        return TypedResults.Accepted(earlier.Location ?? LocationOf(replay.Id), replay);
+    }
+
+    private static ProblemHttpResult KeyReused(string idempotencyKey) =>
+        TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Idempotency key reused", detail: $"{IngestionLimits.IdempotencyKeyHeader} '{idempotencyKey}' was already used for a different upload.");
 
     /// <summary>The files of the request as deferred streams, from a multipart form or a JSON body; a problem result when the request is not an upload.</summary>
     private static async Task<(List<UploadedFile> Files, Guid? ChannelId, Results<Accepted<IngestionCreated>, ValidationProblem, ProblemHttpResult>? Problem)> ReadUploadsAsync(HttpRequest request, CancellationToken ct)

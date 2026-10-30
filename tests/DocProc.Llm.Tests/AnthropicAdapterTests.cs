@@ -1,9 +1,11 @@
 using System.Net;
 using System.Text.Json;
+using Anthropic;
 using Anthropic.Exceptions;
 using Anthropic.Models.Messages;
 using DocProc.Llm.Anthropic;
 using DocProc.Llm.Schema;
+using Microsoft.Extensions.Time.Testing;
 
 namespace DocProc.Llm.Tests;
 
@@ -128,4 +130,103 @@ public class AnthropicAdapterTests
     [Fact]
     public void Network_failures_are_transient() =>
         AnthropicErrorMapper.Map(new HttpRequestException("connection reset")).Kind.ShouldBe(LlmErrorKind.Transient);
+
+    [Fact]
+    public async Task Completes_a_message_through_the_client_and_maps_the_response()
+    {
+        var handler = new FakeOpenAiHandler().Enqueue(HttpStatusCode.OK, MessageJson());
+        var provider = Provider(handler);
+
+        var result = await provider.CompleteAsync(Request(null), TestContext.Current.CancellationToken);
+
+        result.Json.ShouldBe("{\"invoiceNumber\":\"RE-42\"}");
+        result.Usage.ShouldBe(new LlmUsage(InputTokens: 100, OutputTokens: 20, CacheReadTokens: 50, CacheWriteTokens: 10));
+        result.Model.ShouldBe("claude-opus-5-5");
+        result.StopReason.ShouldBe(StopReasons.EndTurn);
+        result.ProviderRequestId.ShouldBe("msg_1");
+        var sent = handler.Requests.ShouldHaveSingleItem();
+        sent.Uri.AbsolutePath.ShouldBe("/v1/messages");
+        sent.Body.GetProperty("model").GetString().ShouldBe("claude-opus-5-5");
+    }
+
+    [Fact]
+    public async Task The_request_timeout_bounds_the_call_and_is_a_transient_error()
+    {
+        // The timeout runs on the provider's clock, not on the wall clock: a minute-long timeout expires the moment the
+        // fake clock passes it, and a provider still bound to the system clock would hang this test for a minute.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 9, 0, 0, TimeSpan.Zero));
+        var timeout = TimeSpan.FromMinutes(1);
+        var handler = new FakeOpenAiHandler().EnqueueHang();
+        var provider = Provider(handler, clock);
+        var request = Request(null) with { Options = new LlmOptions { Timeout = timeout } };
+
+        var call = Should.ThrowAsync<LlmException>(() => provider.CompleteAsync(request, CancellationToken.None));
+        // The fake records the request before it starts to hang, so once the hang is signalled the request is on record
+        // and the clock can be moved; nothing here waits on real latency.
+        await handler.HangStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        clock.Advance(timeout - TimeSpan.FromMilliseconds(1));
+        call.IsCompleted.ShouldBeFalse("the timeout has not expired yet");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var error = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        error.Kind.ShouldBe(LlmErrorKind.Transient);
+        error.IsRetryable.ShouldBeTrue();
+        error.RetryAfter.ShouldBe(AnthropicErrorMapper.DefaultTransientDelay);
+        error.Message.ShouldContain($"did not answer within {timeout}", customMessage: "the adapter's own timeout fired, not the SDK's");
+        handler.Requests.Count.ShouldBe(1, "a timed-out attempt is not retried by the adapter");
+    }
+
+    [Fact]
+    public async Task Cancellation_by_the_caller_is_not_mapped_to_a_provider_error()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var provider = Provider(new FakeOpenAiHandler().Enqueue(HttpStatusCode.OK, MessageJson()));
+
+        await Should.ThrowAsync<OperationCanceledException>(() => provider.CompleteAsync(Request(null), cts.Token));
+    }
+
+    [Fact]
+    public void The_factory_hands_its_clock_to_every_provider_and_defaults_to_the_system_clock()
+    {
+        var clock = new FakeTimeProvider();
+
+        new AnthropicProviderFactory(clock).Clock.ShouldBeSameAs(clock);
+        new AnthropicProviderFactory().Clock.ShouldBeSameAs(TimeProvider.System);
+    }
+
+    /// <summary>
+    /// A provider on a scripted HTTP transport (the fake is a plain <see cref="HttpMessageHandler"/>; nothing in it is
+    /// OpenAI-specific). The HttpClient's own 100 s timeout is switched off so only the adapter's timeout applies.
+    /// </summary>
+    private static AnthropicProvider Provider(FakeOpenAiHandler handler, TimeProvider? clock = null)
+    {
+        var client = new AnthropicClient
+        {
+            ApiKey = "sk-ant-test",
+            MaxRetries = 0,
+            Timeout = AnthropicProviderFactory.NetworkTimeout,
+            HttpClient = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan },
+        };
+
+        return new AnthropicProvider(client, LlmProviderKind.Anthropic, "claude-haiku-5-5", clock);
+    }
+
+    private static string MessageJson() => JsonSerializer.Serialize(new Dictionary<string, object?>
+    {
+        ["id"] = "msg_1",
+        ["type"] = "message",
+        ["role"] = "assistant",
+        ["model"] = "claude-opus-5-5",
+        ["content"] = new[] { new Dictionary<string, object?> { ["type"] = "text", ["text"] = "{\"invoiceNumber\":\"RE-42\"}" } },
+        ["stop_reason"] = "end_turn",
+        ["stop_sequence"] = null,
+        ["usage"] = new Dictionary<string, object?>
+        {
+            ["input_tokens"] = 100,
+            ["output_tokens"] = 20,
+            ["cache_read_input_tokens"] = 50,
+            ["cache_creation_input_tokens"] = 10,
+        },
+    });
 }

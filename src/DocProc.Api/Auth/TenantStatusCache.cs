@@ -51,7 +51,11 @@ public sealed class TenantStatusCache(IServiceProvider services, IMemoryCache ca
         return status;
     }
 
-    /// <summary>Forgets a tenant so the next request reads the row again (for tests and the status endpoints).</summary>
+    /// <summary>
+    /// Forgets a tenant so the next request reads the row again. The tenant endpoints call it after every status
+    /// change (<c>:suspend</c>, <c>:activate</c>, <c>PATCH</c> with a status), so on the node that took the change
+    /// the tenant's users are locked out or let back in at once; other nodes see it within <see cref="Ttl"/>.
+    /// </summary>
     public void Invalidate(Guid tenantId) => cache.Remove(new Key(tenantId));
 
     private sealed record Key(Guid TenantId);

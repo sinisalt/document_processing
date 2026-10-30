@@ -45,12 +45,27 @@ public enum ItemKind
     Other,
 }
 
+/// <summary>
+/// What stage 1 decided about an item. <see cref="Candidate"/> is the undecided state the channels store; every other
+/// value is final. Exactly one <see cref="Accepted"/> item per tenant and SHA-256 may exist: the filtered unique index
+/// <see cref="IngestionItemOwnership"/> enforces it in the database.
+/// </summary>
 public enum ItemDisposition
 {
+    /// <summary>Stored by the channel, not yet decided by stage 1.</summary>
     Candidate,
+
+    /// <summary>Not a document (signature image, calendar invitation, unreadable archive); the reason says why.</summary>
     Ignored,
+
+    /// <summary>An archive whose files became items of the same ingestion.</summary>
     Unpacked,
+
+    /// <summary>The same bytes as <see cref="IngestionItem.DuplicateOfItemId"/>, which owns the document.</summary>
     Duplicate,
+
+    /// <summary>Owns the document(s) created for its bytes: the one item per tenant and SHA-256 that stage 1 accepted.</summary>
+    Accepted,
 }
 
 /// <summary>One attachment or body part.</summary>
@@ -75,7 +90,7 @@ public sealed class IngestionItem : ITenantScoped
     public ItemDisposition Disposition { get; set; } = ItemDisposition.Candidate;
     public string? DispositionReason { get; set; }
 
-    /// <summary>For duplicates: the earlier item with the same hash.</summary>
+    /// <summary>For duplicates: the item with the same hash that owns the document.</summary>
     public Guid? DuplicateOfItemId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }

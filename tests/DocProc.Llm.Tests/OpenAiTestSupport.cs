@@ -52,8 +52,8 @@ internal static class OpenAiTestSupport
         }.ToFrozenDictionary(),
     };
 
-    public static ILlmProvider Provider(FakeOpenAiHandler handler, LlmProviderConfig config, LlmCredential credential) =>
-        new OpenAiCompatibleProviderFactory(new HttpClientPipelineTransport(new HttpClient(handler))).Create(config, credential);
+    public static ILlmProvider Provider(FakeOpenAiHandler handler, LlmProviderConfig config, LlmCredential credential, TimeProvider? clock = null) =>
+        new OpenAiCompatibleProviderFactory(new HttpClientPipelineTransport(new HttpClient(handler)), clock).Create(config, credential);
 
     public static JsonElement Json(BinaryData data) => JsonSerializer.Deserialize<JsonElement>(data.ToMemory().Span);
 

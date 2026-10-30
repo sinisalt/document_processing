@@ -22,6 +22,7 @@ public sealed class OpenAiCompatibleProvider : ILlmProvider
 
     private readonly OpenAIClient _client;
     private readonly string _validationModel;
+    private readonly TimeProvider _clock;
 
     /// <summary>Models that rejected <c>reasoning_effort</c>; later calls omit it instead of paying a round trip.</summary>
     private readonly ConcurrentDictionary<string, bool> _modelsWithoutReasoningEffort = new(StringComparer.Ordinal);
@@ -29,7 +30,8 @@ public sealed class OpenAiCompatibleProvider : ILlmProvider
     /// <summary>Per model and requested level, the level the model accepted instead (null: none); later calls start there.</summary>
     private readonly ConcurrentDictionary<(string Model, string Requested), ChatReasoningEffortLevel?> _degradedEfforts = new();
 
-    public OpenAiCompatibleProvider(OpenAIClient client, LlmProviderKind kind, LlmCapabilities capabilities, string validationModel)
+    /// <summary>The optional <paramref name="clock"/> drives the per-request timeout (<see cref="LlmOptions.Timeout"/>); <see cref="TimeProvider.System"/> when null.</summary>
+    public OpenAiCompatibleProvider(OpenAIClient client, LlmProviderKind kind, LlmCapabilities capabilities, string validationModel, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         OpenAiCompatibleCapabilities.EnsureSupported(kind, nameof(kind));
@@ -40,10 +42,11 @@ public sealed class OpenAiCompatibleProvider : ILlmProvider
         Kind = kind;
         Capabilities = capabilities;
         _validationModel = validationModel;
+        _clock = clock ?? TimeProvider.System;
     }
 
-    public OpenAiCompatibleProvider(OpenAIClient client, LlmProviderKind kind, string validationModel)
-        : this(client, kind, OpenAiCompatibleCapabilities.For(kind), validationModel)
+    public OpenAiCompatibleProvider(OpenAIClient client, LlmProviderKind kind, string validationModel, TimeProvider? clock = null)
+        : this(client, kind, OpenAiCompatibleCapabilities.For(kind), validationModel, clock)
     {
     }
 
@@ -190,9 +193,10 @@ public sealed class OpenAiCompatibleProvider : ILlmProvider
 
     private async Task<ChatCompletion> SendOnceAsync(OpenAiChatRequest chat, CancellationToken cancellationToken)
     {
-        // LlmOptions.Timeout bounds one network attempt; the client's NetworkTimeout stays the hard ceiling.
-        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        attempt.CancelAfter(chat.Timeout);
+        // LlmOptions.Timeout bounds one network attempt; the client's NetworkTimeout stays the hard ceiling. The timer
+        // runs on the injected clock, so a test drives the expiry instead of waiting for it.
+        using var timeout = new CancellationTokenSource(chat.Timeout, _clock);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 
         try
         {
@@ -205,7 +209,7 @@ public sealed class OpenAiCompatibleProvider : ILlmProvider
         {
             throw;
         }
-        catch (OperationCanceledException ex) when (attempt.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (timeout.IsCancellationRequested)
         {
             throw new LlmException(LlmErrorKind.Transient, $"The provider did not answer within {chat.Timeout}.", OpenAiErrorMapper.DefaultTransientDelay, ex);
         }

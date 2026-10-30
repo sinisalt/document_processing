@@ -73,3 +73,32 @@ jobs:
 
       - name: Build
         run: pnpm -r --filter './apps/**' build
+
+      # OpenAPI drift check: web/packages/api-client/openapi/v1.json and src/schema.d.ts are committed and regenerated
+      # by web/scripts/export-openapi.sh from the running API. The script needs dotnet (set up here), pnpm (above) and
+      # curl (present on the runner). The API is built first so the script's `dotnet run` only starts it.
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build the API for the OpenAPI export
+        run: dotnet build ../src/DocProc.Api/DocProc.Api.csproj --configuration Release
+
+      - name: Regenerate the API client from the built API
+        run: |
+          if ! ./scripts/export-openapi.sh; then
+            echo '::group::API log'
+            cat /tmp/docproc-openapi-export.log || true
+            echo '::endgroup::'
+            exit 1
+          fi
+
+      - name: Check for OpenAPI drift
+        run: |
+          if [ -n "$(git status --porcelain -- packages/api-client)" ]; then
+            echo '::error::web/packages/api-client is out of date with the API: run web/scripts/export-openapi.sh and commit the result.'
+            git status --porcelain -- packages/api-client
+            git --no-pager diff -- packages/api-client
+            exit 1
+          fi
+          echo 'web/packages/api-client matches the API.'

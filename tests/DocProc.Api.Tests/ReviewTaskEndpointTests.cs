@@ -114,6 +114,29 @@ public sealed class ReviewTaskEndpointTests(ApiFactory factory) : IClassFixture<
     }
 
     [Fact]
+    public async Task Claim_and_release_bump_the_version_token_so_a_stale_tracked_writer_fails_its_save()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true });
+        var taskId = seeded.ReviewTaskId!.Value;
+        using var reviewer = factory.ClientFor(new TokenSpec("versioned", [Roles.Reviewer], TenantA));
+
+        await using var stale = factory.PlatformDb();
+        var loadedBefore = await stale.ReviewTasks.SingleAsync(t => t.Id == taskId, Ct);
+        var versionBefore = loadedBefore.Version;
+
+        (await reviewer.PostAsync(Task(taskId, "claim"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Query(db => db.ReviewTasks.Single(t => t.Id == taskId).Version).ShouldBe(versionBefore + 1);
+
+        (await reviewer.PostAsync(Task(taskId, "release"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Query(db => db.ReviewTasks.Single(t => t.Id == taskId).Version).ShouldBe(versionBefore + 2);
+
+        // The pipeline closing the task from a copy it loaded before the claim loses, instead of overwriting silently.
+        loadedBefore.Status = ReviewTaskStatus.Done;
+        await Should.ThrowAsync<DbUpdateConcurrencyException>(() => stale.SaveChangesAsync(Ct));
+        factory.Query(db => db.ReviewTasks.Single(t => t.Id == taskId).Status).ShouldBe(ReviewTaskStatus.Open);
+    }
+
+    [Fact]
     public async Task Release_only_undoes_the_assignment_the_caller_saw()
     {
         var seeded = await factory.SeedDocumentAsync(new DocumentSeed { ReviewTask = true, AssignedTo = "holder" });

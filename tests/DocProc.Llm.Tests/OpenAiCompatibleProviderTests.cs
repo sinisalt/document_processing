@@ -1,6 +1,7 @@
 using System.Net;
 using DocProc.Llm.OpenAi;
 using DocProc.Llm.Providers;
+using Microsoft.Extensions.Time.Testing;
 using OpenAI.Chat;
 using static DocProc.Llm.Tests.OpenAiTestSupport;
 
@@ -234,24 +235,36 @@ public class OpenAiCompatibleProviderTests
     [Fact]
     public async Task The_request_timeout_bounds_the_call_and_is_a_transient_error()
     {
-        // The timeout runs from the start of the call, and the first call through a cold SDK can take longer than the
-        // timeout just to reach the transport: warm it up on a separate provider, so the hanging request is really sent.
-        await Provider(new FakeOpenAiHandler().EnqueueCompletion(), Config(LlmProviderKind.OpenAi), ApiKey).CompleteAsync(Request(null), CancellationToken.None);
-
+        // The timeout runs on the provider's clock, not on the wall clock: a minute-long timeout expires the moment the
+        // fake clock passes it, and a provider still bound to the system clock would hang this test for a minute.
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 9, 0, 0, TimeSpan.Zero));
+        var timeout = TimeSpan.FromMinutes(1);
         var handler = new FakeOpenAiHandler().EnqueueHang();
-        var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey);
-        var request = Request(null) with { Options = new LlmOptions { Timeout = TimeSpan.FromMilliseconds(200) } };
+        var provider = Provider(handler, Config(LlmProviderKind.OpenAi), ApiKey, clock);
+        var request = Request(null) with { Options = new LlmOptions { Timeout = timeout } };
 
         var call = Should.ThrowAsync<LlmException>(() => provider.CompleteAsync(request, CancellationToken.None));
         // The fake records the request before it starts to hang, so once the hang is signalled the request is on record
-        // whenever the timer fires; waiting here turns a lost race into an explicit failure instead of a flaky count.
+        // and the clock can be moved; nothing here waits on real latency.
         await handler.HangStarted.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        var error = await call;
+        clock.Advance(timeout - TimeSpan.FromMilliseconds(1));
+        call.IsCompleted.ShouldBeFalse("the timeout has not expired yet");
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var error = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         error.Kind.ShouldBe(LlmErrorKind.Transient);
         error.IsRetryable.ShouldBeTrue();
         error.Message.ShouldContain("did not answer");
         handler.Requests.Count.ShouldBe(1, "a timed-out attempt is not retried by the adapter");
+    }
+
+    [Fact]
+    public void The_factory_hands_its_clock_to_every_provider_and_defaults_to_the_system_clock()
+    {
+        var clock = new FakeTimeProvider();
+
+        new OpenAiCompatibleProviderFactory(clock: clock).Clock.ShouldBeSameAs(clock);
+        new OpenAiCompatibleProviderFactory().Clock.ShouldBeSameAs(TimeProvider.System);
     }
 
     [Theory]

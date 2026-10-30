@@ -75,6 +75,24 @@ public class PersistenceModelTests
     }
 
     [Fact]
+    public void Item_ownership_is_a_filtered_unique_index_next_to_the_duplicate_lookup_index()
+    {
+        using var context = NewContext(TenantContext.Platform());
+
+        var indexes = context.Model.FindEntityType(typeof(Infrastructure.Persistence.Entities.IngestionItem))!.GetIndexes()
+            .Where(i => i.Properties.Select(p => p.Name).SequenceEqual(["TenantId", "Sha256"]))
+            .ToList();
+
+        indexes.Count.ShouldBe(2, "the plain lookup over every disposition, and the ownership rule over the accepted ones");
+        var ownership = indexes.Single(i => i.GetDatabaseName() == IngestionItemOwnership.IndexName);
+        ownership.IsUnique.ShouldBeTrue();
+        ownership.GetFilter().ShouldBe(IngestionItemOwnership.SqlServerFilter);
+        var lookup = indexes.Single(i => i != ownership);
+        lookup.IsUnique.ShouldBeFalse();
+        lookup.GetFilter().ShouldBeNull();
+    }
+
+    [Fact]
     public void Enums_are_stored_as_strings()
     {
         using var context = NewContext(TenantContext.Platform());

@@ -13,10 +13,15 @@ namespace DocProc.Pipeline.Stages;
 
 /// <summary>
 /// Stage 1 and the unpacking half of stage 2 (docs/03): decides what every candidate item is, expands archives one
-/// level, links exact duplicates (same tenant, same SHA-256) to the strictly earlier item, ignores obvious
-/// non-documents with a reason, and creates one <c>Received</c> document per remaining candidate. All rows are
-/// committed together and the documents are queued for stage 2 only after the commit, so a crash leaves the
-/// ingestion <c>Received</c> and a retry starts over.
+/// level, links exact duplicates (same tenant, same SHA-256) to the item that owns the document or to the strictly
+/// earlier item, ignores obvious non-documents with a reason, and creates one <c>Received</c> document per remaining
+/// candidate, which becomes <c>Accepted</c>. Two units of work: the items unpacked from archives are committed first
+/// (as candidates), so a twin ingestion deciding at the same time sees them, then the decisions and documents are
+/// committed together and the documents are queued for stage 2 only after that commit. Ownership is a database rule
+/// (<see cref="IngestionItemOwnership"/>): when another process accepted the same bytes between this handler's query
+/// and its commit, the commit fails on the unique index, the items concerned are relinked as duplicates of the
+/// committed owner, their documents leave the unit of work, and the commit is tried again. A crash leaves the
+/// ingestion <c>Received</c> and a retry starts over from the committed items.
 /// </summary>
 internal sealed class IngestHandler(
     DocProcDbContext db,
@@ -27,6 +32,7 @@ internal sealed class IngestHandler(
     ILogger<IngestHandler> logger) : IIngestionHandler
 {
     private const int MaxReasonLength = 500;
+    private const string DuplicateReason = "exact duplicate of an earlier item (same bytes)";
     private readonly PipelineOptions _options = options.Value;
 
     public async Task HandleAsync(ProcessIngestion message, CancellationToken cancellationToken)
@@ -56,65 +62,122 @@ internal sealed class IngestHandler(
 
         var now = timeline.Now;
         var items = ingestion.Items.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).ToList();
+
+        // Unit of work 1: the archives. Their files become candidate rows of this ingestion before anything decides
+        // on them, so another ingestion carrying the same bytes finds them like it finds the items the API stored.
+        var unpacked = await UnpackArchivesAsync(ingestion, items, now, cancellationToken).ConfigureAwait(false);
+        if (unpacked > 0)
+        {
+            // The ingestion is touched too: its version token bumps, so a twin of this message on another node that
+            // loaded the same ingestion fails its own first commit and inserts no second set of children.
+            ingestion.Attempts = message.Attempt;
+            ingestion.UpdatedAt = now;
+            if (!await TryCommitAsync(ingestion, message.Attempt, cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+
+        // Unit of work 2: dispositions and documents. The ownership index decides a race with another process.
+        var accepted = await CreateDocumentsAsync(ingestion, items, now, cancellationToken).ConfigureAwait(false);
+
+        ingestion.Status = IngestionStatus.Unpacked;
+        ingestion.Attempts = message.Attempt;
+        ingestion.LastError = null;
+        ingestion.UpdatedAt = now;
+        if (!await TryCommitDecisionsAsync(ingestion, items, accepted, message.Attempt, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Ingestion {IngestionId}: {Items} item(s), {Documents} document(s) created.", ingestion.Id, items.Count, accepted.Count);
+        }
+
+        foreach (var next in accepted)
+        {
+            await queue.EnqueueAsync(new ProcessDocument(ingestion.TenantId, next.Document.Id, PipelineStage.Normalize), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Detects every candidate's kind and expands the archives among them, nested ones included up to the depth limit;
+    /// the files become candidate items of the ingestion. Returns how many were added.
+    /// </summary>
+    private async Task<int> UnpackArchivesAsync(Ingestion ingestion, List<IngestionItem> items, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         var pending = new Queue<IngestionItem>(items.Where(i => i.Disposition == ItemDisposition.Candidate));
-        var acceptedByHash = new Dictionary<string, Guid>(StringComparer.Ordinal);
-        var toEnqueue = new List<ProcessDocument>();
-        var created = 0;
+        var unpacked = 0;
 
         while (pending.TryDequeue(out var item))
         {
             cancellationToken.ThrowIfCancellationRequested();
             item.Kind = ItemKinds.Detect(item.MimeType, item.FileName);
-
-            if (item.Kind == ItemKind.Archive)
+            if (item.Kind != ItemKind.Archive)
             {
-                if (Depth(item, items) >= _options.MaxArchiveDepth)
-                {
-                    Ignore(item, $"nested archive beyond depth {_options.MaxArchiveDepth}");
-                    continue;
-                }
-
-                List<IngestionItem> children;
-                try
-                {
-                    children = await ExpandArchiveAsync(ingestion, item, now, cancellationToken).ConfigureAwait(false);
-                }
-                catch (InvalidDataException ex)
-                {
-                    // Not a zip after all, or one that is truncated or corrupt: nothing can be unpacked from it.
-                    logger.LogWarning(ex, "Item {ItemId} ({FileName}) is not a readable zip archive; ignored.", item.Id, item.FileName);
-                    Ignore(item, $"unreadable zip archive: {ex.Message}");
-                    continue;
-                }
-
-                foreach (var child in children)
-                {
-                    items.Add(child);
-                    db.IngestionItems.Add(child);
-                    pending.Enqueue(child);
-                }
-
-                item.Disposition = ItemDisposition.Unpacked;
-                item.DispositionReason = $"{children.Count} file(s) unpacked";
                 continue;
             }
 
+            if (Depth(item, items) >= _options.MaxArchiveDepth)
+            {
+                Ignore(item, $"nested archive beyond depth {_options.MaxArchiveDepth}");
+                continue;
+            }
+
+            List<IngestionItem> children;
+            try
+            {
+                children = await ExpandArchiveAsync(ingestion, item, now, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException ex)
+            {
+                // Not a zip after all, or one that is truncated or corrupt: nothing can be unpacked from it.
+                logger.LogWarning(ex, "Item {ItemId} ({FileName}) is not a readable zip archive; ignored.", item.Id, item.FileName);
+                Ignore(item, $"unreadable zip archive: {ex.Message}");
+                continue;
+            }
+
+            foreach (var child in children)
+            {
+                items.Add(child);
+                db.IngestionItems.Add(child);
+                pending.Enqueue(child);
+            }
+
+            item.Disposition = ItemDisposition.Unpacked;
+            item.DispositionReason = $"{children.Count} file(s) unpacked";
+            unpacked += children.Count;
+        }
+
+        return unpacked;
+    }
+
+    /// <summary>Decides every remaining candidate, in the order the duplicate rule ranks them, and creates the documents of the accepted ones.</summary>
+    private async Task<List<AcceptedItem>> CreateDocumentsAsync(Ingestion ingestion, List<IngestionItem> items, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var acceptedByHash = new Dictionary<string, Guid>(StringComparer.Ordinal);
+        var accepted = new List<AcceptedItem>();
+
+        foreach (var item in items.Where(i => i.Disposition == ItemDisposition.Candidate).OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             if (IgnoreReason(item) is { } reason)
             {
                 Ignore(item, reason);
                 continue;
             }
 
-            var earlier = await FindEarlierAsync(ingestion, item, acceptedByHash, cancellationToken).ConfigureAwait(false);
-            if (earlier is { } duplicateOf)
+            var original = await FindOriginalAsync(ingestion, item, acceptedByHash, cancellationToken).ConfigureAwait(false);
+            if (original is { } duplicateOf)
             {
-                item.Disposition = ItemDisposition.Duplicate;
-                item.DuplicateOfItemId = duplicateOf;
-                item.DispositionReason = "exact duplicate of an earlier item (same bytes)";
+                MarkDuplicate(item, duplicateOf);
                 continue;
             }
 
             acceptedByHash[item.Sha256] = item.Id;
+            item.Disposition = ItemDisposition.Accepted;
+            item.DispositionReason = null;
             var document = new Document
             {
                 Id = Guid.CreateVersion7(),
@@ -128,7 +191,7 @@ internal sealed class IngestHandler(
                 UpdatedAt = now,
             };
             db.Documents.Add(document);
-            timeline.Record(document, DocumentEventTypes.Received, null, DocumentStatus.Received, new
+            var received = timeline.Record(document, DocumentEventTypes.Received, null, DocumentStatus.Received, new
             {
                 ingestionId = ingestion.Id,
                 itemId = item.Id,
@@ -137,38 +200,100 @@ internal sealed class IngestHandler(
                 kind = item.Kind,
                 sizeBytes = item.SizeBytes,
             });
-            toEnqueue.Add(new ProcessDocument(ingestion.TenantId, document.Id, PipelineStage.Normalize));
-            created++;
+            accepted.Add(new AcceptedItem(item, document, received));
         }
 
-        ingestion.Status = IngestionStatus.Unpacked;
-        ingestion.Attempts = message.Attempt;
-        ingestion.LastError = null;
-        ingestion.UpdatedAt = now;
+        return accepted;
+    }
+
+    /// <summary>
+    /// Commits the decisions. When the ownership index rejects the commit, another process accepted the same bytes
+    /// between this handler's duplicate query and its save: the accepted items that now have a committed owner are
+    /// relinked as its duplicates (together with the items of this ingestion that pointed at them), their documents
+    /// and events leave the unit of work, and the commit is tried again. Every round removes at least one accepted
+    /// item, so the loop ends; a violation that no committed owner explains is not a race and surfaces as the error it
+    /// is. False when another writer changed the ingestion (see <see cref="TryCommitAsync"/>).
+    /// </summary>
+    private async Task<bool> TryCommitDecisionsAsync(Ingestion ingestion, List<IngestionItem> items, List<AcceptedItem> accepted, int attempt, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                return await TryCommitAsync(ingestion, attempt, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateException ex) when (ex is not DbUpdateConcurrencyException && IngestionItemOwnership.IsViolation(ex))
+            {
+                var relinked = await RelinkToCommittedOwnersAsync(ingestion, items, accepted, cancellationToken).ConfigureAwait(false);
+                if (relinked == 0)
+                {
+                    throw;
+                }
+
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("Ingestion {IngestionId}: {Count} item(s) were accepted first by another process while attempt {Attempt} decided; relinked as duplicates of the committed owner.", ingestion.Id, relinked, attempt);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Re-decides the accepted items against the owners committed since the decision: each one with a committed owner
+    /// for its bytes in another ingestion becomes that owner's duplicate, its document and event are dropped from the
+    /// unit of work, and the items of this ingestion that duplicated it follow it to the owner. Returns how many were relinked.
+    /// </summary>
+    private async Task<int> RelinkToCommittedOwnersAsync(Ingestion ingestion, List<IngestionItem> items, List<AcceptedItem> accepted, CancellationToken cancellationToken)
+    {
+        var relinked = 0;
+        foreach (var entry in accepted.ToList())
+        {
+            var owners = await db.IngestionItems.AsNoTracking()
+                .Where(i => i.Sha256 == entry.Item.Sha256 && i.IngestionId != ingestion.Id && i.Disposition == ItemDisposition.Accepted)
+                .Select(i => new { i.Id, i.CreatedAt })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var owner = owners.OrderBy(o => o.CreatedAt).ThenBy(o => o.Id).FirstOrDefault();
+            if (owner is null)
+            {
+                continue;
+            }
+
+            MarkDuplicate(entry.Item, owner.Id);
+            foreach (var follower in items.Where(i => i.DuplicateOfItemId == entry.Item.Id))
+            {
+                follower.DuplicateOfItemId = owner.Id;
+            }
+
+            // Both are still Added: removing them detaches them, so the next commit inserts neither.
+            db.DocumentEvents.Remove(entry.Received);
+            db.Documents.Remove(entry.Document);
+            accepted.Remove(entry);
+            relinked++;
+        }
+
+        return relinked;
+    }
+
+    /// <summary>
+    /// Commits the unit of work; false when another writer (a twin message on another node, or an operator) changed
+    /// the ingestion after this handler loaded it: its outcome stands, and nothing of this unit is committed or queued.
+    /// </summary>
+    private async Task<bool> TryCommitAsync(Ingestion ingestion, int attempt, CancellationToken cancellationToken)
+    {
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return true;
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            // Another writer (a twin message on another node, or an operator) changed the ingestion after this one
-            // loaded it: its outcome stands, and nothing of this attempt is committed or queued.
             if (logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation(ex, "Ingestion {IngestionId} was changed by another writer while attempt {Attempt} ran; message dropped as already handled.", ingestion.Id, message.Attempt);
+                logger.LogInformation(ex, "Ingestion {IngestionId} was changed by another writer while attempt {Attempt} ran; message dropped as already handled.", ingestion.Id, attempt);
             }
 
-            return;
-        }
-
-        foreach (var next in toEnqueue)
-        {
-            await queue.EnqueueAsync(next, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (logger.IsEnabled(LogLevel.Information))
-        {
-            logger.LogInformation("Ingestion {IngestionId}: {Items} item(s), {Documents} document(s) created.", ingestion.Id, items.Count, created);
+            return false;
         }
     }
 
@@ -193,6 +318,13 @@ internal sealed class IngestHandler(
         item.DispositionReason = reason.Length <= MaxReasonLength ? reason : reason[..MaxReasonLength];
     }
 
+    private static void MarkDuplicate(IngestionItem item, Guid ownerId)
+    {
+        item.Disposition = ItemDisposition.Duplicate;
+        item.DuplicateOfItemId = ownerId;
+        item.DispositionReason = DuplicateReason;
+    }
+
     /// <summary>How many archives the item sits inside: 0 for a direct attachment, 1 for a file from a zip, and so on.</summary>
     private static int Depth(IngestionItem item, List<IngestionItem> items)
     {
@@ -208,12 +340,16 @@ internal sealed class IngestHandler(
     }
 
     /// <summary>
-    /// The earliest accepted item with the same bytes: in this ingestion first, then any other ingestion of the tenant.
-    /// Only items strictly before this one count (older <c>CreatedAt</c>, or the same instant and a smaller v7 id):
-    /// two ingestions with the same bytes running at the same time must agree on the one that owns the document,
-    /// and an older item is never the duplicate of a newer one.
+    /// The item this one duplicates, or null when it owns its document: the accepted item with the same bytes in this
+    /// ingestion first, then, in any other ingestion of the tenant, the earliest <c>Accepted</c> item (it owns a
+    /// document for the bytes), else the earliest candidate strictly before this one (older <c>CreatedAt</c>, or the
+    /// same instant and a smaller v7 id). Two ingestions with the same bytes deciding at the same time thus agree on
+    /// the owner, an older item is never the duplicate of a newer one that is still undecided, and a document that
+    /// exists is never created a second time, whichever ingestion got there first. Unpacked files follow the same
+    /// rule as stored attachments; their <c>CreatedAt</c> is the unpacking time. The ownership index catches the one
+    /// case this query cannot: an owner committed by another process after the query ran.
     /// </summary>
-    private async Task<Guid?> FindEarlierAsync(Ingestion ingestion, IngestionItem item, Dictionary<string, Guid> acceptedByHash, CancellationToken cancellationToken)
+    private async Task<Guid?> FindOriginalAsync(Ingestion ingestion, IngestionItem item, Dictionary<string, Guid> acceptedByHash, CancellationToken cancellationToken)
     {
         if (acceptedByHash.TryGetValue(item.Sha256, out var inThisIngestion))
         {
@@ -223,13 +359,20 @@ internal sealed class IngestHandler(
         // The tie on CreatedAt is broken in memory: .NET orders v7 GUIDs by their timestamp prefix, SQL Server's
         // uniqueidentifier ordering does not, so the comparison never goes to the database.
         var candidates = await db.IngestionItems.AsNoTracking()
-            .Where(i => i.Sha256 == item.Sha256 && i.IngestionId != ingestion.Id && i.CreatedAt <= item.CreatedAt
-                        && i.Disposition != ItemDisposition.Duplicate && i.Disposition != ItemDisposition.Ignored)
-            .Select(i => new { i.Id, i.CreatedAt })
+            .Where(i => i.Sha256 == item.Sha256 && i.IngestionId != ingestion.Id
+                        && (i.Disposition == ItemDisposition.Accepted
+                            || (i.Disposition == ItemDisposition.Candidate && i.CreatedAt <= item.CreatedAt)))
+            .Select(i => new { i.Id, i.CreatedAt, OwnsDocument = i.Disposition == ItemDisposition.Accepted })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return candidates
+        var owner = candidates
+            .Where(c => c.OwnsDocument)
+            .OrderBy(c => c.CreatedAt)
+            .ThenBy(c => c.Id)
+            .FirstOrDefault();
+
+        return owner?.Id ?? candidates
             .Where(c => c.CreatedAt < item.CreatedAt || (c.CreatedAt == item.CreatedAt && c.Id.CompareTo(item.Id) < 0))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
@@ -297,4 +440,7 @@ internal sealed class IngestHandler(
 
         return children;
     }
+
+    /// <summary>An item that owns a document after the decision, with the rows the attempt created for it.</summary>
+    private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received);
 }

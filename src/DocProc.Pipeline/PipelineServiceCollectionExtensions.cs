@@ -89,7 +89,9 @@ public static class PipelineServiceCollectionExtensions
         services.AddDocProcLlm(configuration);
         services.AddDocProcLlmPersistence();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderFactory, AnthropicProviderFactory>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderFactory, OpenAiCompatibleProviderFactory>(_ => new OpenAiCompatibleProviderFactory()));
+        // The host's clock drives the per-request timeout, so the tests' fake clock bounds those calls too.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderFactory, OpenAiCompatibleProviderFactory>(
+            sp => new OpenAiCompatibleProviderFactory(clock: sp.GetRequiredService<TimeProvider>())));
 
         if (!services.Any(d => d.ServiceType == typeof(IContainerBlobStore)))
         {

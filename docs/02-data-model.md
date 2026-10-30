@@ -57,7 +57,8 @@ Ingestion (one email / one dropped file / one API call)
 IngestionItem (one attachment or body part)
   id, ingestionId, filename, mimeType, sizeBytes, sha256, blobRef
   kind (Pdf | Image | Xml | Office | Text | Archive | Other)
-  disposition (Candidate | Ignored(reason) | Unpacked(childIds))
+  disposition (Candidate | Accepted | Ignored(reason) | Unpacked(childIds) | Duplicate(ofItemId))
+    -- at most one Accepted item per (tenantId, sha256): filtered unique index, see 03-pipeline.md
 
 Document (one logical business document; an item can be split into several)
   id, tenantId, ingestionItemId, pageRange (start, end), pageCount

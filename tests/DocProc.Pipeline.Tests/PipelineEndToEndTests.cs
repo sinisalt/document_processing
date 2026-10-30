@@ -166,7 +166,7 @@ public class PipelineEndToEndTests
 
         var items = await host.WithDbAsync(db => db.IngestionItems.AsNoTracking().Where(i => i.IngestionId == ingestion.Id).OrderBy(i => i.FileName).ToListAsync());
         items.Count.ShouldBe(2);
-        items[0].Disposition.ShouldBe(ItemDisposition.Candidate);
+        items[0].Disposition.ShouldBe(ItemDisposition.Accepted);
         items[1].Disposition.ShouldBe(ItemDisposition.Duplicate);
         items[1].DuplicateOfItemId.ShouldBe(items[0].Id);
         items[1].DispositionReason.ShouldNotBeNull();

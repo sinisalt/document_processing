@@ -173,7 +173,7 @@ public static class TenantEndpoints
         .WithName("GetTenant")
         .WithSummary("One tenant.");
 
-        tenants.MapPatch("/{id:guid}", async Task<Results<Ok<TenantResponse>, NotFound, ValidationProblem>> (Guid id, PatchTenantRequest request, [FromServices] ISystemDbContextFactory factory, TimeProvider clock, CancellationToken ct) =>
+        tenants.MapPatch("/{id:guid}", async Task<Results<Ok<TenantResponse>, NotFound, ValidationProblem>> (Guid id, PatchTenantRequest request, [FromServices] ISystemDbContextFactory factory, TenantStatusCache tenantStatus, TimeProvider clock, CancellationToken ct) =>
         {
             var errors = new Errors().Optional("name", request.Name, 200).Optional("legalName", request.LegalName, 300).Optional("vatId", request.VatId, 32);
             if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
@@ -229,27 +229,33 @@ public static class TenantEndpoints
                 tenant.NameAliases = CleanList(request.NameAliases);
             }
 
-            if (status is { } newStatus)
+            var statusChanged = status is { } newStatus && newStatus != tenant.Status;
+            if (status is { } changedTo)
             {
-                tenant.Status = newStatus;
+                tenant.Status = changedTo;
             }
 
             tenant.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(ct);
+            if (statusChanged)
+            {
+                tenantStatus.Invalidate(tenant.Id);
+            }
+
             return TypedResults.Ok(TenantResponse.From(tenant));
         })
         .RequireAuthorization(Policies.PlatformAdmin)
         .WithName("UpdateTenant")
         .WithSummary("Changes name, legal name, VAT id, aliases or status of a tenant.");
 
-        tenants.MapPost("/{id:guid}:suspend", (Guid id, [FromServices] ISystemDbContextFactory factory, TimeProvider clock, CancellationToken ct) =>
-                SetStatusAsync(id, TenantStatus.Suspended, factory, clock, ct))
+        tenants.MapPost("/{id:guid}:suspend", (Guid id, [FromServices] ISystemDbContextFactory factory, TenantStatusCache tenantStatus, TimeProvider clock, CancellationToken ct) =>
+                SetStatusAsync(id, TenantStatus.Suspended, factory, tenantStatus, clock, ct))
             .RequireAuthorization(Policies.PlatformAdmin)
             .WithName("SuspendTenant")
             .WithSummary("Suspends a tenant: its users and API keys stop working until it is activated again.");
 
-        tenants.MapPost("/{id:guid}:activate", (Guid id, [FromServices] ISystemDbContextFactory factory, TimeProvider clock, CancellationToken ct) =>
-                SetStatusAsync(id, TenantStatus.Active, factory, clock, ct))
+        tenants.MapPost("/{id:guid}:activate", (Guid id, [FromServices] ISystemDbContextFactory factory, TenantStatusCache tenantStatus, TimeProvider clock, CancellationToken ct) =>
+                SetStatusAsync(id, TenantStatus.Active, factory, tenantStatus, clock, ct))
             .RequireAuthorization(Policies.PlatformAdmin)
             .WithName("ActivateTenant")
             .WithSummary("Activates a suspended tenant.");
@@ -257,7 +263,12 @@ public static class TenantEndpoints
         return group;
     }
 
-    private static async Task<Results<Ok<TenantResponse>, NotFound>> SetStatusAsync(Guid id, TenantStatus status, ISystemDbContextFactory factory, TimeProvider clock, CancellationToken ct)
+    /// <summary>
+    /// Writes the new status and then drops the tenant from <see cref="TenantStatusCache"/>, so the next request of one
+    /// of its users on this node reads the row again and a suspension bites at once. Other nodes keep their cached
+    /// entry for at most the cache's TTL; that is the multi-node bound (docs/05).
+    /// </summary>
+    private static async Task<Results<Ok<TenantResponse>, NotFound>> SetStatusAsync(Guid id, TenantStatus status, ISystemDbContextFactory factory, TenantStatusCache tenantStatus, TimeProvider clock, CancellationToken ct)
     {
         await using var db = factory.CreatePlatformScoped();
         var tenant = await db.Tenants.SingleOrDefaultAsync(t => t.Id == id, ct);
@@ -271,6 +282,7 @@ public static class TenantEndpoints
             tenant.Status = status;
             tenant.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(ct);
+            tenantStatus.Invalidate(tenant.Id);
         }
 
         return TypedResults.Ok(TenantResponse.From(tenant));
