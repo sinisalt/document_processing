@@ -193,7 +193,7 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
         replay.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         (await replay.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id.ShouldBe(secondId);
 
-        // And an immediate retry does not run into "Upload in progress".
+        // And an immediate retry replays the stored response.
         (await Upload(key, "day-2.pdf", dayTwo)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
     }
 

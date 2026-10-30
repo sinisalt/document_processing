@@ -206,16 +206,16 @@ public static class ChannelEndpoints
             // secret second, so a failed save never leaves a reference to a deleted secret. The reference is always
             // computed, never read from the row (see OwnsSecret).
             var reference = SecretReference(channel.TenantId, channel.Id);
-            var ownsSecret = OwnsSecret(channel, reference, logger);
             string? clearedReference = null;
             if (request.Secret is { Length: > 0 } secret)
             {
+                _ = OwnsSecret(channel, reference, logger);
                 channel.SecretRef = reference;
                 await secrets.SetAsync(reference, secret, ct);
             }
             else if (request.Secret is not null)
             {
-                clearedReference = ownsSecret ? reference : null;
+                clearedReference = OwnsSecret(channel, reference, logger) ? reference : null;
                 channel.SecretRef = null;
             }
 
