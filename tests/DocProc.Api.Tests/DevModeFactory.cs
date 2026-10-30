@@ -43,6 +43,7 @@ public sealed class DevModeFactory : WebApplicationFactory<Program>
         builder.UseSetting("Persistence:Provider", "Sqlite");
         builder.UseSetting("Persistence:SqlitePath", DatabasePath);
         builder.UseSetting("Blobs:RootPath", BlobRoot);
+        builder.UseSetting("Secrets:Path", Path.Combine(Directory, "secrets"));
         builder.UseSetting("Authentication:Dev:Enabled", "true");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
         // Explicitly unset by default: appsettings.Development.json names a PEM under the content root, and a test must

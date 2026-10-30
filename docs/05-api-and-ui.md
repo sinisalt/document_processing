@@ -62,6 +62,32 @@ PATCH /documents/{id}/fields     corrections (JSON Patch over the canonical mode
 /health, /metrics                liveness/readiness, Prometheus/OpenTelemetry
 ```
 
+### Tenancy and settings endpoints as built (v1)
+
+The tenant-scoped resources are mounted at the root of `/api/v1`, not under `/tenants/{id}/...`:
+the tenant is always the resolved scope (the token's `tenant_id`, or `X-Tenant-Id` for a
+SuperAdmin), never a path or body parameter, so a tenant user cannot even spell another
+tenant's URL. Custom actions use the `:verb` suffix. Lists are cursor-paginated
+(`?cursor=&limit=`, `{ items, nextCursor }`); enums travel as their names, case-insensitive on
+input; every error is a problem-details body, field errors a validation problem.
+
+| Route | Policy | Notes |
+|---|---|---|
+| `GET /tenants`, `GET /tenants/{id}` | Platform (Operators may read) | `?status=&q=` filters; ordered by slug. |
+| `POST /tenants`, `PATCH /tenants/{id}`, `POST /tenants/{id}:suspend` / `:activate` | PlatformAdmin | Creation also adds the tenant's default `ApiUpload` and `PortalUpload` channels. Runs on a platform-scoped context, so no `X-Tenant-Id` is needed. |
+| `GET /members`; `POST /members`, `PATCH /members/{userId}`, `DELETE /members/{userId}` | Read; TenantAdmin | The last TenantAdmin can be neither demoted nor removed (409). |
+| `GET /channels`; `POST`, `PATCH /channels/{id}`, `DELETE /channels/{id}` | Read; TenantAdmin | `config` is a free JSON object per channel type; the secret reference is write-only (`hasSecret` is all a client sees). Delete is refused once ingestions reference the channel (409). |
+| `GET /suppliers`, `GET /suppliers/{id}`, `GET /suppliers/{id}/activity`; `POST`, `PATCH`, `DELETE` | Read; TenantAdmin | `q` matches the folded name (`Identifiers.NormalizeName`, the same function stage 5 matches with) or the exact VAT id. Delete is refused while documents reference the supplier (409); the activity view is the twenty most recent documents. |
+| `GET /settings`, `PUT /settings` | Read; TenantAdmin | Review policy (`autoApproveConfidenceThreshold` 0..1, `alwaysReviewSupplierIds` of this tenant, `retentionYears` 1..30, `shareExtractorProfiles`) plus the read-only tenant identity. |
+| `GET /llm-policy`, `PUT /llm-policy` | TenantAdmin | Every configuration id must be one of the tenant's own; platform configurations are resolved by the gateway, not chosen here. |
+| `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only: it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. Delete is refused while the policy references the configuration (409). |
+| `GET /llm-usage?from=&to=&groupBy=day\|stage\|model` | Read | Calls, tokens, errors and estimated cost; inclusive UTC dates, last 30 days by default. |
+| `GET /llm/providers`, `POST`, `POST /llm/providers/{id}:disable` / `:enable` | PlatformAdmin | Platform-scope configurations; the key goes to `platform/{configId}`. `:disable` is the kill switch. |
+| `GET /llm/usage?from=&to=&groupBy=tenant\|model\|day` | PlatformAdmin | Across tenants, for invoicing platform-key spend. |
+
+Still to come on these resources: `:test` and `:rotate` for providers (credential validation
+records `validatedAt` / `lastError`), audit logging of who changed what, idempotency keys.
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:

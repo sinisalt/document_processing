@@ -31,6 +31,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public const string Audience = "docproc-api";
 
     public static readonly Guid TenantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    public static readonly Guid TenantB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     public static readonly Guid SuspendedTenant = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
     private static readonly RsaSecurityKey SigningKey = new(RSA.Create(2048)) { KeyId = "test-key" };
@@ -42,12 +43,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Root of the file-system blob store, a temp directory so the test host never writes under the API's content root.</summary>
     public string BlobRoot { get; } = Path.Combine(Path.GetTempPath(), "docproc-tests", Guid.NewGuid().ToString("N"), "blobs");
 
+    /// <summary>Root of the file secret store, next to the blobs so both go when the factory is disposed.</summary>
+    public string SecretRoot => Path.Combine(Path.GetDirectoryName(BlobRoot)!, "secrets");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
         builder.UseSetting("Authentication:Oidc:Audience", Audience);
         builder.UseSetting("Blobs:RootPath", BlobRoot);
+        builder.UseSetting("Secrets:Path", SecretRoot);
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -101,10 +106,29 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         return db.ApiKeys.AsNoTracking().SingleOrDefault(k => k.Hash == hash);
     }
 
+    /// <summary>Runs a seed or fix-up against a platform-scoped context and saves it; rows must carry their TenantId.</summary>
+    public void Run(Action<DocProcDbContext> action)
+    {
+        _ = Server;
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
+        action(db);
+        db.SaveChanges();
+    }
+
+    /// <summary>Reads through a platform-scoped, no-tracking context: what is really in the database, whatever the API returned.</summary>
+    public T Query<T>(Func<DocProcDbContext, T> query)
+    {
+        _ = Server;
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
+        db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        return query(db);
+    }
+
     private void Seed(DocProcDbContext db)
     {
         var now = Clock.GetUtcNow();
         db.Tenants.Add(new Tenant { Id = TenantA, Name = "Tenant A", Slug = "tenant-a", LegalName = "Gasthaus zur Post GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
+        db.Tenants.Add(new Tenant { Id = TenantB, Name = "Tenant B", Slug = "tenant-b", LegalName = "Pizzeria Napoli d.o.o.", DefaultCurrency = "EUR", CountryCode = "HR", TimeZone = "Europe/Zagreb", CreatedAt = now, UpdatedAt = now });
         db.Tenants.Add(new Tenant { Id = SuspendedTenant, Name = "Suspended", Slug = "suspended", LegalName = "Closed Kitchen Ltd", Status = TenantStatus.Suspended, DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
         db.SaveChanges();
     }
