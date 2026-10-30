@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Factur-X / ZUGFeRD / XRechnung / UBL parsers to the canonical model (Phase 2).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+  </ItemGroup>
+</Project>

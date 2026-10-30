@@ -202,6 +202,7 @@ Initial flag codes:
 | CURRENCY_INFERRED | Info | currency not printed, tenant default assumed |
 | PO_UNMATCHED | Info | PO reference present but not found |
 | DATE_IMPLAUSIBLE | Warning | issue date in the future or > 1 year old |
+| INVALID_VALUE | Warning | a value failed its type or format check (malformed currency code, amount in a different currency than the document) |
 
 ## 6. Review and audit
 

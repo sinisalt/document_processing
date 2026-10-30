@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Deterministic extractor-profile engine over the positioned text layer (Phase 4).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+  </ItemGroup>
+</Project>

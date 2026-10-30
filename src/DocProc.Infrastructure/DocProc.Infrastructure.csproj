@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>EF Core (SQL Server), blob storage, mail sources, PDF and OCR implementations.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+</Project>
