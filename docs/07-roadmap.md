@@ -5,7 +5,25 @@ measurement needed for the next decision (which model, whether profiles pay off)
 before the decision is made. Durations assume one to two backend developers and one
 front-end developer; adjust to the team.
 
-## Phase 0 – Foundations (1–2 weeks)
+## Phase 0 – Foundations (1–2 weeks) – in progress
+
+Done so far (see the README for how to build and test):
+
+- Solution skeleton with central package management, analyzers as errors, CI workflow.
+- `DocProc.Domain`: canonical model with field provenance, flag catalogue, document state machine,
+  text-layer types and the stage-7 validation rules, all unit-tested.
+- `DocProc.Llm`: provider interface, gateway with config resolution, spend cap, usage and cost
+  recording, request hashing, replay provider, extraction contracts and the portable JSON schemas
+  (generated, checked against both vendors' rules, snapshotted under `schemas/`).
+- `DocProc.Llm.Anthropic`: Messages API adapter (native PDF, cached prefix, structured output,
+  effort mapping, error normalisation); request building and error mapping are unit-tested, the
+  live call is not yet exercised.
+- `DocProc.Application`: the interfaces infrastructure implements and the pipeline messages.
+- `DocProc.Api` / `DocProc.Worker`: hosts with health and OpenAPI endpoints, no business endpoints yet.
+
+Still open in Phase 0: EF Core model and migrations, Aspire AppHost with the containers, tenancy and
+OIDC, the generated TypeScript client, Bicep, and the three decisions below.
+
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server
   2025 container, Service Bus emulator and Azurite; EF Core migrations; CI with build, tests

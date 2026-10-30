@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Use cases, pipeline stage contracts and the interfaces infrastructure implements.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+    <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+  </ItemGroup>
+</Project>
