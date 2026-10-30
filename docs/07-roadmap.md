@@ -1,0 +1,78 @@
+# Roadmap
+
+Phases are ordered so that each one ships something a customer can use, and so that the
+measurement needed for the next decision (which model, whether profiles pay off) exists
+before the decision is made. Durations assume one to two backend developers and one
+front-end developer; adjust to the team.
+
+## Phase 0 – Foundations (1–2 weeks)
+
+- Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with Postgres,
+  RabbitMQ, blob emulator; CI with build, tests, container images.
+- Canonical domain model and JSON schema (versioned) from `02-data-model.md`; validation rules
+  with unit tests.
+- Tenancy, OIDC login, roles, API keys; OpenAPI published; generated TS client.
+- Decisions to close: identity provider, cloud (Azure vs AWS) for blob/queue/secrets,
+  queue transport.
+
+## Phase 1 – Ingest → LLM extract → review (3–5 weeks)
+
+- Channels: API upload and watched folder first (simplest to test), then one M365 mailbox via
+  Graph notifications; `.eml` retained; attachment unpacking; duplicate detection by hash.
+- Normalisation: PDF text layer (PdfPig), page rasters (PDFtoImage), Tesseract OCR for scans.
+- Classification (rules + Haiku), extraction with Opus 5.5 and structured outputs, validation
+  and flags, review tasks.
+- Customer portal: inbox, review screen with highlights, approve/reject, corrections stored.
+- Admin console: tenants, channels, document timeline, failed jobs, LLM usage.
+- Exit criterion: a pilot restaurant's mailbox processed end-to-end; gold set started.
+
+## Phase 2 – Structured e-invoices and splitting (2–3 weeks)
+
+- Factur-X/ZUGFeRD/XRechnung (CII) and UBL parsers to the canonical model; detection in
+  stage 2; these never touch OCR or the LLM.
+- Multi-document splitting (heuristics + Haiku), `MULTI_DOCUMENT_SPLIT` flag, manual split
+  tool in the portal.
+- Purchase orders and delivery notes as document types; reference matching (invoice ↔ PO ↔
+  delivery note) and the three-way match view.
+- Webhooks and exports (JSON, CSV, UBL).
+
+## Phase 3 – Measurement and cost controls (2 weeks, overlaps Phase 2)
+
+- Eval harness over the gold set: field accuracy, STP, cost per document for Opus/Sonnet/Haiku
+  and for prompt versions; batch-mode runs.
+- Prompt caching verified (cache-read tokens non-zero), supplier memory in the prompt,
+  per-tenant auto-approval thresholds tuned from correction rates.
+- Decision point: which model per stage; whether the volume/supplier repetition justifies
+  Phase 4 now or later.
+
+## Phase 4 – Extractor profiles (4–6 weeks)
+
+- Deterministic engine (`DocProc.Extraction.Profiles`) with the closed strategy set, snapshot
+  tests on real supplier PDFs.
+- Fingerprinting in stage 5; global supplier registry; cross-tenant sharing with opt-out.
+- Profile synthesis job (Opus at high effort), replay verification, shadow mode, lifecycle
+  (Candidate → Active → Degraded → Retired), drift alerts.
+- Admin console: profile list, success-rate charts, test-against-document, activate/retire.
+- Exit criterion: for the top suppliers of the pilot tenants, profile share > 60 % with
+  precision not below the LLM path.
+
+## Phase 5 – Hardening and scale (ongoing)
+
+- Azure Document Intelligence Layout as the premium OCR provider for poor scans.
+- Retention/purge jobs, legal hold, audit exports; per-tenant spend limits and alerts.
+- Multi-region/self-hosted deployment option if a customer requires it.
+- Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
+- Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
+
+## Risks and open questions
+
+| Risk / question | Mitigation or decision needed |
+|---|---|
+| Scan quality from small suppliers (photos of paper delivery notes) | OCR provider interface; Azure Layout fallback; `UNREADABLE_PAGES` flag with a request-resend workflow in the portal. |
+| Structured-output + citations cannot be combined | Provenance from our own text layer (see `06-llm-integration.md`). |
+| LLM provider terms vs customer DPAs | Inline requests only, no Files API persistence, batch only where allowed; confirm retention tier with Anthropic for EU customers. |
+| ZUGFeRD-csharp deprecation (Dec 2026) and its commercial successor | Pin last Apache release behind an interface; evaluate cost of the commercial package vs maintaining a fork when Phase 2 starts. |
+| Retention periods differ by country (Germany 8 years since 2025, Croatia 11, France 10) | Retention is a tenant setting with per-country defaults; legal review before launch in each country. |
+| Template drift when a supplier redesigns its invoice | Validation-gated fallback, drift metrics, automatic re-synthesis; never let a profile answer without arithmetic checks passing. |
+| Reviewer fatigue if thresholds are too strict | Per-field correction-rate reporting; raise auto-approval only where corrections are near zero. |
+| Which cloud, which IdP, which queue transport | Phase 0 decisions; the code is written against interfaces so the choice is reversible at low cost. |
