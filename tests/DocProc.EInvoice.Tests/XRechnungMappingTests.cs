@@ -22,9 +22,9 @@ public class XRechnungMappingTests
     }
 
     [Fact]
-    public void Leitweg_id_and_order_number_are_both_order_references()
+    public void Leitweg_id_in_the_buyer_reference_is_not_an_order_reference()
     {
-        Invoice.OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["04011000-12345-67", "B-2026-3310"]);
+        Invoice.OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["B-2026-3310"]);
     }
 
     [Fact]

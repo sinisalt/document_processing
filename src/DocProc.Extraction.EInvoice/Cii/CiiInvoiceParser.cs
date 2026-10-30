@@ -24,8 +24,9 @@ public static class CiiInvoiceParser
         var delivery = transaction.Child("ApplicableHeaderTradeDelivery");
         var settlement = transaction.Child("ApplicableHeaderTradeSettlement");
         var summation = settlement.Child("SpecifiedTradeSettlementHeaderMonetarySummation");
-        var currencyField = HeaderHelpers.Currency(settlement.Child("InvoiceCurrencyCode"));
-        var currency = currencyField.Value;
+        var currencyElement = settlement.Child("InvoiceCurrencyCode");
+        var currencyField = HeaderHelpers.Currency(currencyElement);
+        var currency = currencyElement.Text();
         var dueDate = XmlFields.CiiDate(settlement.Children("SpecifiedTradePaymentTerms")
             .Select(t => t.Child("DueDateDateTime"))
             .FirstOrDefault(d => d is not null));
@@ -43,7 +44,9 @@ public static class CiiInvoiceParser
             Currency = currencyField,
             Supplier = CiiPartyMapper.Supplier(agreement, settlement),
             Customer = CiiPartyMapper.Customer(agreement, settlement),
-            OrderReferences = HeaderHelpers.References([agreement.Child("BuyerReference"), agreement.Path("BuyerOrderReferencedDocument", "IssuerAssignedID")]),
+            // BuyerReference (BT-10) is a routing id (the XRechnung Leitweg-ID), not a purchase order number
+            // (docs/02-data-model.md: orderReferences match PurchaseOrders), so it stays out of OrderReferences.
+            OrderReferences = HeaderHelpers.References([agreement.Path("BuyerOrderReferencedDocument", "IssuerAssignedID")]),
             DeliveryNoteReferences = HeaderHelpers.References(delivery.Children("DespatchAdviceReferencedDocument").Select(d => d.Child("IssuerAssignedID"))),
             OriginalInvoiceReference = XmlFields.Identifier(settlement.Path("InvoiceReferencedDocument", "IssuerAssignedID")),
             SubtotalNet = XmlFields.Amount(summation.Child("LineTotalAmount"), currency),

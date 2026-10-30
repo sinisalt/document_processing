@@ -10,17 +10,35 @@ namespace DocProc.Extraction.EInvoice;
 /// <summary>
 /// Stage 6a (docs/03-pipeline.md): the <see cref="IEInvoiceParser"/> for the pipeline. Detection is delegated to
 /// <see cref="EInvoiceDetector"/>; parsing dispatches on the detected flavour to <see cref="UblInvoiceParser"/> or
-/// <see cref="CiiInvoiceParser"/>. Pure and stateless: XML in, <see cref="Invoice"/> out, no I/O.
+/// <see cref="CiiInvoiceParser"/>. Pure and stateless: XML in, <see cref="Invoice"/> out, no I/O. The size and
+/// nesting limits of <see cref="EInvoiceParserOptions"/> are enforced on both paths.
 /// </summary>
 public sealed class EInvoiceParser : IEInvoiceParser
 {
-    public EInvoiceDetection? Detect(ReadOnlyMemory<byte> xml) => EInvoiceDetector.Detect(xml);
+    private readonly EInvoiceParserOptions _options;
 
+    public EInvoiceParser()
+        : this(EInvoiceParserOptions.Default)
+    {
+    }
+
+    public EInvoiceParser(EInvoiceParserOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options;
+    }
+
+    public EInvoiceDetection? Detect(ReadOnlyMemory<byte> xml) => EInvoiceDetector.Detect(xml, _options);
+
+    /// <summary>
+    /// Malformed XML, a DTD, a mismatched root or a document over the size or depth limit throw
+    /// <see cref="EInvoiceParseException"/>; invalid values inside a well-formed document never throw.
+    /// </summary>
     public Invoice Parse(ReadOnlyMemory<byte> xml, EInvoiceDetection detection)
     {
         ArgumentNullException.ThrowIfNull(detection);
 
-        var root = SecureXml.Load(xml).Root ?? throw new EInvoiceParseException("The e-invoice XML has no root element.");
+        var root = SecureXml.Load(xml, _options).Root ?? throw new EInvoiceParseException("The e-invoice XML has no root element.");
         return detection.Flavour switch
         {
             EInvoiceFlavour.Ubl => UblInvoiceParser.Parse(RequireRoot(root, detection, IsUblRoot)),

@@ -52,7 +52,7 @@ public class CiiInvoiceMappingTests
     [Fact]
     public void References()
     {
-        Invoice.OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["KUECHE-ROSENHEIM", "PO-7781"]);
+        Invoice.OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["PO-7781"]);
         Invoice.DeliveryNoteReferences.Select(r => r.Value!.Verbatim).ShouldBe(["LS-55120"]);
         Invoice.OriginalInvoiceReference.ShouldBeMissing();
     }

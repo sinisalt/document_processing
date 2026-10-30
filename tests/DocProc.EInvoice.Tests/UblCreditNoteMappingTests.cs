@@ -22,7 +22,7 @@ public class UblCreditNoteMappingTests
         CreditNote.InvoiceNumber.ShouldBeExtracted(DocumentIdentifier.Create("GS-2026-0077"));
         CreditNote.IssueDate.ShouldBeExtracted(new DateOnly(2026, 10, 29));
         CreditNote.OriginalInvoiceReference.ShouldBeExtracted(DocumentIdentifier.Create("RE-2026-10412"));
-        CreditNote.OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["KUECHE-ROSENHEIM"]);
+        CreditNote.OrderReferences.ShouldBeEmpty();
         CreditNote.DeliveryNoteReferences.ShouldBeEmpty();
         CreditNote.Currency.ShouldBeExtracted("EUR");
         CreditNote.Notes.ShouldBeExtracted("Gutschrift für die Retoure vom 28.10.2026 (Qualitätsmangel).");

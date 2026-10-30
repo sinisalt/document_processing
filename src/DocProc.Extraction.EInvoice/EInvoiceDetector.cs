@@ -9,7 +9,8 @@ namespace DocProc.Extraction.EInvoice;
 /// Stage 2 sniff (docs/03-pipeline.md): recognises UBL Invoice / CreditNote and CII CrossIndustryInvoice from the
 /// root element and its namespace with a forward-only <see cref="XmlReader"/>, and reads the profile identifier
 /// (UBL CustomizationID, CII GuidelineSpecifiedDocumentContextParameter/ID) from the document preamble without
-/// parsing the rest. DTDs are prohibited, so a document with a DOCTYPE is not an e-invoice, whatever its root says.
+/// parsing the rest. DTDs are prohibited, so a document with a DOCTYPE is not an e-invoice, whatever its root says,
+/// and neither is one over the size or nesting limits of <see cref="EInvoiceParserOptions"/>.
 /// </summary>
 public static class EInvoiceDetector
 {
@@ -20,15 +21,22 @@ public static class EInvoiceDetector
     private const string CiiGuidelineParameter = "GuidelineSpecifiedDocumentContextParameter";
     private const string Id = "ID";
 
-    public static EInvoiceDetection? Detect(ReadOnlyMemory<byte> xml)
+    public static EInvoiceDetection? Detect(ReadOnlyMemory<byte> xml) => Detect(xml, EInvoiceParserOptions.Default);
+
+    /// <summary>
+    /// Detection under explicit resource limits: a payload over the byte limit, or one nested deeper than the depth
+    /// limit before the profile is found, is not an e-invoice this parser accepts and yields null.
+    /// </summary>
+    public static EInvoiceDetection? Detect(ReadOnlyMemory<byte> xml, EInvoiceParserOptions options)
     {
-        if (xml.IsEmpty)
+        ArgumentNullException.ThrowIfNull(options);
+        if (xml.IsEmpty || xml.Length > options.MaxDocumentBytes)
         {
             return null;
         }
 
         using var stream = SecureXml.OpenStream(xml);
-        using var reader = SecureXml.CreateReader(stream);
+        using var reader = SecureXml.CreateReader(stream, options);
 
         string rootElement;
         EInvoiceFlavour flavour;
@@ -62,6 +70,11 @@ public static class EInvoiceDetector
         {
             // The root is a recognised e-invoice but the body is broken; Parse reports the exact problem.
             profile = null;
+        }
+        catch (EInvoiceParseException)
+        {
+            // Nested past the depth limit before the profile was found: rejected outright, not handed to Parse.
+            return null;
         }
 
         return new EInvoiceDetection(flavour, profile, rootElement);

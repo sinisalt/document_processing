@@ -32,15 +32,16 @@ internal static class UblSettlementMapper
         var rows = new List<TaxBreakdownLine>();
         foreach (var subtotal in taxTotal.Children("TaxSubtotal"))
         {
+            var category = subtotal.Child("TaxCategory");
             if (!XmlFields.TryAmount(subtotal.Child("TaxableAmount"), currency, out var taxable)
-                || !XmlFields.TryAmount(subtotal.Child("TaxAmount"), currency, out var tax))
+                || !XmlFields.TryAmount(subtotal.Child("TaxAmount"), currency, out var tax)
+                || !SettlementHelpers.TryRate(category.Child("Percent"), out var rate))
             {
                 continue;
             }
 
-            var category = subtotal.Child("TaxCategory");
             rows.Add(new TaxBreakdownLine(
-                SettlementHelpers.Rate(category.Child("Percent")),
+                rate,
                 taxable,
                 tax,
                 TaxCategoryCodes.ToCategory(category.Child("ID").Text())));
@@ -53,22 +54,23 @@ internal static class UblSettlementMapper
     public static ChargeOrAllowance[] AllowanceCharges(XElement root, string? currency, bool charges) =>
         SettlementHelpers.AllowanceCharges(root.Children("AllowanceCharge"), currency, charges, Shape);
 
+    /// <summary>PaymentMeans entries are all read: the first code, the first PaymentID and the first payee account found win.</summary>
     public static FieldValue<PaymentTerms> PaymentTerms(XElement root, FieldValue<DateOnly> dueDate)
     {
-        var means = root.Child("PaymentMeans");
+        var means = UblPaymentMeans.All(root);
         var note = root.Children("PaymentTerms").SelectMany(t => t.Children("Note")).JoinedText();
-        if (means is null && note is null && !dueDate.HasValue)
+        if (means.Length == 0 && note is null && !dueDate.HasValue)
         {
             return FieldValue<PaymentTerms>.Missing();
         }
 
-        var account = means.Child("PayeeFinancialAccount");
+        var account = UblPaymentMeans.PayeeAccount(means);
         var terms = new PaymentTerms(
             DueDate: dueDate.HasValue ? dueDate.Value : null,
-            PaymentMeans: PaymentMeansCodes.ToPaymentMeans(means.Child("PaymentMeansCode").Text()),
-            PaymentReference: means.Child("PaymentID").Text(),
-            Iban: account.Child("ID").Text(),
-            Bic: account.Path("FinancialInstitutionBranch", "ID").Text(),
+            PaymentMeans: PaymentMeansCodes.ToPaymentMeans(UblPaymentMeans.Code(means)),
+            PaymentReference: UblPaymentMeans.PaymentId(means),
+            Iban: account.Iban,
+            Bic: account.Bic,
             RawText: note);
         return XmlFields.Extracted(terms, note);
     }

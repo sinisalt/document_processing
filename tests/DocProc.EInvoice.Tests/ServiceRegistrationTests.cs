@@ -19,4 +19,15 @@ public class ServiceRegistrationTests
         services.Count(d => d.ServiceType == typeof(IEInvoiceParser)).ShouldBe(1);
         parser.Detect(Fixtures.Bytes(Fixtures.PeppolInvoice)).ShouldNotBeNull().Flavour.ShouldBe(EInvoiceFlavour.Ubl);
     }
+
+    [Fact]
+    public void AddEInvoiceParsing_applies_the_given_resource_limits()
+    {
+        var xml = Fixtures.Bytes(Fixtures.PeppolInvoice);
+        var services = new ServiceCollection().AddEInvoiceParsing(new EInvoiceParserOptions { MaxDocumentBytes = 16 });
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<EInvoiceParserOptions>().MaxDocumentBytes.ShouldBe(16);
+        provider.GetRequiredService<IEInvoiceParser>().Detect(xml).ShouldBeNull();
+    }
 }
