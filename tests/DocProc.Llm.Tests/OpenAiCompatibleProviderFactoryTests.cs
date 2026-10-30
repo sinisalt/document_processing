@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Net;
 using DocProc.Llm.OpenAi;
+using DocProc.Llm.OpenAi.Pipeline;
 using DocProc.Llm.Providers;
 using static DocProc.Llm.Tests.OpenAiTestSupport;
 
@@ -71,6 +72,22 @@ public class OpenAiCompatibleProviderFactoryTests
     }
 
     [Fact]
+    public async Task Azure_keeps_an_api_version_pasted_into_the_endpoint_when_the_configuration_sets_none()
+    {
+        var pasted = new Uri("https://docproc-eu.openai.azure.com/openai/v1?api-version=preview");
+        var fromEndpoint = new FakeOpenAiHandler().EnqueueCompletion();
+        var fromConfig = new FakeOpenAiHandler().EnqueueCompletion();
+
+        await Provider(fromEndpoint, Config(LlmProviderKind.AzureOpenAi, pasted), ApiKey).CompleteAsync(Request(null), CancellationToken.None);
+        await Provider(fromConfig, Config(LlmProviderKind.AzureOpenAi, pasted, apiVersion: "2025-04-01-preview"), ApiKey).CompleteAsync(Request(null), CancellationToken.None);
+
+        fromEndpoint.Requests.ShouldHaveSingleItem().Uri.ShouldBe(new Uri("https://docproc-eu.openai.azure.com/openai/v1/chat/completions?api-version=preview"));
+        fromConfig.Requests.ShouldHaveSingleItem().Uri.ShouldBe(new Uri("https://docproc-eu.openai.azure.com/openai/v1/chat/completions?api-version=2025-04-01-preview"), "the configuration's api-version wins");
+        AzureOpenAiEndpoint.ApiVersionFrom(pasted).ShouldBe("preview");
+        AzureOpenAiEndpoint.ApiVersionFrom(AzureResource).ShouldBeNull();
+    }
+
+    [Fact]
     public void Azure_with_managed_identity_builds_a_provider_without_a_key()
     {
         var config = Config(LlmProviderKind.AzureOpenAi, AzureResource, auth: LlmAuthType.ManagedIdentity);
@@ -131,6 +148,55 @@ public class OpenAiCompatibleProviderFactoryTests
         sent.Headers.ContainsKey("Authorization").ShouldBeFalse();
         sent.Body.GetProperty("response_format").GetProperty("type").GetString().ShouldBe("json_object");
         sent.Body.GetProperty("messages")[1].GetProperty("content").EnumerateArray().Select(c => c.GetProperty("type").GetString()).ShouldBe(["text", "text"]);
+    }
+
+    [Theory]
+    [InlineData(LlmProviderKind.OpenAi)]
+    [InlineData(LlmProviderKind.AzureOpenAi)]
+    public async Task OpenAi_and_azure_send_max_completion_tokens_only(LlmProviderKind kind)
+    {
+        var handler = new FakeOpenAiHandler().EnqueueCompletion().EnqueueCompletion(content: "", finishReason: "length");
+        var provider = Provider(handler, Config(kind, AzureResource), ApiKey);
+
+        await provider.CompleteAsync(Request(null), CancellationToken.None);
+        await provider.ValidateCredentialAsync(CancellationToken.None);
+
+        handler.Requests.Count.ShouldBe(2);
+        handler.Requests[0].Body.GetProperty("max_completion_tokens").GetInt32().ShouldBe(4096);
+        handler.Requests[0].Body.TryGetProperty("max_tokens", out _).ShouldBeFalse();
+        handler.Requests[1].Body.GetProperty("max_completion_tokens").GetInt32().ShouldBe(1);
+        handler.Requests[1].Body.TryGetProperty("max_tokens", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Compatible_servers_get_the_legacy_max_tokens_instead_of_max_completion_tokens()
+    {
+        var handler = new FakeOpenAiHandler().EnqueueCompletion().EnqueueCompletion(content: "", finishReason: "length");
+        var provider = Provider(handler, Config(LlmProviderKind.OpenAiCompatible, SelfHosted), LlmCredential.None);
+        var request = Request(new DocumentInput { PageTexts = ["Rechnung über 1.234,56 €"] });
+
+        await provider.CompleteAsync(request, CancellationToken.None);
+        await provider.ValidateCredentialAsync(CancellationToken.None);
+
+        handler.Requests.Count.ShouldBe(2);
+        handler.Requests[0].Body.GetProperty("max_tokens").GetInt32().ShouldBe(4096);
+        handler.Requests[0].Body.TryGetProperty("max_completion_tokens", out _).ShouldBeFalse("Ollama ignores the modern field and would run unbounded");
+        handler.Requests[0].Body.TryGetProperty("user", out _).ShouldBeFalse();
+        handler.Requests[0].Body.GetProperty("model").GetString().ShouldBe("gpt-5");
+        handler.Requests[0].Body.GetProperty("messages")[1].GetProperty("content")[0].GetProperty("text").GetString()!.ShouldContain("1.234,56 €", Case.Sensitive, "the rewrite keeps non-ASCII text intact");
+        handler.Requests[1].Body.GetProperty("max_tokens").GetInt32().ShouldBe(1);
+        handler.Requests[1].Body.TryGetProperty("max_completion_tokens", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_legacy_max_tokens_rewrite_leaves_bodies_without_the_field_alone()
+    {
+        LegacyMaxTokensPolicy.Rewrite("{\"model\":\"m\",\"max_tokens\":3}"u8.ToArray()).ShouldBeNull();
+        LegacyMaxTokensPolicy.Rewrite("[1,2]"u8.ToArray()).ShouldBeNull();
+
+        var rewritten = LegacyMaxTokensPolicy.Rewrite("{\"model\":\"m\",\"max_completion_tokens\":3,\"max_tokens\":9}"u8.ToArray());
+
+        rewritten.ShouldNotBeNull().ToString().ShouldBe("{\"model\":\"m\",\"max_tokens\":3}");
     }
 
     [Fact]

@@ -41,7 +41,8 @@ public class OpenAiRequestBuilderTests
         var options = Json(chat.Options);
         options.GetProperty("max_completion_tokens").GetInt32().ShouldBe(4096);
         options.GetProperty("reasoning_effort").GetString().ShouldBe("medium");
-        options.GetProperty("user").GetString().ShouldBe("dddddddd000000000000000000000001");
+        options.TryGetProperty("user", out _).ShouldBeFalse("DocumentId is correlation only and never reaches the provider");
+        chat.Timeout.ShouldBe(request.Options.Timeout);
         var format = options.GetProperty("response_format");
         format.GetProperty("type").GetString().ShouldBe("json_schema");
         format.GetProperty("json_schema").GetProperty("name").GetString().ShouldBe("invoice_extraction");

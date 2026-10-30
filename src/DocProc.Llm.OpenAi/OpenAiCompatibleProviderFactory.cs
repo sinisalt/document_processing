@@ -13,7 +13,7 @@ namespace DocProc.Llm.OpenAi;
 /// <item><see cref="LlmProviderKind.OpenAi"/>: api.openai.com (or the configured base URL) with a bearer API key.</item>
 /// <item><see cref="LlmProviderKind.AzureOpenAi"/>: the resource's <c>/openai/v1</c> endpoint with the <c>api-key</c>
 /// header, or <see cref="DefaultAzureCredential"/> when the credential asks for managed identity; deployment names are
-/// the model ids and an optional <c>api-version</c> is appended.</item>
+/// the model ids and an optional <c>api-version</c> (from the configuration, else from the pasted endpoint's query) is appended.</item>
 /// <item><see cref="LlmProviderKind.OpenAiCompatible"/>: an arbitrary base URL (vLLM, Ollama) with an optional key and
 /// the self-hosted capability profile.</item>
 /// </list>
@@ -23,9 +23,10 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
 {
     public const string AzureApiKeyHeader = "api-key";
 
+    /// <summary>The hard ceiling on one network call; <see cref="LlmOptions.Timeout"/> bounds each request below it.</summary>
     public static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
 
-    public bool Supports(LlmProviderKind kind) => kind is LlmProviderKind.OpenAi or LlmProviderKind.AzureOpenAi or LlmProviderKind.OpenAiCompatible;
+    public bool Supports(LlmProviderKind kind) => OpenAiCompatibleCapabilities.Supports(kind);
 
     public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential)
     {
@@ -67,9 +68,12 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
 
         var options = NewOptions();
         options.Endpoint = AzureOpenAiEndpoint.Resolve(endpoint);
-        if (!string.IsNullOrWhiteSpace(config.ApiVersion))
+
+        // Resolve() strips the query; an api-version a tenant left on the pasted endpoint still counts when the configuration sets none.
+        var apiVersion = string.IsNullOrWhiteSpace(config.ApiVersion) ? AzureOpenAiEndpoint.ApiVersionFrom(endpoint) : config.ApiVersion;
+        if (!string.IsNullOrWhiteSpace(apiVersion))
         {
-            options.AddPolicy(new ApiVersionPolicy(config.ApiVersion), PipelinePosition.PerCall);
+            options.AddPolicy(new ApiVersionPolicy(apiVersion), PipelinePosition.PerCall);
         }
 
         AuthenticationPolicy auth = credential.UseManagedIdentity
@@ -86,6 +90,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
 
         var options = NewOptions();
         options.Endpoint = endpoint;
+        options.AddPolicy(LegacyMaxTokensPolicy.Instance, PipelinePosition.PerCall); // Ollama only honours max_tokens
 
         return string.IsNullOrWhiteSpace(credential.ApiKey)
             ? new OpenAIClient(AnonymousAuthenticationPolicy.Instance, options)

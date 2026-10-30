@@ -107,6 +107,34 @@ public class OpenAiErrorMapperTests
     }
 
     [Fact]
+    public void A_rejected_value_is_not_an_unsupported_parameter()
+    {
+        var unsupportedValue = ApiError(400, FakeOpenAiHandler.ErrorJson("Unsupported value: 'high' is not supported with this model. Supported values are: 'low' and 'medium'.", param: "reasoning_effort", code: "unsupported_value"));
+        var invalidValue = ApiError(400, FakeOpenAiHandler.ErrorJson("Invalid value: 'xhigh'. Supported values are: 'low', 'medium', and 'high'.", param: "reasoning_effort", code: "invalid_value"));
+        var messageOnly = ApiError(400, "{\"error\":{\"message\":\"reasoning_effort: invalid value 'high'\"}}");
+
+        OpenAiErrorMapper.IsUnsupportedParameter(unsupportedValue, "reasoning_effort").ShouldBeFalse("'not supported' inside a value error must not drop the parameter");
+        OpenAiErrorMapper.IsUnsupportedValue(unsupportedValue, "reasoning_effort").ShouldBeTrue();
+        OpenAiErrorMapper.IsUnsupportedValue(invalidValue, "reasoning_effort").ShouldBeTrue();
+        OpenAiErrorMapper.IsUnsupportedValue(messageOnly, "reasoning_effort").ShouldBeTrue();
+        OpenAiErrorMapper.SupportedValues(unsupportedValue).ShouldBe(["low", "medium"]);
+        OpenAiErrorMapper.SupportedValues(invalidValue).ShouldBe(["low", "medium", "high"]);
+        OpenAiErrorMapper.SupportedValues(messageOnly).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_bare_mention_of_the_parameter_is_not_a_rejection()
+    {
+        var mention = ApiError(400, FakeOpenAiHandler.ErrorJson("Your request exceeded the context window; lower reasoning_effort or shorten the prompt."));
+        var otherParam = ApiError(400, FakeOpenAiHandler.ErrorJson("Unsupported parameter: 'temperature' is not supported with reasoning_effort set.", param: "temperature", code: "unsupported_parameter"));
+        var ollama = ApiError(400, "{\"error\":{\"message\":\"unknown parameter: reasoning_effort\"}}");
+
+        OpenAiErrorMapper.Classify(mention, "reasoning_effort").ShouldBe(ParameterRejection.None);
+        OpenAiErrorMapper.Classify(otherParam, "reasoning_effort").ShouldBe(ParameterRejection.None);
+        OpenAiErrorMapper.Classify(ollama, "reasoning_effort").ShouldBe(ParameterRejection.UnsupportedParameter);
+    }
+
+    [Fact]
     public void From_status_without_an_inner_exception_describes_the_status() =>
         OpenAiErrorMapper.FromStatus(HttpStatusCode.BadGateway).Message.ShouldBe("Provider returned HTTP 502.");
 }
