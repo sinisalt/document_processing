@@ -1,0 +1,143 @@
+{
+  "app": {
+    "name": "DocProc",
+    "loading": "Wird geladen…",
+    "skipToContent": "Zum Inhalt springen"
+  },
+  "nav": {
+    "main": "Hauptnavigation",
+    "toggleSidebar": "Seitenleiste umschalten"
+  },
+  "auth": {
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "signingIn": "Anmeldung läuft…",
+    "devTitle": "Entwicklungs-Anmeldung",
+    "devSubtitle": "Einen Benutzer des lokalen Realms wählen. Die API stellt ein Token aus; kein Passwort.",
+    "devUnavailable": "Die Entwicklungs-Anmeldung ist nicht verfügbar: {{message}}",
+    "oidcTitle": "Bei {{app}} anmelden",
+    "oidcSubtitle": "Sie werden zum Identitätsanbieter Ihrer Organisation weitergeleitet.",
+    "signInAs": "Als {{name}} anmelden",
+    "platformScope": "Plattform",
+    "tenant": "Mandant {{id}}",
+    "sessionError": "Anmeldung fehlgeschlagen: {{message}}",
+    "checking": "Sitzung wird geprüft…",
+    "userError": "Ihre Identität konnte nicht geladen werden.",
+    "retry": "Erneut versuchen"
+  },
+  "userMenu": {
+    "open": "Kontomenü für {{name}}",
+    "roles": "Rollen",
+    "scope": "Bereich",
+    "language": "Sprache",
+    "theme": "Darstellung",
+    "themeLight": "Hell",
+    "themeDark": "Dunkel",
+    "themeSystem": "System"
+  },
+  "languages": {
+    "en": "English",
+    "de": "Deutsch"
+  },
+  "roles": {
+    "SuperAdmin": "Superadmin",
+    "Operator": "Operator",
+    "TenantAdmin": "Mandanten-Admin",
+    "Reviewer": "Prüfer",
+    "Viewer": "Betrachter"
+  },
+  "scope": {
+    "platform": "Plattformbereich",
+    "tenant": "Mandantenbereich"
+  },
+  "tenantSwitcher": {
+    "label": "Als Mandant handeln",
+    "platform": "Plattform (alle Mandanten)"
+  },
+  "tenantStatus": {
+    "Active": "Aktiv",
+    "Suspended": "Gesperrt",
+    "Closed": "Geschlossen"
+  },
+  "documentStatus": {
+    "Received": "Empfangen",
+    "Normalized": "Normalisiert",
+    "Split": "Aufgeteilt",
+    "Classified": "Klassifiziert",
+    "Matched": "Zugeordnet",
+    "Extracted": "Extrahiert",
+    "Validated": "Validiert",
+    "AutoApproved": "Automatisch freigegeben",
+    "NeedsReview": "Prüfung nötig",
+    "Approved": "Freigegeben",
+    "Rejected": "Abgelehnt",
+    "Failed": "Fehlgeschlagen"
+  },
+  "reviewTaskStatus": {
+    "Open": "Offen",
+    "InProgress": "In Bearbeitung",
+    "Done": "Erledigt",
+    "Skipped": "Übersprungen"
+  },
+  "fieldStatus": {
+    "Extracted": "Extrahiert",
+    "Inferred": "Abgeleitet",
+    "Missing": "Fehlt",
+    "Unreadable": "Unlesbar",
+    "Conflict": "Konflikt",
+    "Corrected": "Korrigiert"
+  },
+  "sourceMethod": {
+    "StructuredXml": "E-Rechnung (XML)",
+    "Profile": "Profil",
+    "Llm": "KI",
+    "Ocr": "OCR",
+    "Human": "Prüfer"
+  },
+  "confidence": {
+    "label": "Konfidenz {{value}}",
+    "unknown": "Keine Konfidenz",
+    "low": "Geringe Konfidenz"
+  },
+  "table": {
+    "columns": "Spalten",
+    "toggleColumns": "Spalten wählen",
+    "sortAscending": "Aufsteigend sortieren",
+    "sortDescending": "Absteigend sortieren",
+    "clearSort": "Sortierung aufheben",
+    "empty": "Noch nichts vorhanden",
+    "emptyDescription": "Für diese Ansicht gibt es nichts anzuzeigen.",
+    "loading": "Zeilen werden geladen…",
+    "loadMore": "Mehr laden",
+    "rowCount": "{{count}} Zeile",
+    "rowCount_other": "{{count}} Zeilen"
+  },
+  "dialog": {
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen",
+    "working": "Wird ausgeführt…"
+  },
+  "errors": {
+    "requestFailed": "Anfrage fehlgeschlagen",
+    "network": "Der Server ist nicht erreichbar.",
+    "forbidden": "Dazu sind Sie nicht berechtigt.",
+    "validation": "Bitte prüfen Sie Ihre Eingaben.",
+    "conflict": "Jemand anderes hat dies zuerst geändert.",
+    "title": "Etwas ist schiefgelaufen",
+    "description": "Die Seite ist auf einen Fehler gestoßen, von dem sie sich nicht erholen konnte.",
+    "details": "Technische Details",
+    "reload": "Seite neu laden",
+    "tryAgain": "Erneut versuchen",
+    "goHome": "Zum Dashboard"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Unter {{path}} gibt es nichts.",
+    "goHome": "Zum Dashboard"
+  },
+  "actions": {
+    "close": "Schließen",
+    "refresh": "Aktualisieren",
+    "back": "Zurück"
+  }
+}

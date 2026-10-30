@@ -1,0 +1,4 @@
+/* The apps import this file: the design tokens and Tailwind layers of @docproc/ui plus this package's own
+   component sources, which Tailwind would otherwise not scan (they live outside the app's tree). */
+@import "@docproc/ui/styles.css";
+@source "./";

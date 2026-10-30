@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "dashboard": "Dashboard"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Your documents at a glance.",
+    "welcome": "Welcome, {{name}}",
+    "placeholder": "The inbox, review queue and supplier screens arrive here."
+  }
+}

@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Tailwind only scans the importing app's own tree (node_modules and symlinked workspace packages are skipped),
+   so the component sources are declared here or their classes never reach the apps' stylesheets. */
+@source "../components";
+@source "../hooks";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

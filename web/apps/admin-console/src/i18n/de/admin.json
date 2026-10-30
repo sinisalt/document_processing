@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "dashboard": "Dashboard"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Die Plattform auf einen Blick.",
+    "welcome": "Willkommen, {{name}}",
+    "placeholder": "Mandanten, die globale Prüfliste, Profile und Anbieter erscheinen hier."
+  }
+}

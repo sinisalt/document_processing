@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@docproc/api-client": "workspace:*",
+    "@docproc/app-shell": "workspace:*",
     "@docproc/ui": "workspace:*",
     "@hookform/resolvers": "^6.0.2",
     "@tanstack/react-query": "^5.105.0",

@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "dashboard": "Dashboard"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Ihre Dokumente auf einen Blick.",
+    "welcome": "Willkommen, {{name}}",
+    "placeholder": "Posteingang, Prüfliste und Lieferanten erscheinen hier."
+  }
+}
