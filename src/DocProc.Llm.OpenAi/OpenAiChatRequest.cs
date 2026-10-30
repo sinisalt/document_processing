@@ -14,6 +14,7 @@ public sealed record OpenAiChatRequest(string Model, IReadOnlyList<ChatMessage> 
     /// <summary>Whether a reasoning effort is set; the provider clears or degrades it when a model rejects the parameter or the value (docs/08 "Reasoning/effort").</summary>
     public bool HasReasoningEffort => Options.ReasoningEffortLevel is not null;
 
+    /// <summary>The reasoning effort currently on the request; the provider lowers it along the ladder when a model rejects the value.</summary>
     public ChatReasoningEffortLevel? ReasoningEffort
     {
         get => Options.ReasoningEffortLevel;

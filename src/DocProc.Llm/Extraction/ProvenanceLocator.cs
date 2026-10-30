@@ -44,7 +44,7 @@ public sealed class ProvenanceLocator
         string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: true);
 
     /// <summary>
-    /// Identifier-like values (document numbers, VAT and tax ids, IBAN/BIC, SKU, GTIN, lot numbers, order references):
+    /// Identifier-like values (document numbers, VAT and tax ids, SKU, GTIN, lot numbers, order references):
     /// exact or normalised match only. A value that differs from the printed one by a single character is not found.
     /// </summary>
     public ProvenanceMatch LocateIdentifier(string? value, int? preferredPage = null) =>

@@ -39,7 +39,7 @@ internal static class PdfDocumentReader
         {
             // No copy when the stream exposes exactly its bytes; otherwise only the bytes after Position, as any other stream.
             var position = checked((int)memory.Position);
-            var remaining = buffer.Count - position;
+            var remaining = Math.Max(0, buffer.Count - position);
             memory.Position = buffer.Count;
             return position == 0 && buffer.Offset == 0 && remaining == buffer.Array!.Length
                 ? buffer.Array

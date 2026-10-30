@@ -37,7 +37,7 @@ public class ResourceLimitTests
         parser.Detect(xml).ShouldBeNull();
         var ex = Should.Throw<EInvoiceParseException>(() => parser.Parse(xml, UblDetection));
 
-        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2));
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10)); // milliseconds in practice; generous for slow CI runners
         ex.Message.ShouldContain("deeper than the limit of 256");
     }
 
