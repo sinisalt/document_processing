@@ -9,7 +9,9 @@ front-end developer; adjust to the team.
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server
   2025 container, Service Bus emulator and Azurite; EF Core migrations; CI with build, tests
-  against Testcontainers, container images; Bicep for the Azure dev environment.
+  against Testcontainers, container images; Bicep for the Azure dev environment; local
+  substitutes per `09-local-development.md` (Keycloak, Lowkey Vault, GreenMail, replay LLM
+  provider) wired into the AppHost from day one.
 - Canonical domain model and JSON schema (versioned) from `02-data-model.md`; validation rules
   with unit tests.
 - Tenancy, OIDC login, roles, API keys; OpenAPI published; generated TS client.

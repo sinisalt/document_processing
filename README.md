@@ -16,3 +16,4 @@ The repository currently holds the research and implementation plan:
 - [`docs/06-llm-integration.md`](docs/06-llm-integration.md)
 - [`docs/07-roadmap.md`](docs/07-roadmap.md)
 - [`docs/08-llm-providers-and-byok.md`](docs/08-llm-providers-and-byok.md)
+- [`docs/09-local-development.md`](docs/09-local-development.md)

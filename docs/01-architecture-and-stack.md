@@ -35,7 +35,8 @@
 Two deployable processes (API and Worker) built from one solution, plus SQL Server, a queue
 and blob storage. Production runs in Azure (Azure SQL Database, Azure Container Apps, Azure
 Service Bus, Azure Blob Storage, Key Vault, Entra ID); local development and CI run the same
-code against Docker containers (SQL Server 2025 image, Service Bus emulator, Azurite). The worker scales horizontally by stage via queue consumers; LLM and OCR
+code against Docker containers (SQL Server 2025 image, Service Bus emulator, Azurite); see
+`09-local-development.md` for the full local/Azure mapping and Apple Silicon notes. The worker scales horizontally by stage via queue consumers; LLM and OCR
 calls are bounded by per-provider concurrency limiters. Aspire is used for local
 orchestration and the dashboard, not as a production dependency.
 

@@ -41,6 +41,7 @@ where the measured savings justify it. Full reasoning: `04-known-format-automati
 | `05-api-and-ui.md` | API-first principles, roles, resource model, the admin console and the customer portal. |
 | `06-llm-integration.md` | Claude capabilities used, model per stage, cost model, prompt design, provenance, confidence, data handling, evals. |
 | `07-roadmap.md` | Six phases with exit criteria, risks and open decisions. |
+| `09-local-development.md` | What runs on a Mac with Docker, what is emulated, what needs a real Azure resource, Apple Silicon notes, and the test pyramid. |
 | `08-llm-providers-and-byok.md` | Provider-neutral LLM gateway (Anthropic, Claude on Microsoft Foundry, OpenAI, Azure OpenAI, OpenAI-compatible), schema and prompt portability, per-tenant bring-your-own-key with Key Vault, cost attribution and spend caps. |
 
 ## Key research findings (checked 2026-10-30)
