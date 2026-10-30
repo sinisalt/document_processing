@@ -17,7 +17,9 @@ namespace DocProc.Api.Endpoints;
 /// <summary>
 /// The document resource of docs/05: inbox listing, the review payload, the viewer's binaries, the timeline, and the
 /// human decisions (approve, reject, reprocess, correct). Tenant scope is the resolved <c>ITenantContext</c>; the GETs
-/// work in platform scope for operators, and the actions act on whatever document the scope can see.
+/// work in platform scope for operators, and the actions act on whatever document the scope can see. Every state
+/// change is a conditional <c>UPDATE … WHERE Status = &lt;the status the caller saw&gt;</c>, so two reviewers deciding
+/// the same document at once produce exactly one decision, one event and one publish message; the loser gets 409.
 /// </summary>
 public static class DocumentEndpoints
 {
@@ -29,6 +31,21 @@ public static class DocumentEndpoints
         [PipelineStage.Extract] = DocumentStatus.Matched,
         [PipelineStage.Validate] = DocumentStatus.Extracted,
     };
+
+    /// <summary>The pipeline's progress states in order; a reprocess may only reset to a state the document has actually been in.</summary>
+    private static readonly DocumentStatus[] PipelineOrder =
+    [
+        DocumentStatus.Received,
+        DocumentStatus.Normalized,
+        DocumentStatus.Split,
+        DocumentStatus.Classified,
+        DocumentStatus.Matched,
+        DocumentStatus.Extracted,
+        DocumentStatus.Validated,
+    ];
+
+    /// <summary>States in which a human may correct fields: the pipeline is not writing the canonical JSON and nothing has been published.</summary>
+    private static readonly DocumentStatus[] Correctable = [DocumentStatus.NeedsReview, DocumentStatus.Validated, DocumentStatus.Failed];
 
     public static RouteGroupBuilder MapDocuments(this RouteGroupBuilder group)
     {
@@ -53,7 +70,7 @@ public static class DocumentEndpoints
         documents.MapGet("/{id:guid}/original", GetOriginalAsync)
             .RequireAuthorization(Policies.Read)
             .WithName("GetDocumentOriginal")
-            .WithSummary("The file the document was ingested from, with its original content type and file name.")
+            .WithSummary("The file the document was ingested from. PDFs and images are served inline with their content type; anything else is an attachment of application/octet-stream.")
             .Produces(StatusCodes.Status200OK, contentType: "application/octet-stream");
 
         documents.MapGet("/{id:guid}/text", GetTextAsync)
@@ -80,12 +97,12 @@ public static class DocumentEndpoints
         documents.MapPost("/{id:guid}:reprocess", ReprocessAsync)
             .RequireAuthorization(Policies.Review)
             .WithName("ReprocessDocument")
-            .WithSummary("Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage (Normalize, Classify, Extract or Validate; default Extract).");
+            .WithSummary("Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract).");
 
         documents.MapPatch("/{id:guid}/fields", CorrectFieldsAsync)
             .RequireAuthorization(Policies.Review)
             .WithName("CorrectDocumentFields")
-            .WithSummary("Applies reviewer corrections by canonical field path; each keeps the previous value in the field's history and is recorded as a Correction.");
+            .WithSummary("Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.");
 
         return group;
     }
@@ -196,7 +213,7 @@ public static class DocumentEndpoints
         return row is null ? NotFound(id) : TypedResults.Ok(DocumentQueries.ToDetail(row));
     }
 
-    private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> GetPageAsync(Guid id, int n, [FromServices] DocProcDbContext db, IContainerBlobStore blobs, CancellationToken ct)
+    private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> GetPageAsync(Guid id, int n, HttpContext context, [FromServices] DocProcDbContext db, IContainerBlobStore blobs, CancellationToken ct)
     {
         var document = await db.Documents.AsNoTracking().Where(d => d.Id == id).Select(d => new { d.Id, d.PageImageKeys }).SingleOrDefaultAsync(ct);
         if (document is null)
@@ -218,6 +235,7 @@ public static class DocumentEndpoints
         try
         {
             var stream = await blobs.OpenReadAsync(reference, ct);
+            NoSniff(context);
             return TypedResults.Stream(stream, "image/png", entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
         }
         catch (BlobNotFoundException)
@@ -238,10 +256,16 @@ public static class DocumentEndpoints
         try
         {
             var stream = await blobs.OpenReadAsync(reference, ct);
-            var disposition = new ContentDispositionHeaderValue("inline");
+
+            // The content type is whatever the uploader claimed. Only formats the viewer renders itself are served
+            // inline under that type; everything else (HTML, SVG, Office, archives) downloads as opaque bytes, so a
+            // crafted upload can never run as a page of this origin.
+            var inline = IsInlineSafe(item.MimeType);
+            var disposition = new ContentDispositionHeaderValue(inline ? "inline" : "attachment");
             disposition.SetHttpFileName(item.FileName);
             context.Response.Headers.ContentDisposition = disposition.ToString();
-            return TypedResults.Stream(stream, item.MimeType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
+            NoSniff(context);
+            return TypedResults.Stream(stream, inline ? item.MimeType : ItemKinds.DefaultContentType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
         }
         catch (BlobNotFoundException)
         {
@@ -249,7 +273,7 @@ public static class DocumentEndpoints
         }
     }
 
-    private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> GetTextAsync(Guid id, [FromServices] DocProcDbContext db, IBlobStore blobs, CancellationToken ct)
+    private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> GetTextAsync(Guid id, HttpContext context, [FromServices] DocProcDbContext db, IBlobStore blobs, CancellationToken ct)
     {
         var document = await db.Documents.AsNoTracking().Where(d => d.Id == id).Select(d => new { d.Id, d.TextLayerBlob }).SingleOrDefaultAsync(ct);
         if (document is null)
@@ -265,6 +289,7 @@ public static class DocumentEndpoints
         try
         {
             var stream = await blobs.OpenReadAsync(new BlobRef(blob.Container, blob.Key, blob.Sha256, blob.SizeBytes, blob.ContentType), ct);
+            NoSniff(context);
             return TypedResults.Stream(stream, "application/json", entityTag: new EntityTagHeaderValue($"\"{blob.Sha256}\""));
         }
         catch (BlobNotFoundException)
@@ -301,7 +326,7 @@ public static class DocumentEndpoints
         ClaimsPrincipal user,
         CancellationToken ct)
     {
-        var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
+        var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
         if (row is null)
         {
             return NotFound(id);
@@ -316,6 +341,19 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Approved);
+        var claimed = await db.Documents
+            .Where(d => d.Id == id && d.Status == change.From)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
+                    .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
+                    .SetProperty(d => d.ApprovedBy, actor)
+                    .SetProperty(d => d.UpdatedAt, now),
+                ct);
+        if (claimed == 0)
+        {
+            return ConcurrentChange(id);
+        }
+
         document.Status = DocumentStatus.Approved;
         document.ApprovedAt = now;
         document.ApprovedBy = actor;
@@ -343,7 +381,7 @@ public static class DocumentEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["reason"] = ["A reason is required."] });
         }
 
-        var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
+        var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
         if (row is null)
         {
             return NotFound(id);
@@ -358,6 +396,17 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Rejected);
+        var claimed = await db.Documents
+            .Where(d => d.Id == id && d.Status == change.From)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
+                    .SetProperty(d => d.UpdatedAt, now),
+                ct);
+        if (claimed == 0)
+        {
+            return ConcurrentChange(id);
+        }
+
         document.Status = DocumentStatus.Rejected;
         document.UpdatedAt = now;
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
@@ -386,7 +435,7 @@ public static class DocumentEndpoints
             }
         }
 
-        var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
+        var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
         if (row is null)
         {
             return NotFound(id);
@@ -402,9 +451,34 @@ public static class DocumentEndpoints
                 detail: $"Document {document.Id} is {document.Status}; only Failed, NeedsReview, Rejected or Validated documents can be sent back through the pipeline.");
         }
 
+        // A stage needs the output of the stages before it (Extract reads the text layer Normalize wrote, Validate the
+        // canonical data Extract wrote). A document that failed early never produced that input, so it may only be
+        // reset to a state its timeline shows it has been in.
+        var reached = await FurthestPipelineStatusAsync(db, document, ct);
+        if (Array.IndexOf(PipelineOrder, target) > Array.IndexOf(PipelineOrder, reached))
+        {
+            var latest = ReprocessStart.Where(kv => Array.IndexOf(PipelineOrder, kv.Value) <= Array.IndexOf(PipelineOrder, reached)).Select(kv => kv.Key).Max();
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Stage not reached",
+                detail: $"Document {document.Id} never got past {reached}, so it cannot rerun from {stage} (which needs the output of the stages before it). The latest stage it can rerun from is {latest}.");
+        }
+
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, target);
+        var claimed = await db.Documents
+            .Where(d => d.Id == id && d.Status == change.From)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(d => d.Status, target)
+                    .SetProperty(d => d.FailureReason, (string?)null)
+                    .SetProperty(d => d.UpdatedAt, now),
+                ct);
+        if (claimed == 0)
+        {
+            return ConcurrentChange(id);
+        }
+
         document.Status = target;
         document.FailureReason = null;
         document.UpdatedAt = now;
@@ -437,9 +511,12 @@ public static class DocumentEndpoints
         }
 
         var document = row.Document;
-        if (DocumentStateMachine.IsSettled(document.Status))
+        if (!Correctable.Contains(document.Status))
         {
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document is settled", detail: $"Document {document.Id} is {document.Status}; reprocess it before correcting fields.");
+            var detail = DocumentStateMachine.IsSettled(document.Status)
+                ? $"Document {document.Id} is {document.Status}; reprocess it before correcting fields."
+                : $"Document {document.Id} is {document.Status}: the pipeline is still writing it. Fields can be corrected once it is NeedsReview, Validated or Failed.";
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document not correctable", detail: detail);
         }
 
         var rootType = CanonicalPatcher.RootTypeFor(document.Type);
@@ -487,6 +564,30 @@ public static class DocumentEndpoints
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
     }
 
+    /// <summary>
+    /// The furthest pipeline state the document's timeline records (as the source or target of any event), or its
+    /// current state when that is a pipeline state. Review and settled states say nothing about which stages ran, so
+    /// they do not count; <c>Received</c> is always reached.
+    /// </summary>
+    private static async Task<DocumentStatus> FurthestPipelineStatusAsync(DocProcDbContext db, Document document, CancellationToken ct)
+    {
+        var recorded = await db.DocumentEvents.AsNoTracking()
+            .Where(e => e.DocumentId == document.Id)
+            .Select(e => new { e.FromStatus, e.ToStatus })
+            .ToListAsync(ct);
+
+        var furthest = 0;
+        foreach (var status in recorded.SelectMany(e => new[] { e.FromStatus, e.ToStatus }).Append(document.Status))
+        {
+            if (status is { } s)
+            {
+                furthest = Math.Max(furthest, Array.IndexOf(PipelineOrder, s));
+            }
+        }
+
+        return PipelineOrder[furthest];
+    }
+
     /// <summary>The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox too.</summary>
     private static void RefreshDenormalizedColumns(Document document)
     {
@@ -496,7 +597,7 @@ public static class DocumentEndpoints
                 var invoice = CanonicalDocumentSerializer.DeserializeInvoice(document.CanonicalJson!);
                 SetNumber(document, invoice.InvoiceNumber.HasValue ? invoice.InvoiceNumber.Value : null);
                 document.IssueDate = invoice.IssueDate.HasValue ? invoice.IssueDate.Value : null;
-                document.Currency = invoice.Currency.HasValue ? invoice.Currency.Value : null;
+                SetCurrency(document, invoice.Currency.HasValue ? invoice.Currency.Value : null);
                 document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value.Amount : null;
                 break;
 
@@ -504,7 +605,7 @@ public static class DocumentEndpoints
                 var order = CanonicalDocumentSerializer.DeserializePurchaseOrder(document.CanonicalJson!);
                 SetNumber(document, order.PoNumber.HasValue ? order.PoNumber.Value : null);
                 document.IssueDate = order.OrderDate.HasValue ? order.OrderDate.Value : null;
-                document.Currency = order.Currency.HasValue ? order.Currency.Value : null;
+                SetCurrency(document, order.Currency.HasValue ? order.Currency.Value : null);
                 document.TotalGross = order.TotalGross.HasValue ? order.TotalGross.Value.Amount : null;
                 break;
 
@@ -525,6 +626,13 @@ public static class DocumentEndpoints
         document.DocumentNumberNormalized = number is null ? null : Truncate(number.Normalized, 100);
     }
 
+    /// <summary><c>Document.Currency</c> is <c>char(3)</c>: only a well-formed code goes into the list column; anything else stays in the canonical JSON alone.</summary>
+    private static void SetCurrency(Document document, string? currency)
+    {
+        var normalized = currency is null ? null : CurrencyCode.Normalize(currency);
+        document.Currency = CurrencyCode.IsWellFormed(normalized) ? normalized : null;
+    }
+
     private static async Task CloseOpenTasksAsync(DocProcDbContext db, Guid documentId, ReviewTaskStatus outcome, DateTimeOffset now, CancellationToken ct)
     {
         var open = await db.ReviewTasks
@@ -537,6 +645,14 @@ public static class DocumentEndpoints
         }
     }
 
+    /// <summary>Only PDFs and raster images are rendered by the viewer; served inline under their own type. SVG can carry script, so it downloads like everything else.</summary>
+    private static bool IsInlineSafe(string mimeType) =>
+        string.Equals(mimeType, "application/pdf", StringComparison.OrdinalIgnoreCase)
+        || (mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) && !string.Equals(mimeType, "image/svg+xml", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Browsers must not second-guess the declared type of streamed bytes (a PDF that starts with HTML stays a PDF).</summary>
+    private static void NoSniff(HttpContext context) => context.Response.Headers.XContentTypeOptions = "nosniff";
+
     private static ProblemHttpResult NotFound(Guid id) =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Document not found", detail: $"No document {id} is visible in the current scope.");
 
@@ -545,6 +661,13 @@ public static class DocumentEndpoints
             statusCode: StatusCodes.Status409Conflict,
             title: "Invalid transition",
             detail: $"Document {document.Id} is {document.Status} and cannot move to {to}. Allowed: {string.Join(", ", DocumentStateMachine.NextStates(document.Status))}.");
+
+    /// <summary>The conditional update matched nothing: another reviewer or the pipeline changed the document between the read and the write.</summary>
+    private static ProblemHttpResult ConcurrentChange(Guid id) =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: "Document changed",
+            detail: $"Document {id} was changed by someone else while this request ran; reload it and decide again.");
 
     private static List<T> ParseList<T>(string? csv, string name, Dictionary<string, string[]> errors)
         where T : struct, Enum

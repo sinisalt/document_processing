@@ -118,7 +118,7 @@ public static partial class CanonicalPatcher
                     throw new CanonicalPatchException(path, $"'{segment.Name}' is a single field, not a list.");
                 }
 
-                var (newNode, record) = Correct(path, propertyType, node[segment.Name], remaining, correction, by, at, documentCurrency);
+                var (newNode, record) = Correct(path, propertyType, node[segment.Name], remaining, correction, by, at, documentCurrency, IsCurrencyField(property));
                 node[segment.Name] = newNode;
                 return record;
             }
@@ -137,7 +137,7 @@ public static partial class CanonicalPatcher
 
                 if (IsFieldValue(elementType))
                 {
-                    var (newNode, record) = Correct(path, elementType, array[segment.Index.Value], remaining, correction, by, at, documentCurrency);
+                    var (newNode, record) = Correct(path, elementType, array[segment.Index.Value], remaining, correction, by, at, documentCurrency, IsCurrencyField(property));
                     array[segment.Index.Value] = newNode;
                     return record;
                 }
@@ -166,7 +166,7 @@ public static partial class CanonicalPatcher
     }
 
     /// <summary>Deserialises the field, applies the correction and returns the new field node plus the audit record.</summary>
-    private static (JsonNode NewNode, AppliedCorrection Record) Correct(string path, Type fieldType, JsonNode? fieldNode, List<PathSegment> nested, FieldCorrection correction, string by, DateTimeOffset at, string? documentCurrency)
+    private static (JsonNode NewNode, AppliedCorrection Record) Correct(string path, Type fieldType, JsonNode? fieldNode, List<PathSegment> nested, FieldCorrection correction, string by, DateTimeOffset at, string? documentCurrency, bool currencyField)
     {
         var valueType = fieldType.GetGenericArguments()[0];
         var options = CanonicalDocumentSerializer.Options;
@@ -186,6 +186,7 @@ public static partial class CanonicalPatcher
         var newValue = nested.Count > 0
             ? NestedValue(path, valueType, oldValueNode, nested, correction.Value)
             : ConvertValue(path, valueType, correction.Value, oldValueNode, documentCurrency);
+        newValue = Validate(path, newValue, currencyField);
 
         if (newValue is null && valueType.IsValueType && Nullable.GetUnderlyingType(valueType) is null)
         {
@@ -213,6 +214,11 @@ public static partial class CanonicalPatcher
         if (!valueType.IsClass || valueType == typeof(string))
         {
             throw new CanonicalPatchException(path, $"'{nested[0].Name}' cannot be addressed inside a {valueType.Name} value.");
+        }
+
+        if (valueType == typeof(DocumentIdentifier))
+        {
+            throw new CanonicalPatchException(path, "An identifier is corrected as a whole: send the new verbatim text for the field; the normalized form is derived from it.");
         }
 
         var target = currentValueNode?.DeepClone() as JsonObject ?? [];
@@ -267,9 +273,17 @@ public static partial class CanonicalPatcher
         }
 
         var element = value.Value;
-        if (valueType == typeof(DocumentIdentifier) && element.ValueKind == JsonValueKind.String)
+        if (valueType == typeof(DocumentIdentifier))
         {
-            var text = element.GetString();
+            // Whatever the shape (a bare string or {verbatim, normalized}), only the verbatim text counts: the
+            // normalized form is always recomputed, so a client cannot store an inconsistent pair.
+            var text = element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Object when element.TryGetProperty("verbatim", out var verbatim) && verbatim.ValueKind == JsonValueKind.String => verbatim.GetString(),
+                JsonValueKind.Object => null,
+                _ => throw new CanonicalPatchException(path, "An identifier is a string (or an object with a verbatim property)."),
+            };
             if (string.IsNullOrWhiteSpace(text))
             {
                 throw new CanonicalPatchException(path, "An identifier cannot be blank; send null to clear the field.");
@@ -304,6 +318,50 @@ public static partial class CanonicalPatcher
         }
     }
 
+    /// <summary>
+    /// Checks the converted value against what the stored columns accept: a currency (the document's <c>currency</c>
+    /// field or <see cref="Money.Currency"/>) is normalised and must be a three-letter code, because
+    /// <c>Document.Currency</c> is <c>char(3)</c> and every arithmetic check compares codes verbatim; an identifier is
+    /// always rebuilt from its verbatim text.
+    /// </summary>
+    private static object? Validate(string path, object? value, bool currencyField)
+    {
+        switch (value)
+        {
+            case string code when currencyField:
+                return NormalizeCurrency(path, code);
+
+            case Money money:
+                return money with { Currency = NormalizeCurrency(path, money.Currency) };
+
+            case DocumentIdentifier identifier:
+                if (string.IsNullOrWhiteSpace(identifier.Verbatim))
+                {
+                    throw new CanonicalPatchException(path, "An identifier cannot be blank; send null to clear the field.");
+                }
+
+                return DocumentIdentifier.Create(identifier.Verbatim);
+
+            default:
+                return value;
+        }
+    }
+
+    private static string NormalizeCurrency(string path, string? code)
+    {
+        var normalized = code is null ? null : CurrencyCode.Normalize(code);
+        if (!CurrencyCode.IsWellFormed(normalized))
+        {
+            throw new CanonicalPatchException(path, $"'{code}' is not a currency; use the three-letter ISO 4217 code (EUR, USD, …).");
+        }
+
+        return normalized!;
+    }
+
+    /// <summary>The document-level currency field (<c>Invoice.Currency</c>, <c>PurchaseOrder.Currency</c>): a <c>FieldValue&lt;string&gt;</c> named Currency.</summary>
+    private static bool IsCurrencyField(PropertyInfo property) =>
+        string.Equals(property.Name, "Currency", StringComparison.Ordinal);
+
     private static bool TryReadDecimal(JsonElement element, out decimal amount)
     {
         if (element.ValueKind == JsonValueKind.Number)
@@ -337,12 +395,17 @@ public static partial class CanonicalPatcher
             ?.GetGenericArguments()[0];
     }
 
-    /// <summary>Public readable properties keyed by their JSON name (camelCase, as <see cref="CanonicalDocumentSerializer"/> writes them).</summary>
+    /// <summary>
+    /// Public settable (or init-only) properties keyed by their JSON name (camelCase, as
+    /// <see cref="CanonicalDocumentSerializer"/> writes them). Computed get-only properties such as
+    /// <c>Party.NormalizedVatId</c> are not addressable: the serialiser ignores them on input, so a correction to one
+    /// would be recorded but change nothing.
+    /// </summary>
     private static PropertyInfo? FindProperty(Type type, string jsonName)
     {
         var properties = PropertyCache.GetOrAdd(type, t => t
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
+            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0)
             .ToDictionary(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name), p => p, StringComparer.Ordinal));
         return properties.TryGetValue(jsonName, out var property) ? property : null;
     }

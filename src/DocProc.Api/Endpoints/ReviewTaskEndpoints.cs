@@ -113,28 +113,35 @@ public static class ReviewTaskEndpoints
 
     private static async Task<Results<Ok<ReviewTaskDto>, ProblemHttpResult>> ClaimAsync(Guid id, [FromServices] DocProcDbContext db, ClaimsPrincipal user, CancellationToken ct)
     {
-        var task = await db.ReviewTasks.SingleOrDefaultAsync(t => t.Id == id, ct);
-        if (task is null)
-        {
-            return NotFound(id);
-        }
-
-        if (task.Status is ReviewTaskStatus.Done or ReviewTaskStatus.Skipped)
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Task closed", detail: $"Review task {id} is {task.Status}.");
-        }
-
         var me = DocumentQueries.ActorName(user);
-        if (task.AssignedTo is not null && !string.Equals(task.AssignedTo, me, StringComparison.Ordinal))
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Task already claimed", detail: $"Review task {id} is assigned to {task.AssignedTo}.");
-        }
 
-        if (task.AssignedTo is null || task.Status != ReviewTaskStatus.InProgress)
+        // First come, first served is decided by the database, not by a read followed by a write: the conditional
+        // UPDATE matches only an unassigned open task, so of N simultaneous claims exactly one changes a row.
+        var claimed = await db.ReviewTasks
+            .Where(t => t.Id == id && t.AssignedTo == null && t.Status == ReviewTaskStatus.Open)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(t => t.AssignedTo, me)
+                    .SetProperty(t => t.Status, ReviewTaskStatus.InProgress),
+                ct);
+        if (claimed == 0)
         {
-            task.AssignedTo = me;
-            task.Status = ReviewTaskStatus.InProgress;
-            await db.SaveChangesAsync(ct);
+            var task = await db.ReviewTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == id, ct);
+            if (task is null)
+            {
+                return NotFound(id);
+            }
+
+            if (task.Status is ReviewTaskStatus.Done or ReviewTaskStatus.Skipped)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Task closed", detail: $"Review task {id} is {task.Status}.");
+            }
+
+            if (!string.Equals(task.AssignedTo, me, StringComparison.Ordinal))
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Task already claimed", detail: $"Review task {id} is assigned to {task.AssignedTo ?? "another reviewer"}.");
+            }
+
+            // Already mine: re-claiming is idempotent.
         }
 
         return TypedResults.Ok(await LoadDtoAsync(db, id, ct));
@@ -142,7 +149,7 @@ public static class ReviewTaskEndpoints
 
     private static async Task<Results<Ok<ReviewTaskDto>, ProblemHttpResult>> ReleaseAsync(Guid id, [FromServices] DocProcDbContext db, ClaimsPrincipal user, IAuthorizationService authorization, CancellationToken ct)
     {
-        var task = await db.ReviewTasks.SingleOrDefaultAsync(t => t.Id == id, ct);
+        var task = await db.ReviewTasks.AsNoTracking().SingleOrDefaultAsync(t => t.Id == id, ct);
         if (task is null)
         {
             return NotFound(id);
@@ -165,9 +172,20 @@ public static class ReviewTaskEndpoints
 
         if (task.AssignedTo is not null || task.Status != ReviewTaskStatus.Open)
         {
-            task.AssignedTo = null;
-            task.Status = ReviewTaskStatus.Open;
-            await db.SaveChangesAsync(ct);
+            // Release only the assignment the caller saw; if the task was claimed by someone else, closed or already
+            // released in the meantime, the row no longer matches and the caller is told to reload.
+            var assignee = task.AssignedTo;
+            var status = task.Status;
+            var released = await db.ReviewTasks
+                .Where(t => t.Id == id && t.AssignedTo == assignee && t.Status == status)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(t => t.AssignedTo, (string?)null)
+                        .SetProperty(t => t.Status, ReviewTaskStatus.Open),
+                    ct);
+            if (released == 0)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Task changed", detail: $"Review task {id} was claimed, released or closed by someone else while this request ran; reload it.");
+            }
         }
 
         return TypedResults.Ok(await LoadDtoAsync(db, id, ct));

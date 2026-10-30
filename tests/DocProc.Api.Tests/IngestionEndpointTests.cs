@@ -4,9 +4,13 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using DocProc.Api.Auth;
+using DocProc.Api.Documents;
 using DocProc.Api.Endpoints;
 using DocProc.Infrastructure.Persistence.Entities;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace DocProc.Api.Tests;
 
@@ -139,6 +143,109 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
         var responseB = await tenantB.SendAsync(requestB, Ct);
         responseB.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         (await responseB.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id.ShouldNotBe(created.Id);
+    }
+
+    [Fact]
+    public async Task Idempotency_key_can_be_reused_for_a_new_upload_once_the_window_has_passed()
+    {
+        // A tenant of its own: the purge that follows an upload deletes the tenant's expired keys, and this test counts them.
+        var tenant = Guid.NewGuid();
+        factory.Run(db => db.Tenants.Add(new Tenant { Id = tenant, Name = "Expiry", Slug = "expiry-" + tenant.ToString("N")[..8], LegalName = "Expiry GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = factory.Clock.GetUtcNow(), UpdatedAt = factory.Clock.GetUtcNow() }));
+        using var reviewer = factory.ClientFor(new TokenSpec("expiry-reviewer", [Roles.Reviewer], tenant.ToString()));
+        var key = "nightly-" + Guid.NewGuid().ToString("N");
+        var otherKey = "other-" + Guid.NewGuid().ToString("N");
+
+        async Task<HttpResponseMessage> Upload(string idempotencyKey, string fileName, byte[] bytes)
+        {
+            using var body = Multipart((fileName, "application/pdf", bytes));
+            using var request = new HttpRequestMessage(HttpMethod.Post, IngestionsUri) { Content = body };
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
+            return await reviewer.SendAsync(request, Ct);
+        }
+
+        var first = await Upload(key, "day-1.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 day one " + Guid.NewGuid()));
+        first.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var firstId = (await first.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id;
+        (await Upload(otherKey, "other.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 other " + Guid.NewGuid()))).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        factory.Query(db => db.IdempotencyKeys.Count(k => k.TenantId == tenant)).ShouldBe(2);
+
+        // Inside the window a different body is still refused.
+        (await Upload(key, "day-2.pdf", Encoding.ASCII.GetBytes("%PDF-1.4 day two " + Guid.NewGuid()))).StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        factory.Clock.Advance(TimeSpan.FromHours(25));
+
+        var dayTwo = Encoding.ASCII.GetBytes("%PDF-1.4 day two " + Guid.NewGuid());
+        var second = await Upload(key, "day-2.pdf", dayTwo);
+        second.StatusCode.ShouldBe(HttpStatusCode.Accepted, "an expired key is free again: the stale row is replaced, not reported as a conflict");
+        var secondId = (await second.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id;
+        secondId.ShouldNotBe(firstId);
+        second.Headers.Location!.ToString().ShouldBe($"/api/v1/ingestions/{secondId}");
+        factory.Queue.Ingestions.ShouldContain(m => m.IngestionId == secondId);
+
+        var rows = factory.Query(db => db.IdempotencyKeys.Where(k => k.TenantId == tenant).ToList());
+        var stored = rows.Where(k => k.Key == key).ShouldHaveSingleItem();
+        stored.CreatedAt.ShouldBe(factory.Clock.GetUtcNow());
+        stored.Location.ShouldBe($"/api/v1/ingestions/{secondId}");
+        rows.ShouldNotContain(k => k.Key == otherKey, "the opportunistic purge removed the other expired key");
+
+        // The new row replays like any other, and the old response is gone for good.
+        var replay = await Upload(key, "day-2.pdf", dayTwo);
+        replay.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await replay.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!.Id.ShouldBe(secondId);
+
+        // And an immediate retry does not run into "Upload in progress".
+        (await Upload(key, "day-2.pdf", dayTwo)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+    }
+
+    [Fact]
+    public async Task Idempotency_decision_is_taken_before_any_blob_is_written()
+    {
+        using var reviewer = ReviewerA();
+        var key = "early-" + Guid.NewGuid().ToString("N");
+
+        async Task<HttpResponseMessage> Upload(string fileName, byte[] bytes)
+        {
+            using var body = Multipart((fileName, "application/pdf", bytes));
+            using var request = new HttpRequestMessage(HttpMethod.Post, IngestionsUri) { Content = body };
+            request.Headers.Add("Idempotency-Key", key);
+            return await reviewer.SendAsync(request, Ct);
+        }
+
+        var original = Encoding.ASCII.GetBytes("%PDF-1.4 original " + Guid.NewGuid());
+        (await Upload("a.pdf", original)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await factory.RawBlobExistsAsync(ApiFactory.TenantA, original)).ShouldBeTrue();
+
+        var mismatch = Encoding.ASCII.GetBytes("%PDF-1.4 mismatch " + Guid.NewGuid());
+        (await Upload("a.pdf", mismatch)).StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await factory.RawBlobExistsAsync(ApiFactory.TenantA, mismatch)).ShouldBeFalse("a refused upload leaves nothing in the raw store");
+    }
+
+    [Fact]
+    public void Only_the_unique_key_index_counts_as_a_concurrent_upload()
+    {
+        var sqlServer = new DbUpdateException("save failed", new InvalidOperationException("Cannot insert duplicate key row in object 'dbo.IdempotencyKeys' with unique index 'IX_IdempotencyKeys_TenantId_Key'. The duplicate key value is (aaaa, nightly)."));
+        IdempotencyConflicts.IsUniqueKeyViolation(sqlServer).ShouldBeTrue();
+
+        var sqlite = new DbUpdateException("save failed", new Microsoft.Data.Sqlite.SqliteException("SQLite Error 19: 'UNIQUE constraint failed: IdempotencyKeys.TenantId, IdempotencyKeys.Key'.", 19));
+        IdempotencyConflicts.IsUniqueKeyViolation(sqlite).ShouldBeTrue();
+
+        var otherIndex = new DbUpdateException("save failed", new InvalidOperationException("Cannot insert duplicate key row in object 'dbo.Suppliers' with unique index 'IX_Suppliers_TenantId_NormalizedName'."));
+        IdempotencyConflicts.IsUniqueKeyViolation(otherIndex).ShouldBeFalse("another table's index is not an idempotency conflict");
+
+        var truncated = new DbUpdateException("save failed", new InvalidOperationException("String or binary data would be truncated in table 'IdempotencyKeys', column 'Location'."));
+        IdempotencyConflicts.IsUniqueKeyViolation(truncated).ShouldBeFalse("a save failure on the same table that is not the index is a real error");
+        IdempotencyConflicts.IsUniqueKeyViolation(new DbUpdateException("no inner exception")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Form_values_keep_the_default_length_limit_while_the_multipart_body_fits_every_file()
+    {
+        var options = factory.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        options.MultipartBodyLengthLimit.ShouldBe(IngestionLimits.MaxRequestBodyBytes);
+        options.ValueLengthLimit.ShouldBe(new FormOptions().ValueLengthLimit, "a non-file field is buffered in memory; it must not grow with the multipart limit");
+        IngestionLimits.MaxJsonRequestBodyBytes.ShouldBeLessThan(80L * 1024 * 1024, "the JSON branch buffers the whole body");
+        IngestionLimits.MaxJsonRequestBodyBytes.ShouldBeGreaterThan(IngestionLimits.MaxFileBytes / 3 * 4, "but still fits one file at its maximum as base64");
     }
 
     [Fact]

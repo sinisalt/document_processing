@@ -26,12 +26,20 @@ public static class IngestionLimits
     public const int MaxFilesPerUpload = 20;
     public const long MaxFileBytes = 50L * 1024 * 1024;
 
-    /// <summary>Every file at its maximum plus headroom for the multipart framing or the base64 overhead of a JSON upload.</summary>
+    /// <summary>A multipart body: every file at its maximum plus headroom for the framing.</summary>
     public const long MaxRequestBodyBytes = (MaxFilesPerUpload * MaxFileBytes) + (16L * 1024 * 1024);
+
+    /// <summary>A JSON body carries one file as base64 (4/3 of the bytes) plus the few other properties; it is buffered, so it gets the tighter cap.</summary>
+    public const long MaxJsonRequestBodyBytes = (MaxFileBytes / 3 * 4) + (4L * 1024 * 1024);
 
     public const string IdempotencyKeyHeader = "Idempotency-Key";
     public const int MaxIdempotencyKeyLength = 200;
+
+    /// <summary>How long a key replays its first response; after that the key may be used for a new upload.</summary>
     public static readonly TimeSpan IdempotencyWindow = TimeSpan.FromHours(24);
+
+    /// <summary>A key row younger than this at the moment our insert collides with it was written by a request that is still running (or just finished): the caller retries for its result.</summary>
+    public static readonly TimeSpan ConcurrentUploadWindow = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>JSON alternative to multipart for a single file: integrations that cannot build multipart bodies.</summary>
@@ -101,6 +109,7 @@ public static class IngestionEndpoints
         ITenantContext tenant,
         IBlobStore blobs,
         IPipelineQueue queue,
+        IdempotencyKeyPurge purge,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
@@ -119,7 +128,8 @@ public static class IngestionEndpoints
         var maxBody = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (maxBody is { IsReadOnly: false })
         {
-            maxBody.MaxRequestBodySize = IngestionLimits.MaxRequestBodyBytes;
+            // A JSON upload is one base64 file read into memory; a multipart one streams up to twenty files to the store.
+            maxBody.MaxRequestBodySize = context.Request.HasJsonContentType() ? IngestionLimits.MaxJsonRequestBodyBytes : IngestionLimits.MaxRequestBodyBytes;
         }
 
         var (uploads, channelId, problem) = await ReadUploadsAsync(context.Request, ct);
@@ -128,24 +138,27 @@ public static class IngestionEndpoints
             return problem;
         }
 
-        // Content-addressed storage: storing the same bytes twice is a no-op, so this is safe even for a replay.
-        var stored = new List<(UploadedFile File, BlobRef Blob)>(uploads.Count);
+        // Hash first, store later: the idempotency decision (replay, refuse, proceed) is taken from the request alone,
+        // so a replayed or mismatched request never touches the blob store.
+        var hashes = new List<string>(uploads.Count);
         foreach (var upload in uploads)
         {
             var content = upload.Open();
             await using (content.ConfigureAwait(false))
             {
-                stored.Add((upload, await blobs.PutAsync(tenantId, content, upload.ContentType, ct)));
+                hashes.Add(Convert.ToHexStringLower(await SHA256.HashDataAsync(content, ct)));
             }
         }
 
         var now = clock.GetUtcNow();
-        var requestHash = RequestHash(channelId, stored);
+        var requestHash = RequestHash(channelId, uploads, hashes);
+        IdempotencyKey? expired = null;
         if (idempotencyKey is not null)
         {
-            var since = now - IngestionLimits.IdempotencyWindow;
-            var earlier = await db.IdempotencyKeys.AsNoTracking().SingleOrDefaultAsync(k => k.Key == idempotencyKey && k.CreatedAt >= since, ct);
-            if (earlier is not null)
+            // Looked up without a time filter: an expired row must be replaced, not ignored, or the unique index would
+            // refuse every later use of the key.
+            var earlier = await db.IdempotencyKeys.SingleOrDefaultAsync(k => k.Key == idempotencyKey, ct);
+            if (earlier is not null && earlier.CreatedAt >= now - IngestionLimits.IdempotencyWindow)
             {
                 if (!string.Equals(earlier.RequestHash, requestHash, StringComparison.Ordinal))
                 {
@@ -154,6 +167,19 @@ public static class IngestionEndpoints
 
                 var replay = JsonSerializer.Deserialize<IngestionCreated>(earlier.ResponseJson, StoredResponseOptions)!;
                 return TypedResults.Accepted(earlier.Location ?? LocationOf(replay.Id), replay);
+            }
+
+            expired = earlier;
+        }
+
+        // Content-addressed storage: storing the same bytes twice is a no-op, so a retry after a failed save is safe.
+        var stored = new List<(UploadedFile File, BlobRef Blob)>(uploads.Count);
+        foreach (var upload in uploads)
+        {
+            var content = upload.Open();
+            await using (content.ConfigureAwait(false))
+            {
+                stored.Add((upload, await blobs.PutAsync(tenantId, content, upload.ContentType, ct)));
             }
         }
 
@@ -202,6 +228,12 @@ public static class IngestionEndpoints
         var location = LocationOf(ingestion.Id);
         if (idempotencyKey is not null)
         {
+            if (expired is not null)
+            {
+                // Same SaveChanges as the insert below: EF orders the delete before the insert that reuses the index value.
+                db.IdempotencyKeys.Remove(expired);
+            }
+
             db.IdempotencyKeys.Add(new IdempotencyKey
             {
                 Id = Guid.CreateVersion7(),
@@ -219,13 +251,22 @@ public static class IngestionEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException) when (idempotencyKey is not null)
+        catch (DbUpdateException ex) when (idempotencyKey is not null && IdempotencyConflicts.IsUniqueKeyViolation(ex))
         {
-            // The unique (TenantId, Key) index fired: a concurrent request with the same key got there first.
+            // The unique (TenantId, Key) index fired: a request with the same key committed between our lookup and our
+            // insert. Only a row written moments ago is that race; an older one means the lookup should have found it,
+            // which is a bug worth a 500, not a "retry later".
+            var winner = await db.IdempotencyKeys.AsNoTracking().SingleOrDefaultAsync(k => k.Key == idempotencyKey, ct);
+            if (winner is null || winner.CreatedAt < now - IngestionLimits.ConcurrentUploadWindow)
+            {
+                throw;
+            }
+
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Upload in progress", detail: $"Another upload with {IngestionLimits.IdempotencyKeyHeader} '{idempotencyKey}' is being processed; retry to get its result.");
         }
 
         await queue.EnqueueAsync(new ProcessIngestion(tenantId, ingestion.Id), ct);
+        await purge.RunIfDueAsync(db, tenantId, now, ct);
         return TypedResults.Accepted(location, response);
     }
 
@@ -441,7 +482,14 @@ public static class IngestionEndpoints
         return (files, channelId, null);
     }
 
-    /// <summary>The named channel of the tenant, or its API-upload channel, created on first use so a fresh tenant can upload without set-up.</summary>
+    /// <summary>
+    /// The named channel of the tenant, or its API-upload channel, created on first use so a fresh tenant can upload
+    /// without set-up. Two simultaneous first uploads of a tenant can each create one: there is no unique index on
+    /// (TenantId, Type) because a tenant may legitimately run several API channels, so the duplicate is tolerated on
+    /// purpose. Every later upload picks the oldest, and the extra channel is an ordinary row a tenant admin can
+    /// rename or delete through <c>/channels</c>. Tenants created through <c>POST /tenants</c> get their default
+    /// channels at creation and never hit this path.
+    /// </summary>
     private static async Task<IngestionChannel?> ResolveChannelAsync(DocProcDbContext db, Guid tenantId, Guid? channelId, DateTimeOffset now, CancellationToken ct)
     {
         if (channelId is { } requested)
@@ -473,13 +521,13 @@ public static class IngestionEndpoints
     }
 
     /// <summary>What makes two uploads "the same request" for an idempotency key: the channel and the files' names and content hashes, in order.</summary>
-    private static string RequestHash(Guid? channelId, List<(UploadedFile File, BlobRef Blob)> stored)
+    private static string RequestHash(Guid? channelId, List<UploadedFile> files, List<string> sha256s)
     {
         var builder = new StringBuilder();
         builder.Append(channelId?.ToString("D") ?? string.Empty).Append('\n');
-        foreach (var (file, blob) in stored)
+        for (var i = 0; i < files.Count; i++)
         {
-            builder.Append(file.FileName).Append('\u001f').Append(blob.Sha256).Append('\n');
+            builder.Append(files[i].FileName).Append('\u001f').Append(sha256s[i]).Append('\n');
         }
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
