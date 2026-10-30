@@ -1,11 +1,656 @@
 {
   "nav": {
-    "dashboard": "Dashboard"
+    "dashboard": "Übersicht",
+    "inbox": "Posteingang",
+    "review": "Prüfliste",
+    "suppliers": "Lieferanten",
+    "settings": "Einstellungen"
   },
   "dashboard": {
-    "title": "Dashboard",
+    "title": "Übersicht",
     "description": "Ihre Dokumente auf einen Blick.",
     "welcome": "Willkommen, {{name}}",
-    "placeholder": "Posteingang, Prüfliste und Lieferanten erscheinen hier."
+    "countsHeading": "Dokumente nach Status",
+    "open": "Öffnen",
+    "quickLinks": "Schnellzugriff",
+    "links": {
+      "inbox": "Alle empfangenen Dokumente, gefiltert nach Status, Lieferant und Datum.",
+      "upload": "PDFs oder E-Rechnungs-XML von Ihrem Rechner hochladen.",
+      "review": "Dokumente übernehmen und bearbeiten, die eine menschliche Entscheidung brauchen.",
+      "suppliers": "Lieferantenstammdaten für die Zuordnung eingehender Dokumente.",
+      "settings": "Prüfregeln, Mitglieder, API-Schlüssel, Kanäle und KI-Anbieter."
+    }
+  },
+  "documentType": {
+    "Unknown": "Unbekannt",
+    "Invoice": "Rechnung",
+    "CreditNote": "Gutschrift",
+    "PurchaseOrder": "Bestellung",
+    "DeliveryNote": "Lieferschein",
+    "Statement": "Kontoauszug",
+    "Reminder": "Mahnung",
+    "Other": "Sonstiges"
+  },
+  "flagSeverity": {
+    "Info": "Hinweis",
+    "Warning": "Warnung",
+    "Blocking": "Blockierend"
+  },
+  "stages": {
+    "Normalize": "Normalisieren",
+    "Classify": "Klassifizieren",
+    "Split": "Trennen",
+    "Extract": "Extrahieren",
+    "Validate": "Validieren",
+    "Synthesize": "Zusammenführen"
+  },
+  "enums": {
+    "Invoice": "Rechnung",
+    "CreditNote": "Gutschrift",
+    "Proforma": "Proformarechnung",
+    "BankTransfer": "Überweisung",
+    "DirectDebit": "Lastschrift",
+    "Card": "Karte",
+    "Cash": "Bar",
+    "Other": "Sonstiges"
+  },
+  "events": {
+    "document": {
+      "received": "Empfangen",
+      "stage_completed": "Schritt abgeschlossen",
+      "stage_failed": "Schritt fehlgeschlagen",
+      "flagged": "Markiert",
+      "review_requested": "Prüfung angefordert",
+      "auto_approved": "Automatisch freigegeben",
+      "approved": "Freigegeben",
+      "rejected": "Abgelehnt",
+      "corrected": "Felder korrigiert",
+      "reprocessed": "Neuverarbeitung angefordert"
+    }
+  },
+  "fieldBlocks": {
+    "supplier": "Lieferant",
+    "customer": "Kunde",
+    "paymentTerms": "Zahlungsbedingungen",
+    "servicePeriod": "Leistungszeitraum",
+    "lines": "Position",
+    "taxBreakdown": "Steueraufschlüsselung",
+    "lineField": "Position {{line}} · {{field}}"
+  },
+  "fields": {
+    "kind": "Art",
+    "invoiceNumber": "Rechnungsnummer",
+    "issueDate": "Rechnungsdatum",
+    "deliveryDate": "Lieferdatum",
+    "dueDate": "Fälligkeitsdatum",
+    "servicePeriod": {
+      "from": "Leistungszeitraum von",
+      "to": "Leistungszeitraum bis"
+    },
+    "currency": "Währung",
+    "orderReferences": "Bestellnummer",
+    "deliveryNoteReferences": "Lieferscheinnummer",
+    "originalInvoiceReference": "Ursprungsrechnung",
+    "subtotalNet": "Zwischensumme (netto)",
+    "totalTax": "Steuerbetrag",
+    "totalGross": "Gesamtbetrag (brutto)",
+    "amountDue": "Zahlbetrag",
+    "rounding": "Rundung",
+    "notes": "Bemerkungen",
+    "party": {
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "taxId": "Steuernummer",
+      "registrationNumber": "Registernummer",
+      "email": "E-Mail",
+      "phone": "Telefon",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Straße",
+        "line2": "Adresszusatz",
+        "postalCode": "PLZ",
+        "city": "Ort",
+        "region": "Region",
+        "countryCode": "Land"
+      }
+    },
+    "paymentTerms": {
+      "dueDate": "Zahlbar bis",
+      "discountPercent": "Skonto (%)",
+      "discountUntil": "Skonto bis",
+      "paymentMeans": "Zahlungsart",
+      "paymentReference": "Verwendungszweck",
+      "iban": "IBAN des Empfängers",
+      "bic": "BIC des Empfängers",
+      "rawText": "Bedingungen laut Beleg"
+    },
+    "line": {
+      "lineNumber": "Nr.",
+      "supplierSku": "Artikelnr.",
+      "gtin": "GTIN",
+      "description": "Beschreibung",
+      "quantity": "Menge",
+      "unit": "Einheit",
+      "unitPrice": "Einzelpreis",
+      "discountPercent": "Rabatt %",
+      "discountAmount": "Rabatt",
+      "lineNet": "Netto",
+      "taxRate": "USt %",
+      "lineGross": "Brutto"
+    }
+  },
+  "inbox": {
+    "title": "Posteingang",
+    "description": "Alle Dokumente, die Ihre Kanäle empfangen haben, neueste zuerst.",
+    "tabsLabel": "Status",
+    "tabs": {
+      "needsReview": "Zu prüfen",
+      "processing": "In Verarbeitung",
+      "approved": "Freigegeben",
+      "rejected": "Abgelehnt",
+      "failed": "Fehlgeschlagen",
+      "all": "Alle"
+    },
+    "caption": "Dokumente",
+    "noNumber": "(ohne Nummer)",
+    "columns": {
+      "documentNumber": "Belegnummer",
+      "supplier": "Lieferant",
+      "type": "Typ",
+      "issueDate": "Belegdatum",
+      "total": "Betrag",
+      "status": "Status",
+      "flags": "Hinweise",
+      "received": "Empfangen"
+    },
+    "filters": {
+      "search": "Suche",
+      "searchPlaceholder": "Nummer, Lieferant, Dateiname",
+      "type": "Typ",
+      "anyType": "Alle Typen",
+      "supplier": "Lieferant",
+      "anySupplier": "Alle Lieferanten",
+      "from": "Belegdatum ab",
+      "to": "Belegdatum bis",
+      "apply": "Anwenden",
+      "clear": "Filter zurücksetzen"
+    },
+    "emptyTitle": "Keine Dokumente",
+    "emptyFiltered": "Kein Dokument passt zu diesen Filtern.",
+    "empty": {
+      "needsReview": "Nichts wartet auf eine Prüfung.",
+      "processing": "Gerade ist kein Dokument in Verarbeitung.",
+      "approved": "Noch keine freigegebenen Dokumente.",
+      "rejected": "Keine abgelehnten Dokumente.",
+      "failed": "Keine fehlgeschlagene Verarbeitung.",
+      "all": "Laden Sie eine Datei hoch oder verbinden Sie einen Kanal, um Dokumente zu empfangen."
+    },
+    "blockingFlags_one": "{{count}} blockierender Hinweis",
+    "blockingFlags_other": "{{count}} blockierende Hinweise",
+    "warningFlags_one": "{{count}} Warnung",
+    "warningFlags_other": "{{count}} Warnungen"
+  },
+  "upload": {
+    "button": "Hochladen",
+    "title": "Dokumente hochladen",
+    "description": "PDF, Bilder, E-Rechnungs-XML (XRechnung, ZUGFeRD, UBL) oder ZIP-Archive; bis zu {{max}} Dateien mit je {{size}}.",
+    "dropzone": "Dateien hier ablegen oder Eingabetaste drücken, um Dateien auszuwählen",
+    "dropHere": "Dateien hier ablegen",
+    "orBrowse": "oder klicken, um Dateien auszuwählen",
+    "chooseFiles": "Dateien auswählen",
+    "selected_one": "{{count}} Datei ausgewählt",
+    "selected_other": "{{count}} Dateien ausgewählt",
+    "remove": "{{name}} entfernen",
+    "summary_one": "{{count}} Datei, {{size}}",
+    "summary_other": "{{count}} Dateien, {{size}}",
+    "submit_one": "{{count}} Datei hochladen",
+    "submit_other": "{{count}} Dateien hochladen",
+    "uploading": "Wird hochgeladen…",
+    "queued_one": "{{count}} Datei empfangen; die Verarbeitung hat begonnen.",
+    "queued_other": "{{count}} Dateien empfangen; die Verarbeitung hat begonnen.",
+    "ingestionId": "Eingang {{id}}",
+    "tooLarge": "{{name}} ist größer als {{max}} und wurde übersprungen.",
+    "tooMany": "Höchstens {{max}} Dateien pro Upload."
+  },
+  "review": {
+    "back": "Zurück zum Posteingang",
+    "notFound": "Dokument nicht gefunden",
+    "notFoundDescription": "Es existiert nicht oder gehört zu einem anderen Mandanten.",
+    "noSupplier": "Unbekannter Lieferant",
+    "settledTitle": "Dieses Dokument ist abgeschlossen",
+    "settledDescription": "Es ist {{status}}; seine Felder können nicht mehr bearbeitet werden.",
+    "failedTitle": "Verarbeitung fehlgeschlagen",
+    "noCanonicalTitle": "Keine extrahierten Daten",
+    "noCanonical": "Für diesen Dokumenttyp gibt es keine Rechnungsdaten zu prüfen.",
+    "noCanonicalExtracted": "Die Extraktion hat für diese Rechnung keine Daten geliefert; siehe den Fehler oben, oder verarbeiten Sie sie neu, sobald die Ursache behoben ist.",
+    "noCanonicalProcessing": "Das Dokument wird noch verarbeitet; die Felder erscheinen nach der Extraktion.",
+    "tabs": {
+      "fields": "Felder",
+      "timeline": "Verlauf",
+      "original": "Original"
+    },
+    "sections": {
+      "document": "Beleg",
+      "supplier": "Lieferant",
+      "customer": "Kunde",
+      "totals": "Summen",
+      "payment": "Zahlungsbedingungen",
+      "notes": "Bemerkungen"
+    },
+    "form": {
+      "label": "Kanonische Daten",
+      "none": "(keine)"
+    },
+    "flags": {
+      "heading_one": "{{count}} Hinweis",
+      "heading_other": "{{count}} Hinweise",
+      "title_one": "{{count}} Hinweis",
+      "title_other": "{{count}} Hinweise",
+      "hint": "Klicken Sie auf einen Hinweis oder drücken Sie j / k, um zum Feld zu springen.",
+      "none": "Keine Hinweise: alle Prüfregeln sind erfüllt.",
+      "resolved": "Erledigt"
+    },
+    "save": {
+      "button": "Korrekturen speichern",
+      "nothing": "Nichts geändert.",
+      "saved_one": "{{count}} Korrektur gespeichert.",
+      "saved_other": "{{count}} Korrekturen gespeichert."
+    },
+    "actions": {
+      "label": "Prüfaktionen",
+      "approve": "Freigeben",
+      "approveTitle": "Dieses Dokument freigeben?",
+      "approveDescription": "{{number}} wird freigegeben und an die nachgelagerten Systeme übergeben.",
+      "approved": "Dokument freigegeben.",
+      "reject": "Ablehnen",
+      "rejectTitle": "Dieses Dokument ablehnen?",
+      "rejectDescription": "Abgelehnte Dokumente werden nicht exportiert. Der Grund wird im Verlauf festgehalten.",
+      "rejectReason": "Grund",
+      "rejectReasonPlaceholder": "Zum Beispiel: Duplikat einer bereits bezahlten Rechnung",
+      "rejected": "Dokument abgelehnt.",
+      "reprocess": "Neu verarbeiten",
+      "reprocessTitle": "Dieses Dokument neu verarbeiten?",
+      "reprocessDescription": "Das Dokument durchläuft die Verarbeitung ab dem gewählten Schritt erneut; spätere Korrekturen werden neu berechnet.",
+      "fromStage": "Ab Schritt",
+      "reprocessing": "Neuverarbeitung ab {{stage}}.",
+      "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Korrekturen."
+    },
+    "viewer": {
+      "toolbar": "Seitenansicht",
+      "previousPage": "Vorherige Seite",
+      "nextPage": "Nächste Seite",
+      "pageOf": "Seite {{page}} von {{count}}",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "showWords": "Erkannte Wörter anzeigen",
+      "words": "Wörter",
+      "pageAlt": "Seite {{page}} des Dokuments",
+      "pageError": "Das Seitenbild konnte nicht geladen werden.",
+      "noPagesTitle": "Keine Seitenbilder",
+      "noPages": "Dieses Dokument hat keine gerenderten Seiten (zum Beispiel eine XML-E-Rechnung); die Felder rechts sind seine Daten."
+    },
+    "overlay": {
+      "label_one": "{{count}} markiertes Feld auf dieser Seite",
+      "label_other": "{{count}} markierte Felder auf dieser Seite",
+      "box": "Feld {{path}}"
+    },
+    "lines": {
+      "title_one": "{{count}} Position",
+      "title_other": "{{count}} Positionen",
+      "caption": "Positionen",
+      "check": "Prüfung",
+      "cellLabel": "Position {{line}}, {{field}}",
+      "empty": "Dieses Dokument hat keine Positionen.",
+      "allOk": "Positionsrechnung stimmt",
+      "mismatches_one": "{{count}} Position geht nicht auf",
+      "mismatches_other": "{{count}} Positionen gehen nicht auf",
+      "ok": "Menge × Einzelpreis entspricht dem Nettobetrag",
+      "okDetail": "Erwartet {{expected}}",
+      "incomplete": "Menge, Einzelpreis oder Nettobetrag fehlt",
+      "mismatchDetail": "Menge × Einzelpreis ergibt {{expected}}, die Position nennt {{actual}}"
+    },
+    "timeline": {
+      "title": "Verlauf",
+      "empty": "Noch keine Ereignisse.",
+      "details": "Details"
+    },
+    "original": {
+      "fileName": "Datei",
+      "receivedAt": "Empfangen",
+      "source": "Von",
+      "pages": "Seiten",
+      "extraction": "Extraktion",
+      "download": "Original herunterladen"
+    }
+  },
+  "queue": {
+    "title": "Prüfliste",
+    "description": "Dokumente, die auf eine menschliche Entscheidung warten. Übernehmen Sie eine Aufgabe, damit niemand sonst daran arbeitet.",
+    "caption": "Prüfaufgaben",
+    "mine": "Nur meine",
+    "statusQueue": "Offen und in Arbeit",
+    "columns": {
+      "reason": "Grund",
+      "status": "Aufgabenstatus",
+      "assignedTo": "Zugewiesen an",
+      "slaDue": "Fällig",
+      "created": "Erstellt",
+      "actions": "Aktionen",
+      "task": "Aufgabe"
+    },
+    "unassigned": "Nicht zugewiesen",
+    "you": "Sie",
+    "claim": "Übernehmen",
+    "claimLabel": "{{number}} übernehmen",
+    "claimed": "Aufgabe übernommen.",
+    "release": "Zurückgeben",
+    "releaseLabel": "{{number}} zurückgeben",
+    "released": "Aufgabe zurückgegeben.",
+    "open": "Öffnen",
+    "openLabel": "{{number}} öffnen",
+    "emptyTitle": "Die Prüfliste ist leer",
+    "empty": "Kein Dokument wartet auf eine Prüfung.",
+    "emptyMine": "Sie haben keine Aufgaben übernommen.",
+    "createdAt": "Erstellt {{when}}"
+  },
+  "suppliers": {
+    "title": "Lieferanten",
+    "description": "Lieferantenstammdaten: Merkmale, über die eingehende Dokumente einem Lieferanten zugeordnet werden.",
+    "caption": "Lieferanten",
+    "search": "Suchen",
+    "searchPlaceholder": "Name, USt-IdNr., Alias",
+    "create": "Neuer Lieferant",
+    "createTitle": "Neuer Lieferant",
+    "createDescription": "Die Merkmale helfen der Verarbeitung, Dokumente diesem Lieferanten zuzuordnen.",
+    "editDescription": "Stammdaten und aktuelle Dokumente dieses Lieferanten.",
+    "edit": "Bearbeiten",
+    "view": "Anzeigen",
+    "save": "Speichern",
+    "openLabel": "{{name}} öffnen",
+    "created": "Lieferant {{name}} angelegt.",
+    "updated": "Lieferant {{name}} gespeichert.",
+    "alwaysReviewBadge": "Immer prüfen",
+    "emptyTitle": "Keine Lieferanten",
+    "empty": "Lieferanten entstehen mit eingehenden Dokumenten, oder legen Sie selbst einen an.",
+    "emptySearch": "Kein Lieferant passt zu „{{q}}“.",
+    "activityEmpty": "Noch keine Dokumente dieses Lieferanten.",
+    "columns": {
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "currency": "Währung",
+      "ibans": "IBANs",
+      "emailDomains": "E-Mail-Domains",
+      "alwaysReview": "Prüfung",
+      "updated": "Geändert"
+    },
+    "tabs": {
+      "details": "Details",
+      "activity": "Aktivität"
+    },
+    "fields": {
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "taxId": "Steuernummer",
+      "defaultCurrency": "Standardwährung",
+      "defaultCurrencyHint": "ISO-4217-Code, wenn ein Dokument keine Währung angibt.",
+      "currencyInvalid": "Geben Sie einen dreistelligen Währungscode wie EUR ein.",
+      "ibans": "IBANs",
+      "emailDomains": "E-Mail-Domains",
+      "aliases": "Aliasnamen",
+      "listHint": "Ein Eintrag pro Zeile oder durch Kommas getrennt.",
+      "alwaysReview": "Immer prüfen",
+      "alwaysReviewHint": "Dokumente dieses Lieferanten werden nie automatisch freigegeben."
+    }
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "description": "Prüfregeln, Mitglieder, Maschinenzugänge, Eingangskanäle und KI-Anbieter Ihrer Organisation.",
+    "tabsLabel": "Einstellungsbereiche",
+    "platformScopeTitle": "Mandant wählen",
+    "platformScope": "Einstellungen gehören zu einem Mandanten; Plattformkonten verwalten Mandanten in der Admin-Konsole.",
+    "adminOnlyTitle": "Einstellungen sind Mandanten-Admins vorbehalten",
+    "adminOnly": "Bitten Sie einen Admin Ihrer Organisation, Prüfregeln, Mitglieder, Schlüssel, Kanäle oder KI-Anbieter zu ändern.",
+    "save": "Speichern",
+    "tabs": {
+      "general": "Allgemein",
+      "members": "Mitglieder",
+      "apiKeys": "API-Schlüssel",
+      "channels": "Kanäle",
+      "ai": "KI-Anbieter"
+    },
+    "general": {
+      "identityTitle": "Organisation",
+      "identityDescription": "Die Stammdaten Ihres Mandanten. Änderungen nimmt der Plattformbetreiber vor.",
+      "identity": {
+        "name": "Name",
+        "legalName": "Firmenname",
+        "slug": "Kürzel",
+        "vatId": "USt-IdNr.",
+        "countryCode": "Land",
+        "defaultCurrency": "Standardwährung",
+        "timeZone": "Zeitzone"
+      },
+      "policyTitle": "Prüfregeln",
+      "policyDescription": "Wann Dokumente automatisch freigegeben und wie lange sie aufbewahrt werden.",
+      "threshold": "Konfidenzschwelle für automatische Freigabe",
+      "thresholdHint": "Dokumente ohne blockierende Hinweise, deren Felder alle mindestens {{value}} Konfidenz haben, werden automatisch freigegeben.",
+      "retention": "Aufbewahrung (Jahre)",
+      "retentionHint": "Originale und Daten werden nach so vielen Jahren gelöscht.",
+      "shareProfiles": "Extraktionsprofile teilen",
+      "shareProfilesHint": "Aus Ihren Dokumenten gelernte Layoutprofile dürfen anderen Mandanten helfen (keine Dokumentdaten).",
+      "alwaysReview": "Diese Lieferanten immer prüfen",
+      "alwaysReviewHint": "Ihre Dokumente werden nie automatisch freigegeben.",
+      "noSuppliers": "Noch keine Lieferanten.",
+      "saved": "Einstellungen gespeichert."
+    },
+    "members": {
+      "caption": "Mitglieder",
+      "empty": "Keine Mitglieder.",
+      "add": "Mitglied hinzufügen",
+      "addTitle": "Mitglied hinzufügen",
+      "addDescription": "Die Benutzer-ID ist das Subject des Anmeldekontos der Person.",
+      "added": "{{name}} hinzugefügt.",
+      "roleChanged": "{{name}} ist jetzt {{role}}.",
+      "roleFor": "Rolle von {{name}}",
+      "remove": "Entfernen",
+      "removeLabel": "{{name}} entfernen",
+      "removeTitle": "Dieses Mitglied entfernen?",
+      "removeDescription": "{{name}} verliert den Zugriff auf diese Organisation.",
+      "removed": "Mitglied entfernt.",
+      "columns": {
+        "name": "Name",
+        "email": "E-Mail",
+        "userId": "Benutzer-ID",
+        "role": "Rolle",
+        "since": "Mitglied seit"
+      },
+      "fields": {
+        "userId": "Benutzer-ID",
+        "userIdPlaceholder": "Subject des Anmeldekontos",
+        "email": "E-Mail",
+        "displayName": "Anzeigename",
+        "role": "Rolle"
+      }
+    },
+    "apiKeys": {
+      "caption": "API-Schlüssel",
+      "empty": "Keine API-Schlüssel",
+      "emptyDescription": "Erstellen Sie einen Schlüssel für eine Integration, die Dokumente hochlädt oder liest.",
+      "create": "Schlüssel erstellen",
+      "createTitle": "API-Schlüssel erstellen",
+      "createDescription": "Der Schlüssel wird nach dem Erstellen einmal angezeigt; legen Sie ihn im Secret-Speicher Ihrer Integration ab.",
+      "createdTitle": "Schlüssel „{{name}}“ erstellt",
+      "createdDescription": "Kopieren Sie den Schlüssel jetzt. Er kann nicht erneut angezeigt werden.",
+      "oneTime": "Nur einmal sichtbar",
+      "copy": "Schlüssel kopieren",
+      "copied": "Kopiert",
+      "copyFailed": "Der Schlüssel konnte nicht kopiert werden; markieren und kopieren Sie ihn von Hand.",
+      "revoke": "Widerrufen",
+      "revokeLabel": "{{name}} widerrufen",
+      "revokeTitle": "Diesen Schlüssel widerrufen?",
+      "revokeDescription": "Integrationen mit „{{name}}“ funktionieren sofort nicht mehr.",
+      "revoked": "Schlüssel widerrufen.",
+      "statusActive": "Aktiv",
+      "statusRevoked": "Widerrufen",
+      "neverUsed": "Nie",
+      "scopes": {
+        "ingest": "Einliefern",
+        "read": "Lesen"
+      },
+      "scopeHints": {
+        "ingest": "Dokumente hochladen.",
+        "read": "Dokumente und ihre Daten lesen."
+      },
+      "columns": {
+        "name": "Name",
+        "prefix": "Präfix",
+        "scopes": "Berechtigungen",
+        "status": "Status",
+        "lastUsed": "Zuletzt verwendet",
+        "created": "Erstellt"
+      },
+      "fields": {
+        "name": "Name",
+        "namePlaceholder": "ERP-Anbindung",
+        "scopes": "Berechtigungen"
+      }
+    },
+    "channels": {
+      "caption": "Kanäle",
+      "empty": "Keine Kanäle",
+      "emptyDescription": "Uploads im Portal funktionieren immer; fügen Sie ein Postfach, einen überwachten Ordner oder einen API-Kanal hinzu.",
+      "create": "Kanal hinzufügen",
+      "createTitle": "Kanal hinzufügen",
+      "createDescription": "Woher Dokumente kommen. Zugangsdaten gehen in den Secret-Speicher und werden nie wieder angezeigt.",
+      "created": "Kanal {{name}} angelegt.",
+      "pause": "Pausieren",
+      "pauseLabel": "{{name}} pausieren",
+      "paused": "{{name}} pausiert.",
+      "resume": "Fortsetzen",
+      "resumeLabel": "{{name}} fortsetzen",
+      "resumed": "{{name}} fortgesetzt.",
+      "secretSet": "Hinterlegt",
+      "configInvalid": "Geben Sie ein JSON-Objekt ein.",
+      "types": {
+        "ApiUpload": "API",
+        "Mailbox": "Postfach",
+        "WatchedFolder": "Überwachter Ordner",
+        "PortalUpload": "Portal-Upload"
+      },
+      "statuses": {
+        "Active": "Aktiv",
+        "Paused": "Pausiert",
+        "Error": "Fehler"
+      },
+      "configHints": {
+        "ApiUpload": "Keine Einstellungen nötig; Integrationen senden mit einem API-Schlüssel an /api/v1/ingestions.",
+        "Mailbox": "IMAP-Server, Port, Benutzername und Ordner; das Passwort gehört in das Secret-Feld.",
+        "WatchedFolder": "Ordnerpfad und Dateimuster, die der Worker überwacht.",
+        "PortalUpload": "Keine Einstellungen nötig."
+      },
+      "columns": {
+        "name": "Name",
+        "type": "Typ",
+        "status": "Status",
+        "secret": "Secret",
+        "lastPolled": "Zuletzt abgefragt",
+        "lastError": "Letzter Fehler",
+        "created": "Erstellt"
+      },
+      "fields": {
+        "name": "Name",
+        "type": "Typ",
+        "config": "Konfiguration (JSON)",
+        "secret": "Secret",
+        "secretHint": "Postfachpasswort oder Token; nur schreibbar."
+      }
+    },
+    "ai": {
+      "providersTitle": "KI-Anbieter",
+      "providersDescription": "Eigener Schlüssel: Dokumente Ihrer Organisation werden mit diesen Anbietern verarbeitet.",
+      "caption": "KI-Anbieter",
+      "empty": "Keine eigenen Anbieter",
+      "emptyDescription": "Ohne eigenen Anbieter wird der Anbieter der Plattform verwendet, sofern Ihre Regel das erlaubt.",
+      "add": "Anbieter hinzufügen",
+      "addTitle": "KI-Anbieter hinzufügen",
+      "addDescription": "Der Schlüssel wird geprüft und im Secret-Speicher abgelegt; danach sind nur seine letzten vier Zeichen sichtbar.",
+      "added": "Anbieter {{kind}} hinzugefügt.",
+      "enable": "Aktivieren",
+      "enableLabel": "{{kind}} aktivieren",
+      "enableTitle": "Diesen Anbieter aktivieren?",
+      "enableDescription": "Schritte, die auf ihn verweisen, verwenden ihn wieder.",
+      "enabled": "Anbieter aktiviert.",
+      "disable": "Deaktivieren",
+      "disableLabel": "{{kind}} deaktivieren",
+      "disableTitle": "Diesen Anbieter deaktivieren?",
+      "disableDescription": "Schritte, die auf ihn verweisen, fallen auf den Standard zurück oder schlagen fehl.",
+      "disabled": "Anbieter deaktiviert.",
+      "policyTitle": "Routing-Regel",
+      "policyDescription": "Welchen Anbieter jeder Verarbeitungsschritt verwendet.",
+      "policySaved": "Regel gespeichert.",
+      "kinds": {
+        "Anthropic": "Anthropic",
+        "AnthropicFoundry": "Anthropic (Microsoft Foundry)",
+        "OpenAi": "OpenAI",
+        "AzureOpenAi": "Azure OpenAI",
+        "OpenAiCompatible": "OpenAI-kompatibel",
+        "Replay": "Replay (Test)"
+      },
+      "statuses": {
+        "Active": "Aktiv",
+        "Disabled": "Deaktiviert",
+        "Invalid": "Ungültig"
+      },
+      "residencies": {
+        "Eu": "EU",
+        "Us": "USA",
+        "TenantOwned": "Eigene Infrastruktur"
+      },
+      "columns": {
+        "kind": "Anbieter",
+        "status": "Status",
+        "key": "Schlüssel",
+        "residency": "Datenstandort",
+        "models": "Modelle",
+        "cap": "Monatslimit",
+        "lastError": "Letzter Fehler",
+        "updated": "Geändert"
+      },
+      "fields": {
+        "kind": "Anbieter",
+        "apiKey": "API-Schlüssel",
+        "apiKeyHint": "Nur schreibbar; wird nie wieder angezeigt.",
+        "endpoint": "Endpunkt",
+        "apiVersion": "API-Version",
+        "dataResidency": "Datenstandort",
+        "cap": "Monatliches Ausgabenlimit (USD)",
+        "models": "Modell je Schritt",
+        "modelPlaceholder": "Standard des Anbieters"
+      },
+      "policy": {
+        "default": "Standardanbieter",
+        "defaultHint": "Gilt für jeden Schritt ohne eigene Zuordnung.",
+        "platformDefault": "Standard der Plattform",
+        "overrides": "Zuordnung je Schritt",
+        "useDefault": "Standard verwenden",
+        "fallback": "Auf den Plattformschlüssel zurückfallen",
+        "fallbackHint": "Fällt Ihr Anbieter aus, wird der Schlüssel der Plattform verwendet.",
+        "fallbackNotAllowed": "Der Plattformbetreiber erlaubt den Plattformschlüssel für Ihre Organisation nicht."
+      },
+      "usage": {
+        "title": "Nutzung",
+        "description": "Aufrufe, Tokens und geschätzte Kosten pro Tag.",
+        "window": "{{from}} – {{to}}",
+        "calls": "Aufrufe",
+        "tokens": "Tokens",
+        "cost": "Geschätzte Kosten",
+        "day": "Tag",
+        "chartLabel": "KI-Aufrufe pro Tag",
+        "tableToggle": "Als Tabelle anzeigen",
+        "empty": "Noch keine Nutzung",
+        "emptyDescription": "Die Nutzung erscheint, sobald Dokumente mit einem KI-Anbieter verarbeitet wurden."
+      }
+    }
   }
 }

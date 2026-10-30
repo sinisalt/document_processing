@@ -107,7 +107,8 @@ export function AppLayout({ nav, appName, logo, headerStart, headerEnd, showTena
         {sidebarFooter && <SidebarFooter>{sidebarFooter}</SidebarFooter>}
         <SidebarRail />
       </Sidebar>
-      <SidebarInset>
+      {/* min-w-0: a flex item otherwise grows to its content, so a wide table or the review grid pushed the page off-screen. */}
+      <SidebarInset className="min-w-0">
         <header role="banner" className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" aria-label={t("nav.toggleSidebar")} />
           <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
