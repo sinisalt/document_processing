@@ -32,9 +32,14 @@ Done so far (see the README for how to build and test):
   (queue per stage), Keycloak with a seeded realm (platform roles, two tenants), Lowkey Vault and
   GreenMail; model-level tests pin names, images, waits and the realm contents.
 
-Still open in Phase 0: OIDC login and roles in the API (Keycloak is up, the API does not validate
-tokens yet), API keys at the API boundary, the generated TypeScript client, Bicep, and the three
-decisions below.
+- Authentication: JWT bearer against the configured authority (Keycloak locally), the five roles
+  as authorization policies, tenant resolution from the `tenant_id` claim with the SuperAdmin
+  `X-Tenant-Id` override, secure-by-default fallback policy, `/api/v1/me`; in-process tests mint
+  tokens with a test key.
+
+Still open in Phase 0: API keys at the API boundary, the generated TypeScript client, Bicep, and
+the three decisions below. Tenant status (suspended tenants) is not yet checked at the boundary;
+that needs the tenant row and lands with the first tenant endpoints.
 
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server

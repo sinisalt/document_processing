@@ -14,6 +14,7 @@
     <Project Path="src/DocProc.Worker/DocProc.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/DocProc.Api.Tests/DocProc.Api.Tests.csproj" />
     <Project Path="tests/DocProc.AppHost.Tests/DocProc.AppHost.Tests.csproj" />
     <Project Path="tests/DocProc.Domain.Tests/DocProc.Domain.Tests.csproj" />
     <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />

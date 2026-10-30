@@ -97,6 +97,27 @@ dotnet run --project src/DocProc.Api
 The interactive API reference (Scalar) is at `/scalar`, the OpenAPI document at
 `/openapi/v1.json`, liveness at `/alive`, health at `/health`, readiness at `/health/ready`.
 
+### Authentication
+
+Every endpoint except the probes, the OpenAPI document, Scalar and `/api/v1/version` needs an
+OIDC bearer token (`Authentication:Oidc:Authority` and `Audience`, wired to the local Keycloak
+realm by the app host). Roles come from the `roles` claim, the tenant from `tenant_id`:
+
+| Role | Scope | Policies satisfied |
+|---|---|---|
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, Review, Read |
+| Operator | platform | Platform, Review, Read |
+| TenantAdmin | own tenant | TenantAdmin, Review, Read |
+| Reviewer | own tenant | Review, Read |
+| Viewer | own tenant | Read |
+
+`GET /api/v1/me` returns the caller's identity, roles, resolved tenant scope and the policies
+they satisfy, which the front ends use to show or hide actions. Get a local token from Keycloak:
+
+```bash
+curl -s -X POST http://localhost:8080/realms/docproc/protocol/openid-connect/token -d client_id=docproc-portal -d grant_type=password -d username=tenant-a-reviewer -d password=tenant-a-reviewer -d scope=openid | jq -r .access_token
+```
+
 ## Repository layout
 
 ```
@@ -116,6 +137,7 @@ src/
 tests/
   DocProc.Domain.Tests/       validation rules, state machine, value types
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, Anthropic adapter
+  DocProc.Api.Tests/          in-process API tests with locally minted tokens: auth, roles, tenant scope
   DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers
   DocProc.Integration.Tests/  model/snapshot checks; Testcontainers (SQL Server 2025) for migrations, RLS and temporal tables, skipped without Docker
 schemas/                      committed JSON schemas sent to providers

@@ -63,6 +63,8 @@ var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithReference(messaging).WaitFor(messaging)
     .WithReference(keycloak).WaitFor(keycloak)
     .WithEnvironment("Persistence__MigrateOnStartup", "true")
+    .WithEnvironment("Authentication__Oidc__Authority", ReferenceExpression.Create($"{keycloak.GetEndpoint("http")}/realms/docproc"))
+    .WithEnvironment("Authentication__Oidc__RequireHttpsMetadata", "false")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
     .WithHttpHealthCheck("/health/ready")
     .WithExternalHttpEndpoints();

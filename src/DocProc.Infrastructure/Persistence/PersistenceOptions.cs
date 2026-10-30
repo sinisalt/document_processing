@@ -2,6 +2,7 @@ using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DocProc.Infrastructure.Persistence;
 
@@ -29,11 +30,18 @@ public static class PersistenceOptions
         return builder;
     }
 
+    /// <summary>The scoped tenant context, set per request by the API's tenant resolution and per job by the worker.</summary>
+    public static IServiceCollection AddTenantContext(this IServiceCollection services)
+    {
+        services.TryAddScoped<TenantContext>();
+        services.TryAddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        return services;
+    }
+
     /// <summary>Registers the context with a scoped <see cref="ITenantContext"/>, the session-context interceptor and the connection string.</summary>
     public static IServiceCollection AddDocProcPersistence(this IServiceCollection services, string connectionString)
     {
-        services.AddScoped<TenantContext>();
-        services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+        services.AddTenantContext();
         services.AddDbContext<DocProcDbContext>((sp, options) =>
         {
             var tenant = sp.GetRequiredService<ITenantContext>();

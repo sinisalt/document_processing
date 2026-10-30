@@ -95,8 +95,16 @@ One monorepo, two apps sharing a component and API-client package:
 
 ### Shared UI decisions
 
-- Vite + React + TypeScript, TanStack Query for server state, TanStack Table for grids,
-  a headless component library (Radix-based, e.g. shadcn/ui) so both apps look the same,
-  PDF.js for the viewer with an SVG overlay for bounding boxes.
+- **Do not build UI primitives.** Decision (2026-10-30): both apps use **shadcn/ui** components
+  (Radix UI primitives + Tailwind) generated into the shared `packages/ui` package, and reach for
+  an existing library before writing anything generic: TanStack Query for server state, TanStack
+  Table for grids, TanStack Router or React Router for routing, react-hook-form + zod for forms,
+  Radix primitives (dialog, dropdown, tooltip, popover, toast) via shadcn, PDF.js for the page
+  viewer, i18next for translations, `openapi-typescript` / `openapi-fetch` for the generated
+  client. Custom components are limited to the genuinely domain-specific pieces: the field
+  highlight overlay on the page image, the line-item grid with arithmetic indicators, and the
+  three-way match view. Anything else that looks like a button, table, form field, dialog or
+  menu comes from the library.
+- Vite + React + TypeScript; PDF.js for the viewer with an SVG overlay for bounding boxes.
 - Generated TypeScript client from the OpenAPI document (no hand-written fetch code).
 - i18n from day one (restaurant customers and their suppliers are multilingual).

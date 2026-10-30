@@ -22,6 +22,6 @@
     <OutputType>Exe</OutputType>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-    <NoWarn>$(NoWarn);CA1707;CA2007;CA1861</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1861;CA1819</NoWarn>
   </PropertyGroup>
 </Project>

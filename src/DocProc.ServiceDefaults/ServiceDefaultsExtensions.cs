@@ -81,9 +81,9 @@ public static class ServiceDefaultsExtensions
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapHealthChecks(HealthEndpointPath);
-        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") });
-        app.MapHealthChecks(ReadinessEndpointPath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") });
+        app.MapHealthChecks(HealthEndpointPath).AllowAnonymous();
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
+        app.MapHealthChecks(ReadinessEndpointPath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
         return app;
     }
 }
