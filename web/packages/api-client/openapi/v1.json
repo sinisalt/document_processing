@@ -3659,8 +3659,10 @@
           "Candidate",
           "Ignored",
           "Unpacked",
-          "Duplicate"
-        ]
+          "Duplicate",
+          "Accepted"
+        ],
+        "description": "What stage 1 decided about an item. ItemDisposition.Candidate is the undecided state the channels store; every other\nvalue is final. Exactly one ItemDisposition.Accepted item per tenant and SHA-256 may exist: the filtered unique index\nIngestionItemOwnership enforces it in the database."
       },
       "ItemKind": {
         "enum": [
