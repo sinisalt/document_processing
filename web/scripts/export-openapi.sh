@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/web/packages/api-client/openapi/v1.json"
 PORT="${OPENAPI_EXPORT_PORT:-5199}"
+command -v dotnet >/dev/null || { echo "dotnet is not on PATH (see global.json)" >&2; exit 1; }
+rm -f "$OUT"
 
 export ASPNETCORE_URLS="http://127.0.0.1:${PORT}" ASPNETCORE_ENVIRONMENT=Testing Persistence__MigrateOnStartup=false ConnectionStrings__DocProc="" DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
 dotnet run --project "$ROOT/src/DocProc.Api" -c Release --no-launch-profile >/tmp/docproc-openapi-export.log 2>&1 &

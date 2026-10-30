@@ -39,6 +39,420 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ingestion channels of the current tenant; credentials are never returned. */
+        get: operations["ListChannels"];
+        put?: never;
+        /** Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant. */
+        post: operations["CreateChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a channel that has never received anything; otherwise 409. */
+        delete: operations["DeleteChannel"];
+        options?: never;
+        head?: never;
+        /** Renames, pauses/resumes or reconfigures a channel. */
+        patch: operations["UpdateChannel"];
+        trace?: never;
+    };
+    "/api/v1/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated. */
+        get: operations["ListDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The review payload: summary, the canonical model with field provenance, flags, costs and origin. */
+        get: operations["GetDocument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approves a document waiting for review (or validated and not yet routed), closes its review tasks and queues publishing. */
+        post: operations["ApproveDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rejects a document with a reason, closes its review tasks and queues publishing of the rejection. */
+        post: operations["RejectDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage (Normalize, Classify, Extract or Validate; default Extract). */
+        post: operations["ReprocessDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Timeline: state transitions, stage outcomes and human actions, oldest first. */
+        get: operations["GetDocumentEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Applies reviewer corrections by canonical field path; each keeps the previous value in the field's history and is recorded as a Correction. */
+        patch: operations["CorrectDocumentFields"];
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/original": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The file the document was ingested from, with its original content type and file name. */
+        get: operations["GetDocumentOriginal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/pages/{n}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rendered page image (PNG, 1-based page number) for the viewer; ETag is the content hash. */
+        get: operations["GetDocumentPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The positioned text layer (words with boxes per page) for the highlight overlay. */
+        get: operations["GetDocumentText"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ingestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ingestions newest first, cursor-paginated. */
+        get: operations["ListIngestions"];
+        put?: never;
+        /** Uploads one or more files (multipart/form-data, or a single base64 file as JSON) and queues them for processing. Send Idempotency-Key to make retries safe. */
+        post: operations["CreateIngestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ingestions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One ingestion with its items and the documents split from them. */
+        get: operations["GetIngestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which provider configuration each stage of the current tenant uses and whether the platform key may stand in. */
+        get: operations["GetLlmPolicy"];
+        /** Sets the default configuration, per-stage overrides and platform-key fallback; every id must be one of the tenant's own configurations. */
+        put: operations["PutLlmPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's own (BYOK) provider configurations, without credentials. */
+        get: operations["ListLlmProviders"];
+        put?: never;
+        /** Adds a BYOK provider: the key goes to the secret store, SQL keeps its reference, last four characters and fingerprint. */
+        post: operations["CreateLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a configuration the policy does not reference; usage rows keep its id for cost history. */
+        delete: operations["DeleteLlmProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-providers/{id}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disables a configuration; stages that resolve to it wait or fall back per the policy. */
+        post: operations["DisableLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-providers/{id}:enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-enables a disabled or invalid configuration. */
+        post: operations["EnableLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls, tokens and estimated cost of the current tenant per day, stage or model (inclusive UTC dates; the last 30 days by default). */
+        get: operations["GetLlmUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The platform's default provider configurations (per data residency), without credentials. */
+        get: operations["ListPlatformLlmProviders"];
+        put?: never;
+        /** Adds a platform provider configuration; the key goes to the secret store under platform scope. */
+        post: operations["CreatePlatformLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm/providers/{id}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Kill switch: no call goes to this platform configuration until it is enabled again. */
+        post: operations["DisablePlatformLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm/providers/{id}:enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-enables a platform configuration. */
+        post: operations["EnablePlatformLlmProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls, tokens and estimated cost across tenants per tenant, model or day (inclusive UTC dates; the last 30 days by default). */
+        get: operations["GetPlatformLlmUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -50,6 +464,235 @@ export interface paths {
         get: operations["GetMe"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Members of the current tenant and their roles. */
+        get: operations["ListMembers"];
+        put?: never;
+        /** Adds a user (by identity-provider subject) to the current tenant with a role. */
+        post: operations["AddMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Removes a member. The last TenantAdmin cannot be removed. */
+        delete: operations["RemoveMember"];
+        options?: never;
+        head?: never;
+        /** Changes a member's role. The last TenantAdmin cannot be demoted. */
+        patch: operations["ChangeMemberRole"];
+        trace?: never;
+    };
+    "/api/v1/review-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary. */
+        get: operations["ListReviewTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/review-tasks/{id}:claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assigns the task to the caller and marks it InProgress; 409 when another reviewer holds it. */
+        post: operations["ClaimReviewTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/review-tasks/{id}:release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Returns the task to the queue. The assignee may release it; a tenant admin may release anyone's. */
+        post: operations["ReleaseReviewTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review policy and retention of the current tenant, with its read-only identity. */
+        get: operations["GetTenantSettings"];
+        /** Replaces the review policy and retention of the current tenant. */
+        put: operations["PutTenantSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Suppliers of the current tenant, by name; q matches the folded name or the exact VAT id. */
+        get: operations["ListSuppliers"];
+        put?: never;
+        /** Creates a supplier; the folded name used for matching is derived server-side. */
+        post: operations["CreateSupplier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One supplier of the current tenant. */
+        get: operations["GetSupplier"];
+        put?: never;
+        post?: never;
+        /** Deletes a supplier no document references; otherwise 409. */
+        delete: operations["DeleteSupplier"];
+        options?: never;
+        head?: never;
+        /** Changes a supplier's identifiers, aliases, domains or review setting. */
+        patch: operations["UpdateSupplier"];
+        trace?: never;
+    };
+    "/api/v1/suppliers/{id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's twenty most recent documents. */
+        get: operations["GetSupplierActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tenants of the platform, by slug, with status and text filters. Operators may list; only SuperAdmins change anything. */
+        get: operations["ListTenants"];
+        put?: never;
+        /** Creates a tenant with its default API-upload and portal-upload channels. */
+        post: operations["CreateTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One tenant. */
+        get: operations["GetTenant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Changes name, legal name, VAT id, aliases or status of a tenant. */
+        patch: operations["UpdateTenant"];
+        trace?: never;
+    };
+    "/api/v1/tenants/{id}:activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activates a suspended tenant. */
+        post: operations["ActivateTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{id}:suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspends a tenant: its users and API keys stop working until it is activated again. */
+        post: operations["SuspendTenant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -77,6 +720,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddMemberRequest: {
+            displayName: null | string;
+            email: null | string;
+            role: string;
+            userId: string;
+        };
         AnonymousTypeOfstringAndstring: {
             name: null | string;
             version: null | string;
@@ -95,9 +744,40 @@ export interface components {
             revokedAt: null | string;
             scopes: string[];
         };
+        ApproveDocumentRequest: {
+            comment: null | string;
+        };
+        ChangeMemberRoleRequest: {
+            role: string;
+        };
+        /** @description bool ChannelResponse.HasSecret is all a client learns about the credential; the reference itself stays server-side. */
+        ChannelResponse: {
+            config: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            hasSecret: boolean;
+            /** Format: uuid */
+            id: string;
+            lastError: null | string;
+            /** Format: date-time */
+            lastPolledAt: null | string;
+            name: string;
+            status: string;
+            type: string;
+        };
+        CorrectFieldsRequest: {
+            corrections: components["schemas"]["FieldCorrection"][];
+        };
         CreateApiKeyRequest: {
             name: string;
             scopes: string[];
+        };
+        /** @description JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path); string? CreateChannelRequest.SecretRef names the credential in the secret store. */
+        CreateChannelRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: string;
+            secretRef: null | string;
+            type: string;
         };
         /** @description Returned once, on creation: string CreatedApiKey.Key is never retrievable again. */
         CreatedApiKey: {
@@ -110,6 +790,190 @@ export interface components {
             prefix: string;
             scopes: string[];
         };
+        /** @description string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL. */
+        CreateLlmProviderRequest: {
+            apiKey: string;
+            apiVersion: null | string;
+            dataResidency: null | string;
+            endpoint: null | string;
+            kind: string;
+            models: null | {
+                [key: string]: string;
+            };
+            /** Format: double */
+            monthlySpendCapUsd: null | number | string;
+        };
+        CreateSupplierRequest: {
+            aliases: null | string[];
+            alwaysReview: null | boolean;
+            defaultCurrency: null | string;
+            emailDomains: null | string[];
+            ibans: null | string[];
+            name: string;
+            taxId: null | string;
+            vatId: null | string;
+        };
+        CreateTenantRequest: {
+            countryCode: string;
+            defaultCurrency: string;
+            legalName: string;
+            name: string;
+            slug: string;
+            timeZone: string;
+            vatId: null | string;
+        };
+        DocumentCostsDto: {
+            /** Format: double */
+            estimatedUsd: null | number | string;
+            keyOwner: null | components["schemas"]["KeyOwner"];
+            /** Format: int32 */
+            llmCacheReadTokens: number | string;
+            /** Format: int32 */
+            llmInputTokens: number | string;
+            llmModel: null | string;
+            /** Format: int32 */
+            llmOutputTokens: number | string;
+            llmProvider: null | string;
+            /** Format: int32 */
+            ocrPages: number | string;
+        };
+        /**
+         * @description The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
+         *     canonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
+         *     extraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are
+         *     API-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`).
+         */
+        DocumentDetail: {
+            /** Format: date-time */
+            approvedAt: null | string;
+            approvedBy: null | string;
+            /** Format: int32 */
+            blockingFlagCount: number | string;
+            canonical: null | components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            canonicalSchemaVersion: null | number | string;
+            costs: components["schemas"]["DocumentCostsDto"];
+            /** Format: date-time */
+            createdAt: string;
+            currency: null | string;
+            documentNumber: null | string;
+            extractionMethod: null | components["schemas"]["ExtractionMethod"];
+            failureReason: null | string;
+            flags: components["schemas"]["DocumentFlagDto"][];
+            /** Format: uuid */
+            id: string;
+            ingestion: null | components["schemas"]["DocumentIngestionRef"];
+            /** Format: date */
+            issueDate: null | string;
+            /** Format: int32 */
+            pageCount: number | string;
+            pageImageUrls: string[];
+            status: components["schemas"]["DocumentStatus"];
+            /** Format: uuid */
+            supplierId: null | string;
+            supplierName: null | string;
+            /** Format: double */
+            totalGross: null | number | string;
+            type: components["schemas"]["DocumentType"];
+            /** Format: double */
+            typeConfidence: null | number | string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            warningFlagCount: number | string;
+        };
+        DocumentEventDto: {
+            actor: null | string;
+            /** Format: date-time */
+            at: string;
+            details: null | components["schemas"]["JsonElement"];
+            eventType: string;
+            fromStatus: null | components["schemas"]["DocumentStatus"];
+            /** Format: int64 */
+            id: number | string;
+            toStatus: null | components["schemas"]["DocumentStatus"];
+        };
+        DocumentFlagDto: {
+            code: string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: components["schemas"]["FlagOrigin"];
+            field: null | string;
+            /** Format: uuid */
+            id: string;
+            message: string;
+            /** Format: date-time */
+            resolvedAt: null | string;
+            resolvedBy: null | string;
+            severity: components["schemas"]["FlagSeverity"];
+        };
+        /** @description Where the document came from: the ingestion and the attachment it was split from. */
+        DocumentIngestionRef: {
+            fileName: string;
+            /** Format: uuid */
+            ingestionId: string;
+            /** Format: uuid */
+            itemId: string;
+            /** Format: date-time */
+            receivedAt: string;
+            sourceFrom: null | string;
+        };
+        /**
+         * @description Document lifecycle states (docs/03-pipeline.md "Document state machine").
+         * @enum {unknown}
+         */
+        DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed";
+        /** @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON. */
+        DocumentSummary: {
+            /** Format: date-time */
+            approvedAt: null | string;
+            /** Format: int32 */
+            blockingFlagCount: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            currency: null | string;
+            documentNumber: null | string;
+            extractionMethod: null | components["schemas"]["ExtractionMethod"];
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issueDate: null | string;
+            /** Format: int32 */
+            pageCount: number | string;
+            status: components["schemas"]["DocumentStatus"];
+            /** Format: uuid */
+            supplierId: null | string;
+            supplierName: null | string;
+            /** Format: double */
+            totalGross: null | number | string;
+            type: components["schemas"]["DocumentType"];
+            /** Format: double */
+            typeConfidence: null | number | string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            warningFlagCount: number | string;
+        };
+        /** @enum {unknown} */
+        DocumentType: "Unknown" | "Invoice" | "CreditNote" | "PurchaseOrder" | "DeliveryNote" | "Statement" | "Reminder" | "Other";
+        /** @enum {unknown} */
+        ExtractionMethod: "StructuredXml" | "Profile" | "Llm" | "Manual" | null;
+        /**
+         * @description One human correction (docs/05 "PATCH /documents/{id}/fields"). string FieldCorrection.Path is a canonical field path as
+         *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
+         *     property inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON
+         *     shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
+         *     clear it.
+         */
+        FieldCorrection: {
+            path: string;
+            reason: null | string;
+            value: null | components["schemas"]["JsonElement"];
+        };
+        /** @enum {unknown} */
+        FlagOrigin: "Pipeline" | "Human";
+        /** @enum {unknown} */
+        FlagSeverity: "Info" | "Warning" | "Blocking";
         HttpValidationProblemDetails: {
             detail?: null | string;
             errors?: {
@@ -120,6 +984,161 @@ export interface components {
             status?: null | number | string;
             title?: null | string;
             type?: null | string;
+        };
+        IngestionCreated: {
+            /** Format: uuid */
+            id: string;
+            items: components["schemas"]["IngestionItemCreated"][];
+            status: components["schemas"]["IngestionStatus"];
+        };
+        IngestionDetail: {
+            /** Format: int32 */
+            attempts: number | string;
+            /** Format: uuid */
+            channelId: string;
+            /** Format: uuid */
+            id: string;
+            items: components["schemas"]["IngestionItemDto"][];
+            lastError: null | string;
+            /** Format: date-time */
+            receivedAt: string;
+            sourceFileName: null | string;
+            sourceFrom: null | string;
+            sourceSubject: null | string;
+            status: components["schemas"]["IngestionStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        IngestionDocumentRef: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["DocumentStatus"];
+        };
+        IngestionItemCreated: {
+            fileName: string;
+            /** Format: uuid */
+            id: string;
+            sha256: string;
+            /** Format: int64 */
+            sizeBytes: number | string;
+        };
+        IngestionItemDto: {
+            disposition: components["schemas"]["ItemDisposition"];
+            dispositionReason: null | string;
+            documents: components["schemas"]["IngestionDocumentRef"][];
+            fileName: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["ItemKind"];
+            mimeType: string;
+            sha256: string;
+            /** Format: int64 */
+            sizeBytes: number | string;
+        };
+        /** @description JSON alternative to multipart for a single file: integrations that cannot build multipart bodies. */
+        IngestionJsonUpload: {
+            base64: string;
+            /** Format: uuid */
+            channelId: null | string;
+            contentType: null | string;
+            fileName: string;
+        };
+        /** @enum {unknown} */
+        IngestionStatus: "Received" | "Unpacked" | "Processed" | "Failed";
+        IngestionSummary: {
+            /** Format: uuid */
+            channelId: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            itemCount: number | string;
+            /** Format: date-time */
+            receivedAt: string;
+            sourceFileName: null | string;
+            sourceFrom: null | string;
+            status: components["schemas"]["IngestionStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @enum {unknown} */
+        ItemDisposition: "Candidate" | "Ignored" | "Unpacked" | "Duplicate";
+        /** @enum {unknown} */
+        ItemKind: "Pdf" | "Image" | "Xml" | "Office" | "Text" | "Archive" | "Other";
+        JsonElement: unknown;
+        /** @enum {unknown} */
+        KeyOwner: "Platform" | "Tenant" | null;
+        LlmPolicyResponse: {
+            allowPlatformKeyAtAll: boolean;
+            /** Format: uuid */
+            defaultConfigId: null | string;
+            fallbackToPlatformKey: boolean;
+            stageOverrides: {
+                [key: string]: string;
+            };
+        };
+        /** @description A provider configuration without its credential: only the last four characters identify the key (docs/08 "Key handling"). */
+        LlmProviderResponse: {
+            apiVersion: null | string;
+            authType: string;
+            /** Format: date-time */
+            createdAt: string;
+            dataResidency: string;
+            endpoint: null | string;
+            /** Format: uuid */
+            id: string;
+            keyLast4: null | string;
+            kind: string;
+            lastError: null | string;
+            models: {
+                [key: string]: string;
+            };
+            /** Format: double */
+            monthlySpendCapUsd: null | number | string;
+            scope: string;
+            status: string;
+            /** Format: uuid */
+            tenantId: null | string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            validatedAt: null | string;
+        };
+        /** @description Usage of one group (a day, a stage, a model or a tenant) in the requested window. */
+        LlmUsageBucket: {
+            /** Format: int64 */
+            cacheReadTokens: number | string;
+            /** Format: int64 */
+            cacheWriteTokens: number | string;
+            /** Format: int32 */
+            calls: number | string;
+            /** Format: int32 */
+            errors: number | string;
+            /** Format: double */
+            estimatedCostUsd: number | string;
+            /** Format: int64 */
+            inputTokens: number | string;
+            key: string;
+            /** Format: int64 */
+            outputTokens: number | string;
+            /** Format: int64 */
+            reasoningTokens: number | string;
+        };
+        LlmUsageResponse: {
+            buckets: components["schemas"]["LlmUsageBucket"][];
+            /** Format: date */
+            from: string;
+            groupBy: string;
+            /** Format: date */
+            to: string;
+            total: components["schemas"]["LlmUsageBucket"];
+        };
+        MemberResponse: {
+            /** Format: date-time */
+            createdAt: string;
+            displayName: null | string;
+            email: null | string;
+            role: string;
+            userId: string;
         };
         /** @description Who am I: the identity, roles, resolved tenant scope and the policies this caller satisfies. */
         MeResponse: {
@@ -134,6 +1153,164 @@ export interface components {
             /** Format: uuid */
             tenantId: null | string;
         };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfDocumentSummary: {
+            items: components["schemas"]["DocumentSummary"][];
+            nextCursor: null | string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfIngestionSummary: {
+            items: components["schemas"]["IngestionSummary"][];
+            nextCursor: null | string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfReviewTaskDto: {
+            items: components["schemas"]["ReviewTaskDto"][];
+            nextCursor: null | string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfSupplierResponse: {
+            items: components["schemas"]["SupplierResponse"][];
+            nextCursor: null | string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfTenantResponse: {
+            items: components["schemas"]["TenantResponse"][];
+            nextCursor: null | string;
+        };
+        PatchChannelRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: null | string;
+            status: null | string;
+        };
+        /** @description Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list. */
+        PatchSupplierRequest: {
+            aliases: null | string[];
+            alwaysReview: null | boolean;
+            defaultCurrency: null | string;
+            emailDomains: null | string[];
+            ibans: null | string[];
+            name: null | string;
+            taxId: null | string;
+            vatId: null | string;
+        };
+        /** @description Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it. */
+        PatchTenantRequest: {
+            legalName: null | string;
+            name: null | string;
+            nameAliases: null | string[];
+            status: null | string;
+            vatId: null | string;
+        };
+        PutLlmPolicyRequest: {
+            /** Format: uuid */
+            defaultConfigId: null | string;
+            fallbackToPlatformKey: boolean;
+            stageOverrides: null | {
+                [key: string]: string;
+            };
+        };
+        RejectDocumentRequest: {
+            reason: string;
+        };
+        /** @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run"). */
+        ReprocessDocumentRequest: {
+            fromStage: null | string;
+        };
+        ReviewTaskDto: {
+            assignedTo: null | string;
+            /** Format: date-time */
+            completedAt: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            document: null | components["schemas"]["DocumentSummary"];
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            id: string;
+            reason: string;
+            /** Format: date-time */
+            slaDueAt: null | string;
+            status: components["schemas"]["ReviewTaskStatus"];
+        };
+        /** @enum {unknown} */
+        ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @description One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity"). */
+        SupplierActivityItem: {
+            /** Format: date-time */
+            createdAt: string;
+            currency: null | string;
+            documentNumber: null | string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issueDate: null | string;
+            status: string;
+            /** Format: double */
+            totalGross: null | number | string;
+            type: string;
+        };
+        SupplierResponse: {
+            aliases: string[];
+            alwaysReview: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            defaultCurrency: null | string;
+            emailDomains: string[];
+            /** Format: uuid */
+            globalSupplierId: null | string;
+            ibans: string[];
+            /** Format: uuid */
+            id: string;
+            name: string;
+            normalizedName: string;
+            taxId: null | string;
+            /** Format: date-time */
+            updatedAt: string;
+            vatId: null | string;
+        };
+        /** @description The read-only identity of the current tenant; platform staff change it through `/tenants/{id}`. */
+        TenantIdentity: {
+            countryCode: string;
+            defaultCurrency: string;
+            /** Format: uuid */
+            id: string;
+            legalName: string;
+            name: string;
+            slug: string;
+            timeZone: string;
+            vatId: null | string;
+        };
+        TenantResponse: {
+            countryCode: string;
+            /** Format: date-time */
+            createdAt: string;
+            defaultCurrency: string;
+            /** Format: uuid */
+            id: string;
+            legalName: string;
+            name: string;
+            nameAliases: string[];
+            slug: string;
+            status: string;
+            timeZone: string;
+            /** Format: date-time */
+            updatedAt: string;
+            vatId: null | string;
+        };
+        /** @description Review policy and retention (docs/02 §1 "settings"); the body of PUT and the `settings` part of GET. */
+        TenantSettingsDto: {
+            alwaysReviewSupplierIds: string[];
+            /** Format: double */
+            autoApproveConfidenceThreshold: number | string;
+            /** Format: int32 */
+            retentionYears: number | string;
+            shareExtractorProfiles: boolean;
+        };
+        TenantSettingsResponse: {
+            settings: components["schemas"]["TenantSettingsDto"];
+            tenant: components["schemas"]["TenantIdentity"];
+        };
     };
     responses: never;
     parameters: never;
@@ -141,12 +1318,69 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
+export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
+export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
+export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
+export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
 export type SchemaCreateApiKeyRequest = components['schemas']['CreateApiKeyRequest'];
+export type SchemaCreateChannelRequest = components['schemas']['CreateChannelRequest'];
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
+export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
+export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
+export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
+export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
+export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
+export type SchemaDocumentEventDto = components['schemas']['DocumentEventDto'];
+export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
+export type SchemaDocumentIngestionRef = components['schemas']['DocumentIngestionRef'];
+export type SchemaDocumentStatus = components['schemas']['DocumentStatus'];
+export type SchemaDocumentSummary = components['schemas']['DocumentSummary'];
+export type SchemaDocumentType = components['schemas']['DocumentType'];
+export type SchemaExtractionMethod = components['schemas']['ExtractionMethod'];
+export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
+export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
+export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
 export type SchemaHttpValidationProblemDetails = components['schemas']['HttpValidationProblemDetails'];
+export type SchemaIngestionCreated = components['schemas']['IngestionCreated'];
+export type SchemaIngestionDetail = components['schemas']['IngestionDetail'];
+export type SchemaIngestionDocumentRef = components['schemas']['IngestionDocumentRef'];
+export type SchemaIngestionItemCreated = components['schemas']['IngestionItemCreated'];
+export type SchemaIngestionItemDto = components['schemas']['IngestionItemDto'];
+export type SchemaIngestionJsonUpload = components['schemas']['IngestionJsonUpload'];
+export type SchemaIngestionStatus = components['schemas']['IngestionStatus'];
+export type SchemaIngestionSummary = components['schemas']['IngestionSummary'];
+export type SchemaItemDisposition = components['schemas']['ItemDisposition'];
+export type SchemaItemKind = components['schemas']['ItemKind'];
+export type SchemaJsonElement = components['schemas']['JsonElement'];
+export type SchemaKeyOwner = components['schemas']['KeyOwner'];
+export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
+export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
+export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
+export type SchemaLlmUsageResponse = components['schemas']['LlmUsageResponse'];
+export type SchemaMemberResponse = components['schemas']['MemberResponse'];
 export type SchemaMeResponse = components['schemas']['MeResponse'];
+export type SchemaPageOfDocumentSummary = components['schemas']['PageOfDocumentSummary'];
+export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestionSummary'];
+export type SchemaPageOfReviewTaskDto = components['schemas']['PageOfReviewTaskDto'];
+export type SchemaPageOfSupplierResponse = components['schemas']['PageOfSupplierResponse'];
+export type SchemaPageOfTenantResponse = components['schemas']['PageOfTenantResponse'];
+export type SchemaPatchChannelRequest = components['schemas']['PatchChannelRequest'];
+export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
+export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
+export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
+export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
+export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
+export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
+export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
+export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
+export type SchemaTenantResponse = components['schemas']['TenantResponse'];
+export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
+export type SchemaTenantSettingsResponse = components['schemas']['TenantSettingsResponse'];
 export type $defs = Record<string, never>;
 export interface operations {
     ListApiKeys: {
@@ -229,6 +1463,869 @@ export interface operations {
             };
         };
     };
+    ListChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelResponse"][];
+                };
+            };
+        };
+    };
+    CreateChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListDocuments: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                flag?: string;
+                from?: string;
+                limit?: number | string;
+                q?: string;
+                status?: string;
+                supplierId?: string;
+                to?: string;
+                type?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfDocumentSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+        };
+    };
+    ApproveDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ApproveDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+        };
+    };
+    RejectDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ReprocessDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ReprocessDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentEventDto"][];
+                };
+            };
+        };
+    };
+    CorrectDocumentFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectFieldsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentOriginal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetDocumentPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetDocumentText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListIngestions: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number | string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfIngestionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateIngestion: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestionJsonUpload"];
+                "multipart/form-data": {
+                    /**
+                     * Format: uuid
+                     * @description An ingestion channel of the tenant; default: the tenant's API-upload channel.
+                     */
+                    channelId?: null | string;
+                    /** @description One to 20 files, at most 52428800 bytes each. */
+                    files: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestionCreated"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetIngestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestionDetail"];
+                };
+            };
+        };
+    };
+    GetLlmPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmPolicyResponse"];
+                };
+            };
+        };
+    };
+    PutLlmPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutLlmPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmPolicyResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListLlmProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"][];
+                };
+            };
+        };
+    };
+    CreateLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLlmProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DisableLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    EnableLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetLlmUsage: {
+        parameters: {
+            query?: {
+                from?: string;
+                groupBy?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmUsageResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListPlatformLlmProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"][];
+                };
+            };
+        };
+    };
+    CreatePlatformLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLlmProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DisablePlatformLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    EnablePlatformLlmProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetPlatformLlmUsage: {
+        parameters: {
+            query?: {
+                from?: string;
+                groupBy?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmUsageResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetMe: {
         parameters: {
             query?: never;
@@ -246,6 +2343,648 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
                 };
+            };
+        };
+    };
+    ListMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberResponse"][];
+                };
+            };
+        };
+    };
+    AddMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    RemoveMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ChangeMemberRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListReviewTasks: {
+        parameters: {
+            query?: {
+                assignedTo?: string;
+                cursor?: string;
+                limit?: number | string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfReviewTaskDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ClaimReviewTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewTaskDto"];
+                };
+            };
+        };
+    };
+    ReleaseReviewTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewTaskDto"];
+                };
+            };
+        };
+    };
+    GetTenantSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsResponse"];
+                };
+            };
+        };
+    };
+    PutTenantSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantSettingsDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListSuppliers: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number | string;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfSupplierResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DeleteSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetSupplierActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierActivityItem"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListTenants: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number | string;
+                q?: string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfTenantResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTenantRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTenantRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActivateTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SuspendTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
