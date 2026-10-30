@@ -1,0 +1,637 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "enum": [
+        "Invoice",
+        "CreditNote",
+        "Proforma",
+        null
+      ],
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "invoiceNumber": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "issueDate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "deliveryDate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "servicePeriodFrom": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "servicePeriodTo": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "dueDate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "currency": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "supplier": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vatId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taxId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "registrationNumber": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "addressLine1": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "addressLine2": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "postalCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "countryCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iban": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "vatId",
+        "taxId",
+        "registrationNumber",
+        "addressLine1",
+        "addressLine2",
+        "postalCode",
+        "city",
+        "countryCode",
+        "email",
+        "phone",
+        "iban",
+        "bic"
+      ]
+    },
+    "customer": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vatId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taxId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "registrationNumber": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "addressLine1": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "addressLine2": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "postalCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "countryCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iban": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "vatId",
+        "taxId",
+        "registrationNumber",
+        "addressLine1",
+        "addressLine2",
+        "postalCode",
+        "city",
+        "countryCode",
+        "email",
+        "phone",
+        "iban",
+        "bic"
+      ]
+    },
+    "orderReferences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "deliveryNoteReferences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "originalInvoiceReference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "subtotalNet": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "taxBreakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ratePercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxableAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "categoryCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ratePercent",
+          "taxableAmount",
+          "taxAmount",
+          "categoryCode"
+        ]
+      }
+    },
+    "totalTax": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "totalGross": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "amountDue": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "rounding": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "chargesAndAllowances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxRatePercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "isCharge": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "description",
+          "amount",
+          "taxRatePercent",
+          "isCharge"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "paymentTerms": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "dueDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "discountPercent": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "discountUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "paymentReference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iban": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rawText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dueDate",
+        "discountPercent",
+        "discountUntil",
+        "paymentReference",
+        "iban",
+        "bic",
+        "rawText"
+      ]
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "lineNumber": {
+            "type": "integer"
+          },
+          "supplierSku": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gtin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "packSize": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unitPrice": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "discountPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "discountAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lineNet": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxRatePercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lineGross": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depositAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lotNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bestBefore": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "lineNumber",
+          "supplierSku",
+          "gtin",
+          "description",
+          "quantity",
+          "unit",
+          "packSize",
+          "unitPrice",
+          "discountPercent",
+          "discountAmount",
+          "lineNet",
+          "taxRatePercent",
+          "lineGross",
+          "depositAmount",
+          "lotNumber",
+          "bestBefore",
+          "page"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unreadableRegions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "area": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "page",
+          "area",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "invoiceNumber",
+    "issueDate",
+    "deliveryDate",
+    "servicePeriodFrom",
+    "servicePeriodTo",
+    "dueDate",
+    "currency",
+    "supplier",
+    "customer",
+    "orderReferences",
+    "deliveryNoteReferences",
+    "originalInvoiceReference",
+    "subtotalNet",
+    "taxBreakdown",
+    "totalTax",
+    "totalGross",
+    "amountDue",
+    "rounding",
+    "chargesAndAllowances",
+    "paymentTerms",
+    "notes",
+    "lines",
+    "unreadableRegions"
+  ],
+  "additionalProperties": false
+}

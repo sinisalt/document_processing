@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenAI, Azure OpenAI and OpenAI-compatible adapter for the LLM gateway.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenAI" />
+  </ItemGroup>
+</Project>

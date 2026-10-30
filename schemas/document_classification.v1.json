@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "documentType": {
+      "enum": [
+        "Invoice",
+        "CreditNote",
+        "PurchaseOrder",
+        "DeliveryNote",
+        "Statement",
+        "Reminder",
+        "Other"
+      ],
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "language": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "supplierNameHint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "documentType",
+    "confidence",
+    "language",
+    "supplierNameHint"
+  ],
+  "additionalProperties": false
+}
