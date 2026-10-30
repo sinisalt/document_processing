@@ -1,8 +1,14 @@
-import { LayoutDashboard } from "lucide-react";
-import type { NavItem } from "@docproc/app-shell";
+import { Building2, ClipboardList, Inbox, LayoutDashboard, Settings } from "lucide-react";
+import { Policies, type NavItem } from "@docproc/app-shell";
 
 /**
  * Sidebar entries of the customer portal, in display order. Screen agents append an entry per screen; labels live in
  * src/i18n/<lng>/portal.json under `nav`, and `policy` hides an entry from roles the API would refuse anyway.
  */
-export const nav: NavItem[] = [{ to: "/", labelKey: "portal:nav.dashboard", icon: LayoutDashboard, exact: true }];
+export const nav: NavItem[] = [
+  { to: "/", labelKey: "portal:nav.dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/documents", labelKey: "portal:nav.inbox", icon: Inbox, policy: Policies.Read },
+  { to: "/review", labelKey: "portal:nav.review", icon: ClipboardList, policy: Policies.Review },
+  { to: "/suppliers", labelKey: "portal:nav.suppliers", icon: Building2, policy: Policies.Read },
+  { to: "/settings", labelKey: "portal:nav.settings", icon: Settings, policy: Policies.TenantAdmin },
+];
