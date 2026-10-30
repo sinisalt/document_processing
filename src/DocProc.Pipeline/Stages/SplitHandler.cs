@@ -31,7 +31,9 @@ internal sealed class SplitHandler(
     IPipelineQueue queue,
     ILogger<SplitHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
-    private static readonly string[] OwnedFlags = [FlagCodes.MultiDocumentSplit];
+    // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
+    // succeeds owns it too, so the flag does not outlive the outage.
+    private static readonly string[] OwnedFlags = [FlagCodes.MultiDocumentSplit, FlagCodes.LlmProviderUnavailable];
 
     public override PipelineStage Stage => PipelineStage.Split;
 

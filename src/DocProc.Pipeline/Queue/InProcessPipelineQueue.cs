@@ -3,12 +3,32 @@ using DocProc.Application.Pipeline;
 
 namespace DocProc.Pipeline.Queue;
 
+/// <summary>What a work item is about; with the id it forms the key the runner serialises work on.</summary>
+public enum PipelineWorkKind
+{
+    Ingestion,
+    Document,
+}
+
+/// <summary>The unit of serialisation of the runner: one ingestion or one document (docs/03 "Idempotency and retries").</summary>
+public readonly record struct PipelineWorkKey(PipelineWorkKind Kind, Guid Id);
+
 /// <summary>One unit of work the runner consumes: an ingestion to unpack or a document stage to run.</summary>
-public abstract record PipelineWorkItem(Guid TenantId);
+public abstract record PipelineWorkItem(Guid TenantId)
+{
+    /// <summary>Two items with the same key never run at the same time in one process.</summary>
+    public abstract PipelineWorkKey Key { get; }
+}
 
-public sealed record IngestionWorkItem(ProcessIngestion Message) : PipelineWorkItem(Message.TenantId);
+public sealed record IngestionWorkItem(ProcessIngestion Message) : PipelineWorkItem(Message.TenantId)
+{
+    public override PipelineWorkKey Key => new(PipelineWorkKind.Ingestion, Message.IngestionId);
+}
 
-public sealed record DocumentWorkItem(ProcessDocument Message) : PipelineWorkItem(Message.TenantId);
+public sealed record DocumentWorkItem(ProcessDocument Message) : PipelineWorkItem(Message.TenantId)
+{
+    public override PipelineWorkKey Key => new(PipelineWorkKind.Document, Message.DocumentId);
+}
 
 /// <summary>The consumer side of the queue. The runner acknowledges every item it took, whatever the outcome.</summary>
 public interface IPipelineQueueReader
@@ -21,9 +41,10 @@ public interface IPipelineQueueReader
 
 /// <summary>
 /// The in-process transport of docs/03 for local development and tests: an unbounded channel. A delayed enqueue
-/// (retry with backoff) waits on a background continuation that is cancelled when the queue is disposed or the
-/// caller's token fires, so a stopping host never leaks timers. Not durable: anything queued is lost when the process
-/// ends, which is why Azure uses Service Bus (a later block) and why every handler re-checks the document state.
+/// (retry with backoff) waits on a background continuation driven by the injected <see cref="TimeProvider"/> (so
+/// tests advance a fake clock instead of waiting) that is cancelled when the queue is disposed or the caller's token
+/// fires, so a stopping host never leaks timers. Not durable: anything queued is lost when the process ends, which is
+/// why Azure uses Service Bus (a later block) and why every handler re-checks the document state.
 /// </summary>
 public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReader, IDisposable
 {
@@ -33,11 +54,19 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         SingleWriter = false,
     });
 
+    private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Lock _gate = new();
     private int _inFlight;
+    private int _delayed;
     private bool _disposed;
     private TaskCompletionSource _idle = Completed();
+
+    /// <param name="timeProvider">Drives the delayed enqueues; the system clock when omitted.</param>
+    public InProcessPipelineQueue(TimeProvider? timeProvider = null)
+    {
+        _clock = timeProvider ?? TimeProvider.System;
+    }
 
     /// <summary>Items queued, waiting on a delay or being processed.</summary>
     public int InFlight
@@ -47,6 +76,18 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
             lock (_gate)
             {
                 return _inFlight;
+            }
+        }
+    }
+
+    /// <summary>Items still waiting on a delay (a subset of <see cref="InFlight"/>); tests advance the clock while this is positive.</summary>
+    public int Delayed
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _delayed;
             }
         }
     }
@@ -76,7 +117,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        Track();
+        TrackDelayed();
         _ = WriteLaterAsync(new DocumentWorkItem(message), delay, cancellationToken);
         return Task.CompletedTask;
     }
@@ -91,7 +132,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        Track();
+        TrackDelayed();
         _ = WriteLaterAsync(new IngestionWorkItem(message), delay, cancellationToken);
         return Task.CompletedTask;
     }
@@ -149,14 +190,15 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, callerToken);
         try
         {
-            await Task.Delay(delay, linked.Token).ConfigureAwait(false);
+            await Task.Delay(delay, _clock, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            Untrack();
+            UntrackDelayed(stillInFlight: false);
             return;
         }
 
+        UntrackDelayed(stillInFlight: true);
         if (!_channel.Writer.TryWrite(item))
         {
             Untrack();
@@ -174,11 +216,36 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         }
     }
 
+    private void TrackDelayed()
+    {
+        lock (_gate)
+        {
+            _delayed++;
+            if (_inFlight++ == 0)
+            {
+                _idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+    }
+
     private void Untrack()
     {
         lock (_gate)
         {
             if (--_inFlight == 0)
+            {
+                _idle.TrySetResult();
+            }
+        }
+    }
+
+    /// <summary>The delay is over: the item moves from "delayed" to "queued", or leaves the in-flight count when it was cancelled.</summary>
+    private void UntrackDelayed(bool stillInFlight)
+    {
+        lock (_gate)
+        {
+            _delayed--;
+            if (!stillInFlight && --_inFlight == 0)
             {
                 _idle.TrySetResult();
             }

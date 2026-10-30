@@ -20,6 +20,7 @@ internal sealed class IngestionConfiguration : IEntityTypeConfiguration<Ingestio
     public void Configure(EntityTypeBuilder<Ingestion> b)
     {
         b.ToTable("Ingestions");
+        b.Property(i => i.Version).IsConcurrencyToken();
         b.Property(i => i.SourceMessageId).HasMaxLength(998);
         b.Property(i => i.SourceFrom).HasMaxLength(320);
         b.Property(i => i.SourceSubject).HasMaxLength(1000);

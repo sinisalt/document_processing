@@ -145,6 +145,10 @@ internal sealed class NormalizeHandler(
         return new { kind = item.Kind, pageCount = 0, flavour = detection.Flavour, profile = detection.Profile, rootElement = detection.RootElement };
     }
 
+    /// <summary>
+    /// Blocking, as the catalogue says (docs/02): without OCR nobody has read these pages, so an image-only invoice
+    /// must reach a reviewer instead of being auto-approved on the LLM's say-so alone.
+    /// </summary>
     private static DocumentFlag NoTextLayer() =>
-        new(FlagCodes.UnreadablePages, FlagSeverity.Warning, "No text layer; OCR is not configured.");
+        FlagCodes.Create(FlagCodes.UnreadablePages, "No text layer and OCR is not configured; the pages have not been read by anything but the LLM.");
 }

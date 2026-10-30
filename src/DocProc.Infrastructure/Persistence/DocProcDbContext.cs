@@ -40,6 +40,40 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<TenantLlmPolicyRecord> TenantLlmPolicies => Set<TenantLlmPolicyRecord>();
     public DbSet<LlmUsageEntry> LlmUsage => Set<LlmUsageEntry>();
 
+    /// <summary>
+    /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
+    /// update is sent, so the UPDATE's WHERE clause checks the version that was loaded and the row carries the next
+    /// one. A unit of work that lost the race gets a <see cref="DbUpdateConcurrencyException"/> and must not retry
+    /// blindly: the other writer already applied its change (docs/03 "Idempotency and retries").
+    /// </summary>
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        BumpVersions();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    /// <inheritdoc cref="SaveChanges(bool)"/>
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        BumpVersions();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void BumpVersions()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<IVersioned>())
+        {
+            if (entry.State != EntityState.Modified)
+            {
+                continue;
+            }
+
+            var version = entry.Property(v => v.Version);
+            version.CurrentValue = version.OriginalValue + 1;
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(DocProcDbContext).Assembly);

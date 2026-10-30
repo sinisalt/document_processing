@@ -9,11 +9,12 @@ public enum IngestionStatus
 }
 
 /// <summary>One email, one dropped file or one API call (docs/02 §2).</summary>
-public sealed class Ingestion : ITenantScoped
+public sealed class Ingestion : ITenantScoped, IVersioned
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
     public Guid ChannelId { get; set; }
+    public int Version { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
     public string? SourceMessageId { get; set; }
     public string? SourceFrom { get; set; }

@@ -3,6 +3,7 @@ using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
+using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure.Classification;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -31,7 +32,9 @@ internal sealed class ClassifyHandler(
     IOptions<PipelineOptions> options,
     ILogger<ClassifyHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
-    private static readonly string[] OwnedFlags = [FlagCodes.TypeUnknown];
+    // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
+    // succeeds owns it too, so the flag does not outlive the outage.
+    private static readonly string[] OwnedFlags = [FlagCodes.TypeUnknown, FlagCodes.LlmProviderUnavailable];
     private readonly PipelineOptions _options = options.Value;
 
     public override PipelineStage Stage => PipelineStage.Classify;
@@ -91,9 +94,23 @@ internal sealed class ClassifyHandler(
             ?? throw new StageFailedException("The stored e-invoice XML is not a UBL or CII document.");
 
         // The UBL root names the type; CII carries it in the type code, which the parser maps to the invoice kind.
-        var kind = detection.RootElement.Equals("CreditNote", StringComparison.Ordinal)
-            ? InvoiceKind.CreditNote
-            : eInvoices.Parse(xml, detection).Kind.Value;
+        InvoiceKind kind;
+        if (detection.RootElement.Equals("CreditNote", StringComparison.Ordinal))
+        {
+            kind = InvoiceKind.CreditNote;
+        }
+        else
+        {
+            try
+            {
+                kind = eInvoices.Parse(xml, detection).Kind.Value;
+            }
+            catch (EInvoiceParseException ex)
+            {
+                // Malformed or truncated XML is a property of the document, not of the moment: no retry can fix it.
+                throw new StageFailedException($"The stored e-invoice XML could not be parsed: {ex.Message}", ex);
+            }
+        }
 
         var type = kind == InvoiceKind.CreditNote ? DocumentType.CreditNote : DocumentType.Invoice;
         return new ClassificationOutcome(type, 1.0, TypeSource.Structured);

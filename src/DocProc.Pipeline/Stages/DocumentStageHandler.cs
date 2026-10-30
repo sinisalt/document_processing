@@ -50,7 +50,21 @@ internal abstract class DocumentStageHandler(DocProcDbContext db, DocumentTimeli
             return StageOutcome.Skipped;
         }
 
-        return await RunAsync(document, message, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RunAsync(document, message, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            // Another unit of work (a twin message on another node, a reviewer, a reprocess) wrote the document after
+            // this one loaded it; its version moved on, so this attempt's result is stale and is dropped unsaved.
+            if (Logger.IsEnabled(LogLevel.Information))
+            {
+                Logger.LogInformation(exception, "Stage {Stage}: document {DocumentId} was changed by another writer while attempt {Attempt} ran; message dropped as already handled.", Stage, document.Id, message.Attempt);
+            }
+
+            return StageOutcome.Skipped;
+        }
     }
 
     /// <summary>The status a document has when this stage is due.</summary>

@@ -21,11 +21,12 @@ public sealed class DocumentCosts
 /// values are denormalised into columns for listing, filtering and duplicate detection. Temporal, so every
 /// change is auditable.
 /// </summary>
-public sealed class Document : ITenantScoped
+public sealed class Document : ITenantScoped, IVersioned
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
     public Guid IngestionItemId { get; set; }
+    public int Version { get; set; }
     public int PageStart { get; set; } = 1;
     public int PageEnd { get; set; } = 1;
     public int PageCount { get; set; } = 1;
@@ -142,11 +143,12 @@ public enum ReviewTaskStatus
     Skipped,
 }
 
-public sealed class ReviewTask : ITenantScoped
+public sealed class ReviewTask : ITenantScoped, IVersioned
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
     public Guid DocumentId { get; set; }
+    public int Version { get; set; }
 
     /// <summary>Flag summary shown in the queue.</summary>
     public required string Reason { get; set; }

@@ -54,6 +54,20 @@ internal static class TestPdfs
 
     public static byte[] NotAPdf() => Encoding.ASCII.GetBytes("%PDF-1.7 this is not a document at all, just a header and some words");
 
+    /// <summary>One page of drawn shapes and no text at all: what a scanned invoice looks like to the text extractor.</summary>
+    public static byte[] ShapesOnlyPage() => Build(doc =>
+    {
+        var page = doc.AddPage();
+        page.Size = PageSize.A4;
+        using var gfx = XGraphics.FromPdfPage(page);
+        gfx.DrawRectangle(XBrushes.Black, 50, 50, 300, 20);
+        gfx.DrawRectangle(XBrushes.DarkGray, 50, 120, 495, 2);
+        for (var row = 0; row < 8; row++)
+        {
+            gfx.DrawRectangle(XBrushes.Gray, 50, 150 + (row * 24), 420, 10);
+        }
+    });
+
     private static byte[] Build(Action<PdfDocument> compose)
     {
         EnsureFonts();
