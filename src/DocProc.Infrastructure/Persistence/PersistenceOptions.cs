@@ -69,12 +69,14 @@ public static class PersistenceOptions
 
     /// <summary>
     /// Registers the context against a SQLite file, the platform-scoped factory, the API key validator and the
-    /// start-up schema creation (<see cref="SqliteSchemaHostedService"/>). The file's folder is created here so the
+    /// start-up schema creation (<see cref="SqliteSchemaHostedService"/>). A relative <paramref name="databasePath"/>
+    /// is anchored to <paramref name="contentRootPath"/> (the project folder under <c>dotnet run</c>), not to the
+    /// process working directory, so an IDE or CI run finds the same file. The file's folder is created here so the
     /// first run on a clean checkout works.
     /// </summary>
-    public static IServiceCollection AddDocProcSqlitePersistence(this IServiceCollection services, string databasePath)
+    public static IServiceCollection AddDocProcSqlitePersistence(this IServiceCollection services, string databasePath, string contentRootPath)
     {
-        var fullPath = Path.GetFullPath(databasePath);
+        var fullPath = Path.GetFullPath(databasePath, Path.GetFullPath(contentRootPath));
         var directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -126,12 +128,18 @@ public static class PersistenceHostExtensions
     /// (the default whenever a connection string exists; behaves exactly like the overload above) or SQLite
     /// (<c>Persistence:SqlitePath</c>, schema from the model, refused in production). The development seed
     /// (<see cref="DevSeed"/>) runs after the schema step when the provider is SQLite or
-    /// <c>Persistence:SeedDevData</c> is true. Returns false when no provider applies.
+    /// <c>Persistence:SeedDevData</c> is true; like the other development switches the seed is refused in
+    /// production, because its tenants have fixed, publicly known ids. Returns false when no provider applies.
     /// </summary>
     public static bool TryAddDocProcPersistence(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment, bool migrateByDefault)
     {
         var settings = PersistenceSettings.From(configuration);
         var provider = settings.Resolve(configuration.GetConnectionString(ConnectionStringName));
+        if (settings.SeedDevData && environment.IsProduction())
+        {
+            throw new InvalidOperationException(
+                $"{PersistenceSettings.SectionName}:SeedDevData is development-only (it inserts the demo tenants with fixed, publicly known ids) and cannot be used when the environment is Production. Set {PersistenceSettings.SectionName}:SeedDevData=false.");
+        }
 
         switch (provider)
         {
@@ -153,7 +161,7 @@ public static class PersistenceHostExtensions
                         $"{PersistenceSettings.SectionName}:Provider=Sqlite is a development-only mode (no migrations, no row-level security, no temporal tables) and cannot be used when the environment is Production. Configure ConnectionStrings:{ConnectionStringName} and Persistence:Provider=SqlServer instead.");
                 }
 
-                services.AddDocProcSqlitePersistence(string.IsNullOrWhiteSpace(settings.SqlitePath) ? PersistenceSettings.DefaultSqlitePath : settings.SqlitePath);
+                services.AddDocProcSqlitePersistence(string.IsNullOrWhiteSpace(settings.SqlitePath) ? PersistenceSettings.DefaultSqlitePath : settings.SqlitePath, environment.ContentRootPath);
                 break;
 
             default:

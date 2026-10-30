@@ -88,7 +88,9 @@ password is an Aspire parameter; set it once with `dotnet user-secrets set Param
 <value> --project src/DocProc.AppHost` or let Aspire generate it. `aspire publish` can emit a
 docker-compose file from the same definition for people who prefer compose.
 
-Run the API on its own (no database, health stays green, readiness has nothing to check):
+Run the API on its own (the Development profile creates a SQLite database and signs its own
+tokens, see "Running without Docker" below; with no `Persistence:Provider` and no connection string
+the API starts without a database and readiness has nothing to check):
 
 ```bash
 dotnet run --project src/DocProc.Api

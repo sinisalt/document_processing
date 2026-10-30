@@ -18,7 +18,8 @@ public sealed record DevTokenResponse(
 /// Signs development tokens with an RSA key that lives in this process, or in the PEM file named by
 /// <see cref="DevAuthOptions.SigningKeyPath"/> (docs/09 "Running without Docker"). The claims are the ones the
 /// Keycloak realm emits and <see cref="TenantResolutionMiddleware"/> and <see cref="Policies"/> read:
-/// <c>sub</c>, <c>preferred_username</c>, <c>email</c>, <c>roles</c> and <c>tenant_id</c>.
+/// <c>sub</c>, <c>preferred_username</c>, <c>email</c>, <c>roles</c> and <c>tenant_id</c>. The host resolves the
+/// issuer at start-up, so a missing folder or a corrupt key file stops the host instead of the first request.
 /// </summary>
 public sealed class DevTokenIssuer
 {
@@ -28,12 +29,12 @@ public sealed class DevTokenIssuer
     private readonly TimeProvider _clock;
     private readonly JsonWebTokenHandler _handler = new() { SetDefaultTimesOnTokenCreation = false };
 
-    public DevTokenIssuer(DevAuthOptions options, OidcOptions oidc, TimeProvider clock, ILogger<DevTokenIssuer> logger)
+    public DevTokenIssuer(DevAuthOptions options, OidcOptions oidc, IHostEnvironment environment, TimeProvider clock, ILogger<DevTokenIssuer> logger)
     {
         _options = options;
         _clock = clock;
         Audience = oidc.Audience;
-        SigningKey = LoadOrCreateKey(options.SigningKeyPath, logger);
+        SigningKey = LoadOrCreateKey(options.SigningKeyPath, environment.ContentRootPath, logger);
     }
 
     public string Audience { get; }
@@ -77,7 +78,12 @@ public sealed class DevTokenIssuer
         return new DevTokenResponse(token, "Bearer", (int)_options.TokenLifetime.TotalSeconds, user);
     }
 
-    private static RsaSecurityKey LoadOrCreateKey(string? path, ILogger logger)
+    /// <summary>
+    /// A relative path is anchored to the content root (the project folder under <c>dotnet run</c>), like the SQLite
+    /// file. A new PEM is created readable by its owner only: it is the private key every token the API trusts is
+    /// signed with.
+    /// </summary>
+    private static RsaSecurityKey LoadOrCreateKey(string? path, string contentRootPath, ILogger logger)
     {
         var rsa = RSA.Create(2048);
         if (string.IsNullOrWhiteSpace(path))
@@ -86,11 +92,18 @@ public sealed class DevTokenIssuer
             return new RsaSecurityKey(rsa) { KeyId = KeyId };
         }
 
-        var fullPath = Path.GetFullPath(path);
+        var fullPath = Path.GetFullPath(path, Path.GetFullPath(contentRootPath));
         var loaded = File.Exists(fullPath);
         if (loaded)
         {
-            rsa.ImportFromPem(File.ReadAllText(fullPath));
+            try
+            {
+                rsa.ImportFromPem(File.ReadAllText(fullPath));
+            }
+            catch (Exception ex) when (ex is ArgumentException or CryptographicException)
+            {
+                throw new InvalidOperationException($"{DevAuthOptions.SectionName}:SigningKeyPath '{fullPath}' does not hold an RSA private key in PEM form. Delete the file to generate a new key, or point the setting at a valid one.", ex);
+            }
         }
         else
         {
@@ -100,7 +113,7 @@ public sealed class DevTokenIssuer
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(fullPath, rsa.ExportRSAPrivateKeyPem() + Environment.NewLine);
+            WriteOwnerOnly(fullPath, rsa.ExportRSAPrivateKeyPem() + Environment.NewLine);
         }
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -109,5 +122,18 @@ public sealed class DevTokenIssuer
         }
 
         return new RsaSecurityKey(rsa) { KeyId = KeyId };
+    }
+
+    private static void WriteOwnerOnly(string fullPath, string contents)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        using var stream = new FileStream(fullPath, options);
+        using var writer = new StreamWriter(stream);
+        writer.Write(contents);
     }
 }

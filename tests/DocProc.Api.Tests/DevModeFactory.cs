@@ -40,10 +40,9 @@ public sealed class DevModeFactory : WebApplicationFactory<Program>
         builder.UseSetting("Persistence:SqlitePath", DatabasePath);
         builder.UseSetting("Authentication:Dev:Enabled", "true");
         builder.UseSetting("Authentication:Oidc:Authority", string.Empty);
-        if (SigningKeyPath is not null)
-        {
-            builder.UseSetting("Authentication:Dev:SigningKeyPath", SigningKeyPath);
-        }
+        // Explicitly unset by default: appsettings.Development.json names a PEM under the content root, and a test must
+        // not write a key into the source tree.
+        builder.UseSetting("Authentication:Dev:SigningKeyPath", SigningKeyPath ?? string.Empty);
     }
 
     protected override void Dispose(bool disposing)

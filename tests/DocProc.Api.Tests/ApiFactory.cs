@@ -55,10 +55,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             _connection.Open();
             services.AddSingleton<TimeProvider>(Clock);
             services.AddDbContext<DocProcDbContext>(o => o.UseSqlite(_connection));
-            services.AddSingleton<ISystemDbContextFactory>(new SqliteSystemDbContextFactory(_connection));
+            services.AddSingleton<ISystemDbContextFactory>(new InMemorySqliteDbContextFactory(_connection));
             services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 
-            using var db = new SqliteSystemDbContextFactory(_connection).CreatePlatformScoped();
+            using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
             db.Database.EnsureCreated();
             Seed(db);
         });
@@ -78,7 +78,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     {
         _ = Server; // the database is created when the host starts
         var generated = ApiKeys.Generate();
-        using var db = new SqliteSystemDbContextFactory(_connection).CreatePlatformScoped();
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
         db.ApiKeys.Add(new ApiKey { Id = Guid.CreateVersion7(), TenantId = tenantId, Name = name, Prefix = generated.Prefix, Hash = generated.Hash, Scopes = [.. scopes], CreatedAt = Clock.GetUtcNow() });
         db.SaveChanges();
         return generated.Key;
@@ -87,7 +87,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public ApiKey? FindKey(string key)
     {
         _ = Server;
-        using var db = new SqliteSystemDbContextFactory(_connection).CreatePlatformScoped();
+        using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
         var hash = ApiKeys.Hash(key);
         return db.ApiKeys.AsNoTracking().SingleOrDefault(k => k.Hash == hash);
     }
@@ -100,7 +100,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         db.SaveChanges();
     }
 
-    private sealed class SqliteSystemDbContextFactory(SqliteConnection connection) : ISystemDbContextFactory
+    private sealed class InMemorySqliteDbContextFactory(SqliteConnection connection) : ISystemDbContextFactory
     {
         public DocProcDbContext CreatePlatformScoped()
         {
