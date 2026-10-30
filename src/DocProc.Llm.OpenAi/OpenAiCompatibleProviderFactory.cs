@@ -19,12 +19,17 @@ namespace DocProc.Llm.OpenAi;
 /// </list>
 /// The client holds the key; nothing else does. Retries belong to the worker (<see cref="LlmException.IsRetryable"/>).
 /// </summary>
-public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport = null) : ILlmProviderFactory
+/// <param name="transport">Replaces the SDK's HTTP transport (tests); null keeps the default.</param>
+/// <param name="clock">Drives every provider's per-request timeout; the host's <see cref="TimeProvider"/>, <see cref="TimeProvider.System"/> when null.</param>
+public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport = null, TimeProvider? clock = null) : ILlmProviderFactory
 {
     public const string AzureApiKeyHeader = "api-key";
 
     /// <summary>The hard ceiling on one network call; <see cref="LlmOptions.Timeout"/> bounds each request below it.</summary>
     public static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>The clock the providers built here time their requests with.</summary>
+    public TimeProvider Clock { get; } = clock ?? TimeProvider.System;
 
     public bool Supports(LlmProviderKind kind) => OpenAiCompatibleCapabilities.Supports(kind);
 
@@ -47,7 +52,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
             _ => CreateCompatibleClient(config, credential),
         };
 
-        return new OpenAiCompatibleProvider(client, config.Kind, OpenAiCompatibleCapabilities.For(config.Kind), validationModel);
+        return new OpenAiCompatibleProvider(client, config.Kind, OpenAiCompatibleCapabilities.For(config.Kind), validationModel, Clock);
     }
 
     private OpenAIClient CreateOpenAiClient(LlmProviderConfig config, LlmCredential credential)
