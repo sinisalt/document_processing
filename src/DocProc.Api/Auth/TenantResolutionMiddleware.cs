@@ -50,11 +50,14 @@ public sealed class TenantResolutionMiddleware(OidcOptions oidc, TenantStatusCac
     /// <summary>
     /// Only a tenant taken from the token's claim is checked here: platform scope has no tenant, the SuperAdmin
     /// override is platform staff at work, and an API key's tenant was already checked when the key was validated.
+    /// An API key is recognised by the authentication scheme that produced the principal, never by a claim: a bearer
+    /// token's claims come from the identity provider (or whoever minted the token), so a JWT that merely carries
+    /// <c>auth_method=apikey</c> is still a person's token and is still checked.
     /// </summary>
     internal static bool ClaimedTenantNeedsStatusCheck(ClaimsPrincipal user, string? tenantHeader, TenantContext tenant) =>
         tenant.TenantId is not null
         && string.IsNullOrWhiteSpace(tenantHeader)
-        && !user.HasClaim(ApiKeyAuthenticationHandler.AuthMethodClaimType, ApiKeyAuthenticationHandler.AuthMethodValue);
+        && !string.Equals(user.Identity?.AuthenticationType, ApiKeyAuthenticationOptions.SchemeName, StringComparison.Ordinal);
 
     private async Task<ProblemHttpResult?> CheckStatusAsync(Guid tenantId, CancellationToken cancellationToken)
     {

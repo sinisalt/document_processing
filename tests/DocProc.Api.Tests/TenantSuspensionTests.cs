@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Endpoints;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Infrastructure.Persistence.Tenancy;
 
 namespace DocProc.Api.Tests;
 
@@ -42,6 +44,72 @@ public sealed class TenantSuspensionTests(ApiFactory factory) : IClassFixture<Ap
         (await superAdmin.PostAsync(new Uri($"/api/v1/tenants/{tenant}:suspend", UriKind.Relative), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         factory.Clock.Advance(TenantStatusCache.Ttl + TimeSpan.FromSeconds(1));
         (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_status_change_locks_the_tenants_users_out_or_lets_them_back_in_at_once_on_this_node()
+    {
+        var tenant = factory.CreateTenant("Instant suspension");
+        using var admin = factory.TenantAdminOf(tenant);
+        using var superAdmin = factory.ClientFor(new TokenSpec("superadmin", [Roles.SuperAdmin]));
+        var tenantUri = new Uri($"/api/v1/tenants/{tenant}", UriKind.Relative);
+
+        (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "the status is now cached as Active");
+
+        // The endpoints invalidate the cache after the write, so no clock advance is needed on the node that took the change.
+        (await superAdmin.PostAsync(new Uri($"/api/v1/tenants/{tenant}:suspend", UriKind.Relative), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var refused = await admin.GetAsync(SuppliersUri, Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        JsonDocument.Parse(await refused.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("title").GetString().ShouldBe("Tenant suspended");
+
+        (await superAdmin.PostAsync(new Uri($"/api/v1/tenants/{tenant}:activate", UriKind.Relative), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // PATCH with a status change invalidates too; one without a status change leaves the cache alone (still Active).
+        (await superAdmin.PatchAsJsonAsync(tenantUri, new PatchTenantRequest("Renamed while active", null, null, null, null), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await superAdmin.PatchAsJsonAsync(tenantUri, new PatchTenantRequest(null, null, null, null, "suspended"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await superAdmin.PatchAsJsonAsync(tenantUri, new PatchTenantRequest(null, null, null, null, "Active"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_bearer_token_that_merely_claims_to_be_an_api_key_is_still_checked_while_a_real_key_keeps_its_401()
+    {
+        var tenant = factory.CreateTenant("Claim forgery", TenantStatus.Suspended);
+
+        // The skip for API keys is keyed on the authentication scheme, so a JWT carrying auth_method=apikey is a person's token like any other.
+        var token = ApiFactory.MintWithClaims(
+            new TokenSpec("forger", [Roles.TenantAdmin], tenant.ToString()),
+            new Dictionary<string, object> { [ApiKeyAuthenticationHandler.AuthMethodClaimType] = ApiKeyAuthenticationHandler.AuthMethodValue });
+        using var forged = factory.ClientForBearer(token);
+        var response = await forged.GetAsync(SuppliersUri, Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("title").GetString().ShouldBe("Tenant suspended");
+
+        // A real key of the suspended tenant is refused where it always was: by the key validator, as 401.
+        var key = factory.InsertKey(tenant, "machine", ApiKeyScope.Read);
+        using var machine = factory.ClientForApiKey(key);
+        var machineResponse = await machine.GetAsync(SuppliersUri, Ct);
+        machineResponse.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        machineResponse.Headers.WwwAuthenticate.ToString().ShouldContain("ApiKey");
+    }
+
+    [Fact]
+    public void The_api_key_skip_is_keyed_on_the_authentication_scheme_not_on_a_claim()
+    {
+        var tenant = TenantContext.Anonymous();
+        tenant.SetTenant(Guid.NewGuid());
+        Claim[] claims = [new("tenant_id", tenant.TenantId.ToString()!), new(ApiKeyAuthenticationHandler.AuthMethodClaimType, ApiKeyAuthenticationHandler.AuthMethodValue)];
+
+        var bearer = new ClaimsPrincipal(new ClaimsIdentity(claims, "AuthenticationTypes.Federation", "preferred_username", "roles"));
+        TenantResolutionMiddleware.ClaimedTenantNeedsStatusCheck(bearer, null, tenant).ShouldBeTrue("a bearer token is checked whatever its claims say");
+
+        var apiKey = new ClaimsPrincipal(new ClaimsIdentity(claims, ApiKeyAuthenticationOptions.SchemeName, "preferred_username", "roles"));
+        TenantResolutionMiddleware.ClaimedTenantNeedsStatusCheck(apiKey, null, tenant).ShouldBeFalse("a principal the API-key scheme produced was checked by the key validator");
+
+        TenantResolutionMiddleware.ClaimedTenantNeedsStatusCheck(bearer, tenant.TenantId.ToString(), tenant).ShouldBeFalse("the SuperAdmin override is platform staff at work");
     }
 
     [Fact]

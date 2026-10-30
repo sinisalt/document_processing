@@ -33,6 +33,19 @@ public static class IdempotencyConflicts
 
         return false;
     }
+
+    /// <summary>
+    /// True when the save failed because another request with the same key committed between this request's lookup and
+    /// its save. That is either the unique index firing on the insert (<see cref="IsUniqueKeyViolation"/>) or, when
+    /// this request was replacing an expired row, the delete of that row affecting nothing because the other request
+    /// already replaced it: EF reports that as <see cref="DbUpdateConcurrencyException"/>. The latter only counts when
+    /// an expired row really was being replaced; a concurrency failure on a plain insert is a bug, not a race.
+    /// </summary>
+    public static bool IsConcurrentKeyWrite(DbUpdateException exception, bool replacedExpiredRow)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return IsUniqueKeyViolation(exception) || (replacedExpiredRow && exception is DbUpdateConcurrencyException);
+    }
 }
 
 /// <summary>
