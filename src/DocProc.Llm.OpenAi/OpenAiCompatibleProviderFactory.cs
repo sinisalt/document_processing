@@ -1,0 +1,125 @@
+using System.ClientModel;
+using System.ClientModel.Primitives;
+using Azure.Identity;
+using DocProc.Llm.OpenAi.Pipeline;
+using DocProc.Llm.Providers;
+using OpenAI;
+
+namespace DocProc.Llm.OpenAi;
+
+/// <summary>
+/// Builds an <see cref="OpenAiCompatibleProvider"/> per configuration (docs/08 "Provider configuration model"):
+/// <list type="bullet">
+/// <item><see cref="LlmProviderKind.OpenAi"/>: api.openai.com (or the configured base URL) with a bearer API key.</item>
+/// <item><see cref="LlmProviderKind.AzureOpenAi"/>: the resource's <c>/openai/v1</c> endpoint with the <c>api-key</c>
+/// header, or <see cref="DefaultAzureCredential"/> when the credential asks for managed identity; deployment names are
+/// the model ids and an optional <c>api-version</c> is appended.</item>
+/// <item><see cref="LlmProviderKind.OpenAiCompatible"/>: an arbitrary base URL (vLLM, Ollama) with an optional key and
+/// the self-hosted capability profile.</item>
+/// </list>
+/// The client holds the key; nothing else does. Retries belong to the worker (<see cref="LlmException.IsRetryable"/>).
+/// </summary>
+public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport = null) : ILlmProviderFactory
+{
+    public const string AzureApiKeyHeader = "api-key";
+
+    public static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
+
+    public bool Supports(LlmProviderKind kind) => kind is LlmProviderKind.OpenAi or LlmProviderKind.AzureOpenAi or LlmProviderKind.OpenAiCompatible;
+
+    public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(credential);
+        if (!Supports(config.Kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(config), config.Kind, "This factory serves OpenAI, Azure OpenAI and OpenAI-compatible endpoints only.");
+        }
+
+        var validationModel = config.ModelFor(LlmStage.Classify) ?? config.Models.Values.FirstOrDefault()
+            ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"Provider configuration {config.Id} has no models configured.");
+
+        var client = config.Kind switch
+        {
+            LlmProviderKind.OpenAi => CreateOpenAiClient(config, credential),
+            LlmProviderKind.AzureOpenAi => CreateAzureClient(config, credential),
+            _ => CreateCompatibleClient(config, credential),
+        };
+
+        return new OpenAiCompatibleProvider(client, config.Kind, OpenAiCompatibleCapabilities.For(config.Kind), validationModel);
+    }
+
+    private OpenAIClient CreateOpenAiClient(LlmProviderConfig config, LlmCredential credential)
+    {
+        var options = NewOptions();
+        if (config.Endpoint is { } endpoint)
+        {
+            options.Endpoint = endpoint;
+        }
+
+        return new OpenAIClient(RequireApiKey(config, credential), options);
+    }
+
+    private OpenAIClient CreateAzureClient(LlmProviderConfig config, LlmCredential credential)
+    {
+        var endpoint = config.Endpoint
+            ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"Azure OpenAI configuration {config.Id} has no endpoint.");
+
+        var options = NewOptions();
+        options.Endpoint = AzureOpenAiEndpoint.Resolve(endpoint);
+        if (!string.IsNullOrWhiteSpace(config.ApiVersion))
+        {
+            options.AddPolicy(new ApiVersionPolicy(config.ApiVersion), PipelinePosition.PerCall);
+        }
+
+        AuthenticationPolicy auth = credential.UseManagedIdentity
+            ? new BearerTokenPolicy(new DefaultAzureCredential(includeInteractiveCredentials: false), AzureOpenAiEndpoint.TokenScope)
+            : ApiKeyAuthenticationPolicy.CreateHeaderApiKeyPolicy(RequireApiKey(config, credential), AzureApiKeyHeader, keyPrefix: null);
+
+        return new OpenAIClient(auth, options);
+    }
+
+    private OpenAIClient CreateCompatibleClient(LlmProviderConfig config, LlmCredential credential)
+    {
+        var endpoint = config.Endpoint
+            ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"OpenAI-compatible configuration {config.Id} has no endpoint.");
+
+        var options = NewOptions();
+        options.Endpoint = endpoint;
+
+        return string.IsNullOrWhiteSpace(credential.ApiKey)
+            ? new OpenAIClient(AnonymousAuthenticationPolicy.Instance, options)
+            : new OpenAIClient(new ApiKeyCredential(credential.ApiKey), options);
+    }
+
+    private OpenAIClientOptions NewOptions()
+    {
+        var options = new OpenAIClientOptions
+        {
+            NetworkTimeout = NetworkTimeout,
+            RetryPolicy = new ClientRetryPolicy(maxRetries: 0),
+        };
+
+        if (transport is not null)
+        {
+            options.Transport = transport;
+        }
+
+        return options;
+    }
+
+    private static ApiKeyCredential RequireApiKey(LlmProviderConfig config, LlmCredential credential)
+    {
+        if (credential.UseManagedIdentity)
+        {
+            throw new LlmException(LlmErrorKind.Auth, $"Provider configuration {config.Id} ({config.Kind}) needs an API key; managed identity is only available for Azure OpenAI.");
+        }
+
+        if (string.IsNullOrWhiteSpace(credential.ApiKey))
+        {
+            throw new LlmException(LlmErrorKind.Auth, $"Provider configuration {config.Id} has no API key.");
+        }
+
+        return new ApiKeyCredential(credential.ApiKey);
+    }
+}

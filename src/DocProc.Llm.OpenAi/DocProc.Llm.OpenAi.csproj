@@ -1,12 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>OpenAI, Azure OpenAI and OpenAI-compatible adapter for the LLM gateway.</Description>
+    <!-- OPENAI001: reasoning effort, PDF file parts and the model factory are marked experimental in OpenAI 2.14.0 but are GA on the wire. -->
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OpenAI" />
-    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Azure.Identity" />
   </ItemGroup>
 </Project>

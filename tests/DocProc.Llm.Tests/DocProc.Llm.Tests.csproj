@@ -1,7 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- OPENAI001: the OpenAI SDK marks reasoning effort, file parts and its model factory experimental. -->
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DocProc.Llm/DocProc.Llm.csproj" />
     <ProjectReference Include="../../src/DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
+    <ProjectReference Include="../../src/DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
