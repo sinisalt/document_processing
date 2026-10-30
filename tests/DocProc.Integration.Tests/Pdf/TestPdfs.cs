@@ -3,6 +3,7 @@ using PdfSharp;
 using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using SkiaSharp;
 
 namespace DocProc.Integration.Tests.Pdf;
@@ -111,6 +112,29 @@ internal static class TestPdfs
         doc.AddEmbeddedFile(fileName, new MemoryStream(xml));
     });
 
+    /// <summary>
+    /// One-page invoice whose attachment sits in the name tree under an opaque key (a counter, a UUID) while the real
+    /// file name only lives in the file specification (<c>/F</c>, <c>/UF</c>), as PDF 32000 7.11.4 allows.
+    /// PDFsharp's <c>AddEmbeddedFile</c> always uses the file name as key, so the tree is written by hand here.
+    /// </summary>
+    public static byte[] InvoiceWithAttachmentUnderOpaqueKey(string key, string fileName, byte[] xml) => Build(doc =>
+    {
+        AddTextPage(doc, InvoicePage1);
+
+        var embeddedFile = new PdfEmbeddedFileStream(doc, new MemoryStream(xml));
+        var specification = new PdfFileSpecification(doc, embeddedFile, fileName);
+        doc.Internals.AddObject(specification);
+
+        var names = new PdfArray(doc);
+        names.Elements.Add(new PdfString(key));
+        names.Elements.Add(specification.Reference!);
+        var embeddedFiles = new PdfDictionary(doc);
+        embeddedFiles.Elements["/Names"] = names;
+        var nameDictionary = new PdfDictionary(doc);
+        nameDictionary.Elements["/EmbeddedFiles"] = embeddedFiles;
+        doc.Internals.Catalog.Elements["/Names"] = nameDictionary;
+    });
+
     /// <summary>A scanned page: one full-page raster image and no text objects, the "needs OCR" path.</summary>
     public static byte[] ImageOnlyPage() => Build(doc =>
     {
@@ -126,6 +150,19 @@ internal static class TestPdfs
     {
         AddTextPage(doc, InvoicePage1);
         doc.SecuritySettings.UserPassword = EncryptedPassword;
+    });
+
+    /// <summary>
+    /// Invoice with an owner password only (print and copy restricted, no user password): readers open it without
+    /// asking, so every stage must process it. Very common for supplier invoices.
+    /// </summary>
+    public static byte[] OwnerPasswordProtectedInvoice() => Build(doc =>
+    {
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage2);
+        doc.SecuritySettings.OwnerPassword = "owner-" + EncryptedPassword;
+        doc.SecuritySettings.PermitPrint = false;
+        doc.SecuritySettings.PermitExtractContent = false;
     });
 
     public static byte[] NotAPdf() => Encoding.ASCII.GetBytes("%PDF-1.7 this is not a document at all, just a header and some words");

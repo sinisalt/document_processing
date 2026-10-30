@@ -29,10 +29,11 @@ internal static class KeywordMatcher
             }
         }
 
-        // "Invoice number INV-1" or "Lieferschein-Nr. 4711" match both the title rule and an explicit label rule at the
-        // same word. The label rule knows better: drop the title-rule hit so the line is not scored as a title as well.
+        // "Invoice number INV-1", "Invoice date" or "Lieferschein-Nr. 4711" match both the title rule and an explicit
+        // label rule at the same word. The label rule knows better: drop the title-rule hit so the line is not scored
+        // as a title as well.
         var labelled = hits
-            .Where(h => h.Rule.Kind == KeywordKind.Label)
+            .Where(h => h.Rule.Kind is KeywordKind.Label or KeywordKind.DateLabel)
             .Select(h => (h.Rule.Type, h.WordIndex))
             .ToHashSet();
         hits.RemoveAll(h => h.Rule.Kind == KeywordKind.Title && labelled.Contains((h.Rule.Type, h.WordIndex)));
@@ -71,8 +72,9 @@ internal static class KeywordMatcher
             }
         }
 
-        // A label carries its number; so does a title used as one ("Rechnung RE-2026-0042" in a continuation-page
-        // header). The splitter tracks these values; the classifier still scores a title as a title.
+        // A number label carries its number; so does a title used as one ("Rechnung RE-2026-0042" in a
+        // continuation-page header). The splitter tracks these values; the classifier still scores a title as a
+        // title. A date label's value is a date, which identifies nothing, so it carries no value.
         if (kind is KeywordKind.Label or KeywordKind.Title)
         {
             var number = KeywordRuleSet.NumberValueAfterLabel.Match(page.Text, end);

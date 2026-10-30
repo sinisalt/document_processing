@@ -15,7 +15,22 @@ namespace DocProc.Infrastructure.Classification;
 /// page. The result's confidence is the least certain page decision, and <see cref="SplitAnalysis.IsConfident"/>
 /// tells the pipeline whether to skip the LLM split (step 2).
 /// </summary>
-/// <remarks>Without a text layer the splitter cannot see anything: it returns one range with confidence 0.</remarks>
+/// <remarks>
+/// <para>Without a text layer the splitter cannot see anything: it returns one range with confidence 0.</para>
+/// <para>
+/// A blank page is evidence, not an override: it adds <see cref="HeuristicSplitterOptions.StartThreshold"/> to the
+/// next page's score, enough to split on its own, but continuation signals on that page (numbering continued, the
+/// document number again, a carry-over marker) veto it, because blank back pages of duplex scans and image-only
+/// pages sit inside continuing documents all the time. A page whose only evidence is the blank page before it is
+/// as uncertain as a page without any signal.
+/// </para>
+/// <para>
+/// Document numbers are tracked per range for the range's own document type only (the type of the header title, or
+/// of the first number label, of its first page). A number of another type ("Lieferschein-Nr. LS-1" on an invoice) is
+/// a reference: it neither repeats nor changes anything, and the delivery note that follows is not a continuation
+/// of the invoice because it carries the same delivery-note number.
+/// </para>
+/// </remarks>
 public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitterOptions> options) : IHeuristicSplitter
 {
     private const double HeaderFraction = 1d / 3d;
@@ -71,7 +86,7 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
         var certainties = new List<double>();
         var state = new RangeState(pages[0], PageEvidence.Of(pages[0]), _options.HeaderBandFraction);
         var rangeStart = 0;
-        var pendingStart = false;
+        var afterBlankPage = false;
 
         for (var i = 1; i < pages.Count; i++)
         {
@@ -79,9 +94,12 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
 
             if (page.WordCount <= _options.BlankPageMaxWords)
             {
+                // The blank page stays with the range before it; a footer-only page ("Seite 2/3") still advances
+                // the numbering so the page after it can be recognised as a continuation.
                 signals.Add(new SplitSignal(page.Page.Number, SplitSignalKind.BlankSeparatorPage, $"{page.WordCount} words"));
                 certainties.Add(1);
-                pendingStart = true;
+                state.AbsorbNumbering(PageNumbering.Find(page.Text));
+                afterBlankPage = true;
                 continue;
             }
 
@@ -90,10 +108,13 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
             var score = ScorePage(page, evidence, state, pageSignals);
             signals.AddRange(pageSignals);
 
-            var isStart = pendingStart || score >= _options.StartThreshold;
-            certainties.Add(pendingStart
-                ? 1
-                : pageSignals.Count == 0 ? _options.NoSignalCertainty : Math.Min(1, Math.Abs(score) / _options.CertainScore));
+            if (afterBlankPage)
+            {
+                score += _options.StartThreshold;
+            }
+
+            var isStart = score >= _options.StartThreshold;
+            certainties.Add(pageSignals.Count == 0 ? _options.NoSignalCertainty : Math.Min(1, Math.Abs(score) / _options.CertainScore));
 
             if (isStart)
             {
@@ -106,7 +127,7 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
                 state.Absorb(evidence);
             }
 
-            pendingStart = false;
+            afterBlankPage = false;
         }
 
         ranges.Add(new PageRange(pages[rangeStart].Page.Number, pages[^1].Page.Number));
@@ -135,8 +156,11 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
             }
         }
 
-        // A title that carries a number ("Rechnung RE-2026-0042") is a continuation header; its value is judged below instead.
-        var headerTitle = evidence.Hits.FirstOrDefault(h => h.Kind == KeywordKind.Title && h.NumberValue is null && h.RelativeY < HeaderFraction);
+        // A title of the range's own type that carries a number ("Rechnung RE-2026-0042") is a continuation header; its
+        // value is judged below instead. A title of another type is a new document even with a number ("Rechnung RE-1"
+        // after "Lieferschein 4711").
+        var headerTitle = evidence.Hits.FirstOrDefault(h =>
+            h.Kind == KeywordKind.Title && h.RelativeY < HeaderFraction && (h.NumberValue is null || !state.Owns(h.Rule.Type)));
         if (headerTitle is not null)
         {
             score += HeaderRepeatedScore;
@@ -150,17 +174,19 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
             }
         }
 
-        var repeated = evidence.Numbers.FirstOrDefault(h => state.HasNumber(h.Rule.Type, h.NumberValue!));
+        // A changed number of the range's own type wins over a repeated one: a page that carries both is a new document
+        // mentioning the previous one, not a continuation.
         var changed = evidence.Numbers.FirstOrDefault(h => state.HasOtherNumber(h.Rule.Type, h.NumberValue!));
-        if (repeated is not null)
-        {
-            score += NumberRepeatedScore;
-            pageSignals.Add(new SplitSignal(number, SplitSignalKind.DocumentNumberRepeated, $"{repeated.Text} {repeated.NumberValue}"));
-        }
-        else if (changed is not null)
+        var repeated = evidence.Numbers.FirstOrDefault(h => state.HasNumber(h.Rule.Type, h.NumberValue!));
+        if (changed is not null)
         {
             score += NumberChangedScore;
             pageSignals.Add(new SplitSignal(number, SplitSignalKind.DocumentNumberChanged, $"{changed.Text} {changed.NumberValue}"));
+        }
+        else if (repeated is not null)
+        {
+            score += NumberRepeatedScore;
+            pageSignals.Add(new SplitSignal(number, SplitSignalKind.DocumentNumberRepeated, $"{repeated.Text} {repeated.NumberValue}"));
         }
 
         var marker = ContinuationMarker().Match(page.Text);
@@ -185,7 +211,10 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
         return union == 0 ? 0 : (double)intersection / union;
     }
 
-    /// <summary>Everything the splitter reads off one page, computed once.</summary>
+    /// <summary>
+    /// Everything the splitter reads off one page, computed once. <see cref="Numbers"/> are the hits that carry a
+    /// document number (number labels and titles followed by a value); date labels carry none.
+    /// </summary>
     private sealed record PageEvidence(IReadOnlyList<KeywordHit> Hits, IReadOnlyList<KeywordHit> Numbers, PageNumber? Numbering)
     {
         public static PageEvidence Of(IndexedPageText page)
@@ -194,12 +223,20 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
             var numbers = hits.Where(h => h.Kind is KeywordKind.Label or KeywordKind.Title && h.NumberValue is not null).ToList();
             return new PageEvidence(hits, numbers, PageNumbering.Find(page.Text));
         }
+
+        /// <summary>The type this page's header says it is: the first title in the header third, else the first numbered label.</summary>
+        public DocumentType? DominantType =>
+            (Hits.FirstOrDefault(h => h.Kind == KeywordKind.Title && h.RelativeY < HeaderFraction) ?? (Numbers.Count > 0 ? Numbers[0] : null))?.Rule.Type;
     }
 
-    /// <summary>What the splitter knows about the document range it is currently inside.</summary>
+    /// <summary>
+    /// What the splitter knows about the document range it is currently inside: its document type, the numbers of
+    /// that type seen so far, and the last printed page number. Numbers of other types are references and are not
+    /// tracked.
+    /// </summary>
     private sealed class RangeState
     {
-        private readonly Dictionary<DocumentType, HashSet<string>> _numbers = [];
+        private readonly HashSet<string> _numbers = new(StringComparer.OrdinalIgnoreCase);
 
         public RangeState(IndexedPageText firstPage, PageEvidence evidence, double headerBandFraction)
         {
@@ -209,27 +246,30 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
 
         public HashSet<string> HeaderBand { get; }
 
+        /// <summary>The range's document type; null until a page shows a header title or a numbered label.</summary>
+        public DocumentType? Type { get; private set; }
+
         public PageNumber? LastNumbering { get; private set; }
 
-        public bool HasNumber(DocumentType type, string value) =>
-            _numbers.TryGetValue(type, out var values) && values.Contains(value);
+        public bool Owns(DocumentType type) => Type == type;
 
-        public bool HasOtherNumber(DocumentType type, string value) =>
-            _numbers.TryGetValue(type, out var values) && values.Count > 0 && !values.Contains(value);
+        public bool HasNumber(DocumentType type, string value) => Owns(type) && _numbers.Contains(value);
+
+        public bool HasOtherNumber(DocumentType type, string value) => Owns(type) && _numbers.Count > 0 && !_numbers.Contains(value);
 
         public void Absorb(PageEvidence evidence)
         {
-            LastNumbering = evidence.Numbering ?? LastNumbering;
+            AbsorbNumbering(evidence.Numbering);
+            Type ??= evidence.DominantType;
             foreach (var hit in evidence.Numbers)
             {
-                if (!_numbers.TryGetValue(hit.Rule.Type, out var values))
+                if (Owns(hit.Rule.Type))
                 {
-                    values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    _numbers[hit.Rule.Type] = values;
+                    _numbers.Add(hit.NumberValue!);
                 }
-
-                values.Add(hit.NumberValue!);
             }
         }
+
+        public void AbsorbNumbering(PageNumber? numbering) => LastNumbering = numbering ?? LastNumbering;
     }
 }

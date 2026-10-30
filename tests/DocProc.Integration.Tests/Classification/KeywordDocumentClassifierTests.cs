@@ -171,6 +171,70 @@ public class KeywordDocumentClassifierTests
     }
 
     [Fact]
+    public void A_single_header_negation_defeats_the_title()
+    {
+        // A cover letter headed "Rechnung" that says the invoice follows: one explicit negation in the header offsets the title.
+        var layer = TextLayers.Layer(TextLayers.Page(
+            1,
+            (60, "Musterfirma GmbH"),
+            (120, "Rechnung"),
+            (150, "Rechnungsnummer RE-1"),
+            (180, "Rechnung folgt nach Lieferung."),
+            (300, "Mit freundlichen Grüßen")));
+
+        var outcome = _classifier.Classify(layer);
+
+        outcome.Type.ShouldBe(DocumentType.Unknown);
+        outcome.Confidence.ShouldBeLessThan(0.6);
+    }
+
+    [Fact]
+    public void Proforma_is_one_piece_of_evidence_whichever_languages_list_it()
+    {
+        var proforma = _classifier.Classify(TextLayers.Layer(TextLayers.Page(
+            1,
+            (120, "Proforma Invoice"),
+            (150, "Invoice number PI-1"),
+            (166, "Invoice date 15.03.2026"),
+            (300, "Total 1,000.00 EUR"))));
+        var body = _classifier.Classify(TextLayers.Layer(TextLayers.Page(
+            1,
+            (120, "Invoice"),
+            (150, "Invoice number INV-1"),
+            (166, "Invoice date 15.03.2026"),
+            (500, "Replaces proforma PI-1 of 1 March 2026"))));
+
+        // Header title (8) and labels (4) against one header negation (-8): not enough for a confident invoice.
+        proforma.Type.ShouldBe(DocumentType.Unknown);
+        proforma.Confidence.ShouldBe(0.5);
+
+        // The same word in the body (-4) does not overturn a clear invoice header.
+        body.Type.ShouldBe(DocumentType.Invoice);
+        body.Confidence.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Invoice_referencing_its_delivery_note_and_purchase_order_in_the_body_is_an_invoice()
+    {
+        var layer = TextLayers.Layer(TextLayers.Page(
+            1,
+            (60, "Acme Supplies Ltd"),
+            (120, "INVOICE"),
+            (150, "Invoice number INV-1"),
+            (166, "Invoice date 15 March 2026"),
+            (320, "Delivery note DN-5 of 10 March 2026"),
+            (336, "Purchase order PO-7"),
+            (352, "Statement attached for your records"),
+            (500, "Total amount due 1,250.00 EUR")));
+
+        var outcome = _classifier.Classify(layer);
+
+        outcome.Type.ShouldBe(DocumentType.Invoice);
+        outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.6);
+        outcome.Language.ShouldBe(DocumentLanguages.English);
+    }
+
+    [Fact]
     public void Text_without_keywords_or_without_a_text_layer_is_unknown_with_zero_confidence()
     {
         var noKeywords = _classifier.Classify(TextLayers.Layer(TextLayers.Page(1, (120, "Lorem ipsum dolor sit amet"), (140, "consectetur adipiscing elit"))));
