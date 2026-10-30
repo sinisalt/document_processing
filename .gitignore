@@ -29,3 +29,6 @@ Thumbs.db
 appsettings.*.local.json
 .env
 .env.*
+
+# Harness-managed agent worktrees
+.claude/worktrees/
