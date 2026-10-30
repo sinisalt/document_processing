@@ -8,7 +8,8 @@ namespace DocProc.Infrastructure.Blobs;
 /// <c>&lt;root&gt;/&lt;container&gt;/&lt;tenant&gt;/&lt;sha256&gt;</c> with a <c>.meta.json</c> sidecar carrying the content
 /// type and size, so a <see cref="BlobRef"/> can be rebuilt from the key alone. Uploads are spooled to a temp file
 /// under the root while hashing and then moved into place, so a crash never leaves a partial blob at its final path
-/// and two concurrent uploads of the same bytes cannot corrupt each other.
+/// and two concurrent uploads of the same bytes cannot corrupt each other. Spool files a crashed process left
+/// behind are swept when the store is constructed.
 /// </summary>
 public sealed class FileSystemBlobStore : IContainerBlobStore
 {
@@ -16,18 +17,26 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
     private const string SpoolDirectoryName = ".spool";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly string _spoolPath;
-
     public FileSystemBlobStore(string rootPath)
+        : this(rootPath, TimeProvider.System)
+    {
+    }
+
+    public FileSystemBlobStore(string rootPath, TimeProvider clock)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+        ArgumentNullException.ThrowIfNull(clock);
         RootPath = Path.GetFullPath(rootPath);
-        _spoolPath = Path.Combine(RootPath, SpoolDirectoryName);
+        SpoolPath = Path.Combine(RootPath, SpoolDirectoryName);
         Directory.CreateDirectory(RootPath);
+        HashedSpool.SweepStale(SpoolPath, clock);
     }
 
     /// <summary>Absolute root the layout lives under.</summary>
     public string RootPath { get; }
+
+    /// <summary>Where uploads are hashed before they are moved into place.</summary>
+    public string SpoolPath { get; }
 
     public Task<BlobRef> PutAsync(Guid tenantId, Stream content, string contentType, CancellationToken cancellationToken) =>
         PutAsync(BlobContainers.Raw, tenantId, content, contentType, cancellationToken);
@@ -38,7 +47,7 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
 
-        await using var spool = await HashedSpool.CreateAsync(content, _spoolPath, cancellationToken).ConfigureAwait(false);
+        await using var spool = await HashedSpool.CreateAsync(content, SpoolPath, cancellationToken).ConfigureAwait(false);
         var key = BlobKeys.ForContent(tenantId, spool.Sha256);
         var path = PathFor(container, key);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -62,17 +71,21 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
         return new BlobRef(container, key, spool.Sha256, existing.SizeBytes, existing.ContentType);
     }
 
+    /// <inheritdoc/>
+    /// <exception cref="BlobNotFoundException">Nothing is stored under the reference.</exception>
     public Task<Stream> OpenReadAsync(BlobRef reference, CancellationToken cancellationToken)
     {
         BlobKeys.EnsureValid(reference);
         var path = PathFor(reference.Container, reference.Key);
-        if (!File.Exists(path))
+        try
         {
-            throw new FileNotFoundException($"Blob {reference.Container}/{reference.Key} does not exist.", path);
+            Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            return Task.FromResult(stream);
         }
-
-        Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return Task.FromResult(stream);
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new BlobNotFoundException(reference, ex);
+        }
     }
 
     public Task<bool> ExistsAsync(BlobRef reference, CancellationToken cancellationToken)
@@ -82,20 +95,15 @@ public sealed class FileSystemBlobStore : IContainerBlobStore
     }
 
     /// <summary>
-    /// A <c>file:</c> URI of the blob. A file cannot expire, so <paramref name="validFor"/> is ignored: in local mode
-    /// the API serves document bytes itself through <see cref="OpenReadAsync"/> (docs/05 viewer endpoint) and this
-    /// URI is only ever consumed in-process, never handed to a browser.
+    /// Not supported: a file has no expiring URL, and a <c>file:</c> URI would be a permanent link exposing the
+    /// server's paths. In local mode the API serves document bytes itself through <see cref="OpenReadAsync"/>
+    /// (docs/05 viewer endpoint).
     /// </summary>
+    /// <exception cref="NotSupportedException">Always, once the reference passed validation.</exception>
     public Task<Uri> GetReadUrlAsync(BlobRef reference, TimeSpan validFor, CancellationToken cancellationToken)
     {
         BlobKeys.EnsureValid(reference);
-        var path = PathFor(reference.Container, reference.Key);
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException($"Blob {reference.Container}/{reference.Key} does not exist.", path);
-        }
-
-        return Task.FromResult(new Uri(path, UriKind.Absolute));
+        throw new NotSupportedException("The file-system blob store cannot issue short-lived read URLs; stream the blob through OpenReadAsync instead.");
     }
 
     public async Task<BlobRef?> FindAsync(string container, string key, CancellationToken cancellationToken)

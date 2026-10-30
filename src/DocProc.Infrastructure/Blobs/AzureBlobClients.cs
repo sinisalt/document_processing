@@ -17,7 +17,8 @@ public sealed record AzureBlobEndpoint(string? ConnectionString, Uri? ServiceUri
 /// </summary>
 public static class AzureBlobClients
 {
-    private static readonly string[] KeyBearingSettings = ["AccountKey", "SharedAccessSignature", "UseDevelopmentStorage"];
+    private const string SharedAccessSignatureSetting = "SharedAccessSignature";
+    private static readonly string[] SigningKeySettings = ["AccountKey", "UseDevelopmentStorage"];
 
     public static BlobServiceClient Create(BlobStoreOptions options)
     {
@@ -28,6 +29,11 @@ public static class AzureBlobClients
     }
 
     /// <summary>Decides, without touching the network, how the configured values will be used.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// The connection string is neither an SDK connection string with an account key nor a service URI, or it
+    /// carries only a shared access signature: such a client can neither sign account-key SAS URLs nor fetch a
+    /// user-delegation key, so <see cref="AzureBlobStore.GetReadUrlAsync"/> could never work.
+    /// </exception>
     public static AzureBlobEndpoint Resolve(BlobStoreOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -41,9 +47,15 @@ public static class AzureBlobClients
             }
 
             var settings = ParseSettings(connectionString);
-            if (KeyBearingSettings.Any(settings.ContainsKey))
+            if (SigningKeySettings.Any(settings.ContainsKey))
             {
                 return new AzureBlobEndpoint(connectionString, null);
+            }
+
+            if (settings.ContainsKey(SharedAccessSignatureSetting))
+            {
+                throw new InvalidOperationException(
+                    $"ConnectionStrings:{BlobStoreOptions.ConnectionStringName} carries only a {SharedAccessSignatureSetting}. A SAS credential cannot sign read URLs (no account key, no user-delegation key), so it is not supported: use an account key, or the service URI with a managed identity.");
             }
 
             if (settings.TryGetValue("Endpoint", out var endpoint) && TryParseHttpUri(endpoint, out var endpointUri))

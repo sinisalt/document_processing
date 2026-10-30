@@ -1,9 +1,10 @@
-namespace DocProc.Infrastructure.Blobs;
+namespace DocProc.Application.Abstractions;
 
 /// <summary>
 /// The three blob containers of docs/01 "Blob": immutable raw documents, derived artefacts (page images, OCR
 /// output, previews) and exports. The names must match the containers the Aspire AppHost creates in Azurite
-/// (<c>src/DocProc.AppHost/AppHost.cs</c>) and the ones Bicep creates in Azure.
+/// (<c>src/DocProc.AppHost/AppHost.cs</c>) and the ones Bicep creates in Azure. They live in the Application layer
+/// because the pipeline stages that produce derived artefacts and exports choose the container.
 /// </summary>
 public static class BlobContainers
 {

@@ -3,6 +3,7 @@ using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Api.Dev;
 using DocProc.Api.Endpoints;
+using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.ServiceDefaults;
 using Scalar.AspNetCore;
@@ -20,6 +21,10 @@ if (builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Env
 {
     builder.Services.AddHealthChecks().AddDbContextCheck<DocProcDbContext>("sql", tags: ["ready"]);
 }
+
+// Blob storage: Azure/Azurite as soon as the AppHost injects ConnectionStrings:blobs (or Blobs:ServiceUri is set),
+// otherwise the content-addressed file store under ./data/blobs in the content root (docs/09 "Running without Docker").
+builder.Services.AddDocProcBlobs(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 

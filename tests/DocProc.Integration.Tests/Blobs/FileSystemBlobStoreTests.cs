@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using DocProc.Application.Abstractions;
 using DocProc.Infrastructure.Blobs;
+using Microsoft.Extensions.Time.Testing;
 
 namespace DocProc.Integration.Tests.Blobs;
 
@@ -143,27 +144,49 @@ public sealed class FileSystemBlobStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Unknown_reference_does_not_exist_and_cannot_be_opened()
+    public async Task Unknown_reference_does_not_exist_and_opening_it_is_a_blob_not_found()
     {
         var ct = TestContext.Current.CancellationToken;
         var reference = new BlobRef(BlobContainers.Raw, $"{Tenant:D}/{new string('0', 64)}", new string('0', 64), 0, "text/plain");
 
         (await _store.ExistsAsync(reference, ct)).ShouldBeFalse();
         (await _store.FindAsync(reference.Container, reference.Key, ct)).ShouldBeNull();
-        await Should.ThrowAsync<FileNotFoundException>(() => _store.OpenReadAsync(reference, ct));
-        await Should.ThrowAsync<FileNotFoundException>(() => _store.GetReadUrlAsync(reference, TimeSpan.FromMinutes(5), ct));
+        var error = await Should.ThrowAsync<BlobNotFoundException>(() => _store.OpenReadAsync(reference, ct));
+        error.Reference.ShouldBe(reference);
+        error.Message.ShouldContain(reference.Key);
     }
 
     [Fact]
-    public async Task Read_url_is_a_file_uri_of_the_stored_blob()
+    public async Task Read_urls_are_not_supported_so_the_api_must_stream_the_bytes()
     {
+        // A file: URI would be a permanent link leaking server paths (the contract asks for a short-lived URL).
         var ct = TestContext.Current.CancellationToken;
         var reference = await _store.PutAsync(Tenant, new MemoryStream("x"u8.ToArray()), "text/plain", ct);
 
-        var url = await _store.GetReadUrlAsync(reference, TimeSpan.FromMinutes(5), ct);
+        await Should.ThrowAsync<NotSupportedException>(() => _store.GetReadUrlAsync(reference, TimeSpan.FromMinutes(5), ct));
+    }
 
-        url.IsFile.ShouldBeTrue();
-        url.LocalPath.ShouldBe(_store.PathFor(reference.Container, reference.Key));
+    [Fact]
+    public async Task Stale_spool_files_are_swept_when_a_store_is_constructed_and_fresh_ones_are_kept()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
+        Directory.CreateDirectory(_store.SpoolPath);
+        var stale = Path.Combine(_store.SpoolPath, "crashed-upload.part");
+        var fresh = Path.Combine(_store.SpoolPath, "in-progress.part");
+        var unrelated = Path.Combine(_store.SpoolPath, "notes.txt");
+        await File.WriteAllBytesAsync(stale, new byte[16], ct);
+        await File.WriteAllBytesAsync(fresh, new byte[16], ct);
+        await File.WriteAllBytesAsync(unrelated, new byte[16], ct);
+        File.SetLastWriteTimeUtc(stale, clock.GetUtcNow().AddHours(-2).UtcDateTime);
+        File.SetLastWriteTimeUtc(fresh, clock.GetUtcNow().AddMinutes(-5).UtcDateTime);
+        File.SetLastWriteTimeUtc(unrelated, clock.GetUtcNow().AddDays(-3).UtcDateTime);
+
+        _ = new FileSystemBlobStore(_root, clock);
+
+        File.Exists(stale).ShouldBeFalse();
+        File.Exists(fresh).ShouldBeTrue();
+        File.Exists(unrelated).ShouldBeTrue();
     }
 
     [Theory]
