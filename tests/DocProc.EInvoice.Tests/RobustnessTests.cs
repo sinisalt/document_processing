@@ -309,6 +309,180 @@ public class RobustnessTests
         invoice.Lines.ShouldHaveSingleItem().BestBefore.ShouldBeUnreadable().ShouldBe("Ende Nov.");
     }
 
+    [Theory]
+    [InlineData("0204", "04011000-12345-67")]
+    [InlineData("0088", "4012345000004")]
+    public void Cii_electronic_address_under_a_non_email_scheme_is_not_an_email(string scheme, string id)
+    {
+        var invoice = Fixtures.Parse(Cii(string.Empty,
+            "<ram:ApplicableHeaderTradeAgreement>" +
+            $"<ram:SellerTradeParty><ram:Name>Lieferant</ram:Name><ram:URIUniversalCommunication><ram:URIID schemeID=\"{scheme}\">{id}</ram:URIID></ram:URIUniversalCommunication></ram:SellerTradeParty>" +
+            $"<ram:BuyerTradeParty><ram:Name>Kunde</ram:Name><ram:URIUniversalCommunication><ram:URIID schemeID=\"{scheme}\">{id}</ram:URIID></ram:URIUniversalCommunication></ram:BuyerTradeParty>" +
+            "</ram:ApplicableHeaderTradeAgreement>"));
+
+        invoice.Supplier.Value!.Email.ShouldBeNull();
+        invoice.Customer.Value!.Email.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Cii_electronic_address_under_scheme_em_is_the_email_unless_a_contact_email_is_printed()
+    {
+        var invoice = Fixtures.Parse(Cii(string.Empty,
+            "<ram:ApplicableHeaderTradeAgreement>" +
+            "<ram:SellerTradeParty><ram:Name>Lieferant</ram:Name><ram:URIUniversalCommunication><ram:URIID schemeID=\"EM\">faktura@lieferant.example</ram:URIID></ram:URIUniversalCommunication></ram:SellerTradeParty>" +
+            "</ram:ApplicableHeaderTradeAgreement>"));
+
+        invoice.Supplier.Value!.Email.ShouldBe("faktura@lieferant.example");
+    }
+
+    [Fact]
+    public void Ubl_iban_and_bic_come_from_the_first_payment_means_that_carries_an_account()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cac:AccountingSupplierParty><cac:Party><cac:PartyName><cbc:Name>Lieferant</cbc:Name></cac:PartyName></cac:Party></cac:AccountingSupplierParty>" +
+            "<cac:PaymentMeans><cbc:PaymentMeansCode>30</cbc:PaymentMeansCode></cac:PaymentMeans>" +
+            "<cac:PaymentMeans><cbc:PaymentMeansCode>58</cbc:PaymentMeansCode><cbc:PaymentID>RE-1</cbc:PaymentID>" +
+            "<cac:PayeeFinancialAccount><cbc:ID>DE75512108001245126199</cbc:ID><cac:FinancialInstitutionBranch><cbc:ID>SOGEDEFFXXX</cbc:ID></cac:FinancialInstitutionBranch></cac:PayeeFinancialAccount></cac:PaymentMeans>"));
+
+        invoice.Supplier.Value!.Iban.ShouldBe("DE75512108001245126199");
+        invoice.Supplier.Value.Bic.ShouldBe("SOGEDEFFXXX");
+        var terms = invoice.PaymentTerms.Value.ShouldNotBeNull();
+        terms.PaymentMeans.ShouldBe(PaymentMeans.BankTransfer);
+        terms.PaymentReference.ShouldBe("RE-1");
+        terms.Iban.ShouldBe("DE75512108001245126199");
+        terms.Bic.ShouldBe("SOGEDEFFXXX");
+    }
+
+    [Fact]
+    public void Cii_iban_and_bic_come_from_the_first_payment_means_that_carries_an_account()
+    {
+        var invoice = Fixtures.Parse(Cii(string.Empty,
+            "<ram:ApplicableHeaderTradeAgreement><ram:SellerTradeParty><ram:Name>Lieferant</ram:Name></ram:SellerTradeParty></ram:ApplicableHeaderTradeAgreement>" +
+            "<ram:ApplicableHeaderTradeSettlement><ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>" +
+            "<ram:SpecifiedTradeSettlementPaymentMeans><ram:TypeCode>30</ram:TypeCode></ram:SpecifiedTradeSettlementPaymentMeans>" +
+            "<ram:SpecifiedTradeSettlementPaymentMeans><ram:TypeCode>58</ram:TypeCode>" +
+            "<ram:PayeePartyCreditorFinancialAccount><ram:IBANID>DE75512108001245126199</ram:IBANID></ram:PayeePartyCreditorFinancialAccount>" +
+            "<ram:PayeeSpecifiedCreditorFinancialInstitution><ram:BICID>SOGEDEFFXXX</ram:BICID></ram:PayeeSpecifiedCreditorFinancialInstitution>" +
+            "</ram:SpecifiedTradeSettlementPaymentMeans></ram:ApplicableHeaderTradeSettlement>"));
+
+        invoice.Supplier.Value!.Iban.ShouldBe("DE75512108001245126199");
+        invoice.Supplier.Value.Bic.ShouldBe("SOGEDEFFXXX");
+        var terms = invoice.PaymentTerms.Value.ShouldNotBeNull();
+        terms.PaymentMeans.ShouldBe(PaymentMeans.BankTransfer);
+        terms.Iban.ShouldBe("DE75512108001245126199");
+        terms.Bic.ShouldBe("SOGEDEFFXXX");
+    }
+
+    [Fact]
+    public void Price_amount_too_large_to_divide_by_the_base_quantity_is_unreadable_and_never_throws()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>" +
+            "<cac:InvoiceLine><cbc:InvoicedQuantity unitCode=\"C62\">1</cbc:InvoicedQuantity>" +
+            "<cac:Price><cbc:PriceAmount currencyID=\"EUR\">79228162514264337593543950335</cbc:PriceAmount><cbc:BaseQuantity unitCode=\"C62\">0.0000001</cbc:BaseQuantity></cac:Price></cac:InvoiceLine>"));
+
+        invoice.Lines.ShouldHaveSingleItem().UnitPrice.ShouldBeUnreadable().ShouldBe("79228162514264337593543950335 / 0.0000001");
+    }
+
+    [Fact]
+    public void Price_per_base_quantity_in_another_unit_than_the_invoiced_quantity_is_unreadable_with_the_printed_figures()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>" +
+            "<cac:InvoiceLine><cbc:InvoicedQuantity unitCode=\"KGM\">2</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID=\"EUR\">200.00</cbc:LineExtensionAmount>" +
+            "<cac:Price><cbc:PriceAmount currencyID=\"EUR\">10.00</cbc:PriceAmount><cbc:BaseQuantity unitCode=\"GRM\">100</cbc:BaseQuantity></cac:Price></cac:InvoiceLine>" +
+            "<cac:InvoiceLine><cbc:InvoicedQuantity unitCode=\"KGM\">2</cbc:InvoicedQuantity>" +
+            "<cac:Price><cbc:PriceAmount currencyID=\"EUR\">10.00</cbc:PriceAmount><cbc:BaseQuantity>100</cbc:BaseQuantity></cac:Price></cac:InvoiceLine>"));
+
+        invoice.Lines[0].UnitPrice.ShouldBeUnreadable().ShouldBe("10.00 per 100 GRM (quantity in KGM)");
+        invoice.Lines[1].UnitPrice.ShouldBeExtracted(Eur(0.10m));
+    }
+
+    [Fact]
+    public void Ubl_price_level_allowance_makes_the_gross_price_the_unit_price_and_feeds_the_discount_amount()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>" +
+            "<cac:InvoiceLine><cbc:InvoicedQuantity unitCode=\"C62\">10</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID=\"EUR\">80.00</cbc:LineExtensionAmount>" +
+            "<cac:Price><cbc:PriceAmount currencyID=\"EUR\">8.00</cbc:PriceAmount>" +
+            "<cac:AllowanceCharge><cbc:ChargeIndicator>false</cbc:ChargeIndicator><cbc:Amount currencyID=\"EUR\">2.00</cbc:Amount><cbc:BaseAmount currencyID=\"EUR\">10.00</cbc:BaseAmount></cac:AllowanceCharge>" +
+            "</cac:Price></cac:InvoiceLine>"));
+
+        var line = invoice.Lines.ShouldHaveSingleItem();
+        line.UnitPrice.ShouldBeExtracted(Eur(10.00m));
+        line.DiscountAmount.ShouldBeExtracted(Eur(20.00m));
+        line.DiscountAmount.Source!.RawText.ShouldBe("2.00 × 10");
+        (line.Quantity.Value * line.UnitPrice.Value!.Amount - line.DiscountAmount.Value!.Amount).ShouldBe(line.LineNet.Value!.Amount);
+    }
+
+    [Fact]
+    public void Cii_price_level_allowance_without_a_gross_price_adds_it_back_to_the_net_price()
+    {
+        var invoice = Fixtures.Parse(Cii(string.Empty,
+            "<ram:IncludedSupplyChainTradeLineItem>" +
+            "<ram:SpecifiedLineTradeAgreement><ram:GrossPriceProductTradePrice>" +
+            "<ram:AppliedTradeAllowanceCharge><ram:ChargeIndicator><udt:Indicator>false</udt:Indicator></ram:ChargeIndicator><ram:ActualAmount>2.00</ram:ActualAmount></ram:AppliedTradeAllowanceCharge>" +
+            "</ram:GrossPriceProductTradePrice><ram:NetPriceProductTradePrice><ram:ChargeAmount>8.00</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>" +
+            "<ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode=\"C62\">10</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>" +
+            "<ram:SpecifiedLineTradeSettlement><ram:SpecifiedTradeAllowanceCharge><ram:ChargeIndicator><udt:Indicator>false</udt:Indicator></ram:ChargeIndicator><ram:ActualAmount>5.00</ram:ActualAmount></ram:SpecifiedTradeAllowanceCharge>" +
+            "<ram:SpecifiedTradeSettlementLineMonetarySummation><ram:LineTotalAmount>75.00</ram:LineTotalAmount></ram:SpecifiedTradeSettlementLineMonetarySummation></ram:SpecifiedLineTradeSettlement>" +
+            "</ram:IncludedSupplyChainTradeLineItem>" +
+            "<ram:ApplicableHeaderTradeSettlement><ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode></ram:ApplicableHeaderTradeSettlement>"));
+
+        var line = invoice.Lines.ShouldHaveSingleItem();
+        line.UnitPrice.ShouldBeExtracted(Eur(10.00m));
+        line.UnitPrice.Source!.RawText.ShouldBe("8.00 + 2.00");
+        line.DiscountAmount.ShouldBeExtracted(Eur(25.00m));
+        line.DiscountAmount.Source!.RawText.ShouldBe("5.00 + 2.00 × 10");
+    }
+
+    [Fact]
+    public void Tax_breakdown_row_with_an_unparsable_percent_is_dropped_rather_than_rated_zero()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>" +
+            "<cac:TaxTotal><cbc:TaxAmount currencyID=\"EUR\">19.00</cbc:TaxAmount>" +
+            "<cac:TaxSubtotal><cbc:TaxableAmount currencyID=\"EUR\">100.00</cbc:TaxableAmount><cbc:TaxAmount currencyID=\"EUR\">19.00</cbc:TaxAmount>" +
+            "<cac:TaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>19,00</cbc:Percent></cac:TaxCategory></cac:TaxSubtotal>" +
+            "<cac:TaxSubtotal><cbc:TaxableAmount currencyID=\"EUR\">50.00</cbc:TaxableAmount><cbc:TaxAmount currencyID=\"EUR\">0.00</cbc:TaxAmount>" +
+            "<cac:TaxCategory><cbc:ID>E</cbc:ID></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal>"));
+
+        invoice.TaxBreakdown.ShouldBe([new TaxBreakdownLine(0m, Eur(50.00m), Eur(0.00m), TaxCategory.Exempt)]);
+    }
+
+    [Theory]
+    [InlineData("2026-10-27+01:00trailing")]
+    [InlineData("2026-10-27-garbage")]
+    [InlineData("2026-10-27Z1")]
+    [InlineData("2026-10-27+1:00")]
+    public void Ubl_date_with_an_invalid_suffix_is_unreadable(string text)
+    {
+        var invoice = Fixtures.Parse(Ubl($"<cbc:IssueDate>{text}</cbc:IssueDate>"));
+
+        invoice.IssueDate.ShouldBeUnreadable().ShouldBe(text);
+    }
+
+    [Fact]
+    public void Currency_that_is_not_a_three_letter_code_is_unreadable_and_so_are_the_amounts_keyed_on_it()
+    {
+        var invoice = Fixtures.Parse(Ubl(
+            "<cbc:DocumentCurrencyCode>Euro</cbc:DocumentCurrencyCode>" +
+            "<cac:LegalMonetaryTotal><cbc:PayableAmount>12.00</cbc:PayableAmount><cbc:TaxInclusiveAmount currencyID=\"CHF\">12.00</cbc:TaxInclusiveAmount></cac:LegalMonetaryTotal>"));
+
+        invoice.Currency.ShouldBeUnreadable().ShouldBe("Euro");
+        invoice.AmountDue.ShouldBeUnreadable().ShouldBe("12.00 (invalid currency 'Euro')");
+        invoice.TotalGross.ShouldBeExtracted(new Money(12.00m, "CHF"));
+    }
+
+    [Fact]
+    public void Buyer_reference_is_not_an_order_reference_in_either_syntax()
+    {
+        Fixtures.Parse(Ubl("<cbc:BuyerReference>04011000-12345-67</cbc:BuyerReference><cac:OrderReference><cbc:ID>PO-1</cbc:ID></cac:OrderReference>"))
+            .OrderReferences.Select(r => r.Value!.Verbatim).ShouldBe(["PO-1"]);
+        Fixtures.Parse(Cii(string.Empty, "<ram:ApplicableHeaderTradeAgreement><ram:BuyerReference>04011000-12345-67</ram:BuyerReference></ram:ApplicableHeaderTradeAgreement>"))
+            .OrderReferences.ShouldBeEmpty();
+    }
+
     [Fact]
     public void Customer_direct_debit_account_is_read_from_the_payment_mandate()
     {

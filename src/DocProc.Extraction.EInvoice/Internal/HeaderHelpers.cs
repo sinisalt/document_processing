@@ -7,11 +7,19 @@ namespace DocProc.Extraction.EInvoice.Internal;
 /// <summary>Header mapping shared by the UBL and CII mappers.</summary>
 internal static class HeaderHelpers
 {
-    /// <summary>The document currency code, normalised to upper case; the raw text is kept on the source.</summary>
+    /// <summary>
+    /// The document currency code, normalised to upper case; the raw text is kept on the source. Text that is not a
+    /// three-letter ISO 4217 code ("Euro") is Unreadable, and amounts that fall back to it are Unreadable too.
+    /// </summary>
     public static FieldValue<string> Currency(XElement? element)
     {
         var text = element.Text();
-        return text is null ? FieldValue<string>.Missing() : XmlFields.Extracted(CurrencyCode.Normalize(text), text);
+        if (text is null)
+        {
+            return FieldValue<string>.Missing();
+        }
+
+        return XmlFields.WellFormedCurrency(text) is { } code ? XmlFields.Extracted(code, text) : XmlFields.Unreadable<string>(text);
     }
 
     /// <summary>

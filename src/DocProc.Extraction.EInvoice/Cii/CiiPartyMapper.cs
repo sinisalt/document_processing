@@ -10,26 +10,20 @@ internal static class CiiPartyMapper
 {
     private const string VatScheme = "VA";
     private const string TaxNumberScheme = "FC";
+    private const string EmailEndpointScheme = "EM";
 
-    public static FieldValue<Party> Supplier(XElement? agreement, XElement? settlement)
-    {
-        var means = settlement.Child("SpecifiedTradeSettlementPaymentMeans");
-        return Map(
-            agreement.Child("SellerTradeParty"),
-            iban: means.Path("PayeePartyCreditorFinancialAccount", "IBANID").Text(),
-            bic: means.Path("PayeeSpecifiedCreditorFinancialInstitution", "BICID").Text());
-    }
+    public static FieldValue<Party> Supplier(XElement? agreement, XElement? settlement) =>
+        Map(agreement.Child("SellerTradeParty"), CiiPaymentMeans.PayeeAccount(CiiPaymentMeans.All(settlement)));
 
-    public static FieldValue<Party> Customer(XElement? agreement, XElement? settlement)
-    {
-        var means = settlement.Child("SpecifiedTradeSettlementPaymentMeans");
-        return Map(
-            agreement.Child("BuyerTradeParty"),
-            iban: means.Path("PayerPartyDebtorFinancialAccount", "IBANID").Text(),
-            bic: null);
-    }
+    public static FieldValue<Party> Customer(XElement? agreement, XElement? settlement) =>
+        Map(agreement.Child("BuyerTradeParty"), CiiPaymentMeans.PayerAccount(CiiPaymentMeans.All(settlement)));
 
-    private static FieldValue<Party> Map(XElement? party, string? iban, string? bic)
+    /// <summary>
+    /// The party's electronic address (URIUniversalCommunication/URIID, BT-34/BT-49) is an e-mail only under EAS
+    /// scheme EM, as in the UBL mapper; under any other scheme (0204 Leitweg-ID, 0088 GLN, 9930 VAT id) it is a
+    /// routing identifier the canonical <see cref="Party"/> has no slot for, and it is not mistaken for an e-mail.
+    /// </summary>
+    private static FieldValue<Party> Map(XElement? party, BankAccount account)
     {
         if (party is null)
         {
@@ -38,16 +32,17 @@ internal static class CiiPartyMapper
 
         var name = party.Child("Name").Text();
         var contact = party.Child("DefinedTradeContact");
+        var endpoint = party.Path("URIUniversalCommunication", "URIID");
         var value = new Party(
             Name: name,
             VatId: TaxRegistration(party, VatScheme),
             TaxId: TaxRegistration(party, TaxNumberScheme),
             RegistrationNumber: party.Path("SpecifiedLegalOrganization", "ID").Text(),
             Address: Address(party.Child("PostalTradeAddress")),
-            Email: contact.Path("EmailURIUniversalCommunication", "URIID").Text() ?? party.Path("URIUniversalCommunication", "URIID").Text(),
+            Email: contact.Path("EmailURIUniversalCommunication", "URIID").Text() ?? (endpoint.Attr("schemeID") == EmailEndpointScheme ? endpoint.Text() : null),
             Phone: contact.Path("TelephoneUniversalCommunication", "CompleteNumber").Text(),
-            Iban: iban,
-            Bic: bic);
+            Iban: account.Iban,
+            Bic: account.Bic);
         return XmlFields.Extracted(value, name);
     }
 

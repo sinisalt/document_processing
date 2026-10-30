@@ -13,14 +13,12 @@ internal static class UblPartyMapper
     private const string EmailEndpointScheme = "EM";
 
     public static FieldValue<Party> Supplier(XElement root) =>
-        Map(root.Path("AccountingSupplierParty", "Party"), root.Path("PaymentMeans", "PayeeFinancialAccount"));
+        Map(root.Path("AccountingSupplierParty", "Party"), UblPaymentMeans.PayeeAccount(UblPaymentMeans.All(root)));
 
     public static FieldValue<Party> Customer(XElement root) =>
-        Map(
-            root.Path("AccountingCustomerParty", "Party"),
-            root.Path("PaymentMeans", "PayerFinancialAccount") ?? root.Path("PaymentMeans", "PaymentMandate", "PayerFinancialAccount"));
+        Map(root.Path("AccountingCustomerParty", "Party"), UblPaymentMeans.PayerAccount(UblPaymentMeans.All(root)));
 
-    private static FieldValue<Party> Map(XElement? party, XElement? account)
+    private static FieldValue<Party> Map(XElement? party, BankAccount account)
     {
         if (party is null)
         {
@@ -37,8 +35,8 @@ internal static class UblPartyMapper
             Address: Address(party.Child("PostalAddress")),
             Email: party.Path("Contact", "ElectronicMail").Text() ?? (endpoint.Attr("schemeID") == EmailEndpointScheme ? endpoint.Text() : null),
             Phone: party.Path("Contact", "Telephone").Text(),
-            Iban: account.Child("ID").Text(),
-            Bic: account.Path("FinancialInstitutionBranch", "ID").Text());
+            Iban: account.Iban,
+            Bic: account.Bic);
         return XmlFields.Extracted(value, name);
     }
 

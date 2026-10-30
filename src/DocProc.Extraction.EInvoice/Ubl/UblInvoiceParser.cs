@@ -18,11 +18,12 @@ public static class UblInvoiceParser
         ArgumentNullException.ThrowIfNull(root);
 
         var isCreditNote = root.Name.LocalName == EInvoiceNamespaces.UblCreditNoteRoot;
-        var currencyField = HeaderHelpers.Currency(root.Child("DocumentCurrencyCode"));
-        var currency = currencyField.Value;
+        var currencyElement = root.Child("DocumentCurrencyCode");
+        var currencyField = HeaderHelpers.Currency(currencyElement);
+        var currency = currencyElement.Text();
         var totals = root.Child("LegalMonetaryTotal");
         var taxTotal = UblSettlementMapper.SelectTaxTotal(root);
-        var dueDate = XmlFields.IsoDate(root.Child("DueDate") ?? root.Path("PaymentMeans", "PaymentDueDate"));
+        var dueDate = XmlFields.IsoDate(root.Child("DueDate") ?? UblPaymentMeans.PaymentDueDate(UblPaymentMeans.All(root)));
 
         return new Invoice
         {
@@ -37,7 +38,9 @@ public static class UblInvoiceParser
             Currency = currencyField,
             Supplier = UblPartyMapper.Supplier(root),
             Customer = UblPartyMapper.Customer(root),
-            OrderReferences = HeaderHelpers.References([root.Child("BuyerReference"), root.Path("OrderReference", "ID")]),
+            // BuyerReference (BT-10) is a routing id (the XRechnung Leitweg-ID), not a purchase order number
+            // (docs/02-data-model.md: orderReferences match PurchaseOrders), so it stays out of OrderReferences.
+            OrderReferences = HeaderHelpers.References([root.Path("OrderReference", "ID")]),
             DeliveryNoteReferences = HeaderHelpers.References(root.Children("DespatchDocumentReference").Select(r => r.Child("ID"))),
             OriginalInvoiceReference = XmlFields.Identifier(root.Path("BillingReference", "InvoiceDocumentReference", "ID")),
             SubtotalNet = XmlFields.Amount(totals.Child("LineExtensionAmount"), currency),

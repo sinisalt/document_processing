@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using DocProc.Domain.Common;
 using DocProc.Domain.Fields;
@@ -10,7 +11,7 @@ namespace DocProc.Extraction.EInvoice.Internal;
 /// <see cref="SourceMethod.StructuredXml"/> and confidence 1.0 (docs/02-data-model.md §3); an absent element is
 /// Missing; text that is present but does not parse is Unreadable with the raw text kept on the source.
 /// </summary>
-internal static class XmlFields
+internal static partial class XmlFields
 {
     /// <summary>Structured XML is read, not recognised, so its confidence is always 1.0.</summary>
     public const double Confidence = 1.0;
@@ -66,7 +67,7 @@ internal static class XmlFields
         return false;
     }
 
-    /// <summary>UBL dates: xsd:date, optionally with a time-zone suffix that is ignored.</summary>
+    /// <summary>UBL dates: xsd:date, optionally with a time-zone suffix (Z or ±hh:mm) that is ignored.</summary>
     public static FieldValue<DateOnly> IsoDate(XElement? element)
     {
         var text = element.Text();
@@ -78,18 +79,16 @@ internal static class XmlFields
         return TryIsoDate(text, out var date) ? Extracted(date, text) : Unreadable<DateOnly>(text);
     }
 
+    /// <summary>Strictly yyyy-MM-dd with an optional xsd:date time-zone suffix; anything else after the date is a failure.</summary>
     public static bool TryIsoDate(string? text, out DateOnly date)
     {
-        if (text is null)
+        date = default;
+        if (text is null || !IsoDatePattern().IsMatch(text))
         {
-            date = default;
             return false;
         }
 
-        var core = text.Length > IsoDateFormat.Length && text[IsoDateFormat.Length] is '+' or '-' or 'Z'
-            ? text[..IsoDateFormat.Length]
-            : text;
-        return DateOnly.TryParseExact(core, IsoDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+        return DateOnly.TryParseExact(text[..IsoDateFormat.Length], IsoDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
     }
 
     /// <summary>
@@ -125,8 +124,23 @@ internal static class XmlFields
         TryIsoDate(text, out date) || TryCiiDate(text, format: null, out date);
 
     /// <summary>
+    /// A currency code as printed, normalised to upper case when it is a well-formed ISO 4217 code (three letters);
+    /// null when absent or malformed, so "Euro" never becomes the currency of a <see cref="Money"/>.
+    /// </summary>
+    public static string? WellFormedCurrency(string? code)
+    {
+        if (code is null)
+        {
+            return null;
+        }
+
+        var normalized = CurrencyCode.Normalize(code);
+        return CurrencyCode.IsWellFormed(normalized) ? normalized : null;
+    }
+
+    /// <summary>
     /// An amount element with its <c>currencyID</c> attribute; the document currency is the fallback. Without any
-    /// currency the amount cannot become <see cref="Money"/> and is Unreadable rather than guessed.
+    /// well-formed currency the amount cannot become <see cref="Money"/> and is Unreadable rather than guessed.
     /// </summary>
     public static FieldValue<Money> Amount(XElement? element, string? documentCurrency)
     {
@@ -141,12 +155,18 @@ internal static class XmlFields
             return Extracted(money, text);
         }
 
-        return Unreadable<Money>(ResolveCurrency(element, documentCurrency) is null ? $"{text} (no currency)" : text);
+        var code = element.Attr(CurrencyAttribute) ?? documentCurrency;
+        return Unreadable<Money>(code switch
+        {
+            null => $"{text} (no currency)",
+            _ when WellFormedCurrency(code) is null => $"{text} (invalid currency '{code}')",
+            _ => text,
+        });
     }
 
     public static bool TryAmount(XElement? element, string? documentCurrency, out Money money)
     {
-        var currency = ResolveCurrency(element, documentCurrency);
+        var currency = WellFormedCurrency(element.Attr(CurrencyAttribute) ?? documentCurrency);
         if (currency is not null && TryNumber(element.Text(), out var amount))
         {
             money = new Money(amount, currency);
@@ -165,9 +185,6 @@ internal static class XmlFields
         _ => null,
     };
 
-    private static string? ResolveCurrency(XElement? element, string? documentCurrency)
-    {
-        var code = element.Attr(CurrencyAttribute) ?? documentCurrency;
-        return code is null ? null : CurrencyCode.Normalize(code);
-    }
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})?$")]
+    private static partial Regex IsoDatePattern();
 }

@@ -119,7 +119,7 @@ Tenant status is checked for API keys; for OIDC users it lands with the first te
 | Scan quality from small suppliers (photos of paper delivery notes) | OCR provider interface; Azure Layout fallback; `UNREADABLE_PAGES` flag with a request-resend workflow in the portal. |
 | Structured-output + citations cannot be combined | Provenance from our own text layer (see `06-llm-integration.md`). |
 | LLM provider terms vs customer DPAs | Inline requests only, no Files API persistence, batch only where allowed; confirm retention tier with Anthropic for EU customers. |
-| ZUGFeRD-csharp deprecation (Dec 2026) and its commercial successor | Pin last Apache release behind an interface; evaluate cost of the commercial package vs maintaining a fork when Phase 2 starts. |
+| ZUGFeRD-csharp deprecation (Dec 2026) and its commercial successor | Resolved: no e-invoice library dependency; `DocProc.Extraction.EInvoice` maps UBL 2.1 and CII D16B with hand-written `System.Xml.Linq` mappers over the EN 16931 core elements (see `01-architecture-and-stack.md`). |
 | Retention periods differ by country (Germany 8 years since 2025, Croatia 11, France 10) | Retention is a tenant setting with per-country defaults; legal review before launch in each country. |
 | Template drift when a supplier redesigns its invoice | Validation-gated fallback, drift metrics, automatic re-synthesis; never let a profile answer without arithmetic checks passing. |
 | Provider feature drift (one vendor adds or removes a structured-output or PDF capability) | Capability descriptor per adapter, document input falls back to page images, CI schema test per provider, eval per provider before promotion. |

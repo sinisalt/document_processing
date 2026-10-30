@@ -8,9 +8,21 @@ internal static class SettlementHelpers
 {
     /// <summary>
     /// A VAT rate for a breakdown row. EN 16931 omits the rate for exempt, zero-rated and out-of-scope categories,
-    /// where 0 is the only possible value; a standard-rate row without a rate is left at 0 so validation reports it.
+    /// where 0 is the only possible value, so an absent rate is 0 (a standard-rate row without one is reported by
+    /// validation). A rate that is printed but does not parse ("19,00") is a failure, never 0: the caller drops
+    /// the row, as it does for an unreadable amount, so the breakdown rules surface the gap.
     /// </summary>
-    public static decimal Rate(XElement? percent) => XmlFields.TryNumber(percent.Text(), out var rate) ? rate : 0m;
+    public static bool TryRate(XElement? percent, out decimal rate)
+    {
+        var text = percent.Text();
+        if (text is null)
+        {
+            rate = 0m;
+            return true;
+        }
+
+        return XmlFields.TryNumber(text, out rate);
+    }
 
     /// <summary>
     /// Document-level charges (indicator true) or allowances (indicator false). Entries without a readable amount or

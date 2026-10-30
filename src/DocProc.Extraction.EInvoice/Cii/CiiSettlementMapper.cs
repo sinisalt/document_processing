@@ -34,13 +34,14 @@ internal static class CiiSettlementMapper
         foreach (var tax in settlement.Children("ApplicableTradeTax"))
         {
             if (!XmlFields.TryAmount(tax.Child("BasisAmount"), currency, out var taxable)
-                || !XmlFields.TryAmount(tax.Child("CalculatedAmount"), currency, out var amount))
+                || !XmlFields.TryAmount(tax.Child("CalculatedAmount"), currency, out var amount)
+                || !SettlementHelpers.TryRate(tax.Child("RateApplicablePercent"), out var rate))
             {
                 continue;
             }
 
             rows.Add(new TaxBreakdownLine(
-                SettlementHelpers.Rate(tax.Child("RateApplicablePercent")),
+                rate,
                 taxable,
                 amount,
                 TaxCategoryCodes.ToCategory(tax.Child("CategoryCode").Text())));
@@ -52,12 +53,13 @@ internal static class CiiSettlementMapper
     public static ChargeOrAllowance[] AllowanceCharges(XElement? settlement, string? currency, bool charges) =>
         SettlementHelpers.AllowanceCharges(settlement.Children("SpecifiedTradeAllowanceCharge"), currency, charges, Shape);
 
+    /// <summary>Payment means entries are all read: the first type code and the first creditor account found win.</summary>
     public static FieldValue<PaymentTerms> PaymentTerms(XElement? settlement, FieldValue<DateOnly> dueDate)
     {
-        var means = settlement.Child("SpecifiedTradeSettlementPaymentMeans");
+        var means = CiiPaymentMeans.All(settlement);
         var terms = settlement.Children("SpecifiedTradePaymentTerms").ToArray();
         var note = terms.Select(t => t.Child("Description")).JoinedText();
-        if (means is null && terms.Length == 0 && !dueDate.HasValue)
+        if (means.Length == 0 && terms.Length == 0 && !dueDate.HasValue)
         {
             return FieldValue<PaymentTerms>.Missing();
         }
@@ -65,13 +67,14 @@ internal static class CiiSettlementMapper
         var discountPercentText = terms
             .Select(t => t.Path("ApplicableTradePaymentDiscountTerms", "CalculationPercent").Text())
             .FirstOrDefault(p => p is not null);
+        var account = CiiPaymentMeans.PayeeAccount(means);
         var value = new PaymentTerms(
             DueDate: dueDate.HasValue ? dueDate.Value : null,
             DiscountPercent: XmlFields.TryNumber(discountPercentText, out var discount) ? discount : null,
-            PaymentMeans: PaymentMeansCodes.ToPaymentMeans(means.Child("TypeCode").Text()),
+            PaymentMeans: PaymentMeansCodes.ToPaymentMeans(CiiPaymentMeans.Code(means)),
             PaymentReference: settlement.Child("PaymentReference").Text(),
-            Iban: means.Path("PayeePartyCreditorFinancialAccount", "IBANID").Text(),
-            Bic: means.Path("PayeeSpecifiedCreditorFinancialInstitution", "BICID").Text(),
+            Iban: account.Iban,
+            Bic: account.Bic,
             RawText: note);
         return XmlFields.Extracted(value, note);
     }

@@ -20,18 +20,21 @@ internal static class UblLineMapper
         var price = line.Child("Price");
         var quantity = line.Child(quantityName);
         var unitCode = quantity.Attr("unitCode");
+        var baseQuantity = price.Child("BaseQuantity");
         var standardId = item.Path("StandardItemIdentification", "ID");
         var attributes = item.Children("AdditionalItemProperty")
             .Select(p => new ItemAttribute(p.Child("Name").Text(), p.Child("Value").Text()))
             .ToArray();
-        var allowances = line.Children("AllowanceCharge")
-            .Where(a => XmlFields.Indicator(a.Child("ChargeIndicator").Text()) == false)
-            .Select(a => new LineAllowance(
-                a.Child("Amount").Text(),
-                a.Child("Amount").Attr("currencyID") ?? currency,
-                a.Child("MultiplierFactorNumeric").Text()))
-            .ToArray();
-        var (discountAmount, discountPercent) = LineHelpers.Discounts(allowances);
+        var priceAllowances = Allowances(price, currency);
+        var pricing = LineHelpers.Price(new LinePricing(
+            NetPrice: XmlFields.Amount(price.Child("PriceAmount"), currency),
+            GrossPrice: XmlFields.Amount(Allowances(price).Select(a => a.Child("BaseAmount")).FirstOrDefault(b => b is not null), currency),
+            PriceAllowances: priceAllowances,
+            BaseQuantity: XmlFields.Number(baseQuantity),
+            BaseUnitCode: baseQuantity.Attr("unitCode"),
+            Quantity: XmlFields.Number(quantity),
+            UnitCode: unitCode,
+            LineAllowances: Allowances(line, currency)));
 
         return new InvoiceLine
         {
@@ -42,15 +45,27 @@ internal static class UblLineMapper
             Quantity = XmlFields.Number(quantity),
             Unit = LineHelpers.Unit(unitCode),
             UnitRaw = unitCode,
-            UnitPrice = LineHelpers.PerUnitPrice(
-                XmlFields.Amount(price.Child("PriceAmount"), currency),
-                XmlFields.Number(price.Child("BaseQuantity"))),
-            DiscountAmount = discountAmount,
-            DiscountPercent = discountPercent,
+            UnitPrice = pricing.UnitPrice,
+            DiscountAmount = pricing.DiscountAmount,
+            DiscountPercent = pricing.DiscountPercent,
             LineNet = XmlFields.Amount(line.Child("LineExtensionAmount"), currency),
             TaxRate = XmlFields.Number(item.Path("ClassifiedTaxCategory", "Percent")),
             LotNumber = LineHelpers.Lot(attributes, batchId: null),
             BestBefore = LineHelpers.BestBefore(attributes),
         };
     }
+
+    /// <summary>AllowanceCharge entries with the charge indicator false, under a line (BG-27) or under its Price (BT-147).</summary>
+    private static XElement[] Allowances(XElement? parent) =>
+        parent.Children("AllowanceCharge")
+            .Where(a => XmlFields.Indicator(a.Child("ChargeIndicator").Text()) == false)
+            .ToArray();
+
+    private static LineAllowance[] Allowances(XElement? parent, string? currency) =>
+        Allowances(parent)
+            .Select(a => new LineAllowance(
+                a.Child("Amount").Text(),
+                a.Child("Amount").Attr("currencyID") ?? currency,
+                a.Child("MultiplierFactorNumeric").Text()))
+            .ToArray();
 }
