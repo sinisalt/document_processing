@@ -36,6 +36,36 @@ Tests under `tests/DocProc.AppHost.Tests` build the application model without st
 assert the resource set, images, waits and realm contents, so a rename is caught before anyone
 runs the stack.
 
+## Running without Docker
+
+The API has a dependency-free development mode for machines without Docker or Keycloak
+(a locked-down laptop, a CI agent that only takes screenshots, a quick demo). It is the default
+of `appsettings.Development.json`, so `dotnet run --project src/DocProc.Api` works on a clean
+checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
+`Authentication__Dev__Enabled=false`) so the full stack keeps using SQL Server and Keycloak.
+
+| Setting | Development mode | What it does |
+|---|---|---|
+| `Persistence:Provider` | `Sqlite` (default is `SqlServer` whenever `ConnectionStrings:DocProc` is set) | `DocProcDbContext` on a SQLite file; the schema comes from the model with `EnsureCreated`, because the migrations are SQL Server-only. |
+| `Persistence:SqlitePath` | `./data/docproc.db` (relative to the working directory; the folder is created) | Delete the file after a model change; there is no migration path for SQLite. |
+| `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. |
+| `Authentication:Dev:Enabled` | `true` | The API signs its own tokens (`POST /dev/token`, `GET /dev/users`, tagged "Development") with an RSA key and the bearer handler trusts issuer `docproc-dev` instead of the OIDC authority. The endpoints are not mapped at all when disabled. |
+| `Authentication:Dev:SigningKeyPath` | `./data/dev-signing-key.pem` | Unset: a key per process, tokens die on restart. Set: loaded, or generated and written on first start, so tokens survive restarts. |
+
+The dev users are the realm's users, with the same roles, `tenant_id` attributes, e-mails and
+names, so a front end built against the dev issuer behaves identically against Keycloak:
+
+```bash
+curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token
+```
+
+Limits, by design: SQLite has no row-level security and no temporal tables (the EF query
+filters are the only tenancy layer, which is why the mode is refused in Production: the host
+throws at start-up for `Persistence:Provider=Sqlite` or `Authentication:Dev:Enabled=true`),
+and it cannot `ORDER BY` a `DateTimeOffset` column, so lists that sort by time order in memory
+(the API-key list does). Everything SQL Server-specific is exercised by the integration tests
+against a container, not here.
+
 ## Apple Silicon specifics
 
 - Enable **"Use Rosetta for x86_64/amd64 emulation"** in Docker Desktop (or Rosetta in

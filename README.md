@@ -97,6 +97,30 @@ dotnet run --project src/DocProc.Api
 The interactive API reference (Scalar) is at `/scalar`, the OpenAPI document at
 `/openapi/v1.json`, liveness at `/alive`, health at `/health`, readiness at `/health/ready`.
 
+### Running without Docker
+
+For a machine without Docker or Keycloak the API has a self-contained development mode, which
+is what `appsettings.Development.json` selects, so this works on a clean checkout:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/DocProc.Api
+```
+
+It stores data in a SQLite file (`Persistence:Provider=Sqlite`, `Persistence:SqlitePath`,
+default `./data/docproc.db`, schema created from the model), seeds the two demo tenants, their
+suppliers and the platform LLM provider, and signs its own bearer tokens for the users of the
+Keycloak realm (`Authentication:Dev:Enabled=true`; the OIDC authority is ignored while on):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)
+curl -s http://localhost:5100/api/v1/me -H "Authorization: Bearer $TOKEN" | jq
+```
+
+`GET /dev/users` lists the six users. Both endpoints exist only while dev auth is enabled, and
+the host refuses to start with either setting in Production. The AppHost switches both off
+(SQL Server and Keycloak) for the full stack. Details and limits: docs/09 "Running without
+Docker".
+
 ### Authentication
 
 Every endpoint except the probes, the OpenAPI document, Scalar and `/api/v1/version` needs an
