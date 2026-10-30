@@ -12,7 +12,11 @@ namespace DocProc.Llm;
 /// <summary>The <c>Llm:Replay</c> section (docs/09 "LLM providers").</summary>
 public sealed class LlmReplayOptions
 {
-    /// <summary>Fixture directory of the <see cref="FileReplayStore"/>; unset means no replay provider.</summary>
+    /// <summary>
+    /// Fixture directory of the <see cref="FileReplayStore"/>; unset means no replay provider. A relative path is
+    /// resolved with <see cref="RepositoryPaths.ResolveUpwards"/> when the host passes its content root, so
+    /// <c>fixtures/demo/llm-replay</c> finds the repository's folder from any project (docs/09 "Demo data").
+    /// </summary>
     public string? Directory { get; set; }
 
     /// <summary>Wrap every real adapter so misses are recorded into <see cref="Directory"/>; otherwise misses throw.</summary>
@@ -31,13 +35,24 @@ public static class LlmServiceCollectionExtensions
 {
     public const string SectionName = "Llm";
 
-    public static IServiceCollection AddDocProcLlm(this IServiceCollection services, IConfiguration configuration)
+    /// <param name="services">The host's services.</param>
+    /// <param name="configuration">The host configuration; <c>Llm:*</c> is read from it.</param>
+    /// <param name="contentRootPath">
+    /// The host's content root. When given, a relative <c>Llm:Replay:Directory</c> is resolved upwards from it
+    /// (<see cref="RepositoryPaths.ResolveUpwards"/>); without it a relative directory is relative to the working directory.
+    /// </param>
+    public static IServiceCollection AddDocProcLlm(this IServiceCollection services, IConfiguration configuration, string? contentRootPath = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
         var section = configuration.GetSection(SectionName);
         var replay = section.GetSection("Replay").Get<LlmReplayOptions>() ?? new LlmReplayOptions();
+        if (!string.IsNullOrWhiteSpace(replay.Directory) && !string.IsNullOrWhiteSpace(contentRootPath))
+        {
+            replay.Directory = RepositoryPaths.ResolveUpwards(replay.Directory, contentRootPath);
+        }
+
         var extraction = section.GetSection("Extraction").Get<LlmExtractionOptions>() ?? new LlmExtractionOptions();
         if (replay.Record && string.IsNullOrWhiteSpace(replay.Directory))
         {

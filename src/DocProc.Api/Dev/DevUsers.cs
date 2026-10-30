@@ -1,6 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using DocProc.Api.Auth;
+using DocProc.Infrastructure.Persistence;
 
 namespace DocProc.Api.Dev;
 
@@ -37,10 +36,6 @@ public static class DevUsers
     public static DevUser? Find(string? username) =>
         string.IsNullOrWhiteSpace(username) ? null : All.FirstOrDefault(u => string.Equals(u.Username, username.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>A GUID in the shape Keycloak would issue, computed from the username so it never changes.</summary>
-    public static string SubjectFor(string username)
-    {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes("docproc-dev:" + username.ToLowerInvariant()));
-        return new Guid(hash.AsSpan(0, 16)).ToString();
-    }
+    /// <summary>A GUID in the shape Keycloak would issue, computed from the username so it never changes; shared with the demo members of the development seed.</summary>
+    public static string SubjectFor(string username) => DevSeed.SubjectFor(username);
 }

@@ -7,6 +7,7 @@ using DocProc.Api.Pipeline;
 using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Pipeline;
+using DocProc.Pipeline.Demo;
 using DocProc.Infrastructure.Security;
 using DocProc.ServiceDefaults;
 using Scalar.AspNetCore;
@@ -31,6 +32,8 @@ if (builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Env
 builder.Services.AddDocProcBlobs(builder.Configuration, builder.Environment);
 builder.Services.AddDocProcSecrets(builder.Configuration, builder.Environment);
 builder.AddDocProcProcessingStack();
+// Development mode only: the demo invoices of fixtures/demo, ingested after the seed (docs/09 "Demo data").
+builder.AddDocProcDemoData();
 builder.Services.AddDocProcApiServices();
 
 var app = builder.Build();

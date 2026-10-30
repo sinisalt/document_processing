@@ -11,6 +11,7 @@ using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
+using DocProc.Pipeline.Intake;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -171,16 +172,13 @@ public static class IngestionEndpoints
             expired = earlier;
         }
 
-        // Content-addressed storage: storing the same bytes twice is a no-op, so a retry after a failed save is safe.
-        var stored = new List<(UploadedFile File, BlobRef Blob)>(uploads.Count);
-        foreach (var upload in uploads)
-        {
-            var content = upload.Open();
-            await using (content.ConfigureAwait(false))
-            {
-                stored.Add((upload, await blobs.PutAsync(tenantId, content, upload.ContentType, ct)));
-            }
-        }
+        // Content-addressed storage: storing the same bytes twice is a no-op, so a retry after a failed save is safe. The
+        // store-and-record half is shared with the development mode's demo data (UploadIntake), so both create the same rows.
+        var stored = await UploadIntake.StoreAsync(
+            blobs,
+            tenantId,
+            uploads.Select(u => new UploadFile(u.FileName, u.ContentType, ItemKinds.FromContentType(u.ContentType, u.FileName), u.Open)).ToList(),
+            ct);
 
         var channel = await ResolveChannelAsync(db, tenantId, channelId, now, ct);
         if (channel is null)
@@ -188,39 +186,7 @@ public static class IngestionEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["channelId"] = ["No such channel in this tenant."] });
         }
 
-        var actor = DocumentQueries.ActorName(user);
-        var first = stored[0];
-        var ingestion = new Ingestion
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenantId,
-            ChannelId = channel.Id,
-            ReceivedAt = now,
-            SourceFrom = Truncate(actor, 320),
-            SourceFileName = Truncate(first.File.FileName, 260),
-            // One upload, one raw artefact: for a multi-file upload the first file stands for the batch; every file is its own item.
-            RawBlob = ToReference(first.Blob),
-            Status = IngestionStatus.Received,
-            UpdatedAt = now,
-        };
-        foreach (var (file, blob) in stored)
-        {
-            ingestion.Items.Add(new IngestionItem
-            {
-                Id = Guid.CreateVersion7(),
-                TenantId = tenantId,
-                IngestionId = ingestion.Id,
-                FileName = Truncate(file.FileName, 260),
-                MimeType = Truncate(file.ContentType, 127),
-                SizeBytes = blob.SizeBytes,
-                Sha256 = blob.Sha256,
-                Blob = ToReference(blob),
-                Kind = ItemKinds.FromContentType(file.ContentType, file.FileName),
-                Disposition = ItemDisposition.Candidate,
-                CreatedAt = now,
-            });
-        }
-
+        var ingestion = UploadIntake.CreateIngestion(tenantId, channel.Id, DocumentQueries.ActorName(user), stored, now);
         db.Ingestions.Add(ingestion);
 
         var response = new IngestionCreated(ingestion.Id, ingestion.Status, ingestion.Items.Select(i => new IngestionItemCreated(i.Id, i.FileName, i.SizeBytes, i.Sha256)).ToList());
@@ -557,17 +523,6 @@ public static class IngestionEndpoints
         var name = Path.GetFileName(fileName?.Trim() ?? string.Empty);
         return string.IsNullOrEmpty(name) ? "upload" : name;
     }
-
-    private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength];
-
-    private static BlobReference ToReference(BlobRef blob) => new()
-    {
-        Container = blob.Container,
-        Key = blob.Key,
-        Sha256 = blob.Sha256,
-        SizeBytes = blob.SizeBytes,
-        ContentType = blob.ContentType,
-    };
 
     private sealed record UploadedFile(string FileName, string ContentType, long Length, Func<Stream> Open);
 }

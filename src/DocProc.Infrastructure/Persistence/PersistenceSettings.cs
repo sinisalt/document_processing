@@ -33,10 +33,26 @@ public sealed class PersistenceSettings
     /// <summary>Inserts the demo tenants, suppliers and LLM configuration (<see cref="DevSeed"/>). Implied by <see cref="PersistenceProvider.Sqlite"/>; refused in production.</summary>
     public bool SeedDevData { get; set; }
 
+    /// <summary>
+    /// After the development seed, ingests the demo documents of <see cref="DemoDocumentsPath"/> for the demo tenants
+    /// and seeds their members and two weeks of LLM usage (docs/09 "Demo data"). Only takes effect where the development
+    /// seed runs (SQLite or <see cref="SeedDevData"/>), only the API host acts on it, and it is refused in production.
+    /// </summary>
+    public bool SeedDemoDocuments { get; set; }
+
+    /// <summary>Folder with one sub-folder per tenant slug (<c>tenant-a</c>, <c>tenant-b</c>); a relative path is searched upwards from the content root, so the repository's <c>fixtures/demo</c> is found from any project.</summary>
+    public string DemoDocumentsPath { get; set; } = DefaultDemoDocumentsPath;
+
+    public const string DefaultDemoDocumentsPath = "fixtures/demo";
+
     public static PersistenceSettings From(IConfiguration configuration) =>
         configuration.GetSection(SectionName).Get<PersistenceSettings>() ?? new PersistenceSettings();
 
     /// <summary>The provider that applies: the configured one, else SQL Server when a connection string exists, else null.</summary>
     public PersistenceProvider? Resolve(string? connectionString) =>
         Provider ?? (string.IsNullOrWhiteSpace(connectionString) ? null : PersistenceProvider.SqlServer);
+
+    /// <summary>Whether the development seed runs for the resolved provider: always on SQLite, on SQL Server only with <see cref="SeedDevData"/>.</summary>
+    public bool AppliesDevSeed(PersistenceProvider? provider) =>
+        provider == PersistenceProvider.Sqlite || (provider is not null && SeedDevData);
 }

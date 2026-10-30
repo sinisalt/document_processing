@@ -86,7 +86,7 @@ public static class PipelineServiceCollectionExtensions
 
         services.AddDocProcDocumentProcessing(configuration);
         services.AddEInvoiceParsing();
-        services.AddDocProcLlm(configuration);
+        services.AddDocProcLlm(configuration, builder.Environment.ContentRootPath);
         services.AddDocProcLlmPersistence();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderFactory, AnthropicProviderFactory>());
         // The host's clock drives the per-request timeout, so the tests' fake clock bounds those calls too.

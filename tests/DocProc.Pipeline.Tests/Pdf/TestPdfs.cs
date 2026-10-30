@@ -92,7 +92,7 @@ internal static class TestPdfs
     }
 
     /// <summary>PDFsharp 6.5 needs a licence choice before the first document; the AGPL one covers these tests. The font resolver is process-wide.</summary>
-    private static void EnsureFonts()
+    internal static void EnsureFonts()
     {
         lock (FontLock)
         {
