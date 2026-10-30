@@ -81,6 +81,23 @@ Rules the prompt enforces, mirrored by validation so a prompt regression is caug
   keep deposit and discount lines as separate entries with their type set.
 - Report `unreadableRegions` (page, rough area, reason) so pages with poor scans get flagged.
 
+### Timeouts
+
+Every request carries `LlmOptions.Timeout` (default 3 minutes). Both adapters bound one network
+attempt with it, the Anthropic adapter exactly like the OpenAI-compatible one: the timer is a
+`CancellationTokenSource` created from the host's `TimeProvider` (`TimeProvider.System` by default,
+a `FakeTimeProvider` in the tests, so expiry is driven by the clock rather than waited for) and
+linked to the caller's token. An attempt that expires surfaces as a transient, retryable
+`LlmException` (`RetryAfter` 5 s); the adapters never retry themselves (`MaxRetries = 0`), the
+worker's retry policy does. The SDK client's own timeout (`NetworkTimeout`, 5 minutes) stays the
+hard ceiling on a single attempt whatever the request asks for, and the caller's own cancellation
+passes through unmapped. The credential probe (`ValidateCredentialAsync`) is bounded by the default
+timeout.
+
+The OpenAI-compatible adapter relies on OpenAI's automatic prefix caching and sends no
+`prompt_cache_key`: the `OpenAI` package in use (2.14.0) exposes that field only on the Responses
+API (`CreateResponseOptions.PromptCacheKey`), not on `ChatCompletionOptions`.
+
 ## Provenance without citations
 
 After extraction we locate each returned value in our own positioned text layer (PdfPig words,

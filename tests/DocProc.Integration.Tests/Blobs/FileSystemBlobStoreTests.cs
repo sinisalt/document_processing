@@ -134,6 +134,88 @@ public sealed class FileSystemBlobStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task A_blob_is_never_visible_without_its_sidecar()
+    {
+        // Readers key on the blob file, so the sidecar lands first: while puts of distinct contents run, a reader
+        // listing the tenant folder must never see a blob file whose sidecar is missing. The check can only fail when
+        // the ordering is wrong; it never fails on timing alone.
+        var ct = TestContext.Current.CancellationToken;
+        var folder = Path.Combine(_root, "raw", Tenant.ToString("D"));
+        var puts = Task.WhenAll(Enumerable.Range(0, 32).Select(_ =>
+        {
+            var bytes = new byte[64 * 1024];
+            Random.Shared.NextBytes(bytes);
+            return _store.PutAsync(Tenant, new NonSeekableStream(new MemoryStream(bytes)), "application/pdf", ct);
+        }));
+
+        var orphans = new HashSet<string>(StringComparer.Ordinal);
+        while (!puts.IsCompleted)
+        {
+            if (Directory.Exists(folder))
+            {
+                foreach (var file in Directory.GetFiles(folder))
+                {
+                    var isBlob = !file.EndsWith(FileSystemBlobStore.MetadataSuffix, StringComparison.Ordinal) && !file.EndsWith(".tmp", StringComparison.Ordinal);
+                    if (isBlob && !File.Exists(file + FileSystemBlobStore.MetadataSuffix))
+                    {
+                        orphans.Add(Path.GetFileName(file));
+                    }
+                }
+            }
+
+            await Task.Yield();
+        }
+
+        var references = await puts;
+        orphans.ShouldBeEmpty();
+        references.Select(r => r.Sha256).Distinct().Count().ShouldBe(32);
+        Directory.GetFiles(folder).Length.ShouldBe(64, "a blob and a sidecar each, no temp files");
+    }
+
+    [Fact]
+    public async Task A_sidecar_without_its_blob_reads_as_not_found_and_the_next_put_completes_the_pair()
+    {
+        // What a crash between the two steps of a put leaves behind.
+        var ct = TestContext.Current.CancellationToken;
+        var bytes = "orphaned sidecar"u8.ToArray();
+        var sha = ContentHash.Sha256Hex(bytes);
+        var reference = new BlobRef(BlobContainers.Raw, BlobKeys.ForContent(Tenant, sha), sha, bytes.Length, "text/plain");
+        var path = _store.PathFor(reference.Container, reference.Key);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path + FileSystemBlobStore.MetadataSuffix, $$"""{"sha256":"{{sha}}","sizeBytes":{{bytes.Length}},"contentType":"text/plain"}""", ct);
+
+        (await _store.ExistsAsync(reference, ct)).ShouldBeFalse();
+        (await _store.FindAsync(reference.Container, reference.Key, ct)).ShouldBeNull();
+        await Should.ThrowAsync<BlobNotFoundException>(() => _store.OpenReadAsync(reference, ct));
+
+        var stored = await _store.PutAsync(Tenant, new MemoryStream(bytes), "text/plain", ct);
+
+        stored.ShouldBe(reference);
+        (await _store.ExistsAsync(reference, ct)).ShouldBeTrue();
+        (await _store.FindAsync(reference.Container, reference.Key, ct)).ShouldBe(reference);
+        Directory.GetFiles(Path.GetDirectoryName(path)!).Length.ShouldBe(2, "blob + sidecar, no temp files");
+    }
+
+    [Fact]
+    public async Task A_blob_whose_sidecar_was_removed_is_still_served_and_gets_it_back_on_the_next_put()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var bytes = "lost sidecar"u8.ToArray();
+        var reference = await _store.PutAsync(Tenant, new MemoryStream(bytes), "text/plain", ct);
+        var sidecar = _store.PathFor(reference.Container, reference.Key) + FileSystemBlobStore.MetadataSuffix;
+        File.Delete(sidecar);
+
+        (await _store.ExistsAsync(reference, ct)).ShouldBeTrue();
+        (await _store.FindAsync(reference.Container, reference.Key, ct))!.ContentType.ShouldBe("application/octet-stream", "the content type lived in the sidecar");
+
+        var again = await _store.PutAsync(Tenant, new MemoryStream(bytes), "text/plain", ct);
+
+        again.ShouldBe(reference);
+        File.Exists(sidecar).ShouldBeTrue();
+        (await _store.FindAsync(reference.Container, reference.Key, ct)).ShouldBe(reference);
+    }
+
+    [Fact]
     public async Task A_failing_upload_leaves_no_spool_file_behind()
     {
         var ct = TestContext.Current.CancellationToken;
