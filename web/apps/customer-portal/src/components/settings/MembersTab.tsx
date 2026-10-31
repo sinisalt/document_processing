@@ -29,6 +29,7 @@ import {
 } from "@docproc/ui";
 import { ApiError, ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, queryKeys, unwrap, useApi, useAuth } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type Member } from "@/lib/queries";
+import { SectionIntro } from "./SectionIntro";
 
 /** The roles a tenant may grant (`TenantRole`); platform roles are not assignable here. */
 export const tenantRoles = ["TenantAdmin", "Reviewer", "Viewer"] as const;
@@ -96,9 +97,12 @@ export function MembersTab({ canEdit }: { canEdit: boolean }) {
   const columns = useMemo(
     () =>
       helper.columns([
-        helper.accessor("displayName", { header: t("settings.members.columns.name"), cell: (info) => info.getValue() ?? <span className="text-muted-foreground">—</span> }),
+        // The user ID (the sign-in subject) means nothing to an admin reading the list: it is the name's tooltip.
+        helper.accessor("displayName", {
+          header: t("settings.members.columns.name"),
+          cell: (info) => <span title={t("settings.members.userIdTitle", { id: info.row.original.userId })}>{info.getValue() ?? <span className="text-muted-foreground">—</span>}</span>,
+        }),
         helper.accessor("email", { header: t("settings.members.columns.email"), cell: (info) => info.getValue() ?? "—" }),
-        helper.accessor("userId", { header: t("settings.members.columns.userId"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
         helper.accessor("role", {
           header: t("settings.members.columns.role"),
           cell: ({ row, getValue }) =>
@@ -141,7 +145,11 @@ export function MembersTab({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {canEdit && (
+      <SectionIntro
+        title={t("settings.members.title")}
+        description={t("settings.members.description")}
+        action={
+          canEdit && (
         <div className="flex justify-end">
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <Button onClick={() => setAddOpen(true)}>
@@ -232,7 +240,9 @@ export function MembersTab({ canEdit }: { canEdit: boolean }) {
             </DialogContent>
           </Dialog>
         </div>
-      )}
+          )
+        }
+      />
       <DataTable columns={columns} data={members.data ?? EMPTY_ARRAY} getRowId={(row) => row.userId} isLoading={members.isPending} query={members} caption={t("settings.members.caption")} emptyTitle={t("settings.members.empty")} />
       <ConfirmDialog
         open={removing !== null}

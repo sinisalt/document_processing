@@ -9,6 +9,7 @@ export * from "./components/breadcrumb";
 export * from "./components/button";
 export * from "./components/card";
 export * from "./components/checkbox";
+export * from "./components/date-input";
 export * from "./components/dialog";
 export * from "./components/dropdown-menu";
 export * from "./components/form";

@@ -66,6 +66,11 @@ function OidcSignIn({ appName, signIn }: { appName: string; signIn: () => Promis
   );
 }
 
+/** The tenant a dev user belongs to, by name; an API without names gets the id, never an 8-character fragment of it. */
+export function tenantLabel(user: Pick<DevUser, "tenantId" | "tenantName">, t: (key: string, options?: Record<string, unknown>) => string): string {
+  return user.tenantName?.trim() || t("auth.tenant", { id: user.tenantId ?? "" });
+}
+
 function DevUserCards({ signIn }: { signIn: (username: string) => Promise<void> }) {
   const { t } = useTranslation("common");
   const { baseUrl } = useApi();
@@ -147,7 +152,7 @@ function DevUserCards({ signIn }: { signIn: (username: string) => Promise<void> 
                     ))}
                     <Badge variant="outline" className="gap-1">
                       {user.tenantId ? <Building2 className="size-3" aria-hidden /> : <Globe className="size-3" aria-hidden />}
-                      {user.tenantId ? t("auth.tenant", { id: user.tenantId.slice(0, 8) }) : t("auth.platformScope")}
+                      {user.tenantId ? tenantLabel(user, t) : t("auth.platformScope")}
                     </Badge>
                   </CardContent>
                 </Card>

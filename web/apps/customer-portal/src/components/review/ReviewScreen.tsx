@@ -63,6 +63,9 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const boxes = useMemo(() => collectProvenanceBoxes(canonical), [canonical]);
   const flags = useMemo(() => sortFlags(document.flags), [document.flags]);
   const flaggedLines = useMemo(() => new Set(flags.map((f) => /^lines\[(\d+)\]/.exec(f.field ?? "")?.[1]).filter((v): v is string => !!v).map(Number)), [flags]);
+  const flaggedPaths = useMemo(() => flags.map((f) => f.field).filter((path): path is string => !!path), [flags]);
+  /** A flag's field has a box when the field, or the block it belongs to (`supplier` for `supplier.vatId`), has one. */
+  const locatedOnPage = useCallback((path: string) => boxes.some((box) => box.path === path || path.startsWith(`${box.path}.`) || path.startsWith(`${box.path}[`)), [boxes]);
 
   // An empty flag list only means "every rule passed" when Validate ran on what is on screen; the timeline tells. The
   // screen remounts for every server version of the document, so it reads the timeline afresh each time: a cached one
@@ -276,7 +279,15 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
             {t("review.flags.heading", { count: flags.length })}
             <span className="ml-2 text-xs font-normal text-muted-foreground">{t("review.flags.hint")}</span>
           </h2>
-          <FlagsList flags={flags} selectedIndex={selectedFlag} onSelect={setSelectedFlag} onJump={jumpToFlag} fieldLabel={(path) => fieldLabel(path, true)} validation={validation} />
+          <FlagsList
+            flags={flags}
+            selectedIndex={selectedFlag}
+            onSelect={setSelectedFlag}
+            onJump={jumpToFlag}
+            fieldLabel={(path) => fieldLabel(path, true)}
+            validation={validation}
+            locatedOnPage={pageCount > 0 ? locatedOnPage : undefined}
+          />
         </section>
 
         {/*
@@ -303,7 +314,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                     {hasCanonical ? (
                       <form onSubmit={(event) => void onSave(event)} className="flex flex-col gap-6" aria-label={t("review.form.label")} data-editable={editable}>
                         <CanonicalForm canonical={canonical} disabled={!editable} threshold={threshold} onHighlight={highlightField} />
-                        <LineItemGrid canonical={canonical} disabled={!editable} threshold={threshold} onHighlight={highlightField} flaggedLines={flaggedLines} />
+                        <LineItemGrid canonical={canonical} disabled={!editable} threshold={threshold} onHighlight={highlightField} flaggedLines={flaggedLines} flaggedPaths={flaggedPaths} />
                         {editable && (
                           <div className="flex justify-end">
                             <Button type="submit" variant="secondary" disabled={!hasChanges || save.isPending}>

@@ -7,7 +7,10 @@ export type DocumentStatus = components["schemas"]["DocumentStatus"];
 export type ReviewTaskStatus = components["schemas"]["ReviewTaskStatus"];
 export type TenantStatus = "Active" | "Suspended" | "Closed";
 
-/** Settled states read calm, states that want a human read loud, in-flight states read neutral. */
+/**
+ * Settled states read calm, a document waiting for a reviewer reads amber (work to do, not an error), only a failure
+ * reads red, in-flight states read neutral.
+ */
 export const documentStatusVariant: Readonly<Record<DocumentStatus, BadgeVariant>> = {
   Received: "outline",
   Normalized: "outline",
@@ -17,14 +20,15 @@ export const documentStatusVariant: Readonly<Record<DocumentStatus, BadgeVariant
   Extracted: "outline",
   Validated: "secondary",
   AutoApproved: "default",
-  NeedsReview: "destructive",
+  NeedsReview: "warning",
   Approved: "default",
   Rejected: "secondary",
   Failed: "destructive",
 };
 
+/** An open task is the queue's normal state: amber like the document it belongs to, never the red of a failure. */
 export const reviewTaskStatusVariant: Readonly<Record<ReviewTaskStatus, BadgeVariant>> = {
-  Open: "destructive",
+  Open: "warning",
   InProgress: "default",
   Done: "secondary",
   Skipped: "outline",

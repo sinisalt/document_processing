@@ -24,6 +24,9 @@ public sealed class ProvenanceLocator
     private const int MinFuzzyLength = 4;
     private const int MinAnchorLength = 3;
     private const double MaxEditRatio = 0.2;
+
+    /// <summary>How far (in the 1000-wide page space) a label may be printed from its value on the same line.</summary>
+    private const double MaxLabelGap = 350;
     private static readonly char[] EdgePunctuation = ['.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '"', '\'', '«', '»', '€', '$', '£', '%', '*', '#', '-', '+'];
 
     private readonly IndexedPage[] _pages;
@@ -40,15 +43,15 @@ public sealed class ProvenanceLocator
     public bool HasText => _pages.Any(p => p.Words.Length > 0);
 
     /// <summary>Free text (names, descriptions, notes): exact, normalised, then fuzzy.</summary>
-    public ProvenanceMatch LocateText(string? value, int? preferredPage = null) =>
-        string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: true);
+    public ProvenanceMatch LocateText(string? value, int? preferredPage = null, LocateHints? hints = null) =>
+        string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: true, hints: hints);
 
     /// <summary>
     /// Identifier-like values (document numbers, VAT and tax ids, SKU, GTIN, lot numbers, order references):
     /// exact or normalised match only. A value that differs from the printed one by a single character is not found.
     /// </summary>
-    public ProvenanceMatch LocateIdentifier(string? value, int? preferredPage = null) =>
-        string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: false);
+    public ProvenanceMatch LocateIdentifier(string? value, int? preferredPage = null, LocateHints? hints = null) =>
+        string.IsNullOrWhiteSpace(value) ? ProvenanceMatch.None : Locate([value.Trim()], preferredPage, fuzzy: false, hints: hints);
 
     /// <summary>
     /// Amounts in their printed formats. A negative amount (credit notes, discounts) is searched with its sign first:
@@ -56,87 +59,124 @@ public sealed class ProvenanceLocator
     /// when a signed one is on the page. Only when no signed token exists does the unsigned spelling count, and then
     /// at most as a normalised match, since the printed text lacks the sign.
     /// </summary>
-    public ProvenanceMatch LocateNumber(decimal? value, int? preferredPage = null)
+    public ProvenanceMatch LocateNumber(decimal? value, int? preferredPage = null, LocateHints? hints = null)
     {
         if (value is not { } amount)
         {
             return ProvenanceMatch.None;
         }
 
-        var signed = Locate(ValueVariants.Number(amount), preferredPage, fuzzy: false, requireNegativeSign: amount < 0);
+        var signed = Locate(ValueVariants.Number(amount), preferredPage, fuzzy: false, requireNegativeSign: amount < 0, hints: hints);
         if (amount >= 0 || signed.IsFound)
         {
             return signed;
         }
 
-        var unsigned = Locate(ValueVariants.Number(Math.Abs(amount)), preferredPage, fuzzy: false);
+        var unsigned = Locate(ValueVariants.Number(Math.Abs(amount)), preferredPage, fuzzy: false, hints: hints);
         return unsigned.Quality == MatchQuality.Exact ? unsigned with { Quality = MatchQuality.Normalized } : unsigned;
     }
 
-    public ProvenanceMatch LocateDate(DateOnly? value, int? preferredPage = null) =>
-        value is null ? ProvenanceMatch.None : Locate(ValueVariants.Date(value.Value), preferredPage, fuzzy: false);
+    public ProvenanceMatch LocateDate(DateOnly? value, int? preferredPage = null, LocateHints? hints = null) =>
+        value is null ? ProvenanceMatch.None : Locate(ValueVariants.Date(value.Value), preferredPage, fuzzy: false, hints: hints);
 
     /// <summary>Locates the first of several spellings (currency symbols, title keywords), best quality first.</summary>
     public ProvenanceMatch LocateAny(IReadOnlyList<string> variants, int? preferredPage = null, bool fuzzy = false) =>
         Locate(variants, preferredPage, fuzzy);
 
     /// <summary>
+    /// Locates a line item's description and returns, with it, the anchor its other values are searched under: the
+    /// description's row on its page (docs/06 "Provenance without citations"). A quantity of 5 is then the 5 printed
+    /// in that row, not the first 5 on the page (a position number, a house number in the address). The row's own
+    /// position number (the line number printed left of the description) is never a candidate, and the words the
+    /// description matched are claimed, so a number inside the description ("Apfelsaft 1 l") is taken only when the
+    /// row has no other. Without a located description there is no anchor and the values are searched page-wide.
+    /// </summary>
+    public LineLocation LocateLine(string? description, int? preferredPage, int lineNumber)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return new LineLocation(ProvenanceMatch.None, null);
+        }
+
+        if (LocateCore([description.Trim()], preferredPage, fuzzy: true, requireNegativeSign: false, hints: null) is not { } hit)
+        {
+            return new LineLocation(ProvenanceMatch.None, null);
+        }
+
+        return new LineLocation(hit.Page.ToMatch(hit.Quality, hit.Window), hit.Page.AnchorRow(hit.Window, lineNumber));
+    }
+
+    /// <summary>
     /// Exact, then normalised, then (when asked) fuzzy, on the preferred page first. With <paramref name="requireNegativeSign"/>
     /// the variants spell a negative number: a normalised match must carry a minus (leading, trailing or as a word of
     /// its own) or parentheses, so an unsigned token with the same digits is skipped. Edge punctuation is stripped
     /// from both sides of that comparison, so without the flag the sign would not take part in the normalised pass.
+    /// <paramref name="hints"/> narrow and rank the candidates of each pass (a line's row, a field's printed label).
     /// </summary>
-    private ProvenanceMatch Locate(IReadOnlyList<string> variants, int? preferredPage, bool fuzzy, bool requireNegativeSign = false)
+    private ProvenanceMatch Locate(IReadOnlyList<string> variants, int? preferredPage, bool fuzzy, bool requireNegativeSign = false, LocateHints? hints = null)
     {
         ArgumentNullException.ThrowIfNull(variants);
+        if (LocateCore(variants, preferredPage, fuzzy, requireNegativeSign, hints) is not { } hit)
+        {
+            return ProvenanceMatch.None;
+        }
+
+        hints?.Line?.Claim(hit.Window.Start, hit.Window.Length);
+        return hit.Page.ToMatch(hit.Quality, hit.Window);
+    }
+
+    private Hit? LocateCore(IReadOnlyList<string> variants, int? preferredPage, bool fuzzy, bool requireNegativeSign, LocateHints? hints)
+    {
         if (!HasText || variants.Count == 0)
         {
-            return ProvenanceMatch.None;
+            return null;
         }
 
-        var pages = PagesInSearchOrder(preferredPage);
+        var line = hints?.Line;
+        var pages = line is null
+            ? PagesInSearchOrder(preferredPage)
+            : _pages.Where(p => p.Number == line.Page).ToArray();
 
+        return Best(pages, MatchQuality.Exact, hints, page => variants
+                .Select(v => v.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Where(tokens => tokens.Length > 0)
+                .SelectMany(page.FindExact))
+            ?? Best(pages, MatchQuality.Normalized, hints, page => variants
+                .Select(Compact)
+                .Where(compact => compact.Length > 0)
+                .SelectMany(compact => page.FindCompact(compact, requireNegativeSign)))
+            ?? (fuzzy ? Best(pages, MatchQuality.Fuzzy, hints, page => variants.SelectMany(page.FindFuzzy)) : null);
+    }
+
+    /// <summary>
+    /// The best candidate of one pass: the first in search order (pages, then variants, then position on the page)
+    /// among those of the lowest rank. Candidates are produced lazily and the search stops at the first of rank 0, so
+    /// a pass without hints costs what its first match costs.
+    /// </summary>
+    private static Hit? Best(IndexedPage[] pages, MatchQuality quality, LocateHints? hints, Func<IndexedPage, IEnumerable<Window>> candidates)
+    {
+        Hit? best = null;
+        var bestRank = int.MaxValue;
         foreach (var page in pages)
         {
-            foreach (var variant in variants)
+            foreach (var window in candidates(page))
             {
-                var tokens = variant.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (tokens.Length > 0 && page.FindExact(tokens) is { } exact)
+                var rank = page.Rank(window, hints);
+                if (rank < 0 || rank >= bestRank)
                 {
-                    return page.ToMatch(MatchQuality.Exact, exact);
+                    continue;
+                }
+
+                best = new Hit(page, window, quality);
+                bestRank = rank;
+                if (rank == 0)
+                {
+                    return best;
                 }
             }
         }
 
-        foreach (var page in pages)
-        {
-            foreach (var variant in variants)
-            {
-                var compact = Compact(variant);
-                if (compact.Length > 0 && page.FindCompact(compact, requireNegativeSign) is { } normalized)
-                {
-                    return page.ToMatch(MatchQuality.Normalized, normalized);
-                }
-            }
-        }
-
-        if (!fuzzy)
-        {
-            return ProvenanceMatch.None;
-        }
-
-        foreach (var page in pages)
-        {
-            foreach (var variant in variants)
-            {
-                if (page.FindFuzzy(variant) is { } fuzzyWindow)
-                {
-                    return page.ToMatch(MatchQuality.Fuzzy, fuzzyWindow);
-                }
-            }
-        }
-
-        return ProvenanceMatch.None;
+        return best;
     }
 
     private IndexedPage[] PagesInSearchOrder(int? preferredPage)
@@ -266,6 +306,8 @@ public sealed class ProvenanceLocator
 
     private readonly record struct Window(int Start, int Length);
 
+    private sealed record Hit(IndexedPage Page, Window Window, MatchQuality Quality);
+
     private sealed record IndexedWord(string Text, string Compact, string Folded, BoundingBox Box);
 
     private sealed class IndexedPage
@@ -303,11 +345,11 @@ public sealed class ProvenanceLocator
             return new IndexedPage(page.Number, words);
         }
 
-        public Window? FindExact(string[] tokens)
+        public IEnumerable<Window> FindExact(string[] tokens)
         {
             if (!_positionsByText.TryGetValue(tokens[0], out var starts))
             {
-                return null;
+                yield break;
             }
 
             foreach (var start in starts)
@@ -325,14 +367,12 @@ public sealed class ProvenanceLocator
 
                 if (all)
                 {
-                    return new Window(start, tokens.Length);
+                    yield return new Window(start, tokens.Length);
                 }
             }
-
-            return null;
         }
 
-        public Window? FindCompact(string compact, bool requireNegativeSign)
+        public IEnumerable<Window> FindCompact(string compact, bool requireNegativeSign)
         {
             for (var i = 0; i < Words.Length; i++)
             {
@@ -356,21 +396,19 @@ public sealed class ProvenanceLocator
                         var window = new Window(i, j - i + 1);
                         if (!requireNegativeSign)
                         {
-                            return window;
+                            yield return window;
                         }
-
-                        if (WithNegativeSign(window) is { } signed)
+                        else if (WithNegativeSign(window) is { } signed)
                         {
-                            return signed;
+                            yield return signed;
                         }
 
-                        // The same digits without a sign: a different (positive) amount, keep looking.
+                        // The window ends where the value does (an unsigned token with the same digits is a different,
+                        // positive amount): the next start is the next candidate.
                         break;
                     }
                 }
             }
-
-            return null;
         }
 
         /// <summary>
@@ -424,12 +462,12 @@ public sealed class ProvenanceLocator
 
         private static bool IsMinus(char c) => c is '-' or '−';
 
-        public Window? FindFuzzy(string variant)
+        public IEnumerable<Window> FindFuzzy(string variant)
         {
             var folded = Identifiers.NormalizeName(variant);
             if (folded.Length < MinFuzzyLength)
             {
-                return null;
+                yield break;
             }
 
             var firstSpace = folded.IndexOf(' ', StringComparison.Ordinal);
@@ -455,7 +493,7 @@ public sealed class ProvenanceLocator
 
                 if (tokenCount == 1 && word.Length > folded.Length && word.Contains(folded, StringComparison.Ordinal))
                 {
-                    return new Window(i, 1);
+                    yield return new Window(i, 1);
                 }
 
                 startsHere[i] = Anchors(word, firstToken);
@@ -494,12 +532,139 @@ public sealed class ProvenanceLocator
                     var candidate = JoinFolded(i, length);
                     if (string.Equals(candidate, folded, StringComparison.Ordinal) || Levenshtein(candidate, folded) <= maxEdits)
                     {
-                        return new Window(i, length);
+                        yield return new Window(i, length);
+                        break;
                     }
                 }
             }
+        }
 
-            return null;
+        /// <summary>
+        /// How well a candidate fits the hints: -1 when it is ruled out (outside the line's row, the row's position
+        /// number, no label where one is required), otherwise 0 for a labelled, unclaimed candidate and higher for an
+        /// unlabelled (+2) or already claimed (+1) one.
+        /// </summary>
+        public int Rank(Window window, LocateHints? hints)
+        {
+            if (hints is null)
+            {
+                return 0;
+            }
+
+            var rank = 0;
+            if (hints.Line is { } line)
+            {
+                if (line.Page != Number)
+                {
+                    return -1;
+                }
+
+                for (var i = window.Start; i < window.Start + window.Length; i++)
+                {
+                    if (line.IsExcluded(i) || !line.InRow(Words[i].Box))
+                    {
+                        return -1;
+                    }
+                }
+
+                if (line.IsClaimed(window.Start, window.Length))
+                {
+                    rank += 1;
+                }
+            }
+
+            if (hints.Labels.Count > 0 && !HasLabel(window, hints.Labels))
+            {
+                if (hints.LabelRequired)
+                {
+                    return -1;
+                }
+
+                rank += 2;
+            }
+
+            return rank;
+        }
+
+        /// <summary>
+        /// Whether a label word is printed on the candidate's line within <see cref="MaxLabelGap"/> of it, on either
+        /// side ("Lieferdatum 28.10.2026", "zzgl. 7 % MwSt."). Labels are folded (upper case, no diacritics); a word,
+        /// or a word joined with its neighbour ("Due date" as DUEDATE), matches a label of five or more letters by
+        /// prefix and a shorter one exactly.
+        /// </summary>
+        private bool HasLabel(Window window, IReadOnlyList<string> labels)
+        {
+            var box = Union(window);
+            for (var i = 0; i < Words.Length; i++)
+            {
+                if (i >= window.Start && i < window.Start + window.Length)
+                {
+                    continue;
+                }
+
+                var word = Words[i];
+                if (word.Folded.Length == 0 || !OnLineOf(word.Box, box) || HorizontalGap(word.Box, box) > MaxLabelGap)
+                {
+                    continue;
+                }
+
+                var single = word.Folded.Replace(" ", string.Empty, StringComparison.Ordinal);
+                var joined = i + 1 < Words.Length && OnLineOf(Words[i + 1].Box, box)
+                    ? single + Words[i + 1].Folded.Replace(" ", string.Empty, StringComparison.Ordinal)
+                    : null;
+                if (labels.Any(label => IsLabel(single, label) || (joined is not null && IsLabel(joined, label))))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsLabel(string folded, string label) =>
+            label.Length >= 5 ? folded.StartsWith(label, StringComparison.Ordinal) : string.Equals(folded, label, StringComparison.Ordinal);
+
+        private static bool OnLineOf(BoundingBox word, BoundingBox line)
+        {
+            var middle = (word.Y0 + word.Y1) / 2;
+            return middle >= line.Y0 && middle <= line.Y1;
+        }
+
+        private static double HorizontalGap(BoundingBox a, BoundingBox b) =>
+            a.X1 <= b.X0 ? b.X0 - a.X1 : b.X1 <= a.X0 ? a.X0 - b.X1 : 0;
+
+        /// <summary>
+        /// The anchor of a line item whose description matched <paramref name="window"/>: its vertical band, the
+        /// description's words claimed, and the position number printed left of it ruled out.
+        /// </summary>
+        public LineAnchor AnchorRow(Window window, int lineNumber)
+        {
+            var box = Union(window);
+            var anchor = new LineAnchor(Number, box.Y0, box.Y1);
+            anchor.Claim(window.Start, window.Length);
+            var position = lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            for (var i = 0; i < Words.Length; i++)
+            {
+                var word = Words[i];
+                if (word.Box.X1 <= box.X0 && anchor.InRow(word.Box) && string.Equals(word.Text.TrimEnd('.', ')'), position, StringComparison.Ordinal))
+                {
+                    anchor.Exclude(i);
+                }
+            }
+
+            return anchor;
+        }
+
+        private BoundingBox Union(Window window)
+        {
+            var box = Words[window.Start].Box;
+            for (var i = window.Start + 1; i < window.Start + window.Length; i++)
+            {
+                var word = Words[i].Box;
+                box = new BoundingBox(Math.Min(box.X0, word.X0), Math.Min(box.Y0, word.Y0), Math.Max(box.X1, word.X1), Math.Max(box.Y1, word.Y1));
+            }
+
+            return box;
         }
 
         /// <summary>A word anchors a token when it is within one edit of it, or one is a prefix of the other (merged or split tokens).</summary>
@@ -540,19 +705,91 @@ public sealed class ProvenanceLocator
         public ProvenanceMatch ToMatch(MatchQuality quality, Window window)
         {
             var words = Words.AsSpan(window.Start, window.Length);
-            var box = words[0].Box;
             var raw = new System.Text.StringBuilder(words[0].Text);
             foreach (var word in words[1..])
             {
-                box = new BoundingBox(
-                    Math.Min(box.X0, word.Box.X0),
-                    Math.Min(box.Y0, word.Box.Y0),
-                    Math.Max(box.X1, word.Box.X1),
-                    Math.Max(box.Y1, word.Box.Y1));
                 raw.Append(' ').Append(word.Text);
             }
 
-            return new ProvenanceMatch(quality, Number, box, raw.ToString());
+            return new ProvenanceMatch(quality, Number, Union(window), raw.ToString());
         }
+    }
+}
+
+/// <summary>A line item's description match and the anchor its other values are located under (null when not found).</summary>
+public sealed record LineLocation(ProvenanceMatch Description, LineAnchor? Anchor);
+
+/// <summary>
+/// Narrows and ranks the candidates of one lookup: <see cref="Line"/> confines it to a line item's row,
+/// <see cref="Labels"/> prefer (or, with <see cref="LabelRequired"/>, require) a value printed beside one of the
+/// field's labels, so the delivery date is the date after "Lieferdatum" rather than the first equal date on the page.
+/// </summary>
+public sealed record LocateHints
+{
+    public LineAnchor? Line { get; init; }
+
+    /// <summary>Folded label words (upper case, no diacritics or spaces), e.g. LIEFERDATUM or DUEDATE.</summary>
+    public IReadOnlyList<string> Labels { get; init; } = [];
+
+    public bool LabelRequired { get; init; }
+
+    public static LocateHints ForLine(LineAnchor? line) => new() { Line = line };
+
+    public static LocateHints WithLabels(IReadOnlyList<string> labels) => new() { Labels = labels };
+}
+
+/// <summary>
+/// A line item's row on its page, from its located description: the vertical band its values must sit in, word
+/// positions ruled out (the row's position number) and word positions already taken by the line's earlier values,
+/// which later values avoid when the row offers another candidate (a unit price and a line net printing one amount).
+/// </summary>
+public sealed class LineAnchor
+{
+    private readonly HashSet<int> _excluded = [];
+    private readonly HashSet<int> _claimed = [];
+
+    internal LineAnchor(int page, double y0, double y1)
+    {
+        Page = page;
+        Y0 = y0;
+        Y1 = y1;
+    }
+
+    public int Page { get; }
+
+    public double Y0 { get; }
+
+    public double Y1 { get; }
+
+    /// <summary>A word belongs to the row when its vertical middle lies within the description's band.</summary>
+    internal bool InRow(BoundingBox box)
+    {
+        var middle = (box.Y0 + box.Y1) / 2;
+        return middle >= Y0 && middle <= Y1;
+    }
+
+    internal void Exclude(int index) => _excluded.Add(index);
+
+    internal bool IsExcluded(int index) => _excluded.Contains(index);
+
+    internal void Claim(int start, int length)
+    {
+        for (var i = start; i < start + length; i++)
+        {
+            _claimed.Add(i);
+        }
+    }
+
+    internal bool IsClaimed(int start, int length)
+    {
+        for (var i = start; i < start + length; i++)
+        {
+            if (_claimed.Contains(i))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

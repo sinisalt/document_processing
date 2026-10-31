@@ -130,7 +130,8 @@ test.describe("customer portal review flow", () => {
 
     // A correction: only the changed path is sent, the API marks it Corrected, approve waits until it is saved.
     const dueDate = form.getByLabel("Due date", { exact: true });
-    await dueDate.fill("2026-12-15");
+    // Typed as the English UI writes dates; the correction is sent as the ISO date.
+    await dueDate.fill("12/15/2026");
     await expect(page.getByTestId("approve-button")).toBeDisabled();
     // Unsaved: the first Esc leaves the input, the second would leave the screen and asks first.
     await page.keyboard.press("Escape");
@@ -139,12 +140,12 @@ test.describe("customer portal review flow", () => {
     await page.getByRole("button", { name: "Keep editing" }).click();
     await expect(page.getByRole("alertdialog")).toBeHidden();
     await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
-    await expect(dueDate).toHaveValue("2026-12-15");
+    await expect(dueDate).toHaveValue("12/15/2026");
     const patch = page.waitForRequest((request) => request.method() === "PATCH" && request.url().endsWith("/fields"));
     await page.getByTestId("save-button").click();
     expect((await patch).postDataJSON()).toEqual({ corrections: [{ path: "dueDate", value: "2026-12-15", reason: null }] });
     await expect(page.getByText("1 correction saved.")).toBeVisible();
-    await expect(form.getByLabel("Due date", { exact: true })).toHaveValue("2026-12-15");
+    await expect(form.getByLabel("Due date", { exact: true })).toHaveValue("12/15/2026");
     await expect(form.locator('[data-field="dueDate"]')).toHaveAttribute("data-field-status", "Corrected");
     await expect(form.locator('[data-field="dueDate"]')).toContainText("Corrected");
     await expect(page.getByTestId("approve-button")).toBeEnabled();

@@ -32,6 +32,7 @@ import {
 } from "@docproc/ui";
 import { ApiError, DataTable, createDataTableColumnHelper, formatDateTime, queryKeys, relativeTime, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type Channel } from "@/lib/queries";
+import { SectionIntro } from "./SectionIntro";
 
 /** `ChannelType` of the API; the create form offers the three a tenant sets up itself (portal upload is implicit). */
 export const channelTypes = ["ApiUpload", "Mailbox", "WatchedFolder", "PortalUpload"] as const;
@@ -155,7 +156,11 @@ export function ChannelsTab({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {canEdit && (
+      <SectionIntro
+        title={t("settings.channels.title")}
+        description={t("settings.channels.description")}
+        action={
+          canEdit && (
         <div className="flex justify-end">
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <Button onClick={() => setCreateOpen(true)}>
@@ -254,7 +259,9 @@ export function ChannelsTab({ canEdit }: { canEdit: boolean }) {
             </DialogContent>
           </Dialog>
         </div>
-      )}
+          )
+        }
+      />
       <DataTable columns={columns} data={channels.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={channels.isPending} query={channels} caption={t("settings.channels.caption")} emptyTitle={t("settings.channels.empty")} emptyDescription={t("settings.channels.emptyDescription")} />
     </div>
   );

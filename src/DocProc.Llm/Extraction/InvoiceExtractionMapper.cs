@@ -20,6 +20,26 @@ public sealed record InvoiceMappingResult(Invoice Invoice, IReadOnlyList<Documen
 public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string defaultCurrency)
 {
     private readonly ProvenanceLocator _locator = locator ?? throw new ArgumentNullException(nameof(locator));
+    /// <summary>
+    /// Labels a header date is printed beside: an invoice prints the same date as Rechnungsdatum and Lieferdatum, and
+    /// each field's box must sit on its own one (docs/06 "Provenance without citations"). Folded: upper case, no
+    /// diacritics or spaces.
+    /// </summary>
+    private static readonly LocateHints IssueDateLabels = LocateHints.WithLabels(
+        ["RECHNUNGSDATUM", "BELEGDATUM", "DATUM", "INVOICEDATE", "ISSUEDATE", "DATE", "DATUMRACUNA", "DATUMIZDAVANJA"]);
+
+    private static readonly LocateHints DeliveryDateLabels = LocateHints.WithLabels(
+        ["LIEFERDATUM", "LEISTUNGSDATUM", "LIEFERTAG", "LIEFERUNG", "LEISTUNGSZEITRAUM", "DELIVERY", "DATEOFSUPPLY", "DATUMISPORUKE", "ISPORUKA"]);
+
+    private static readonly LocateHints DueDateLabels = LocateHints.WithLabels(
+        ["FALLIG", "FALLIGKEIT", "FALLIGKEITSDATUM", "ZAHLBARBIS", "ZAHLUNGSZIEL", "DUEDATE", "DUE", "PAYABLE", "DOSPIJECE", "ROKPLACANJA"]);
+
+    /// <summary>
+    /// Labels of a tax rate printed outside the line's row ("zzgl. 7 % MwSt."): a line whose row has no rate takes the
+    /// rate printed beside one of these, never a bare number elsewhere on the page.
+    /// </summary>
+    private static readonly string[] TaxRateLabels = ["MWST", "UST", "VAT", "TAX", "STEUER", "MEHRWERTSTEUER", "UMSATZSTEUER", "PDV"];
+
     private readonly string _defaultCurrency = CurrencyCode.Normalize(defaultCurrency ?? throw new ArgumentNullException(nameof(defaultCurrency)));
     private string _currency = CurrencyCode.Normalize(defaultCurrency);
 
@@ -34,10 +54,10 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         {
             Kind = MapKind(extraction.Kind),
             InvoiceNumber = Identifier(extraction.InvoiceNumber),
-            IssueDate = Date(extraction.IssueDate),
-            DeliveryDate = Date(extraction.DeliveryDate),
+            IssueDate = Date(extraction.IssueDate, hints: IssueDateLabels),
+            DeliveryDate = Date(extraction.DeliveryDate, hints: DeliveryDateLabels),
             ServicePeriod = MapPeriod(extraction.ServicePeriodFrom, extraction.ServicePeriodTo),
-            DueDate = Date(extraction.DueDate),
+            DueDate = Date(extraction.DueDate, hints: DueDateLabels),
             Currency = currency,
             Supplier = MapParty(extraction.Supplier),
             Customer = MapParty(extraction.Customer),
@@ -144,14 +164,14 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
     }
 
     /// <summary>Free text (descriptions, notes, pack sizes): fuzzy matching tolerates OCR noise and merged words.</summary>
-    private FieldValue<string> Text(string? value, int? page = null)
+    private FieldValue<string> Text(string? value, int? page = null, LocateHints? hints = null)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return FieldValue<string>.Missing();
         }
 
-        var match = _locator.LocateText(value, page);
+        var match = _locator.LocateText(value, page, hints);
         return FieldValue.Extracted(value, match.ToSource(), match.Confidence);
     }
 
@@ -159,14 +179,14 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
     /// Identifier-like text (SKU, GTIN, lot number): exact or normalised match only, so a misread digit is NotFound
     /// instead of a confident match on a neighbouring code (docs/06 "Provenance without citations").
     /// </summary>
-    private FieldValue<string> IdentifierText(string? value, int? page = null)
+    private FieldValue<string> IdentifierText(string? value, int? page = null, LocateHints? hints = null)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return FieldValue<string>.Missing();
         }
 
-        var match = _locator.LocateIdentifier(value, page);
+        var match = _locator.LocateIdentifier(value, page, hints);
         return FieldValue.Extracted(value, match.ToSource(), match.Confidence);
     }
 
@@ -182,36 +202,36 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         return FieldValue.Extracted(DocumentIdentifier.Create(value), match.ToSource(), match.Confidence);
     }
 
-    private FieldValue<decimal> Number(decimal? value, int? page = null)
+    private FieldValue<decimal> Number(decimal? value, int? page = null, LocateHints? hints = null)
     {
         if (value is null)
         {
             return FieldValue<decimal>.Missing();
         }
 
-        var match = _locator.LocateNumber(value, page);
+        var match = _locator.LocateNumber(value, page, hints);
         return FieldValue.Extracted(value.Value, match.ToSource(), match.Confidence);
     }
 
-    private FieldValue<Money> Amount(decimal? value, int? page = null)
+    private FieldValue<Money> Amount(decimal? value, int? page = null, LocateHints? hints = null)
     {
         if (value is null)
         {
             return FieldValue<Money>.Missing();
         }
 
-        var match = _locator.LocateNumber(value, page);
+        var match = _locator.LocateNumber(value, page, hints);
         return FieldValue.Extracted(new Money(value.Value, _currency), match.ToSource(), match.Confidence);
     }
 
-    private FieldValue<DateOnly> Date(DateOnly? value, int? page = null)
+    private FieldValue<DateOnly> Date(DateOnly? value, int? page = null, LocateHints? hints = null)
     {
         if (value is null)
         {
             return FieldValue<DateOnly>.Missing();
         }
 
-        var match = _locator.LocateDate(value, page);
+        var match = _locator.LocateDate(value, page, hints);
         return FieldValue.Extracted(value.Value, match.ToSource(), match.Confidence);
     }
 
@@ -306,9 +326,19 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         return FieldValue.Extracted(mapped, match.ToSource(), match.Confidence);
     }
 
+    /// <summary>
+    /// A line's values are located in its own row: the description is found first and anchors the rest
+    /// (<see cref="ProvenanceLocator.LocateLine"/>), so a quantity of 5 boxes the 5 in that row and not the position
+    /// number of row 5 or a house number in the address. A value its row does not print is not found, except the tax
+    /// rate, which invoices often print once for all lines; it is then the rate printed beside a tax label.
+    /// </summary>
     private InvoiceLine MapLine(ExtractedInvoiceLine line, int index)
     {
         var page = line.Page is > 0 ? line.Page : null;
+        var lineNumber = line.LineNumber > 0 ? line.LineNumber : index + 1;
+        var location = _locator.LocateLine(line.Description, page, lineNumber);
+        var row = location.Anchor is null ? null : LocateHints.ForLine(location.Anchor);
+
         var unitRaw = Blank(line.Unit);
         FieldValue<UnitOfMeasure> unit;
         if (unitRaw is null)
@@ -317,30 +347,50 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
         }
         else
         {
-            var match = _locator.LocateText(unitRaw, page);
+            var match = _locator.LocateText(unitRaw, page, row);
             unit = FieldValue.Extracted(UnitOfMeasureParser.Parse(unitRaw), match.ToSource(), match.Confidence);
         }
 
+        var description = string.IsNullOrWhiteSpace(line.Description)
+            ? FieldValue<string>.Missing()
+            : FieldValue.Extracted(line.Description, location.Description.ToSource(), location.Description.Confidence);
+
         return new InvoiceLine
         {
-            LineNumber = line.LineNumber > 0 ? line.LineNumber : index + 1,
-            SupplierSku = IdentifierText(line.SupplierSku, page),
-            Gtin = IdentifierText(line.Gtin, page),
-            Description = Text(line.Description, page),
-            Quantity = Number(line.Quantity, page),
+            LineNumber = lineNumber,
+            SupplierSku = IdentifierText(line.SupplierSku, page, row),
+            Gtin = IdentifierText(line.Gtin, page, row),
+            Description = description,
+            Quantity = Number(line.Quantity, page, row),
             Unit = unit,
             UnitRaw = unitRaw,
-            PackSize = Text(line.PackSize, page),
-            UnitPrice = Amount(line.UnitPrice, page),
-            DiscountPercent = Number(line.DiscountPercent, page),
-            DiscountAmount = Amount(line.DiscountAmount, page),
-            LineNet = Amount(line.LineNet, page),
-            TaxRate = Number(line.TaxRatePercent, page),
-            LineGross = Amount(line.LineGross, page),
-            DepositAmount = Amount(line.DepositAmount, page),
-            LotNumber = IdentifierText(line.LotNumber, page),
-            BestBefore = Date(line.BestBefore, page),
+            PackSize = Text(line.PackSize, page, row),
+            UnitPrice = Amount(line.UnitPrice, page, row),
+            DiscountPercent = Number(line.DiscountPercent, page, row),
+            DiscountAmount = Amount(line.DiscountAmount, page, row),
+            LineNet = Amount(line.LineNet, page, row),
+            TaxRate = LineTaxRate(line.TaxRatePercent, page, row),
+            LineGross = Amount(line.LineGross, page, row),
+            DepositAmount = Amount(line.DepositAmount, page, row),
+            LotNumber = IdentifierText(line.LotNumber, page, row),
+            BestBefore = Date(line.BestBefore, page, row),
         };
+    }
+
+    private FieldValue<decimal> LineTaxRate(decimal? rate, int? page, LocateHints? row)
+    {
+        if (rate is null)
+        {
+            return FieldValue<decimal>.Missing();
+        }
+
+        var match = row is null ? ProvenanceMatch.None : _locator.LocateNumber(rate, page, row);
+        if (!match.IsFound)
+        {
+            match = _locator.LocateNumber(rate, page, new LocateHints { Labels = TaxRateLabels, LabelRequired = true });
+        }
+
+        return FieldValue.Extracted(rate.Value, match.ToSource(), match.Confidence);
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { test, expect, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import { apiUrl, portalUrl } from "../playwright.config";
-import { api, devToken, ensureAlwaysReviewSupplier, reachable, signIn, uploadInvoice, waitUntilSettled } from "./support/dev-api";
+import { readFileSync } from "node:fs";
+import { alwaysReview, api, devToken, reachable, signIn, uploadXml, waitUntilSettled } from "./support/dev-api";
 
 /**
  * Visual proof of the customer portal: every screen against the live dev-mode API with the demo documents of
@@ -12,12 +13,25 @@ import { api, devToken, ensureAlwaysReviewSupplier, reachable, signIn, uploadInv
  */
 
 const OUT_DIR = new URL("../screenshots/portal/", import.meta.url);
-/** The Bio-Hof Müller PDF invoice of the demo seed: LLM-extracted, two pages, a low-confidence flag on the due date. */
+/**
+ * The Bio-Hof Müller PDF invoice of the demo seed: LLM-extracted, two pages, a low-confidence flag on the due date. The
+ * due date is not printed (the model worked it out from "14 Tagen"), so that flag's field has no box on the page.
+ */
 const PDF_INVOICE = "2026-131";
 /** The Bio-Hof Müller XRechnung of the demo seed: no page images, a blocking totals mismatch. */
 const XML_INVOICE = "2026-118";
-/** The tenant B document the viewer opens; a fixed number, so reruns find it instead of uploading another. */
-const TENANT_B_NUMBER = "SHOT-B-0001";
+/**
+ * The tenant B document the viewer opens: the demo seed's Konzum plus e-invoice to Pizzeria Napoli as the next one of
+ * the series (its own number, date and order), so it is a real supplier invoice to tenant B. A fixed number, so reruns
+ * find it instead of uploading another.
+ */
+const TENANT_B_NUMBER = "04603-2026-P12";
+const KONZUM_VAT = "HR62226620908";
+const konzumInvoice = readFileSync(new URL("../../../fixtures/demo/tenant-b/Konzum_Racun_04518-2026-P12.xml", import.meta.url), "utf8")
+  .replace("<cbc:ID>04518-2026-P12</cbc:ID>", `<cbc:ID>${TENANT_B_NUMBER}</cbc:ID>`)
+  .replace("<cbc:IssueDate>2026-10-28</cbc:IssueDate>", "<cbc:IssueDate>2026-10-30</cbc:IssueDate>")
+  .replace("<cbc:DueDate>2026-11-12</cbc:DueDate>", "<cbc:DueDate>2026-11-14</cbc:DueDate>")
+  .replace("<cbc:ID>NAR-2026-0391</cbc:ID>", "<cbc:ID>NAR-2026-0402</cbc:ID>");
 const API_KEY_NAME = "ERP export";
 
 const DESKTOP = { width: 1440, height: 900 };
@@ -93,6 +107,14 @@ async function useLanguage(page: Page, language: "en" | "de") {
   await expect(page.locator("html")).toHaveAttribute("lang", language);
 }
 
+/** Scrolls the review form panel (not the window) so `locator` is at its top, as the wheel over the form would. */
+async function scrollFormPanelTo(locator: ReturnType<Page["locator"]>) {
+  await locator.evaluate((element) => {
+    const scroller = element.closest(".overflow-y-auto");
+    if (scroller) scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+  });
+}
+
 /** Waits for the network, skeletons, spinners and busy markers to be gone, then writes NN-<slug>.png. */
 async function shot(page: Page, name: string, { fullPage = false }: { fullPage?: boolean } = {}) {
   await page.waitForLoadState("networkidle");
@@ -142,11 +164,13 @@ test.describe("customer portal screenshots", () => {
     const keys = await api<{ name: string; revokedAt?: string | null }[]>(admin, "GET", "/api-keys");
     if (!keys.some((key) => key.name === API_KEY_NAME && !key.revokedAt)) await api(admin, "POST", "/api-keys", { name: API_KEY_NAME, scopes: ["ingest", "read"] });
 
-    // Tenant B: a document waiting for review for the viewer (the demo seed's only one there auto-approves).
+    // Tenant B: a document waiting for review for the viewer (the demo seed's only one there auto-approves): the next
+    // Konzum plus invoice, with Konzum plus set to "always review".
     const tenantB = await devToken("tenant-b-admin");
-    await ensureAlwaysReviewSupplier(tenantB);
+    await alwaysReview(tenantB, KONZUM_VAT);
     const existing = await api<{ items: { id: string; documentNumber: string | null }[] }>(tenantB, "GET", `/documents?q=${TENANT_B_NUMBER}&limit=5`);
-    const tenantBDocumentId = existing.items.find((d) => d.documentNumber === TENANT_B_NUMBER)?.id ?? (await uploadInvoice(tenantB, TENANT_B_NUMBER)).id;
+    const tenantBDocumentId =
+      existing.items.find((d) => d.documentNumber === TENANT_B_NUMBER)?.id ?? (await uploadXml(tenantB, konzumInvoice, `Konzum_Racun_${TENANT_B_NUMBER}.xml`, TENANT_B_NUMBER)).id;
 
     seed = { pdfInvoiceId, xmlInvoiceId, tenantBDocumentId };
   });
@@ -192,22 +216,29 @@ test.describe("customer portal screenshots", () => {
     await signIn(page, "tenant-a-admin", `/documents/${seed.pdfInvoiceId}`);
     await expect(page.getByTestId("document-number")).toHaveText(PDF_INVOICE);
     await pageImageReady(page);
-    // The flag is on the due date, which the model read from the payment terms without a box of its own: selecting it
-    // focuses and highlights the form field, and every other field's box stays on the page.
+    // The flag is on the due date, which the model worked out from the payment terms ("14 Tagen"); it is printed
+    // nowhere, so it has no box: the flag says so, and selecting it focuses and highlights the form field.
     await selectFirstFlag(page);
+    const flags = page.getByTestId("flags-list");
+    await expect(flags.getByTestId("flag-not-on-page")).toHaveText("Not on the page image");
     await expect(page.getByRole("form", { name: "Canonical data" }).getByLabel("Due date", { exact: true })).toBeFocused();
     // The field was in sight already: the window stays where it was, with the header and its actions on screen.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    // Every box sits on its own value: the delivery date on the Lieferdatum line, not on the Rechnungsdatum above it.
+    const overlay = page.getByTestId("field-overlay");
+    const issued = await overlay.locator('[data-path="issueDate"]').boundingBox();
+    const delivered = await overlay.locator('[data-path="deliveryDate"]').boundingBox();
+    expect(delivered!.y).toBeGreaterThan(issued!.y + issued!.height / 2);
     await shot(page, "05-review-pdf-flag-selected");
 
-    // Scroll the form panel (not the window) down to the line items, as the wheel over the form would.
     const grid = page.getByTestId("line-item-grid");
-    await grid.evaluate((element) => {
-      const scroller = element.closest(".overflow-y-auto");
-      if (scroller) scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
-    });
+    await scrollFormPanelTo(grid);
     await expect(grid.locator("tr[data-arithmetic]").first()).toBeInViewport();
     await expect(grid.locator("tr[data-arithmetic]").first()).toHaveAttribute("data-arithmetic", "ok");
+    // The whole line fits the panel: no column of amounts is cut off to the right.
+    const table = grid.getByRole("table", { name: "Line items" });
+    expect(await table.evaluate((element) => element.parentElement!.scrollWidth <= element.parentElement!.clientWidth)).toBe(true);
+    await expect(grid.getByLabel("Line 1, Net", { exact: true })).toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await shot(page, "06-review-pdf-line-items");
     await page.context().close();
@@ -227,7 +258,23 @@ test.describe("customer portal screenshots", () => {
     await signIn(page, "tenant-a-admin", `/documents/${seed.pdfInvoiceId}`);
     await pageImageReady(page);
     await page.getByRole("tab", { name: "Timeline" }).click();
-    await expect(page.getByTestId("timeline")).toContainText("Review requested");
+    const timeline = page.getByTestId("timeline");
+    await expect(timeline).toContainText("Review requested");
+    // The validation's details, as label and value; then the panel scrolled so the last event is in sight.
+    const validated = timeline.getByRole("listitem").filter({ hasText: "Stage completed" }).last();
+    await validated.locator("summary").click();
+    await expect(validated.locator("dl")).toContainText("Eligible for auto-approval");
+    await expect(timeline).toContainText("Processing");
+    // The panel scrolled to its end, so the last event is in sight in it, and the window scrolled down as far as it
+    // goes: the panel frame (80 % of the viewport, below the header and the flags) reaches below the fold otherwise.
+    const lastInSight = await timeline.evaluate((list) => {
+      const scroller = list.closest(".overflow-y-auto")!;
+      scroller.scrollTop = scroller.scrollHeight;
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      return list.lastElementChild!.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().bottom + 1;
+    });
+    expect(lastInSight).toBe(true);
+    await expect(timeline.getByRole("listitem").last()).toBeInViewport();
     await shot(page, "08-review-timeline");
     await page.context().close();
   });
@@ -261,7 +308,8 @@ test.describe("customer portal screenshots", () => {
     ["15", "AI providers", "settings-ai-providers", "AI providers"],
   ] as const) {
     test(`${number} settings: ${tab} @screenshot`, async ({ browser }) => {
-      const page = await openPage(browser);
+      // The AI providers tab runs past 900 px (routing policy, usage chart with its axis): a taller window shows it all.
+      const page = await openPage(browser, tab === "AI providers" ? { viewport: { width: DESKTOP.width, height: 1150 } } : {});
       await signIn(page, "tenant-a-admin", "/settings");
       await page.getByRole("tab", { name: tab, exact: true }).click();
       await expect(page.getByRole("tabpanel")).toContainText(ready);
@@ -299,6 +347,10 @@ test.describe("customer portal screenshots", () => {
     await useLanguage(page, "de");
     await pageImageReady(page);
     await selectFirstFlag(page);
+    // Dates in the form follow the UI language like the header does, whatever the browser's locale.
+    const form = page.getByRole("form", { name: "Kanonische Daten" });
+    await expect(form.getByLabel("Rechnungsdatum", { exact: true })).toHaveValue("28.10.2026");
+    await expect(form.getByLabel("Fälligkeitsdatum", { exact: true })).toHaveValue("11.11.2026");
     await shot(page, "18-de-review");
     await page.context().close();
   });
@@ -346,6 +398,7 @@ test.describe("customer portal screenshots", () => {
     const page = await openPage(browser);
     await signIn(page, "tenant-b-viewer", `/documents/${seed.tenantBDocumentId}`);
     await expect(page.getByTestId("review-screen")).toHaveAttribute("data-status", "NeedsReview");
+    await expect(page.getByTestId("document-number")).toHaveText(TENANT_B_NUMBER);
     for (const id of ["save-button", "approve-button", "reject-button", "reprocess-button"]) await expect(page.getByTestId(id)).toHaveCount(0);
     await shot(page, "23-viewer-review-read-only");
     await page.context().close();
@@ -364,6 +417,26 @@ test.describe("customer portal screenshots", () => {
     await signIn(page, "tenant-a-admin", "/settings?tab=apiKeys");
     await expect(page.getByRole("tabpanel")).toContainText(API_KEY_NAME);
     await shot(page, "25-settings-api-keys");
+    await page.context().close();
+  });
+
+  test("26 a box on the page selects its field @screenshot", async ({ browser }) => {
+    const page = await openPage(browser);
+    await signIn(page, "tenant-a-admin", `/documents/${seed.pdfInvoiceId}`);
+    await pageImageReady(page);
+    // Zoomed in, so the highlighted box can be told from the others at screenshot scale.
+    const zoomIn = page.getByRole("button", { name: "Zoom in" });
+    await zoomIn.click();
+    await zoomIn.click();
+    await pageImageReady(page);
+    // The keyboard path of a click on the Lieferdatum box: the box is highlighted and its field focused in the form.
+    const box = page.getByTestId("field-overlay").locator('[data-path="deliveryDate"]');
+    await box.scrollIntoViewIfNeeded();
+    await box.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("form", { name: "Canonical data" }).getByLabel("Delivery date", { exact: true })).toBeFocused();
+    await expect(box).toHaveAttribute("data-active", "true");
+    await shot(page, "26-review-pdf-box-selects-field");
     await page.context().close();
   });
 });

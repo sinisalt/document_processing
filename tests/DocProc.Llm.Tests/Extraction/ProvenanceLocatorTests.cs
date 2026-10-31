@@ -287,4 +287,77 @@ public class ProvenanceLocatorTests
         variants.ShouldContain("5. März 2026");
         variants.ShouldContain("5. ožujka 2026.");
     }
+
+    /// <summary>
+    /// The Bio-Hof Müller layout of the demo seed: an address with a house number, the same date beside two labels, a
+    /// numbered line table and the tax rate printed once on the last page.
+    /// </summary>
+    internal static DocProc.Domain.Text.TextLayer RowLayout() => new TextLayerBuilder()
+        .Page(1)
+        .Line("Gasthaus", "zur", "Post", "GmbH", "Rechnungsdatum", "28.10.2026")
+        .Line("Hauptstraße", "12", "Lieferdatum", "28.10.2026")
+        .Line("5", "Karotten", "10", "kg", "1,90", "19,00")
+        .Line("6", "Rote", "Bete", "gekocht", "5", "kg", "3,20", "16,00")
+        .Line("7", "Apfelsaft", "naturtrüb", "1", "l", "12", "Fl", "2,80", "33,60")
+        .Line("10", "Lieferpauschale", "Rosenheim", "1", "pauschal", "12,00", "12,00")
+        .Page(2)
+        .Line("zzgl.", "7", "%", "MwSt.", "30,20", "EUR")
+        .Build();
+
+    [Fact]
+    public void A_line_value_is_located_in_its_own_row_not_at_the_first_equal_word_on_the_page()
+    {
+        var locator = new ProvenanceLocator(RowLayout());
+
+        // Without an anchor, 5 is the position number of row 5 and 12 the house number of the address.
+        locator.LocateNumber(5m, 1).Box!.Value.Y0.ShouldBe(130);
+        locator.LocateNumber(12m, 1).Box!.Value.Y0.ShouldBe(100);
+
+        var row6 = locator.LocateLine("Rote Bete gekocht", 1, lineNumber: 6);
+        row6.Description.RawText.ShouldBe("Rote Bete gekocht");
+        row6.Anchor.ShouldNotBeNull();
+        var quantity6 = locator.LocateNumber(5m, 1, LocateHints.ForLine(row6.Anchor));
+        quantity6.RawText.ShouldBe("5");
+        quantity6.Box!.Value.Y0.ShouldBe(160, "the quantity column of row 6, not the position number of row 5");
+        quantity6.Box!.Value.X0.ShouldBeGreaterThan(row6.Description.Box!.Value.X1);
+
+        var row7 = LocateHints.ForLine(locator.LocateLine("Apfelsaft naturtrüb", 1, lineNumber: 7).Anchor);
+        locator.LocateNumber(12m, 1, row7).Box!.Value.Y0.ShouldBe(190, "the quantity of row 7, not Hauptstraße 12");
+        locator.LocateNumber(7m, 1, row7).ShouldBe(ProvenanceMatch.None, "the row's own position number 7 is not its tax rate");
+        locator.LocateText("Fl", 1, row7).Box!.Value.Y0.ShouldBe(190);
+    }
+
+    [Fact]
+    public void Two_values_of_one_row_with_the_same_amount_take_different_words()
+    {
+        var locator = new ProvenanceLocator(RowLayout());
+        var row = LocateHints.ForLine(locator.LocateLine("Lieferpauschale Rosenheim", 1, lineNumber: 10).Anchor);
+
+        var quantity = locator.LocateNumber(1m, 1, row);
+        var unitPrice = locator.LocateNumber(12m, 1, row);
+        var lineNet = locator.LocateNumber(12m, 1, row);
+
+        quantity.RawText.ShouldBe("1");
+        unitPrice.RawText.ShouldBe("12,00");
+        lineNet.RawText.ShouldBe("12,00");
+        lineNet.Box!.Value.X0.ShouldBeGreaterThan(unitPrice.Box!.Value.X1, "the line net is the second 12,00 of the row");
+    }
+
+    [Fact]
+    public void A_value_with_labels_is_the_one_printed_beside_its_label()
+    {
+        var locator = new ProvenanceLocator(RowLayout());
+        var date = new DateOnly(2026, 10, 28);
+
+        locator.LocateDate(date).Box!.Value.Y0.ShouldBe(70, "the first 28.10.2026 is the Rechnungsdatum");
+        locator.LocateDate(date, hints: LocateHints.WithLabels(["LIEFERDATUM"])).Box!.Value.Y0.ShouldBe(100);
+        locator.LocateDate(date, hints: LocateHints.WithLabels(["RECHNUNGSDATUM"])).Box!.Value.Y0.ShouldBe(70);
+
+        // A preferred label falls back to an unlabelled value; a required one does not.
+        locator.LocateDate(date, hints: LocateHints.WithLabels(["DUEDATE"])).IsFound.ShouldBeTrue();
+        locator.LocateNumber(7m, 1, new LocateHints { Labels = ["MWST"], LabelRequired = true }).ShouldSatisfyAllConditions(
+            m => m.Page.ShouldBe(2),
+            m => m.RawText.ShouldBe("7"));
+        locator.LocateNumber(10m, 1, new LocateHints { Labels = ["MWST"], LabelRequired = true }).ShouldBe(ProvenanceMatch.None);
+    }
 }

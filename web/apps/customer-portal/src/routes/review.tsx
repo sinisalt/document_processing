@@ -158,7 +158,7 @@ function ReviewQueue() {
             return (
               <div className="flex items-center gap-1">
                 {canClaim && (
-                  <Button size="xs" variant="secondary" onClick={() => claim.mutate(task.id)} disabled={claim.isPending} aria-label={t("queue.claimLabel", { number: task.document?.documentNumber ?? task.documentId })}>
+                  <Button size="xs" variant="outline" onClick={() => claim.mutate(task.id)} disabled={claim.isPending} aria-label={t("queue.claimLabel", { number: task.document?.documentNumber ?? task.documentId })}>
                     <Hand aria-hidden />
                     {t("queue.claim")}
                   </Button>

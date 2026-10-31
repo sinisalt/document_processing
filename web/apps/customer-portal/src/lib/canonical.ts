@@ -199,19 +199,63 @@ export function headerSections(canonical: CanonicalInvoice | null | undefined): 
   ];
 }
 
+/**
+ * Whether the form shows a header field for a document of `kind` (the kind as currently typed): the original invoice
+ * reference belongs to a credit note, so a plain invoice hides it unless the document carries one anyway. Hidden fields
+ * stay in `headerSections`, so a value typed before the kind changed is still saved.
+ */
+export function isFieldApplicable(spec: FieldSpec, kind: unknown, canonical: CanonicalInvoice | null | undefined): boolean {
+  if (spec.path !== "originalInvoiceReference") return true;
+  if (kind === "CreditNote") return true;
+  return toEditable(spec.kind, rawValueOf(canonical, spec)) !== "";
+}
+
 /** The editable columns of the line-item grid, in order. */
-export const lineColumns: ReadonlyArray<{ name: string; kind: FieldKind; options?: readonly string[] }> = [
-  { name: "supplierSku", kind: "string" },
+export interface LineColumn {
+  name: string;
+  kind: FieldKind;
+  options?: readonly string[];
+  /** Shown only when some line has a value or a flag in it: most invoices print no SKU, discount or line gross. */
+  optional?: boolean;
+}
+
+/**
+ * The editable columns of the line-item grid, in order: what the line arithmetic checks (quantity × unit price →
+ * line net) comes first, the optional columns after it.
+ */
+export const lineColumns: ReadonlyArray<LineColumn> = [
   { name: "description", kind: "string" },
   { name: "quantity", kind: "number" },
   { name: "unit", kind: "enum", options: unitsOfMeasure },
   { name: "unitPrice", kind: "money" },
-  { name: "discountPercent", kind: "number" },
-  { name: "discountAmount", kind: "money" },
   { name: "lineNet", kind: "money" },
   { name: "taxRate", kind: "number" },
-  { name: "lineGross", kind: "money" },
+  { name: "supplierSku", kind: "string", optional: true },
+  { name: "discountPercent", kind: "number", optional: true },
+  { name: "discountAmount", kind: "money", optional: true },
+  { name: "lineGross", kind: "money", optional: true },
 ];
+
+/**
+ * The grid's columns for these lines: every required column, and an optional one only when a line carries a value in
+ * it or a flag names it (`flaggedPaths` holds canonical paths such as `lines[2].discountAmount`).
+ */
+export function visibleLineColumns(lines: readonly CanonicalLine[] | null | undefined, flaggedPaths: Iterable<string> = []): LineColumn[] {
+  const flagged = new Set<string>();
+  for (const path of flaggedPaths) {
+    const match = /^lines\[\d+\]\.(\w+)/.exec(path);
+    if (match?.[1]) flagged.add(match[1]);
+  }
+  return lineColumns.filter((column) => {
+    if (!column.optional || flagged.has(column.name)) return true;
+    return (lines ?? []).some((line) => {
+      const field = (line as unknown as Record<string, unknown>)[column.name];
+      // A Missing field carries the type's default (0 for a discount): that is no value.
+      const value = isFieldValue(field) && field.status !== "Missing" ? field.value : undefined;
+      return toEditable(column.kind, value) !== "";
+    });
+  });
+}
 
 export function lineSpecs(canonical: CanonicalInvoice | null | undefined): FieldSpec[] {
   const specs: FieldSpec[] = [];
@@ -234,10 +278,14 @@ export function fieldOf(canonical: unknown, spec: FieldSpec): FieldValue | undef
   return isFieldValue(value) ? value : undefined;
 }
 
-/** The raw value a spec addresses: the field's `value`, or a property inside it for nested specs. */
+/**
+ * The raw value a spec addresses: the field's `value`, or a property inside it for nested specs. A Missing field has
+ * none: the API serialises a missing number as the type's default (`{ value: 0, status: "Missing" }`), which the form
+ * showed as a discount of 0.
+ */
 export function rawValueOf(canonical: unknown, spec: FieldSpec): unknown {
   const field = fieldOf(canonical, spec);
-  if (!field) return undefined;
+  if (!field || field.status === "Missing") return undefined;
   if (spec.path === spec.fieldPath) return field.value;
   const rest = parsePath(spec.path).slice(parsePath(spec.fieldPath).length);
   return getByPath(field.value, rest);

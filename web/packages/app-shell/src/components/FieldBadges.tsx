@@ -49,9 +49,14 @@ export function SourceBadge({ source, className }: { source: FieldSource | Sourc
   const method = typeof source === "string" ? source : source.method;
   const page = typeof source === "string" ? null : source.page;
   return (
-    <Badge variant={sourceMethodVariant[method] ?? "outline"} className={className} data-source={method}>
+    <Badge
+      variant={sourceMethodVariant[method] ?? "outline"}
+      className={className}
+      data-source={method}
+      title={page != null ? t("sourceMethod.onPageTitle", { page }) : undefined}
+    >
       {t(`sourceMethod.${method}`, { defaultValue: method })}
-      {page != null ? ` · ${page}` : ""}
+      {page != null ? ` · ${t("sourceMethod.page", { page })}` : ""}
     </Badge>
   );
 }

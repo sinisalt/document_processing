@@ -405,4 +405,43 @@ public class LlmInvoiceExtractorTests
         invoice.Lines[1].UnitRaw.ShouldBe("Sack");
         result.Flags.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void Mapper_boxes_line_values_in_their_row_and_header_dates_beside_their_labels()
+    {
+        var mapper = new InvoiceExtractionMapper(new ProvenanceLocator(ProvenanceLocatorTests.RowLayout()), "EUR");
+        var result = mapper.Map(new Contracts.InvoiceExtraction
+        {
+            IssueDate = new DateOnly(2026, 10, 28),
+            DeliveryDate = new DateOnly(2026, 10, 28),
+            OrderReferences = [],
+            DeliveryNoteReferences = [],
+            TaxBreakdown = [],
+            ChargesAndAllowances = [],
+            Lines =
+            [
+                new Contracts.ExtractedInvoiceLine { LineNumber = 6, Description = "Rote Bete gekocht", Quantity = 5, Unit = "kg", UnitPrice = 3.2m, LineNet = 16m, TaxRatePercent = 7, Page = 1 },
+                new Contracts.ExtractedInvoiceLine { LineNumber = 7, Description = "Apfelsaft naturtrüb", Quantity = 12, Unit = "Fl", UnitPrice = 2.8m, LineNet = 33.6m, TaxRatePercent = 7, Page = 1 },
+                new Contracts.ExtractedInvoiceLine { LineNumber = 10, Description = "Lieferpauschale Rosenheim", Quantity = 1, UnitPrice = 12m, LineNet = 12m, TaxRatePercent = 7, Page = 1 },
+            ],
+            UnreadableRegions = [],
+        });
+
+        var invoice = result.Invoice;
+        invoice.IssueDate.Source!.BBox!.Value.Y0.ShouldBe(70, "Rechnungsdatum");
+        invoice.DeliveryDate.Source!.BBox!.Value.Y0.ShouldBe(100, "Lieferdatum, not the first equal date");
+
+        var row6 = invoice.Lines[0];
+        row6.Quantity.Source!.BBox!.Value.Y0.ShouldBe(160);
+        row6.Quantity.Confidence.ShouldBe(LocatabilityConfidence.Exact);
+
+        var row7 = invoice.Lines[1];
+        row7.Quantity.Source!.BBox!.Value.Y0.ShouldBe(190, "row 7's quantity, not the house number");
+        row7.Unit.Source!.BBox!.Value.Y0.ShouldBe(190);
+        row7.TaxRate.Source!.Page.ShouldBe(2, "the rate printed beside MwSt., not the position number 7");
+        row7.TaxRate.Source.RawText.ShouldBe("7");
+
+        var row10 = invoice.Lines[2];
+        row10.LineNet.Source!.BBox!.Value.X0.ShouldBeGreaterThan(row10.UnitPrice.Source!.BBox!.Value.X1);
+    }
 }

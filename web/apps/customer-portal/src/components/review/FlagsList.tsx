@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
+import { AlertTriangle, Info, MapPinOff, OctagonAlert } from "lucide-react";
 import { Badge, Button, cn } from "@docproc/ui";
 import { flagMessage } from "@docproc/app-shell";
 import type { DocumentFlag } from "@/lib/queries";
@@ -15,6 +15,11 @@ export interface FlagsListProps {
   fieldLabel: (path: string) => string;
   /** What an empty list means: only a validation run on the data on screen may claim that every rule passed. */
   validation: ValidationState;
+  /**
+   * Whether a field has a box on the page images. Given only when the document has page images: a flag on a field
+   * without one then says so, since selecting it highlights nothing on the page.
+   */
+  locatedOnPage?: (path: string) => boolean;
 }
 
 const emptyKeys: Readonly<Record<ValidationState, string>> = {
@@ -31,7 +36,7 @@ export function sortFlags(flags: DocumentFlag[]): DocumentFlag[] {
 }
 
 /** The flags strip at the top of the review screen; each entry jumps to its field. */
-export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, validation }: FlagsListProps) {
+export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, validation, locatedOnPage }: FlagsListProps) {
   const { t, i18n } = useTranslation();
   if (flags.length === 0) {
     return (
@@ -73,6 +78,12 @@ export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, 
                 {flagMessage(flag, { language: i18n.language, fieldLabel, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) })}
               </span>
               {flag.field && <span className="min-w-0 text-xs break-words sm:shrink-0 text-muted-foreground underline-offset-2 hover:underline">{fieldLabel(flag.field)}</span>}
+              {flag.field && locatedOnPage && !locatedOnPage(flag.field) && (
+                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground" data-testid="flag-not-on-page" title={t("review.flags.notOnPageHint")}>
+                  <MapPinOff className="size-3.5" aria-hidden />
+                  {t("review.flags.notOnPage")}
+                </span>
+              )}
               {flag.resolvedAt && <Badge variant="secondary">{t("review.flags.resolved")}</Badge>}
             </Button>
           </li>

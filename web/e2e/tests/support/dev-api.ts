@@ -93,7 +93,20 @@ export async function ensureAlwaysReviewSupplier(token: string) {
 /** Uploads the fixture under a fresh number through the API and waits until the pipeline is done with it. */
 export async function uploadInvoice(token: string, number: string): Promise<{ id: string; status: string }> {
   const xml = fixture.replace(`<cbc:ID>${FIXTURE_NUMBER}</cbc:ID>`, `<cbc:ID>${number}</cbc:ID>`);
-  await api(token, "POST", "/ingestions", { fileName: `${number}.xml`, contentType: "application/xml", base64: Buffer.from(xml, "utf8").toString("base64"), channelId: null });
+  return uploadXml(token, xml, `${number}.xml`, number);
+}
+
+/** Marks the token's tenant's supplier with this VAT ID "always review" (it must exist, as the demo seed's do). */
+export async function alwaysReview(token: string, vatId: string) {
+  const page = await api<{ items: SupplierRow[] }>(token, "GET", `/suppliers?q=${encodeURIComponent(vatId)}&limit=50`);
+  const supplier = page.items.find((s) => s.vatId === vatId);
+  if (!supplier) throw new Error(`No supplier with VAT ID ${vatId} in this tenant`);
+  if (!supplier.alwaysReview) await api(token, "PATCH", `/suppliers/${supplier.id}`, { alwaysReview: true });
+}
+
+/** Uploads an XML e-invoice through the API and waits until the pipeline is done with the document numbered `number`. */
+export async function uploadXml(token: string, xml: string, fileName: string, number: string): Promise<{ id: string; status: string }> {
+  await api(token, "POST", "/ingestions", { fileName, contentType: "application/xml", base64: Buffer.from(xml, "utf8").toString("base64"), channelId: null });
   for (let attempt = 0; attempt < 60; attempt++) {
     const list = await api<{ items: { id: string; status: string }[] }>(token, "GET", `/documents?q=${encodeURIComponent(number)}&limit=5`);
     const document = list.items[0];

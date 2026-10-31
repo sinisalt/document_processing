@@ -19,7 +19,8 @@
       "review": "Claim and work the documents that need a human decision.",
       "suppliers": "Supplier master data used to match incoming documents.",
       "settings": "Review policy, members, API keys, channels and AI providers."
-    }
+    },
+    "nothing": "Nothing here"
   },
   "documentType": {
     "Unknown": "Unknown",
@@ -192,7 +193,8 @@
       "total": "Total",
       "status": "Status",
       "flags": "Flags",
-      "received": "Received"
+      "received": "Received",
+      "document": "Document"
     },
     "filters": {
       "search": "Search",
@@ -284,7 +286,9 @@
       "resolved": "Resolved",
       "notValidated": "Not validated yet: flags appear once the document has passed the Validate stage.",
       "stale": "Corrections not re-validated: reprocess from Validate to re-check.",
-      "staleSettled": "Corrections were not re-validated before the decision."
+      "staleSettled": "Corrections were not re-validated before the decision.",
+      "notOnPage": "Not on the page image",
+      "notOnPageHint": "The value was not found in the page text, so there is no box on the page to highlight."
     },
     "save": {
       "button": "Save corrections",
@@ -353,12 +357,65 @@
       "okDetail": "Expected {{expected}}",
       "incomplete": "Quantity, unit price or line net missing",
       "mismatchDetail": "Quantity × unit price is {{expected}}, the line says {{actual}}",
-      "unitRaw": "Printed: {{unit}}"
+      "unitRaw": "Printed: {{unit}}",
+      "inCurrency": "{{field}} ({{currency}})"
     },
     "timeline": {
       "title": "Timeline",
       "empty": "No events recorded yet.",
-      "details": "Details"
+      "details": "Details",
+      "actors": {
+        "pipeline": "Processing",
+        "system": "System"
+      },
+      "detailKeys": {
+        "stage": "Stage",
+        "fromStage": "From stage",
+        "comment": "Comment",
+        "reason": "Reason",
+        "paths": "Fields",
+        "error": "Error",
+        "attempt": "Attempt",
+        "retry": "Retry",
+        "retryDelay": "Retry in",
+        "fileName": "File",
+        "mimeType": "File type",
+        "kind": "Kind",
+        "ingestionId": "Ingestion",
+        "itemId": "Item",
+        "pageCount": "Pages",
+        "hasTextLayer": "Text layer",
+        "words": "Words",
+        "isEncrypted": "Encrypted",
+        "producer": "Producer",
+        "renderDpi": "Render DPI",
+        "ranges": "Page ranges",
+        "type": "Type",
+        "confidence": "Confidence",
+        "source": "Source",
+        "language": "Language",
+        "usedLlm": "Used AI",
+        "supplierId": "Supplier ID",
+        "supplierName": "Supplier",
+        "method": "Method",
+        "vatIdsFound": "VAT IDs found",
+        "pathsTried": "Paths tried",
+        "documentNumber": "Document number",
+        "totalGross": "Total",
+        "currency": "Currency",
+        "cost": "Cost",
+        "code": "Code",
+        "severity": "Severity",
+        "field": "Field",
+        "message": "Message",
+        "flags": "Flags",
+        "openFlags": "Open flags",
+        "eligibleForAutoApproval": "Eligible for auto-approval",
+        "alwaysReview": "Always review",
+        "threshold": "Threshold"
+      },
+      "yes": "yes",
+      "no": "no"
     },
     "original": {
       "fileName": "File",
@@ -511,7 +568,7 @@
       "removed": "Member removed.",
       "columns": {
         "name": "Name",
-        "email": "Email",
+        "email": "E-mail",
         "userId": "User ID",
         "role": "Role",
         "since": "Member since"
@@ -519,10 +576,13 @@
       "fields": {
         "userId": "User ID",
         "userIdPlaceholder": "Subject of the sign-in account",
-        "email": "Email",
+        "email": "E-mail",
         "displayName": "Display name",
         "role": "Role"
-      }
+      },
+      "title": "Members",
+      "description": "People of your organisation who can sign in to the portal, and what each may do: review documents, manage settings, or only read.",
+      "userIdTitle": "User ID {{id}}"
     },
     "apiKeys": {
       "caption": "API keys",
@@ -565,7 +625,9 @@
         "name": "Name",
         "namePlaceholder": "ERP integration",
         "scopes": "Scopes"
-      }
+      },
+      "title": "API keys",
+      "description": "Keys let your own systems (an ERP export, a scanner) upload documents or read results through the API, without a personal sign-in."
     },
     "channels": {
       "caption": "Channels",
@@ -615,7 +677,9 @@
         "config": "Configuration (JSON)",
         "secret": "Secret",
         "secretHint": "Mailbox password or token; write-only."
-      }
+      },
+      "title": "Channels",
+      "description": "Where documents come in from: portal upload, a mailbox, a watched folder or the API. Each channel delivers into this organisation."
     },
     "ai": {
       "providersTitle": "AI providers",

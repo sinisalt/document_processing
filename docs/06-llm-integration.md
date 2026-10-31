@@ -115,6 +115,17 @@ found rather than confidently anchored to the wrong text. The text layer is inde
 document and the fuzzy pass only compares windows anchored on a word within one edit of the
 value's first or last token, so hundreds of lookups per invoice stay in the millisecond range.
 
+Short values are ambiguous on a page ("5", "12", a date printed twice), so the first equal word
+is not good enough. A line item's values are searched in its own row: its description is
+located first, and quantity, unit, prices and line amounts must sit in that description's
+vertical band, never on the row's position number, and two values of one row (a unit price and
+a line net that print the same amount) take different words. A value the row does not print is
+not found, except the tax rate, which invoices often print once for all lines: it is then the
+rate beside a tax label ("zzgl. 7 % MwSt."). Header dates prefer the occurrence beside their
+own label (Rechnungsdatum, Lieferdatum, Fällig…), so an invoice that prints the same date as
+invoice and delivery date boxes each on its own line (`ProvenanceLocator.LocateLine`,
+`LocateHints`).
+
 A region the model reports as unreadable becomes `UNREADABLE_PAGES`: blocking when a required
 header field came back empty (the region may be what hid it), a warning otherwise.
 

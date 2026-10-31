@@ -172,6 +172,13 @@ One monorepo, two apps sharing a component and API-client package:
 - Vite + React + TypeScript; PDF.js for the viewer with an SVG overlay for bounding boxes.
 - Generated TypeScript client from the OpenAPI document (no hand-written fetch code).
 - i18n from day one (restaurant customers and their suppliers are multilingual).
+- Dates are written and read in the UI language, inputs included: date fields use `LocalizedDateInput`
+  (app-shell, on `DateInput` from `@docproc/ui`: a text field with a calendar popover that shows
+  `28.10.2026` in German and `10/28/2026` in English and hands the form an ISO date). A native
+  `type="date"` input follows the browser's locale instead, which put US dates beside German ones.
+- Status colours: red (`destructive`) is for failures and blocking flags only. A document that waits
+  for a reviewer and an open review task are `warning` (amber), a passed check is `success` (green);
+  both are Badge variants of `@docproc/ui`.
 
 ## Document endpoints as implemented (v1)
 

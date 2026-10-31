@@ -71,7 +71,7 @@
     "Extracted": "Extrahiert",
     "Validated": "Validiert",
     "AutoApproved": "Automatisch freigegeben",
-    "NeedsReview": "Prüfung nötig",
+    "NeedsReview": "Zu prüfen",
     "Approved": "Freigegeben",
     "Rejected": "Abgelehnt",
     "Failed": "Fehlgeschlagen"
@@ -95,7 +95,9 @@
     "Profile": "Profil",
     "Llm": "KI",
     "Ocr": "OCR",
-    "Human": "Prüfer"
+    "Human": "Prüfer",
+    "page": "S. {{page}}",
+    "onPageTitle": "Auf Seite {{page}} des Dokuments gefunden"
   },
   "confidence": {
     "label": "Konfidenz {{value}}",
@@ -240,5 +242,11 @@
     "range": "Zwischen {{min}} und {{max}}.",
     "positive": "Muss größer als null sein.",
     "httpUrl": "Eine absolute http(s)-URL mit höchstens {{maxLength}} Zeichen."
+  },
+  "dateInput": {
+    "pick": "Datum wählen",
+    "day": "TT",
+    "month": "MM",
+    "year": "JJJJ"
   }
 }
