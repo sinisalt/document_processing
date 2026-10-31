@@ -207,25 +207,27 @@ this section does not name.
 | `Blobs:CreateContainersOnStartup` | false | Creates `raw`, `derived` and `exports` at start-up (`BlobContainersHostedService`); off because the AppHost and Bicep own the containers. |
 | `Secrets:Path` | `./data/secrets` | Root of the file-backed secret store that stands in for Key Vault. |
 
-**Pipeline** (`PipelineOptions`; both hosts)
+**Pipeline** (`PipelineOptions`; both hosts). The section is validated when a host that runs the pipeline starts
+(`PipelineOptionsValidator`, `ValidateOnStart`): a value outside the bounds below stops the start-up with an
+`OptionsValidationException` that names the key and the bound, instead of failing every document later.
 
 | Key | Default | What it does |
 |---|---|---|
 | `Pipeline:RunInProcess` | true outside Production; the worker: true everywhere | Whether this process consumes the in-process queue (docs/03 "Implementation"). |
-| `Pipeline:MaxParallelism` | 2 | Messages the runner processes at the same time. |
-| `Pipeline:RetryBaseDelay` | `00:00:05` | Delay before the second attempt; doubled per attempt. |
-| `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. |
-| `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. |
-| `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. |
-| `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`); must not exceed `DocumentProcessing:Pdf:MaximumRenderDpi`, because a higher value fails every PDF render. |
-| `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. |
-| `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). |
-| `Pipeline:MaxArchiveEntries` | 200 | Entries unpacked from one archive; the rest are skipped with a reason. |
-| `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. |
-| `Pipeline:MaxUnpackedBytesPerIngestion` | 268435456 (256 MiB) | Inflated bytes one ingestion may unpack across all its archives, nested ones included; once reached, the current archive stops and waiting archives are ignored with a reason. |
-| `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). |
-| `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio of an archive entry larger than 1 MiB; a more compressed entry is skipped as a likely zip bomb. 0 turns the check off. |
-| `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. |
+| `Pipeline:MaxParallelism` | 2 | Messages the runner processes at the same time. At least 1. |
+| `Pipeline:RetryBaseDelay` | `00:00:05` | Delay before the second attempt; doubled per attempt. Not negative. |
+| `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. Not negative. |
+| `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. At least 1. |
+| `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. Not negative. |
+| `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`). At least 1 and at most `DocumentProcessing:Pdf:MaximumRenderDpi`: a higher value would fail every PDF render, so the host refuses to start with it. |
+| `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. Between 0 and 1. |
+| `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). Not negative. |
+| `Pipeline:MaxArchiveEntries` | 200 | Entries unpacked from one archive; the rest are skipped with a reason. At least 1. |
+| `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. At least 1. |
+| `Pipeline:MaxUnpackedBytesPerIngestion` | 268435456 (256 MiB) | Inflated bytes one ingestion may unpack across all its archives, nested ones included; once reached, the current archive stops and waiting archives are ignored with a reason. At least 1. |
+| `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). At least 1. |
+| `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio of an archive entry larger than 1 MiB; a more compressed entry is skipped as a likely zip bomb. 0 turns the check off; not negative. |
+| `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. Not negative. |
 
 **Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)
 
