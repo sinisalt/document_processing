@@ -49,6 +49,15 @@ describe("ApiError field errors", () => {
     expect(errors.name).toEqual(["name is required and at most 200 characters."]);
   });
 
+  it("give the toast a translated title and the first field error without the API's field key", async () => {
+    await i18n.changeLanguage("de");
+    const summary = new ApiError(400, problem, "/api/v1/settings").validationSummary;
+    expect(summary.title).toBe(de.errors.validation);
+    expect(summary.description).toBe("Pflichtfeld, höchstens 200 Zeichen.");
+    await i18n.changeLanguage("en");
+    expect(new ApiError(400, problem, "/x").validationSummary.title).toBe(en.errors.validation);
+  });
+
   it("are the API's text when it sends no codes at all", () => {
     const error = new ApiError(400, { status: 400, errors: { reason: ["A reason is required."] } }, "/x");
     expect(error.fieldErrors).toEqual({ reason: ["A reason is required."] });

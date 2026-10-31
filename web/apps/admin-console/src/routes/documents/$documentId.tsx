@@ -77,9 +77,11 @@ function DocumentDetailPage() {
         flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
         // The message in the UI language from the flag's code and parameters; the API's English text for an unknown
         // code or a flag stored without parameters. Paths stay paths here: they are the field column's vocabulary.
-        flagHelper.accessor("message", {
+        // Accessed as the displayed sentence, so sorting follows what the user reads, not the hidden English text.
+        flagHelper.accessor((flag) => flagMessage(flag, { language: i18n.language, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) }), {
+          id: "message",
           header: t("document.flagMessage"),
-          cell: (info) => flagMessage(info.row.original, { language: i18n.language, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) }),
+          cell: (info) => info.getValue(),
         }),
         flagHelper.accessor("createdBy", { header: t("document.flagOrigin"), cell: (info) => t(`flagOrigin.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         flagHelper.accessor("resolvedAt", { header: t("document.flagResolved"), sortFn: "datetime", cell: (info) => (info.getValue() ? `${formatDateTime(info.getValue(), i18n.language)}${info.row.original.resolvedBy ? ` · ${info.row.original.resolvedBy}` : ""}` : t("document.flagOpen")) }),

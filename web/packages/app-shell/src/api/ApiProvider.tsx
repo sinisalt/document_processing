@@ -43,7 +43,8 @@ function reportError(error: unknown, queryClient: QueryClient, kind: "query" | "
       return;
     }
     if (error.isValidation) {
-      toast.error(error.problem?.title ?? t("errors.validation", "Please check your input."), { description: error.message });
+      const summary = error.validationSummary;
+      toast.error(summary.title, { description: summary.description });
       return;
     }
     toast.error(error.title, { description: error.problem?.detail ?? undefined });

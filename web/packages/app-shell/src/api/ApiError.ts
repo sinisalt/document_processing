@@ -68,6 +68,18 @@ export class ApiError extends Error {
     return localizedFieldErrors(this.problem);
   }
 
+  /**
+   * What the global toast shows for a 400 validation problem: a translated title (ASP.NET's title is always the English
+   * "One or more validation errors occurred.") and the first field error in the UI language, without the API's field key.
+   */
+  get validationSummary(): { title: string; description: string | undefined } {
+    const first = Object.values(this.fieldErrors)[0];
+    return {
+      title: i18n.t("errors.validation", { ns: "common", defaultValue: "Please check your input." }),
+      description: first && first.length > 0 ? first.join(" ") : (this.problem?.detail ?? undefined),
+    };
+  }
+
   get isValidation(): boolean {
     return this.status === 400 && !!this.problem?.errors;
   }
