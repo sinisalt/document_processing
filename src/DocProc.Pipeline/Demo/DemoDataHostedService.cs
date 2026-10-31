@@ -179,9 +179,10 @@ public sealed class DemoDataHostedService(
             catch (Exception ex) when (ex is LlmException or ArgumentException)
             {
                 logger.LogWarning(
-                    "LLM platform configuration {ConfigId} ({Kind}) is active but has no usable key, so its LLM calls will fail and those documents end Failed: {Reason}",
+                    "LLM platform configuration {ConfigId} ({Kind}) is active but has no usable key under secret reference {SecretRef}, so its LLM calls will fail and those documents end Failed: {Reason}",
                     config.Id,
                     config.Kind,
+                    config.SecretRef,
                     ex.Message);
                 return;
             }

@@ -8,6 +8,12 @@ import { TENANT_OVERRIDE_KEY, TenantSwitcherProvider, useTenantSwitcher } from "
 
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000001";
 
+/** An unsigned JWT for `sub`: the override is bound to the token subject that set it. */
+function jwt(sub: string): string {
+  const encode = (value: object) => window.btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${encode({ alg: "none", typ: "JWT" })}.${encode({ sub })}.`;
+}
+
 const fetchSpy = vi.fn(async (_request: Request) => new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
 interface Probe {
@@ -47,8 +53,8 @@ async function sentTenantHeader(probe: { current: Probe | null }): Promise<strin
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchSpy);
   window.sessionStorage.clear();
-  window.sessionStorage.setItem(DEFAULT_TOKEN_KEY, JSON.stringify({ accessToken: "token-of-sam", expiresAt: Date.now() + 3_600_000, username: "sam" }));
-  window.sessionStorage.setItem(TENANT_OVERRIDE_KEY, TENANT);
+  window.sessionStorage.setItem(DEFAULT_TOKEN_KEY, JSON.stringify({ accessToken: jwt("sam"), expiresAt: Date.now() + 3_600_000, username: "sam" }));
+  window.sessionStorage.setItem(TENANT_OVERRIDE_KEY, JSON.stringify({ owner: "sam", tenantId: TENANT }));
 });
 
 afterEach(() => {
@@ -83,11 +89,12 @@ describe("the SuperAdmin tenant override", () => {
     expect(await sentTenantHeader(probe)).toBeNull();
   });
 
-  it("is dropped when the tab opens without a session", async () => {
+  it("is not applied when the tab opens without a session", async () => {
+    // The stored override stays bound to its owner (see tenantContext): it only comes back for the user who set it.
     window.sessionStorage.removeItem(DEFAULT_TOKEN_KEY);
     const probe = renderShell();
     await waitFor(() => expect(probe.current!.tenantId).toBeNull());
-    expect(window.sessionStorage.getItem(TENANT_OVERRIDE_KEY)).toBeNull();
+    expect(await sentTenantHeader(probe)).toBeNull();
   });
 });
 

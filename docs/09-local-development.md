@@ -215,11 +215,14 @@ this section does not name.
 | `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. |
 | `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. |
 | `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. |
-| `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`); capped by `DocumentProcessing:Pdf:MaximumRenderDpi`. |
+| `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`); must not exceed `DocumentProcessing:Pdf:MaximumRenderDpi`, because a higher value fails every PDF render. |
 | `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. |
 | `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). |
 | `Pipeline:MaxArchiveEntries` | 200 | Entries unpacked from one archive; the rest are skipped with a reason. |
 | `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. |
+| `Pipeline:MaxUnpackedBytesPerIngestion` | 268435456 (256 MiB) | Inflated bytes one ingestion may unpack across all its archives, nested ones included; once reached, the current archive stops and waiting archives are ignored with a reason. |
+| `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). |
+| `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio of an archive entry larger than 1 MiB; a more compressed entry is skipped as a likely zip bomb. 0 turns the check off. |
 | `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. |
 
 **Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)
