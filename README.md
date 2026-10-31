@@ -17,6 +17,8 @@ with human review where the data could not be read, for restaurant customers.
 - [`docs/07-roadmap.md`](docs/07-roadmap.md) – phases and what is done
 - [`docs/08-llm-providers-and-byok.md`](docs/08-llm-providers-and-byok.md)
 - [`docs/09-local-development.md`](docs/09-local-development.md)
+- [`docs/10-screenshots.md`](docs/10-screenshots.md) – every portal and admin screen, captured
+  against the dev-mode API
 
 ## Building and testing
 
@@ -164,6 +166,10 @@ E2E_API_URL=http://127.0.0.1:5100 E2E_PORTAL_URL=http://127.0.0.1:5173 E2E_ADMIN
 `PLAYWRIGHT_CHROMIUM_PATH` points Playwright at an installed Chromium instead of its download. The
 tests create their own tenants and uploads, so they can run repeatedly against one database; delete
 `src/DocProc.Api/data/` to start from the seed again.
+
+`pnpm e2e:screenshots` runs only the `@screenshot` tests. They write every portal and admin screen
+to `web/e2e/screenshots/`, and [`docs/10-screenshots.md`](docs/10-screenshots.md) shows them with a
+caption each. Start the API on a fresh seed first, so the images show only the demo data.
 
 ### Authentication
 
