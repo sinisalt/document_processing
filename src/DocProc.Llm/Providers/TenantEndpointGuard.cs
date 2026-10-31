@@ -179,6 +179,7 @@ public static class TenantEndpointGuard
     {
         0 or 10 or 127 => true, // "this network", private, loopback
         100 => b[1] is >= 64 and <= 127, // shared address space (CGNAT)
+        168 => b[1] == 63 && b[2] == 129 && b[3] == 16, // Azure's platform virtual IP: DNS, health probes, WireServer
         169 => b[1] == 254, // link-local, cloud metadata
         172 => b[1] is >= 16 and <= 31, // private
         192 => (b[1] == 0 && b[2] is 0 or 2) || (b[1] == 88 && b[2] == 99) || b[1] == 168, // IETF, TEST-NET-1, 6to4 relay, private

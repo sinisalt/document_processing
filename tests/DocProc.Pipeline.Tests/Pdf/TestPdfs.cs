@@ -93,6 +93,18 @@ internal static class TestPdfs
         }
     });
 
+    /// <summary>
+    /// An image-only batch scan whose scanner prints a short footer on every page (<c>Scan 1/2</c>): a few words per
+    /// page, fewer than stage 2 needs to count the page as having a text layer.
+    /// </summary>
+    public static byte[] ShapesOnlyPagesWithScannerFooter(int count) => Build(doc =>
+    {
+        for (var i = 0; i < count; i++)
+        {
+            AddShapesPage(doc, i, new Line(800, 9, $"Scan {i + 1}/{count}"));
+        }
+    });
+
     public static byte[] NotAPdf() => Encoding.ASCII.GetBytes("%PDF-1.7 this is not a document at all, just a header and some words");
 
     /// <summary>One page of drawn shapes and no text at all: what a scanned invoice looks like to the text extractor.</summary>
@@ -120,12 +132,16 @@ internal static class TestPdfs
         return stream.ToArray();
     }
 
-    private static void AddShapesPage(PdfDocument document, int index)
+    private static void AddShapesPage(PdfDocument document, int index, params Line[] footer)
     {
         var page = document.AddPage();
         page.Size = PageSize.A4;
         using var gfx = XGraphics.FromPdfPage(page);
         gfx.DrawRectangle(XBrushes.Black, 50, 50 + (index * 30), 300, 20);
+        foreach (var line in footer)
+        {
+            gfx.DrawString(line.Text, new XFont(FontFamily, line.Size), XBrushes.Black, new XPoint(50, line.Baseline));
+        }
     }
 
     private static void AddTextPage(PdfDocument document, IEnumerable<Line> lines)

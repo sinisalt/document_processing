@@ -323,8 +323,42 @@ public class IngestHandlerTests
         items.Count(i => i.Kind == ItemKind.Text).ShouldBeLessThan(10);
         var inner = items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId is not null).ToList();
         inner.ShouldNotBeEmpty();
-        inner.ShouldAllBe(i => i.DispositionReason!.Contains("times the archive bytes uploaded", StringComparison.Ordinal));
+        // A few KB of nested zips: the 1 MiB floor is the ingestion's limit, and the reason says so.
+        var limit = 100L * bomb.Length < PipelineOptions.CompressionRatioFloorBytes
+            ? $"(the 1 MiB floor; 100 times the {bomb.Length} archive bytes uploaded is less) is reached"
+            : "(100 times the archive bytes uploaded) is reached";
+        inner.ShouldAllBe(i => i.DispositionReason!.EndsWith(limit, StringComparison.Ordinal));
         (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync(d => d.IngestionItem!.IngestionId == ingestion.Id))).ShouldBeLessThan(10);
+    }
+
+    /// <summary>
+    /// The other side of the floor: an upload large enough that the ratio times its bytes is above 1 MiB is held to
+    /// that, and the reason names the ratio. Twenty inner zips each stay within their own 1 MiB floor; together they
+    /// would pass the ingestion's allowance.
+    /// </summary>
+    [Fact]
+    public async Task An_ingestion_stopped_above_the_ratio_floor_names_the_ratio_as_the_limit()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var noise = new byte[30 * 1024];
+        new Random(13).NextBytes(noise);
+        var bomb = TestZips.With([("noise.bin", noise), .. Enumerable.Range(0, 20).Select(i =>
+            ($"inner-{i:D2}.zip", TestZips.With([.. Enumerable.Range(0, 2).Select(j =>
+            {
+                var bytes = new byte[512 * 1024];
+                Encoding.ASCII.GetBytes($"{i}-{j}-").CopyTo(bytes, 0);
+                return ($"file-{i}-{j}.txt", bytes);
+            })])))]);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bomb.zip", TestZips.MimeType, bomb)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var allowance = 100L * bomb.Length;
+        allowance.ShouldBeGreaterThan(PipelineOptions.CompressionRatioFloorBytes, "the ratio, not the floor, sets the ingestion's limit");
+        items.Where(i => i.ParentItemId is not null).Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(allowance);
+        items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId is not null).Select(i => i.DispositionReason!)
+            .ShouldContain(r => r.EndsWith($"the ingestion's limit of {allowance} unpacked bytes (100 times the archive bytes uploaded) is reached", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -349,10 +383,105 @@ public class IngestHandlerTests
         var items = await host.ItemsAsync(ingestion.Id);
         var archive = items.Single(i => i.FileName == "batch.zip");
         var fromArchive = items.Where(i => i.ParentItemId == archive.Id).ToList();
-        fromArchive.Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(Math.Max(PipelineOptions.CompressionRatioFloorBytes, 100L * zip.Length));
+        (100L * zip.Length).ShouldBeGreaterThan(PipelineOptions.CompressionRatioFloorBytes, "the ratio, not the 1 MiB floor, sets this archive's limit");
+        fromArchive.Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(100L * zip.Length);
         fromArchive.Count.ShouldBeLessThan(40);
         archive.DispositionReason.ShouldBe($"{fromArchive.Count} file(s) unpacked; the rest was not: the archive inflates past 100 times its {zip.Length} bytes");
         items.Single(i => i.ParentItemId is not null && i.FileName == "noise.bin").SizeBytes.ShouldBe(noise.Length);
+    }
+
+    /// <summary>
+    /// A small archive is held to the 1 MiB floor, not to the ratio times its size, which would be less: the reason
+    /// names the limit that was applied (the reported text claimed "100 times its B bytes" for a 1 MiB cut).
+    /// </summary>
+    [Fact]
+    public async Task A_small_archive_stopped_at_the_ratio_floor_says_the_floor_was_the_limit()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var zip = TestZips.With([.. Enumerable.Range(0, 8).Select(j =>
+        {
+            var bytes = new byte[256 * 1024];
+            Encoding.ASCII.GetBytes($"entry-{j}-").CopyTo(bytes, 0);
+            return ($"file-{j}.txt", bytes);
+        })]);
+        var noise = new byte[2 * 1024 * 1024];
+        new Random(11).NextBytes(noise);
+        var noiseZip = TestZips.With(("noise.bin", noise));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip), new IngestFile("noise.zip", TestZips.MimeType, noiseZip)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var archive = items.Single(i => i.FileName == "batch.zip");
+        var fromArchive = items.Where(i => i.ParentItemId == archive.Id).ToList();
+        (100L * zip.Length).ShouldBeLessThan(PipelineOptions.CompressionRatioFloorBytes, "the floor, not the ratio, sets this archive's limit");
+        fromArchive.Count.ShouldBe(4, "four 256 KiB entries fill the 1 MiB floor");
+        fromArchive.Sum(i => i.SizeBytes).ShouldBe(PipelineOptions.CompressionRatioFloorBytes);
+        archive.DispositionReason.ShouldBe($"4 file(s) unpacked; the rest was not: the archive inflates past the 1 MiB floor (1048576 bytes; 100 times its {zip.Length} bytes is less)");
+    }
+
+    /// <summary>
+    /// The reported case: a few KB of nested zips are held to the ingestion's 1 MiB floor, and the reason said the
+    /// limit of 1048576 bytes was "100 times the archive bytes uploaded", which for 5,068 bytes is 506,800.
+    /// </summary>
+    [Fact]
+    public async Task An_ingestion_stopped_at_the_ratio_floor_says_the_floor_was_the_limit()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var bomb = NestedZips(archives: 2, entries: 3, size: 400 * 1024, content: (i, j) =>
+        {
+            var bytes = new byte[400 * 1024];
+            Encoding.ASCII.GetBytes($"{i}-{j}-").CopyTo(bytes, 0);
+            return bytes;
+        });
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bomb.zip", TestZips.MimeType, bomb)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        (100L * bomb.Length).ShouldBeLessThan(PipelineOptions.CompressionRatioFloorBytes, "the floor, not the ratio, sets the ingestion's limit");
+        items.Where(i => i.ParentItemId is not null).Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(PipelineOptions.CompressionRatioFloorBytes);
+        var inner = items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId is not null).OrderBy(i => i.FileName).ToList();
+        inner.Count.ShouldBe(2);
+        inner.Select(i => i.DispositionReason).ShouldBe(
+        [
+            "2 file(s) unpacked; the rest was not: the ingestion's limit of 1048576 unpacked bytes (the 1 MiB floor; "
+                + $"100 times the {bomb.Length} archive bytes uploaded is less) is reached",
+            "0 file(s) unpacked; the rest was not: the ingestion's limit of 1048576 unpacked bytes (the 1 MiB floor; "
+                + $"100 times the {bomb.Length} archive bytes uploaded is less) is reached",
+        ]);
+    }
+
+    /// <summary>
+    /// Pipeline:MaxArchiveEntries stops an archive with a reason, like the byte and ratio limits do: the tenant learns
+    /// that files were left in it (the cut used to be silent, "N file(s) unpacked" and nothing more).
+    /// </summary>
+    [Fact]
+    public async Task An_archive_with_more_files_than_the_entry_limit_says_the_rest_was_not_unpacked()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:MaxArchiveEntries"] = "3");
+        var zip = TestZips.With([.. Enumerable.Range(0, 9).Select(j => ($"file-{j}.txt", Encoding.ASCII.GetBytes($"file {j}")))]);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var archive = items.Single(i => i.ParentItemId is null);
+        items.Count(i => i.ParentItemId == archive.Id).ShouldBe(3);
+        archive.Disposition.ShouldBe(ItemDisposition.Unpacked);
+        archive.DispositionReason.ShouldBe("3 file(s) unpacked; the rest was not: the archive's limit of 3 unpacked files is reached");
+    }
+
+    [Fact]
+    public async Task An_archive_with_exactly_the_entry_limit_of_files_reports_no_cut()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:MaxArchiveEntries"] = "3");
+        var zip = TestZips.With([.. Enumerable.Range(0, 3).Select(j => ($"file-{j}.txt", Encoding.ASCII.GetBytes($"file {j}")))]);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip)]);
+
+        await host.RunUntilIdleAsync();
+
+        (await host.ItemsAsync(ingestion.Id)).Single(i => i.ParentItemId is null).DispositionReason.ShouldBe("3 file(s) unpacked");
     }
 
     [Fact]

@@ -134,6 +134,59 @@ public class SplitPartTests
         host.Llm.Remaining.ShouldBe(0);
     }
 
+    /// <summary>
+    /// The reported regression: an image-only scan with a two-word scanner footer on every page. Stage 2 counts a page
+    /// as text only above DocumentProcessing:Pdf:TextLayerMinimumWordsPerPage words and flags the file; a part is
+    /// decided by the same rule, so the footer words do not lift the flag from every part, on the first run or after
+    /// a reprocess from Normalize. Only the LLM has read these pages.
+    /// </summary>
+    [Fact]
+    public async Task Every_part_of_a_split_scan_with_only_a_short_footer_per_page_keeps_the_unreadable_pages_flag_on_the_first_run_and_after_a_reprocess()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings =>
+        {
+            settings["Pipeline:MaxParallelism"] = "1";
+            settings["DocumentProcessing:Splitter:MaxConfidentPageCount"] = "1";
+        });
+        await host.AddReplayProviderAsync();
+        host.Llm.Enqueue(SplitInTwo);
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("scan.pdf", PdfMime, TestPdfs.ShapesOnlyPagesWithScannerFooter(2))]);
+        await host.RunUntilIdleAsync();
+
+        var documents = await DocumentsAsync(host, ingestion.Id);
+        AssertEveryPartFlaggedUnreadable(documents);
+        host.Llm.Remaining.ShouldBe(0);
+
+        foreach (var document in documents)
+        {
+            host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+            host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+            await ResetAsync(host, document.Id, DocumentStatus.Received);
+            await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, document.Id, PipelineStage.Normalize), CancellationToken.None);
+            await host.RunUntilIdleAsync();
+        }
+
+        AssertEveryPartFlaggedUnreadable(await DocumentsAsync(host, ingestion.Id));
+        host.Llm.Remaining.ShouldBe(0);
+    }
+
+    private static void AssertEveryPartFlaggedUnreadable(List<Document> documents)
+    {
+        documents.Count.ShouldBe(2);
+        foreach (var document in documents)
+        {
+            document.FailureReason.ShouldBeNull();
+            document.PageCount.ShouldBe(1);
+            document.Flags.ShouldContain(f => f.Code == FlagCodes.UnreadablePages && f.Severity == FlagSeverity.Blocking && f.ResolvedAt == null, $"part {document.PageStart}-{document.PageEnd}");
+            document.Status.ShouldBe(DocumentStatus.NeedsReview, "nobody but the LLM has read the pages of either part");
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

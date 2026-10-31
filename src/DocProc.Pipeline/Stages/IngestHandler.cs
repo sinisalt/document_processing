@@ -34,6 +34,9 @@ internal sealed class IngestHandler(
 {
     private const int MaxReasonLength = 500;
     private const string DuplicateReason = "exact duplicate of an earlier item (same bytes)";
+
+    // PipelineOptions.CompressionRatioFloorBytes as the reasons spell it.
+    private const string FloorText = "1 MiB";
     private readonly PipelineOptions _options = options.Value;
 
     public async Task HandleAsync(ProcessIngestion message, CancellationToken cancellationToken)
@@ -124,7 +127,7 @@ internal sealed class IngestHandler(
             _options.MaxUnpackedBytesPerIngestion - alreadyUnpackedBytes,
             _options.MaxUnpackedItemsPerIngestion - alreadyUnpacked.Count,
             ratioAllowance == long.MaxValue ? long.MaxValue : ratioAllowance - alreadyUnpackedBytes,
-            ratioAllowance);
+            IngestionRatioReason(ratioAllowance, uploadedArchiveBytes));
 
         while (pending.TryDequeue(out var item))
         {
@@ -418,8 +421,9 @@ internal sealed class IngestHandler(
 
     /// <summary>
     /// Unpacks one level of the archive within the ingestion's <paramref name="budget"/>, which it draws down; returns
-    /// the files, how many entries were skipped over the entry size or compression limit and, when the budget ran out
-    /// before the last entry, why the rest was not unpacked. Throws <see cref="InvalidDataException"/> when the bytes
+    /// the files, how many entries were skipped over the entry size or compression limit and, when the budget, the
+    /// archive's ratio allowance or <see cref="PipelineOptions.MaxArchiveEntries"/> ran out before the last entry, why
+    /// the rest was not unpacked. Throws <see cref="InvalidDataException"/> when the bytes
     /// are not a readable zip.
     /// </summary>
     private async Task<(List<IngestionItem> Children, int Skipped, string? StoppedBecause)> ExpandArchiveAsync(Ingestion ingestion, IngestionItem archiveItem, UnpackBudget budget, DateTimeOffset now, CancellationToken cancellationToken)
@@ -442,8 +446,9 @@ internal sealed class IngestHandler(
 
             if (children.Count >= _options.MaxArchiveEntries)
             {
+                // Said in the archive's reason like the byte and ratio stops, so the tenant learns files were left in it.
                 logger.LogWarning("Archive {FileName} has more than {Max} entries; the rest are skipped.", archiveItem.FileName, _options.MaxArchiveEntries);
-                break;
+                return (children, skipped, $"the archive's limit of {_options.MaxArchiveEntries} unpacked files is reached");
             }
 
             if (budget.ExhaustedReason(_options) is { } exhausted)
@@ -555,8 +560,25 @@ internal sealed class IngestHandler(
         return Math.Max(PipelineOptions.CompressionRatioFloorBytes, allowed);
     }
 
-    private string ArchiveRatioReason(long archiveBytes) =>
-        $"the archive inflates past {_options.MaxArchiveCompressionRatio} times its {archiveBytes} bytes";
+    /// <summary>
+    /// True when <see cref="PipelineOptions.CompressionRatioFloorBytes"/>, not the ratio times
+    /// <paramref name="compressedLength"/>, is what <see cref="RatioAllowance"/> allows.
+    /// </summary>
+    private bool FloorApplies(long compressedLength)
+    {
+        var ratio = _options.MaxArchiveCompressionRatio;
+        return ratio > 0 && compressedLength < PipelineOptions.CompressionRatioFloorBytes && compressedLength * ratio < PipelineOptions.CompressionRatioFloorBytes;
+    }
+
+    /// <summary>Why one archive stops at its ratio allowance, naming the limit that applied: the ratio or the floor.</summary>
+    private string ArchiveRatioReason(long archiveBytes) => FloorApplies(archiveBytes)
+        ? $"the archive inflates past the {FloorText} floor ({PipelineOptions.CompressionRatioFloorBytes} bytes; {_options.MaxArchiveCompressionRatio} times its {archiveBytes} bytes is less)"
+        : $"the archive inflates past {_options.MaxArchiveCompressionRatio} times its {archiveBytes} bytes";
+
+    /// <summary>Why the ingestion's ratio allowance ran out, naming the limit that applied: the ratio or the floor.</summary>
+    private string IngestionRatioReason(long ratioAllowance, long uploadedArchiveBytes) => FloorApplies(uploadedArchiveBytes)
+        ? $"the ingestion's limit of {ratioAllowance} unpacked bytes (the {FloorText} floor; {_options.MaxArchiveCompressionRatio} times the {uploadedArchiveBytes} archive bytes uploaded is less) is reached"
+        : $"the ingestion's limit of {ratioAllowance} unpacked bytes ({_options.MaxArchiveCompressionRatio} times the archive bytes uploaded) is reached";
 
     /// <summary>An item that owns a document after the decision, with the rows the attempt created for it.</summary>
     private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received);
@@ -566,7 +588,7 @@ internal sealed class IngestHandler(
     /// <see cref="PipelineOptions.MaxUnpackedItemsPerIngestion"/>, and <see cref="PipelineOptions.MaxArchiveCompressionRatio"/>
     /// times the uploaded archive bytes), drawn down by every unpacked file.
     /// </summary>
-    private sealed class UnpackBudget(long capBytes, int items, long ratioBytes, long ratioAllowance)
+    private sealed class UnpackBudget(long capBytes, int items, long ratioBytes, string ratioReason)
     {
         private long _capBytes = Math.Max(0, capBytes);
         private long _ratioBytes = Math.Max(0, ratioBytes);
@@ -591,7 +613,7 @@ internal sealed class IngestHandler(
 
         /// <summary>The limit behind <see cref="Bytes"/>: the byte cap or the ratio allowance, whichever has less left.</summary>
         public string BytesReason(PipelineOptions options) => _ratioBytes < _capBytes
-            ? $"the ingestion's limit of {ratioAllowance} unpacked bytes ({options.MaxArchiveCompressionRatio} times the archive bytes uploaded) is reached"
+            ? ratioReason
             : $"the ingestion's limit of {options.MaxUnpackedBytesPerIngestion} unpacked bytes is reached";
     }
 }

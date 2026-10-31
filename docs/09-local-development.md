@@ -226,7 +226,7 @@ this section does not name.
 | `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`). At least 1 and at most `DocumentProcessing:Pdf:MaximumRenderDpi`: a higher value would fail every PDF render, so the host refuses to start with it. |
 | `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. Between 0 and 1. |
 | `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). Not negative. |
-| `Pipeline:MaxArchiveEntries` | 200 | Entries unpacked from one archive; the rest are skipped with a reason. At least 1. |
+| `Pipeline:MaxArchiveEntries` | 200 | Files unpacked from one archive; the rest are not, and the archive's reason says so (`the rest was not: the archive's limit of N unpacked files is reached`). At least 1. |
 | `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. At least 1. |
 | `Pipeline:MaxUnpackedBytesPerIngestion` | 268435456 (256 MiB) | Inflated bytes one ingestion may unpack across all its archives, nested ones included; once reached, the current archive stops and waiting archives are ignored with a reason. At least 1. |
 | `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). At least 1. |
@@ -308,8 +308,12 @@ answers a ping at the endpoint Testcontainers discovers, so the `/var/run/docker
 that Docker Desktop or OrbStack leaves behind after quitting, or a `DOCKER_HOST` of a stopped
 machine, does not turn the skips into failures. Finding the endpoint and pinging it are each bounded by five
 seconds, so a `DOCKER_HOST` that accepts connections but never answers (a remote host behind a VPN that is off)
-skips the tests in seconds rather than after Docker.DotNet's default timeout of minutes. CI's runner has Docker, so
-there they run.
+skips the tests in seconds rather than after Docker.DotNet's default timeout of minutes. The one ungated test that
+builds a Testcontainers builder (`AzuriteSetupTests`, which checks Azurite's start-up arguments without Docker)
+waits on the same discovery, because a builder's constructor runs it; it gets the same five seconds and then skips,
+so a whole `dotnet test` run against such an endpoint also takes seconds, not minutes
+(`AzuriteSetupTimingTests` runs that class in a child process against an endpoint that never answers and holds it
+to that). CI's runner has Docker, so there they run.
 Azurite is started with `--skipApiVersionCheck`, as the AppHost starts it, because every Azurite
 release trails the service version the Blob SDK sends.
 

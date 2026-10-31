@@ -4,6 +4,7 @@ using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Text;
 using DocProc.Infrastructure.Classification;
+using DocProc.Infrastructure.Pdf;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm.Extraction;
@@ -28,6 +29,7 @@ internal sealed class SplitHandler(
     PipelineBlobs blobs,
     IHeuristicSplitter heuristics,
     IOptions<HeuristicSplitterOptions> splitterOptions,
+    IOptions<PdfProcessingOptions> pdfOptions,
     IServiceProvider services,
     IPipelineQueue queue,
     ILogger<SplitHandler> logger) : DocumentStageHandler(db, timeline, logger)
@@ -167,13 +169,15 @@ internal sealed class SplitHandler(
     }
 
     /// <summary>
-    /// A part's "no text layer" flag: set when its own pages carry no word (what stage 2 decides for a part on a
-    /// reprocess), dropped when they do. Without a text layer to slice, the file's flag is carried on.
+    /// A part's "no text layer" flag, by stage 2's rule (<see cref="PdfProcessingOptions.HasTextLayer"/>): set unless
+    /// one of its own pages carries more than <see cref="PdfProcessingOptions.TextLayerMinimumWordsPerPage"/> words,
+    /// as stage 2 decides for a part on a reprocess. A scanner footer of a few words is no text layer. Without a text
+    /// layer to slice, the file's flag is carried on.
     /// </summary>
-    private static IEnumerable<DocumentFlag> PartFlags(TextLayer? part, IReadOnlyList<DocumentFlag> inherited) =>
+    private IEnumerable<DocumentFlag> PartFlags(TextLayer? part, IReadOnlyList<DocumentFlag> inherited) =>
         part is null ? inherited
-        : part.WordCount == 0 ? [NormalizeHandler.NoTextLayer()]
-        : [];
+        : pdfOptions.Value.HasTextLayer(part) ? []
+        : [NormalizeHandler.NoTextLayer()];
 
     /// <summary>The pages of the range renumbered from 1, so provenance and the viewer count within the new document.</summary>
     private async Task<(BlobReference? Blob, TextLayer? Layer)> SliceTextLayerAsync(Guid tenantId, TextLayer? layer, PageRange range, CancellationToken cancellationToken)
