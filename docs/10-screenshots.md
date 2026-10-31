@@ -53,7 +53,7 @@ Known limits of the images:
 | ![](../web/e2e/screenshots/portal/20-dark-review.png) | **20 Dark review.** The focused field's box is highlighted in blue on the page image, and the Ctrl+Enter hint is readable. |
 | ![](../web/e2e/screenshots/portal/21-phone-review.png) | **21 Phone review.** At 390 px: wrapped header actions, the flag, and the viewer toolbar on one line. |
 | ![](../web/e2e/screenshots/portal/22-phone-inbox.png) | **22 Phone inbox.** Wrapped tabs, filters two per row, and a two-column document list. |
-| ![](../web/e2e/screenshots/portal/23-viewer-review-read-only.png) | **23 Viewer, read only.** Tenant B viewer on a Konzum plus invoice: no edit or approve actions, and no queue or settings in the navigation. |
+| ![](../web/e2e/screenshots/portal/23-viewer-review-read-only.png) | **23 Viewer, read only.** Tenant B viewer on a Konzum plus invoice: no edit or approve actions, no queue or settings in the navigation, and "Waiting for review: Supplier is always reviewed" where there are no flags to explain it. |
 | ![](../web/e2e/screenshots/portal/24-empty-inbox-search.png) | **24 Empty search.** "No document matches these filters", with Clear filters. |
 | ![](../web/e2e/screenshots/portal/25-settings-api-keys.png) | **25 Settings, API keys.** The "ERP export" key with its prefix, scopes, status and Revoke. |
 | ![](../web/e2e/screenshots/portal/26-review-pdf-box-selects-field.png) | **26 Box selects field.** At 150 % zoom, clicking the Lieferdatum box highlights it and focuses the Delivery date field. |
@@ -76,7 +76,7 @@ Known limits of the images:
 | ![](../web/e2e/screenshots/admin/12-documents.png) | **12 Documents.** Every tenant's documents, filterable by tenant, status, type, flag and date. |
 | ![](../web/e2e/screenshots/admin/13-document-timeline.png) | **13 Failed document.** "Failure reason: Unreadable PDF", a placeholder for the page, and the timeline with the Stage failed row open. |
 | ![](../web/e2e/screenshots/admin/14-document-reprocess.png) | **14 Reprocess.** The reprocess dialog with Normalize preselected. |
-| ![](../web/e2e/screenshots/admin/15-review-queue.png) | **15 Global review queue.** Tasks across both tenants with translated reasons, and Claim and Open fully on screen. |
+| ![](../web/e2e/screenshots/admin/15-review-queue.png) | **15 Global review queue.** Tasks across both tenants with translated reasons, the assignee under the task status, and Claim, Release and Open fully on screen. |
 | ![](../web/e2e/screenshots/admin/16-llm-providers.png) | **16 AI providers.** The platform providers with their models per stage. |
 | ![](../web/e2e/screenshots/admin/17-llm-add-provider.png) | **17 Add provider.** Provider, data residency, key, endpoint, monthly cap and a model per stage. |
 | ![](../web/e2e/screenshots/admin/18-llm-usage.png) | **18 Usage by tenant.** Chart and table of calls, cost and share per tenant. |
