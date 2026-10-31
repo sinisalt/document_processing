@@ -708,6 +708,24 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
             NoSniff(response).ShouldBe("nosniff", disguised);
         }
 
+        // A stored type that merely starts like a raster image is not one: a browser reads "image/png,text/html" as its
+        // last entry and would run the HTML on this origin; an image type the viewer does not render downloads too.
+        foreach (var smuggled in new[] { "image/png,text/html", "image/png, text/html", "image/x-anything", "image/heic" })
+        {
+            var seeded = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "x.png", ContentType = smuggled, OriginalBytes = "<html><script>document.title='XSS'</script></html>"u8.ToArray() });
+            var response = await viewer.GetAsync(Document(seeded.DocumentId, "/original"), Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK, smuggled);
+            response.Content.Headers.NonValidated["Content-Type"].ToString().ShouldBe("application/octet-stream", smuggled);
+            response.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("attachment", smuggled);
+            NoSniff(response).ShouldBe("nosniff", smuggled);
+        }
+
+        // Inline types are served as the allow-list's constant, aliases included.
+        var aliased = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "scan3.jpg", ContentType = "image/jpg", OriginalBytes = [0xFF, 0xD8, 0xFF, 0xE0, 7, 8, 9] });
+        var aliasedResponse = await viewer.GetAsync(Document(aliased.DocumentId, "/original"), Ct);
+        aliasedResponse.Content.Headers.NonValidated["Content-Type"].ToString().ShouldBe("image/jpeg");
+        aliasedResponse.Content.Headers.ContentDisposition!.DispositionType.ShouldBe("inline");
+
         var jpeg = await factory.SeedDocumentAsync(new DocumentSeed { FileName = "scan.jpg", ContentType = "image/jpeg", OriginalBytes = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3] });
         var jpegResponse = await viewer.GetAsync(Document(jpeg.DocumentId, "/original"), Ct);
         jpegResponse.Content.Headers.ContentType!.MediaType.ShouldBe("image/jpeg");

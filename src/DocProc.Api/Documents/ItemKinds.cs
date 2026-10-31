@@ -66,7 +66,12 @@ public static class ItemKinds
         return kind;
     }
 
-    /// <summary>The media type without parameters, lower-cased; <see cref="DefaultContentType"/> when absent.</summary>
+    /// <summary>
+    /// The media type without parameters, lower-cased; <see cref="DefaultContentType"/> when absent or when it is not
+    /// a single <c>type/subtype</c> pair of RFC 9110 tokens. An upload's claimed type is stored and later compared
+    /// in this form, so a list (<c>image/png,text/html</c>, which a browser reads as its last entry), whitespace or
+    /// quotes inside it never survive as something that merely starts like an image type.
+    /// </summary>
     public static string Normalize(string? contentType)
     {
         if (string.IsNullOrWhiteSpace(contentType))
@@ -76,6 +81,33 @@ public static class ItemKinds
 
         var semicolon = contentType.IndexOf(';', StringComparison.Ordinal);
         var type = (semicolon >= 0 ? contentType[..semicolon] : contentType).Trim().ToLowerInvariant();
-        return type.Length == 0 ? DefaultContentType : type;
+        return IsMediaType(type) ? type : DefaultContentType;
     }
+
+    private static bool IsMediaType(string type)
+    {
+        var slash = type.IndexOf('/', StringComparison.Ordinal);
+        return slash > 0 && IsToken(type.AsSpan(0, slash)) && IsToken(type.AsSpan(slash + 1));
+    }
+
+    /// <summary>RFC 9110 §5.6.2 <c>token</c>: visible ASCII except the delimiters, so no comma, slash, space or quote.</summary>
+    private static bool IsToken(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && !TokenSymbols.Contains(c, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private const string TokenSymbols = "!#$%&'*+-.^_`|~";
 }

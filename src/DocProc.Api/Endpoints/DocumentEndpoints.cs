@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Claims;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
@@ -261,16 +262,16 @@ public static class DocumentEndpoints
             var stream = await blobs.OpenReadAsync(reference, ct);
 
             // The content type is whatever the uploader claimed. Only formats the viewer renders itself are served
-            // inline under that type; everything else (HTML, SVG, Office, archives) downloads as opaque bytes, so a
-            // crafted upload can never run as a page of this origin. The decision is taken on the bare media type
-            // (no parameters, lower case) and that is also what is served: "image/svg+xml; charset=utf-8" is SVG.
-            var mediaType = ItemKinds.Normalize(item.MimeType);
-            var inline = IsInlineSafe(mediaType);
-            var disposition = new ContentDispositionHeaderValue(inline ? "inline" : "attachment");
+            // inline, and under a constant of the allow-list, never the stored string ("image/png,text/html" would be
+            // parsed as HTML by a browser); everything else (HTML, SVG, Office, archives) downloads as opaque bytes, so
+            // a crafted upload can never run as a page of this origin. The lookup is on the bare media type (no
+            // parameters, lower case): "image/svg+xml; charset=utf-8" is SVG.
+            var inlineType = InlineContentType(ItemKinds.Normalize(item.MimeType));
+            var disposition = new ContentDispositionHeaderValue(inlineType is null ? "attachment" : "inline");
             disposition.SetHttpFileName(item.FileName);
             context.Response.Headers.ContentDisposition = disposition.ToString();
             NoSniff(context);
-            return TypedResults.Stream(stream, inline ? mediaType : ItemKinds.DefaultContentType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
+            return TypedResults.Stream(stream, inlineType ?? ItemKinds.DefaultContentType, entityTag: new EntityTagHeaderValue($"\"{reference.Sha256}\""));
         }
         catch (BlobNotFoundException)
         {
@@ -663,12 +664,26 @@ public static class DocumentEndpoints
     }
 
     /// <summary>
-    /// Only PDFs and raster images are rendered by the viewer; served inline under their own type. SVG can carry
-    /// script, so it downloads like everything else. Takes a media type normalised by <see cref="ItemKinds.Normalize"/>.
+    /// Only PDFs and raster images are rendered by the viewer; they are served inline under the type this map gives,
+    /// a constant, so nothing the uploader wrote reaches the Content-Type header. SVG can carry script and is not
+    /// here, so it downloads like everything else; so does every other <c>image/*</c> type the viewer cannot show.
     /// </summary>
-    private static bool IsInlineSafe(string mediaType) =>
-        string.Equals(mediaType, "application/pdf", StringComparison.Ordinal)
-        || (mediaType.StartsWith("image/", StringComparison.Ordinal) && !string.Equals(mediaType, "image/svg+xml", StringComparison.Ordinal));
+    private static readonly FrozenDictionary<string, string> InlineContentTypes = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["application/pdf"] = "application/pdf",
+        ["application/x-pdf"] = "application/pdf",
+        ["image/png"] = "image/png",
+        ["image/jpeg"] = "image/jpeg",
+        ["image/jpg"] = "image/jpeg",
+        ["image/pjpeg"] = "image/jpeg",
+        ["image/gif"] = "image/gif",
+        ["image/webp"] = "image/webp",
+        ["image/tiff"] = "image/tiff",
+        ["image/bmp"] = "image/bmp",
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The constant type to serve an original inline under, or null when it must download. Takes a media type normalised by <see cref="ItemKinds.Normalize"/>.</summary>
+    private static string? InlineContentType(string mediaType) => InlineContentTypes.GetValueOrDefault(mediaType);
 
     /// <summary>Browsers must not second-guess the declared type of streamed bytes (a PDF that starts with HTML stays a PDF).</summary>
     private static void NoSniff(HttpContext context) => context.Response.Headers.XContentTypeOptions = "nosniff";

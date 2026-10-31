@@ -105,6 +105,32 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
     }
 
     [Fact]
+    public async Task A_content_type_that_is_not_a_single_media_type_is_stored_as_octet_stream()
+    {
+        using var reviewer = ReviewerA();
+        var html = Encoding.ASCII.GetBytes("<html><script>document.title='XSS'</script></html>" + Guid.NewGuid());
+
+        var response = await reviewer.PostAsJsonAsync(IngestionsUri, new IngestionJsonUpload("x.png", "image/png,text/html", Convert.ToBase64String(html), null), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var created = (await response.Content.ReadFromJsonAsync<IngestionCreated>(ApiFactory.Json, Ct))!;
+        var itemId = created.Items.ShouldHaveSingleItem().Id;
+        var item = factory.Query(db => db.IngestionItems.Single(i => i.Id == itemId));
+        item.MimeType.ShouldBe(ItemKinds.DefaultContentType, "a list of types is never stored as something that starts like image/*");
+
+        ItemKinds.Normalize("image/png,text/html").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("image/png, text/html").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("image/png text/html").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("\"image/png\"").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("image/").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("/png").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize("image/png/html").ShouldBe(ItemKinds.DefaultContentType);
+        ItemKinds.Normalize(" Image/PNG ; q=1").ShouldBe("image/png");
+        ItemKinds.Normalize("application/vnd.openxmlformats-officedocument.wordprocessingml.document").ShouldBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        ItemKinds.Normalize("image/svg+xml").ShouldBe("image/svg+xml");
+    }
+
+    [Fact]
     public async Task Idempotency_key_replays_the_first_response_and_refuses_a_different_body()
     {
         using var reviewer = ReviewerA();
