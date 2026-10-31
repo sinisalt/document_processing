@@ -228,5 +228,17 @@
     "UNSUPPORTED_TYPE": {
       "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen."
     }
+  },
+  "apiErrors": {
+    "requiredMaxLength": "Pflichtfeld, höchstens {{maxLength}} Zeichen.",
+    "maxLength": "Höchstens {{maxLength}} Zeichen.",
+    "notBlank": "Darf nicht leer sein.",
+    "currencyCode": "Ein dreistelliger ISO-4217-Währungscode, etwa EUR.",
+    "countryCode": "Ein zweistelliger ISO-3166-1-Ländercode, etwa DE.",
+    "timeZone": "Eine IANA-Zeitzone, etwa Europe/Berlin.",
+    "slug": "Kleinbuchstaben, Ziffern und einzelne Bindestriche, höchstens {{maxLength}} Zeichen.",
+    "range": "Zwischen {{min}} und {{max}}.",
+    "positive": "Muss größer als null sein.",
+    "httpUrl": "Eine absolute http(s)-URL mit höchstens {{maxLength}} Zeichen."
   }
 }

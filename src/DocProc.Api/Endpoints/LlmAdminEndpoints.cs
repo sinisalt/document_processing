@@ -351,7 +351,7 @@ public static class LlmAdminEndpoints
 
         if (request.Endpoint is not null && (request.Endpoint.Length > 500 || !IsAbsoluteHttpUri(request.Endpoint)))
         {
-            errors.Add("endpoint", "endpoint must be an absolute http(s) URL of at most 500 characters.");
+            errors.Add("endpoint", "endpoint must be an absolute http(s) URL of at most 500 characters.", ValidationCodes.HttpUrl, ValidationCodes.Params(("maxLength", 500)));
         }
 
         if (string.IsNullOrWhiteSpace(request.ApiKey) || request.ApiKey.Length is < MinApiKeyLength or > MaxApiKeyLength || request.ApiKey.Any(char.IsWhiteSpace))
@@ -392,7 +392,7 @@ public static class LlmAdminEndpoints
 
         if (request.MonthlySpendCapUsd is { } cap && cap <= 0)
         {
-            errors.Add("monthlySpendCapUsd", "The spend cap must be a positive amount.");
+            errors.Add("monthlySpendCapUsd", "The spend cap must be a positive amount.", ValidationCodes.Positive);
         }
 
         if (request.DataResidency is not null && !TryParseEnum<DataResidency>(request.DataResidency, out _))

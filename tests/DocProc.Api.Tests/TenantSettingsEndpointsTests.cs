@@ -32,6 +32,27 @@ public sealed class TenantSettingsEndpointsTests(ApiFactory factory) : IClassFix
     }
 
     [Fact]
+    public async Task Field_errors_carry_codes_and_parameters_next_to_the_english_text()
+    {
+        using var admin = TenantAdminClient();
+
+        var response = await admin.PutAsJsonAsync(SettingsUri, new TenantSettingsDto(1.5, [Guid.NewGuid()], 31, true), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement;
+        problem.GetProperty("errors").GetProperty("retentionYears")[0].GetString().ShouldBe("Retention must be between 1 and 30 years.");
+        var codes = problem.GetProperty("errorCodes");
+        var retention = codes.GetProperty("retentionYears");
+        retention.GetProperty("code").GetString().ShouldBe("range");
+        retention.GetProperty("params").GetProperty("min").GetString().ShouldBe("1");
+        retention.GetProperty("params").GetProperty("max").GetString().ShouldBe("30");
+        codes.GetProperty("autoApproveConfidenceThreshold").GetProperty("code").GetString().ShouldBe("range");
+        // An error without a code (it quotes ids only the server knows) is in `errors` alone.
+        problem.GetProperty("errors").TryGetProperty("alwaysReviewSupplierIds", out _).ShouldBeTrue();
+        codes.TryGetProperty("alwaysReviewSupplierIds", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Put_validates_the_ranges_and_the_supplier_ids_then_persists()
     {
         using var admin = TenantAdminClient();

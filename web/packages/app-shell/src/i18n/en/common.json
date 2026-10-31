@@ -228,5 +228,17 @@
     "UNSUPPORTED_TYPE": {
       "default": "There is no extraction for the document type {{type}} yet; enter the data by hand."
     }
+  },
+  "apiErrors": {
+    "requiredMaxLength": "Required, at most {{maxLength}} characters.",
+    "maxLength": "At most {{maxLength}} characters.",
+    "notBlank": "Must not be blank.",
+    "currencyCode": "A three-letter ISO 4217 currency code, such as EUR.",
+    "countryCode": "A two-letter ISO 3166-1 country code, such as DE.",
+    "timeZone": "An IANA time zone, such as Europe/Berlin.",
+    "slug": "Lowercase letters, digits and single dashes, at most {{maxLength}} characters.",
+    "range": "Between {{min}} and {{max}}.",
+    "positive": "Must be greater than zero.",
+    "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters."
   }
 }

@@ -50,6 +50,13 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         var body = await bad.Content.ReadAsStringAsync(Ct);
         body.ShouldContain("\"name\"");
         body.ShouldContain("\"defaultCurrency\"");
+        var codes = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("errorCodes");
+        codes.GetProperty("defaultCurrency").GetProperty("code").GetString().ShouldBe("currencyCode");
+
+        var blank = await admin.PostAsJsonAsync(SuppliersUri, new CreateSupplierRequest(" ", null, null, null, null, null, null, null), Ct);
+        var required = System.Text.Json.JsonDocument.Parse(await blank.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("errorCodes").GetProperty("name");
+        required.GetProperty("code").GetString().ShouldBe("requiredMaxLength");
+        required.GetProperty("params").GetProperty("maxLength").GetString().ShouldBe(SupplierEndpoints.MaxNameLength.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]
