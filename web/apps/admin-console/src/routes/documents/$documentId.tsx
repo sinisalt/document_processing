@@ -20,6 +20,7 @@ import {
   formatDateTime,
   formatMoney,
   formatNumber,
+  flagMessage,
   formatPercent,
   queryKeys,
   unwrap,
@@ -74,7 +75,12 @@ function DocumentDetailPage() {
         flagHelper.accessor("severity", { header: t("document.flagSeverity"), cell: (info) => <Badge variant={flagSeverityVariant[info.getValue()]}>{t(`flagSeverity.${info.getValue()}`, { defaultValue: info.getValue() })}</Badge> }),
         flagHelper.accessor("code", { header: t("document.flagCode"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
         flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
-        flagHelper.accessor("message", { header: t("document.flagMessage") }),
+        // The message in the UI language from the flag's code and parameters; the API's English text for an unknown
+        // code or a flag stored without parameters. Paths stay paths here: they are the field column's vocabulary.
+        flagHelper.accessor("message", {
+          header: t("document.flagMessage"),
+          cell: (info) => flagMessage(info.row.original, { language: i18n.language, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) }),
+        }),
         flagHelper.accessor("createdBy", { header: t("document.flagOrigin"), cell: (info) => t(`flagOrigin.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         flagHelper.accessor("resolvedAt", { header: t("document.flagResolved"), sortFn: "datetime", cell: (info) => (info.getValue() ? `${formatDateTime(info.getValue(), i18n.language)}${info.row.original.resolvedBy ? ` · ${info.row.original.resolvedBy}` : ""}` : t("document.flagOpen")) }),
       ]),
@@ -223,7 +229,7 @@ function DocumentDetailPage() {
           <CardTitle>{t("document.flags")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable columns={flagColumns} data={doc?.flags ?? NO_FLAGS} getRowId={(row) => row.id} isLoading={document.isPending} caption={t("document.flags")} emptyTitle={t("document.noFlags")} emptyDescription={t("document.noFlagsDescription")} />
+          <DataTable columns={flagColumns} data={doc?.flags ?? NO_FLAGS} getRowId={(row) => row.id} isLoading={document.isPending} query={document} caption={t("document.flags")} emptyTitle={t("document.noFlags")} emptyDescription={t("document.noFlagsDescription")} />
         </CardContent>
       </Card>
 
@@ -233,7 +239,7 @@ function DocumentDetailPage() {
           <CardDescription>{t("document.canonicalDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable columns={canonicalColumns} data={rows} getRowId={(row) => row.path} isLoading={document.isPending} caption={t("document.canonical")} emptyTitle={t("document.noCanonical")} emptyDescription={t("document.noCanonicalDescription")} />
+          <DataTable columns={canonicalColumns} data={rows} getRowId={(row) => row.path} isLoading={document.isPending} query={document} caption={t("document.canonical")} emptyTitle={t("document.noCanonical")} emptyDescription={t("document.noCanonicalDescription")} />
         </CardContent>
       </Card>
 
@@ -243,7 +249,7 @@ function DocumentDetailPage() {
           <CardDescription>{t("timeline.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <TimelineTable events={events.data ?? NO_EVENTS} isLoading={events.isPending} />
+          <TimelineTable events={events.data ?? NO_EVENTS} isLoading={events.isPending} query={events} />
         </CardContent>
       </Card>
 

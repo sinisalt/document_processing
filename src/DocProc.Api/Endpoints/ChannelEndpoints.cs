@@ -156,7 +156,7 @@ public static class ChannelEndpoints
             var errors = new Errors().Optional("name", request.Name, 100);
             if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
             {
-                errors.Add("name", "name cannot be blank.");
+                errors.Add("name", "name cannot be blank.", ValidationCodes.NotBlank);
             }
 
             ChannelStatus? status = null;

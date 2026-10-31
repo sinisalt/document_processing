@@ -98,22 +98,22 @@ public static class TenantEndpoints
                 .Optional("vatId", request.VatId, 32);
             if (!IsSlug(request.Slug))
             {
-                errors.Add("slug", "Slug must be lowercase letters, digits and single dashes, at most 64 characters.");
+                errors.Add("slug", "Slug must be lowercase letters, digits and single dashes, at most 64 characters.", ValidationCodes.Slug, ValidationCodes.Params(("maxLength", 64)));
             }
 
             if (!IsCurrency(request.DefaultCurrency))
             {
-                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.");
+                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
             }
 
             if (!IsCountry(request.CountryCode))
             {
-                errors.Add("countryCode", "Country must be a two-letter upper-case ISO 3166-1 code.");
+                errors.Add("countryCode", "Country must be a two-letter upper-case ISO 3166-1 code.", ValidationCodes.CountryCode);
             }
 
             if (!IsTimeZone(request.TimeZone))
             {
-                errors.Add("timeZone", "Time zone must be an IANA id such as Europe/Berlin.");
+                errors.Add("timeZone", "Time zone must be an IANA id such as Europe/Berlin.", ValidationCodes.TimeZone);
             }
 
             if (errors.ToProblem() is { } problem)
@@ -178,12 +178,12 @@ public static class TenantEndpoints
             var errors = new Errors().Optional("name", request.Name, 200).Optional("legalName", request.LegalName, 300).Optional("vatId", request.VatId, 32);
             if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
             {
-                errors.Add("name", "name cannot be blank.");
+                errors.Add("name", "name cannot be blank.", ValidationCodes.NotBlank);
             }
 
             if (request.LegalName is not null && string.IsNullOrWhiteSpace(request.LegalName))
             {
-                errors.Add("legalName", "legalName cannot be blank.");
+                errors.Add("legalName", "legalName cannot be blank.", ValidationCodes.NotBlank);
             }
 
             TenantStatus? status = null;

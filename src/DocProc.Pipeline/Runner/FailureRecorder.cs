@@ -55,7 +55,9 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
             document.FailureReason = Truncate(reason);
             if (flagCode is not null)
             {
-                flags.Replace(document, [flagCode], [FlagCodes.Create(flagCode, Truncate(reason, 1000))]);
+                // The reason is an exception's text (English, from a provider or the runtime): a parameter, not translated.
+                var text = Truncate(reason, 1000);
+                flags.Replace(document, [flagCode], [FlagCodes.Create(flagCode, text, parameters: FlagParams.Of(("detail", text)))]);
             }
         }
         else

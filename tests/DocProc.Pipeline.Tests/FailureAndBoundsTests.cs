@@ -102,6 +102,14 @@ public class FailureAndBoundsTests
         record.Message.ShouldStartWith("Page 1, footer: rrr");
         record.Field.ShouldNotBeNull().Length.ShouldBe(DocumentFlagRecord.MaxFieldLength);
 
+        // Parameters quote the same model output (the region's reason), so they are cut like the message.
+        var withParams = flag with { Params = FlagParams.Of(("page", "1"), ("detail", new string('r', 1500))) };
+        var withParamsRecord = DocumentFlagRecord.FromDomain(Guid.NewGuid(), Guid.NewGuid(), withParams, DateTimeOffset.UnixEpoch);
+        withParamsRecord.Params.ShouldNotBeNull()["detail"].Length.ShouldBe(DocumentFlagRecord.MaxParamLength);
+        withParamsRecord.Params["page"].ShouldBe("1");
+        withParamsRecord.ToDomain().Params.ShouldNotBeNull()["page"].ShouldBe("1");
+        record.Params.ShouldBeNull();
+
         var shortFlag = FlagCodes.Create(FlagCodes.TypeUnknown, "short", "type");
         DocumentFlagRecord.FromDomain(Guid.NewGuid(), Guid.NewGuid(), shortFlag, DateTimeOffset.UnixEpoch).ShouldSatisfyAllConditions(
             r => r.Message.ShouldBe("short"),

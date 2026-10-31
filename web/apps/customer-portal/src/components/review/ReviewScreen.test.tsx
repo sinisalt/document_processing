@@ -56,6 +56,7 @@ const flag = (id: string, field: string, severity: DocumentFlag["severity"], cod
   severity,
   code,
   message: `${code} on ${field}`,
+  params: {},
   createdAt: "2026-10-30T10:00:00Z",
   createdBy: "Pipeline",
   resolvedAt: null,
@@ -186,6 +187,29 @@ describe("review screen flag keys", () => {
     // Inside an input, j is text again.
     press("j");
     expect(input("totalGross")).toHaveValue("303.45j");
+  });
+});
+
+describe("review screen flag messages", () => {
+  afterEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("phrases a flag in the UI language from its code and parameters, with the field's label", async () => {
+    await i18n.changeLanguage("de");
+    const low: DocumentFlag = {
+      ...flag("f-low", "totalGross", "Warning", "LOW_CONFIDENCE"),
+      message: "'totalGross' has confidence 0.40, below the threshold 0.80.",
+      params: { field: "totalGross", confidence: "0.40", threshold: "0.80" },
+    };
+    const unknown = { ...flag("f-new", "supplier.vatId", "Blocking", "SOMETHING_NEW"), message: "A check this build does not know failed." };
+    renderScreen(documentOf({ flags: [low, unknown] }));
+
+    const list = screen.getByTestId("flags-list");
+    expect(list.textContent?.replace(/[\u00a0\u202f]/g, " ")).toContain("Gesamtbetrag (brutto) wurde mit 40 % Sicherheit gelesen, unter dem Schwellenwert von 80 %.");
+    expect(list).not.toHaveTextContent("has confidence");
+    // An unknown code keeps the API's English text rather than showing nothing.
+    expect(list).toHaveTextContent("A check this build does not know failed.");
   });
 });
 

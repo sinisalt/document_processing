@@ -18,12 +18,12 @@ public sealed class CurrencyRule : IInvoiceRule
         var currency = invoice.Currency.Value!;
         if (invoice.Currency.Status == FieldStatus.Inferred)
         {
-            yield return FlagCodes.Create(FlagCodes.CurrencyInferred, $"No currency was printed; '{currency}' was assumed.", "currency");
+            yield return FlagCodes.Create(FlagCodes.CurrencyInferred, $"No currency was printed; '{currency}' was assumed.", "currency", FlagParams.Of(("currency", currency)));
         }
 
         if (!CurrencyCode.IsWellFormed(currency))
         {
-            yield return FlagCodes.Create(FlagCodes.InvalidValue, $"'{currency}' is not a valid ISO 4217 currency code.", "currency");
+            yield return FlagCodes.Create(FlagCodes.InvalidValue, $"'{currency}' is not a valid ISO 4217 currency code.", "currency", FlagParams.Of((FlagParams.Reason, "currencyCode"), ("currency", currency)));
             yield break;
         }
 
@@ -31,7 +31,7 @@ public sealed class CurrencyRule : IInvoiceRule
         {
             if (!string.Equals(money.Currency, currency, StringComparison.OrdinalIgnoreCase))
             {
-                yield return FlagCodes.Create(FlagCodes.InvalidValue, $"'{path}' is in {money.Currency} but the document currency is {currency}.", path);
+                yield return FlagCodes.Create(FlagCodes.InvalidValue, $"'{path}' is in {money.Currency} but the document currency is {currency}.", path, FlagParams.Of((FlagParams.Reason, "currencyMismatch"), ("field", path), ("currency", money.Currency), ("documentCurrency", currency)));
             }
         }
     }

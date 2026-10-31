@@ -118,7 +118,7 @@ public static class SupplierEndpoints
             var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
             if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
             {
-                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.");
+                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
             }
 
             var normalizedName = string.IsNullOrWhiteSpace(request.Name) ? string.Empty : Identifiers.NormalizeName(request.Name);
@@ -198,7 +198,7 @@ public static class SupplierEndpoints
 
             if (!string.IsNullOrEmpty(request.DefaultCurrency) && !IsCurrency(request.DefaultCurrency))
             {
-                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.");
+                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
             }
 
             if (errors.ToProblem() is { } invalid)

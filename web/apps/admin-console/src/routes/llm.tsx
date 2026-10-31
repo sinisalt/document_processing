@@ -48,6 +48,7 @@ function LlmPage() {
             <ProviderTable
               providers={providers.data}
               isLoading={providers.isPending}
+              query={providers}
               scope="platform"
               queryKey={queryKeys.llm.platformProviders()}
               canManage

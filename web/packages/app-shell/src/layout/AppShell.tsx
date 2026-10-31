@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Outlet, useLocation, useRouter } from "@tanstack/react-router";
+import { Outlet, useLocation, useRouter, useRouterState } from "@tanstack/react-router";
 import { Button } from "@docproc/ui";
 import { useAuth } from "../auth/useAuth";
 import { AppLayout, type AppLayoutProps } from "./AppLayout";
@@ -8,6 +8,10 @@ import { LoadingScreen } from "./LoadingScreen";
 import { ErrorPage } from "./ErrorBoundary";
 
 export const REDIRECT_PARAM = "redirect";
+
+function normalizePath(pathname: string): string {
+  return pathname.replace(/\/+$/, "") || "/";
+}
 
 /** Only same-origin paths may be redirect targets; anything else (`//evil`, `https:`) falls back to `/`. */
 export function safeRedirect(value: string | null | undefined, fallback = "/"): string {
@@ -39,8 +43,13 @@ export function AppShell({ signInPath = "/sign-in", children, ...layout }: AppSh
   const { t } = useTranslation("common");
   const auth = useAuth();
   const location = useLocation({ select: (l) => ({ pathname: l.pathname, searchStr: l.searchStr }) });
-  const pathname = location.pathname.replace(/\/+$/, "") || "/";
+  const pathname = normalizePath(location.pathname);
   const onSignIn = pathname === signInPath;
+  // The route the router has actually rendered. It trails `location` while the next route is loading (its code-split
+  // chunk, a loader): right after sign-out the location is already the sign-in page but the matches are still the
+  // screen the user was on, so an `<Outlet />` here would mount that screen again, anonymously, and fire its queries
+  // without a token (a burst of 401s on every sign-out).
+  const signInRendered = useRouterState({ select: (state) => state.matches.some((match) => normalizePath(match.pathname) === signInPath) });
 
   if (auth.status === "loading") {
     return <LoadingScreen label={t("auth.checking")} />;
@@ -63,7 +72,7 @@ export function AppShell({ signInPath = "/sign-in", children, ...layout }: AppSh
   }
 
   if (!auth.isAuthenticated) {
-    if (onSignIn) return <Outlet />;
+    if (onSignIn) return signInRendered ? <Outlet /> : <LoadingScreen label={t("auth.checking")} />;
     const back = location.pathname + location.searchStr;
     const query = back && back !== "/" ? `?${new URLSearchParams({ [REDIRECT_PARAM]: back }).toString()}` : "";
     return <Redirect href={`${signInPath}${query}`} />;

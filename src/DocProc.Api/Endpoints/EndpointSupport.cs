@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using DocProc.Infrastructure.Persistence;
@@ -134,16 +135,35 @@ internal static partial class EndpointSupport
 
     public static string? TrimToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    /// <summary>Collects field errors in the shape <c>TypedResults.ValidationProblem</c> expects.</summary>
+    /// <summary>
+    /// Collects field errors in the shape <c>TypedResults.ValidationProblem</c> expects. An error added with a code
+    /// (<see cref="ValidationCodes"/>) also goes out in the problem's <c>errorCodes</c> extension,
+    /// <c>{ field: { code, params } }</c> with invariant string parameters, so the apps can say it in the UI language;
+    /// <c>errors</c> keeps the English text for every other client (docs/05 "Errors").
+    /// </summary>
     public sealed class Errors
     {
         private readonly Dictionary<string, string[]> _errors = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Dictionary<string, object>> _codes = new(StringComparer.Ordinal);
 
         public int Count => _errors.Count;
 
-        public Errors Add(string field, string message)
+        public Errors Add(string field, string message, string? code = null, IReadOnlyDictionary<string, string>? parameters = null)
         {
             _errors[field] = [message];
+            if (code is null)
+            {
+                _codes.Remove(field);
+            }
+            else
+            {
+                _codes[field] = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["code"] = code,
+                    ["params"] = new Dictionary<string, string>(parameters ?? new Dictionary<string, string>(), StringComparer.Ordinal),
+                };
+            }
+
             return this;
         }
 
@@ -151,7 +171,7 @@ internal static partial class EndpointSupport
         {
             if (string.IsNullOrWhiteSpace(value) || value.Trim().Length > maxLength)
             {
-                Add(field, $"{field} is required and at most {maxLength} characters.");
+                Add(field, $"{field} is required and at most {maxLength} characters.", ValidationCodes.RequiredMaxLength, MaxLengthParams(maxLength));
             }
 
             return this;
@@ -161,12 +181,59 @@ internal static partial class EndpointSupport
         {
             if (value is not null && value.Trim().Length > maxLength)
             {
-                Add(field, $"{field} is at most {maxLength} characters.");
+                Add(field, $"{field} is at most {maxLength} characters.", ValidationCodes.MaxLength, MaxLengthParams(maxLength));
             }
 
             return this;
         }
 
-        public ValidationProblem? ToProblem() => _errors.Count == 0 ? null : TypedResults.ValidationProblem(_errors);
+        public ValidationProblem? ToProblem() =>
+            _errors.Count == 0
+                ? null
+                : TypedResults.ValidationProblem(_errors, extensions: _codes.Count == 0 ? null : new Dictionary<string, object?>(StringComparer.Ordinal) { ["errorCodes"] = _codes });
+
+        private static Dictionary<string, string> MaxLengthParams(int maxLength) =>
+            new(StringComparer.Ordinal) { ["maxLength"] = maxLength.ToString(CultureInfo.InvariantCulture) };
+    }
+
+    /// <summary>
+    /// The codes of <c>errorCodes</c> (docs/05 "Errors"). Stable strings, like flag codes: the apps translate them
+    /// (<c>common:apiErrors.&lt;code&gt;</c>) and fall back to the English message for one they do not know.
+    /// </summary>
+    public static class ValidationCodes
+    {
+        /// <summary>Blank, or longer than <c>maxLength</c> characters.</summary>
+        public const string RequiredMaxLength = "requiredMaxLength";
+
+        /// <summary>Longer than <c>maxLength</c> characters.</summary>
+        public const string MaxLength = "maxLength";
+
+        /// <summary>Given, but blank (a rename to whitespace).</summary>
+        public const string NotBlank = "notBlank";
+
+        /// <summary>Not a three-letter upper-case ISO 4217 code.</summary>
+        public const string CurrencyCode = "currencyCode";
+
+        /// <summary>Not a two-letter upper-case ISO 3166-1 code.</summary>
+        public const string CountryCode = "countryCode";
+
+        /// <summary>Not an IANA time zone id.</summary>
+        public const string TimeZone = "timeZone";
+
+        /// <summary>Not a slug (lowercase letters, digits and single dashes, at most <c>maxLength</c>).</summary>
+        public const string Slug = "slug";
+
+        /// <summary>Outside <c>min</c>..<c>max</c>.</summary>
+        public const string Range = "range";
+
+        /// <summary>Zero or negative.</summary>
+        public const string Positive = "positive";
+
+        /// <summary>Not an absolute http(s) URL of at most <c>maxLength</c> characters.</summary>
+        public const string HttpUrl = "httpUrl";
+
+        /// <summary>A code's parameters, numbers as invariant strings.</summary>
+        public static IReadOnlyDictionary<string, string> Params(params (string Key, IFormattable Value)[] pairs) =>
+            pairs.ToDictionary(p => p.Key, p => p.Value.ToString(null, CultureInfo.InvariantCulture), StringComparer.Ordinal);
     }
 }

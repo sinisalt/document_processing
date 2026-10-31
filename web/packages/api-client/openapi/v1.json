@@ -3014,6 +3014,7 @@
           "severity",
           "field",
           "message",
+          "params",
           "createdBy",
           "createdAt",
           "resolvedAt",
@@ -3040,6 +3041,12 @@
           "message": {
             "type": "string"
           },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "createdBy": {
             "$ref": "#/components/schemas/FlagOrigin"
           },
@@ -3060,7 +3067,8 @@
               "string"
             ]
           }
-        }
+        },
+        "description": "One flag of a document. `Message` is English for API clients; `Params` holds the same facts as invariant\nstrings (field paths, ISO dates, amounts and ratios with a dot, `reason` naming the message variant) so a UI can\nphrase the flag in its own language from `Code` (docs/02 §5 \"Flag parameters\"). Empty for a flag without\nparameters, and for flags stored before parameters existed: show `Message` then."
       },
       "DocumentIngestionRef": {
         "required": [

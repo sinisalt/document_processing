@@ -35,7 +35,13 @@ public sealed class LineArithmeticRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.LineArithmetic,
                     $"Line {line.LineNumber}: {TotalsRule.Fmt(line.Quantity.Value)} × {TotalsRule.Fmt(line.UnitPrice.Value!.Amount)} = {TotalsRule.Fmt(expected)}, but the line net is {TotalsRule.Fmt(actual)}.",
-                    $"lines[{i}].lineNet");
+                    $"lines[{i}].lineNet",
+                    FlagParams.Of(
+                        ("line", FlagParams.Number(line.LineNumber)),
+                        ("quantity", FlagParams.Number(line.Quantity.Value)),
+                        ("unitPrice", FlagParams.Amount(line.UnitPrice.Value!.Amount)),
+                        ("expected", FlagParams.Amount(expected)),
+                        ("actual", FlagParams.Amount(actual))));
             }
         }
     }

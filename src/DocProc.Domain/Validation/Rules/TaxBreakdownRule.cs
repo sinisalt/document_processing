@@ -24,7 +24,13 @@ public sealed class TaxBreakdownRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.TaxMismatch,
                     $"{TotalsRule.Fmt(row.TaxableAmount.Amount)} at {TotalsRule.Fmt(row.Rate)} % should give {TotalsRule.Fmt(expected)} tax, but {TotalsRule.Fmt(row.TaxAmount.Amount)} is printed.",
-                    $"taxBreakdown[{i}].taxAmount");
+                    $"taxBreakdown[{i}].taxAmount",
+                    FlagParams.Of(
+                        (FlagParams.Reason, "row"),
+                        ("taxable", FlagParams.Amount(row.TaxableAmount.Amount)),
+                        ("rate", FlagParams.Number(row.Rate)),
+                        ("expected", FlagParams.Amount(expected)),
+                        ("printed", FlagParams.Amount(row.TaxAmount.Amount))));
             }
         }
 
@@ -37,7 +43,8 @@ public sealed class TaxBreakdownRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.TaxMismatch,
                     $"Tax rows sum to {TotalsRule.Fmt(sum)} but the total tax is {TotalsRule.Fmt(total)}.",
-                    "totalTax");
+                    "totalTax",
+                    FlagParams.Of((FlagParams.Reason, "total"), ("sum", FlagParams.Amount(sum)), ("total", FlagParams.Amount(total))));
             }
         }
 
@@ -51,7 +58,8 @@ public sealed class TaxBreakdownRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.TaxMismatch,
                     $"Taxable bases sum to {TotalsRule.Fmt(taxable)} but the net subtotal is {TotalsRule.Fmt(net)}.",
-                    "taxBreakdown");
+                    "taxBreakdown",
+                    FlagParams.Of((FlagParams.Reason, "taxable"), ("taxable", FlagParams.Amount(taxable)), ("net", FlagParams.Amount(net))));
             }
         }
     }

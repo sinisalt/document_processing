@@ -45,6 +45,7 @@ export * from "./lib/format";
 export * from "./lib/fieldPath";
 export * from "./lib/fieldValue";
 export * from "./lib/reprocess";
+export * from "./lib/flagMessage";
 
 // i18n, config, providers
 export { zodIssueMessage, installZodErrorMap } from "./i18n/zodErrors";

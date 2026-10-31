@@ -31,12 +31,19 @@ public sealed record DocumentSummary(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? ApprovedAt);
 
+/// <summary>
+/// One flag of a document. <c>Message</c> is English for API clients; <c>Params</c> holds the same facts as invariant
+/// strings (field paths, ISO dates, amounts and ratios with a dot, <c>reason</c> naming the message variant) so a UI can
+/// phrase the flag in its own language from <c>Code</c> (docs/02 §5 "Flag parameters"). Empty for a flag without
+/// parameters, and for flags stored before parameters existed: show <c>Message</c> then.
+/// </summary>
 public sealed record DocumentFlagDto(
     Guid Id,
     string Code,
     FlagSeverity Severity,
     string? Field,
     string Message,
+    IReadOnlyDictionary<string, string> Params,
     FlagOrigin CreatedBy,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ResolvedAt,

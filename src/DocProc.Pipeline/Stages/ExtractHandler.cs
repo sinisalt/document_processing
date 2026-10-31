@@ -44,7 +44,7 @@ internal sealed class ExtractHandler(
             // A reprocess may have reclassified an extracted invoice: its data describes a type the document no
             // longer has, so it goes (the costs stay, they were spent).
             ClearExtraction(document);
-            flags.Replace(document, OwnedFlags, [FlagCodes.Create(FlagCodes.UnsupportedType, $"No extraction path exists for {document.Type} documents yet.")]);
+            flags.Replace(document, OwnedFlags, [FlagCodes.Create(FlagCodes.UnsupportedType, $"No extraction path exists for {document.Type} documents yet.", parameters: FlagParams.Of(("type", document.Type.ToString())))]);
             Timeline.Transition(document, DocumentStatus.Extracted, new { type = document.Type, skipped = true });
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return StageOutcome.Advanced;

@@ -17,7 +17,8 @@ public sealed class ConfidenceRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.LowConfidence,
                     $"'{path}' has confidence {c.ToString("0.00", CultureInfo.InvariantCulture)}, below the threshold {threshold.ToString("0.00", CultureInfo.InvariantCulture)}.",
-                    path);
+                    path,
+                    FlagParams.Of(("field", path), ("confidence", FlagParams.Ratio(c)), ("threshold", FlagParams.Ratio(threshold))));
             }
         }
     }

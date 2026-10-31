@@ -1,13 +1,15 @@
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, cn } from "@docproc/ui";
-import { DataTable, StatusBadge, createDataTableColumnHelper, formatDateTime, type DataTableColumns } from "@docproc/app-shell";
+import { DataTable, StatusBadge, createDataTableColumnHelper, formatDateTime, type DataTableColumns, type DataTableQueryState } from "@docproc/app-shell";
 import { detailRows, eventKind, eventStage, failureKinds, humanKinds, summarizeEvent, type DocumentEvent } from "@/lib/timeline";
 import { JsonBlock } from "./KeyValue";
 
 export interface TimelineTableProps {
   events: readonly DocumentEvent[];
   isLoading?: boolean;
+  /** The events query: when it failed the table says so (with Retry) instead of "No events". */
+  query?: DataTableQueryState;
 }
 
 const helper = createDataTableColumnHelper<DocumentEvent>();
@@ -40,7 +42,7 @@ function EventDetails({ event }: { event: DocumentEvent }) {
  * them, with the stage, the status transition, the actor and a one-line summary. It sorts and hides columns like the
  * other grids; a row with details expands into the details JSON as a key/value list plus the raw document.
  */
-export function TimelineTable({ events, isLoading = false }: TimelineTableProps) {
+export function TimelineTable({ events, isLoading = false, query }: TimelineTableProps) {
   const { t, i18n } = useTranslation("admin");
 
   const columns = useMemo<DataTableColumns<DocumentEvent>>(
@@ -103,6 +105,7 @@ export function TimelineTable({ events, isLoading = false }: TimelineTableProps)
       data={events as DocumentEvent[]}
       getRowId={(event) => String(event.id)}
       isLoading={isLoading}
+      query={query}
       caption={t("timeline.title")}
       emptyTitle={t("timeline.empty")}
       emptyDescription={t("timeline.emptyDescription")}

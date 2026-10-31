@@ -57,12 +57,12 @@ public static class TenantSettingsEndpoints
             var errors = new Errors();
             if (double.IsNaN(request.AutoApproveConfidenceThreshold) || request.AutoApproveConfidenceThreshold is < 0 or > 1)
             {
-                errors.Add("autoApproveConfidenceThreshold", "The threshold must be between 0 and 1.");
+                errors.Add("autoApproveConfidenceThreshold", "The threshold must be between 0 and 1.", ValidationCodes.Range, ValidationCodes.Params(("min", 0), ("max", 1)));
             }
 
             if (request.RetentionYears is < MinRetentionYears or > MaxRetentionYears)
             {
-                errors.Add("retentionYears", $"Retention must be between {MinRetentionYears} and {MaxRetentionYears} years.");
+                errors.Add("retentionYears", $"Retention must be between {MinRetentionYears} and {MaxRetentionYears} years.", ValidationCodes.Range, ValidationCodes.Params(("min", MinRetentionYears), ("max", MaxRetentionYears)));
             }
 
             var supplierIds = (request.AlwaysReviewSupplierIds ?? []).Distinct().ToList();

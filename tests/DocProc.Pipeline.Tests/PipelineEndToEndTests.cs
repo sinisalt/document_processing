@@ -297,6 +297,7 @@ public class PipelineEndToEndTests
         document.Status.ShouldBe(DocumentStatus.Failed);
         document.FailureReason.ShouldNotBeNull().ShouldContain("Unavailable");
         document.Flags.ShouldContain(f => f.Code == FlagCodes.LlmProviderUnavailable);
+        document.Flags.Single(f => f.Code == FlagCodes.LlmProviderUnavailable).Params.ShouldNotBeNull()["detail"].ShouldContain("Unavailable");
         (await host.EventsAsync(document.Id)).Count(e => e.EventType == DocumentEventTypes.StageFailed).ShouldBe(1, "a blocked tenant is not retried");
     }
 
@@ -321,6 +322,8 @@ public class PipelineEndToEndTests
         document.FailureReason.ShouldBeNull();
         document.Status.ShouldBe(DocumentStatus.NeedsReview);
         document.Flags.ShouldContain(f => f.Code == FlagCodes.DuplicateSuspected && f.Severity == FlagSeverity.Blocking);
+        // The parameters survive the json column, so the apps can phrase the flag in the UI language.
+        document.Flags.Single(f => f.Code == FlagCodes.DuplicateSuspected).Params.ShouldNotBeNull()["number"].ShouldBe(original.DocumentNumber);
         var task = await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().SingleAsync(t => t.DocumentId == document.Id));
         task.Status.ShouldBe(ReviewTaskStatus.Open);
         task.Reason.ShouldContain(FlagCodes.DuplicateSuspected);

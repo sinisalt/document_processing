@@ -98,7 +98,7 @@ internal sealed class SplitHandler(
         var pageStart = document.PageStart;
         var imageKeys = document.PageImageKeys.ToList();
         var siblings = new List<ProcessDocument>();
-        var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.");
+        var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.", Params: FlagParams.Of(("count", FlagParams.Number(ranges.Count))));
 
         // Stage 2 decides "no text layer" for the whole file: a mixed scan with text on some pages gets no flag. Each
         // part is decided from its own pages instead, as stage 2 does for a part on a reprocess; without a text layer

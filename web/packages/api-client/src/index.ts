@@ -11,7 +11,18 @@ export interface ProblemDetails {
   detail?: string;
   instance?: string;
   traceId?: string;
+  /** Field errors of a 400 validation problem, in English. */
   errors?: Record<string, string[]>;
+  /**
+   * The same field errors as stable codes with invariant parameters, for the fields whose check has one
+   * (`{ name: { code: "requiredMaxLength", params: { maxLength: "200" } } }`, docs/05 "Errors").
+   */
+  errorCodes?: Record<string, ValidationErrorCode>;
+}
+
+export interface ValidationErrorCode {
+  code: string;
+  params?: Record<string, string>;
 }
 
 export interface ApiClientOptions {
