@@ -295,6 +295,66 @@ public class IngestHandlerTests
         (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync(d => d.IngestionItem!.IngestionId == ingestion.Id))).ShouldBe(0);
     }
 
+    /// <summary>
+    /// The reported follow-up: entries just under the per-entry ratio floor (1 MiB of zeros each) pass the per-entry
+    /// check one by one, so a few KB of nested zips used to inflate up to the whole byte budget. The ratio holds for
+    /// the ingestion as a whole: everything unpacked, every level together, stays within the ratio times the archive
+    /// bytes the client uploaded (or the floor, for a tiny upload).
+    /// </summary>
+    [Fact]
+    public async Task Small_well_compressed_entries_cannot_add_up_past_the_ingestions_compression_ratio()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var bomb = NestedZips(archives: 3, entries: 30, size: (int)PipelineOptions.CompressionRatioFloorBytes, content: (i, j) =>
+        {
+            var bytes = new byte[PipelineOptions.CompressionRatioFloorBytes];
+            Encoding.ASCII.GetBytes($"{i}-{j}-").CopyTo(bytes, 0);
+            return bytes;
+        });
+        bomb.Length.ShouldBeLessThan(150_000);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bomb.zip", TestZips.MimeType, bomb)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var unpacked = items.Where(i => i.ParentItemId is not null).Sum(i => i.SizeBytes);
+        var allowed = Math.Max(PipelineOptions.CompressionRatioFloorBytes, 100L * bomb.Length);
+        unpacked.ShouldBeLessThanOrEqualTo(allowed, $"{bomb.Length} uploaded bytes may unpack to at most {allowed}, not the 90 MiB the entries hold");
+        items.Count(i => i.Kind == ItemKind.Text).ShouldBeLessThan(10);
+        var inner = items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId is not null).ToList();
+        inner.ShouldNotBeEmpty();
+        inner.ShouldAllBe(i => i.DispositionReason!.Contains("times the archive bytes uploaded", StringComparison.Ordinal));
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync(d => d.IngestionItem!.IngestionId == ingestion.Id))).ShouldBeLessThan(10);
+    }
+
+    [Fact]
+    public async Task One_archive_may_not_inflate_past_the_ratio_of_its_own_size_in_small_entries()
+    {
+        // 40 entries of 256 KiB zeros: each one alone is under the floor, together they are 10 MiB from a 10 KB zip.
+        // A large incompressible attachment next to it raises the ingestion's allowance, not the archive's own.
+        await using var host = await PipelineTestHost.StartAsync();
+        var zip = TestZips.With([.. Enumerable.Range(0, 40).Select(j =>
+        {
+            var bytes = new byte[256 * 1024];
+            Encoding.ASCII.GetBytes($"entry-{j}-").CopyTo(bytes, 0);
+            return ($"file-{j}.txt", bytes);
+        })]);
+        var noise = new byte[2 * 1024 * 1024];
+        new Random(7).NextBytes(noise);
+        var noiseZip = TestZips.With(("noise.bin", noise));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip), new IngestFile("noise.zip", TestZips.MimeType, noiseZip)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var archive = items.Single(i => i.FileName == "batch.zip");
+        var fromArchive = items.Where(i => i.ParentItemId == archive.Id).ToList();
+        fromArchive.Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(Math.Max(PipelineOptions.CompressionRatioFloorBytes, 100L * zip.Length));
+        fromArchive.Count.ShouldBeLessThan(40);
+        archive.DispositionReason.ShouldBe($"{fromArchive.Count} file(s) unpacked; the rest was not: the archive inflates past 100 times its {zip.Length} bytes");
+        items.Single(i => i.ParentItemId is not null && i.FileName == "noise.bin").SizeBytes.ShouldBe(noise.Length);
+    }
+
     [Fact]
     public async Task Highly_compressed_entries_are_unpacked_below_the_ratio_floor_and_skipped_above_it()
     {

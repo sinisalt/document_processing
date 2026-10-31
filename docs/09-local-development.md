@@ -222,7 +222,7 @@ this section does not name.
 | `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. |
 | `Pipeline:MaxUnpackedBytesPerIngestion` | 268435456 (256 MiB) | Inflated bytes one ingestion may unpack across all its archives, nested ones included; once reached, the current archive stops and waiting archives are ignored with a reason. |
 | `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). |
-| `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio of an archive entry larger than 1 MiB; a more compressed entry is skipped as a likely zip bomb. 0 turns the check off. |
+| `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio, never below a 1 MiB floor: per entry (a more compressed entry is skipped as a likely zip bomb), per archive (its entries together; the archive stops) and per ingestion (everything unpacked at every level against the archive bytes uploaded; the ingestion's unpack budget runs out). 0 turns all three off. |
 | `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. |
 
 **Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)

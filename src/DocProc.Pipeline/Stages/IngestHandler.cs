@@ -111,11 +111,20 @@ internal sealed class IngestHandler(
         var pending = new Queue<IngestionItem>(items.Where(i => i.Disposition == ItemDisposition.Candidate));
         var unpacked = 0;
 
-        // One budget for the whole ingestion, nested archives included; what an earlier attempt committed counts.
+        // One budget for the whole ingestion, nested archives included; what an earlier attempt stored counts. Its
+        // compression-ratio part is cumulative: all levels together inflate to at most the ratio times the archive
+        // bytes the client uploaded, so entries that each pass the per-entry check cannot add up to a bomb.
         var alreadyUnpacked = items.Where(i => i.ParentItemId is not null).ToList();
+        var alreadyUnpackedBytes = alreadyUnpacked.Sum(i => i.SizeBytes);
+        var uploadedArchiveBytes = items
+            .Where(i => i.ParentItemId is null && ItemKinds.Detect(i.MimeType, i.FileName) == ItemKind.Archive)
+            .Sum(i => i.SizeBytes);
+        var ratioAllowance = RatioAllowance(uploadedArchiveBytes);
         var budget = new UnpackBudget(
-            _options.MaxUnpackedBytesPerIngestion - alreadyUnpacked.Sum(i => i.SizeBytes),
-            _options.MaxUnpackedItemsPerIngestion - alreadyUnpacked.Count);
+            _options.MaxUnpackedBytesPerIngestion - alreadyUnpackedBytes,
+            _options.MaxUnpackedItemsPerIngestion - alreadyUnpacked.Count,
+            ratioAllowance == long.MaxValue ? long.MaxValue : ratioAllowance - alreadyUnpackedBytes,
+            ratioAllowance);
 
         while (pending.TryDequeue(out var item))
         {
@@ -418,6 +427,9 @@ internal sealed class IngestHandler(
         var bytes = await blobs.ReadAsync(archiveItem.Blob, cancellationToken).ConfigureAwait(false);
         var children = new List<IngestionItem>();
         var skipped = 0;
+
+        // Cumulative per archive: its entries together inflate to at most the ratio times the archive's own size.
+        var archiveLeft = RatioAllowance(bytes.Length);
         using var archive = new ZipArchive(new MemoryStream(bytes, writable: false), ZipArchiveMode.Read, leaveOpen: false);
 
         foreach (var entry in archive.Entries)
@@ -440,24 +452,32 @@ internal sealed class IngestHandler(
                 return (children, skipped, exhausted);
             }
 
-            if (entry.Length > _options.MaxArchiveEntryBytes)
+            var ratioLimit = RatioAllowance(entry.CompressedLength);
+            if (entry.Length > _options.MaxArchiveEntryBytes || entry.Length > ratioLimit)
             {
-                logger.LogWarning("Archive entry {Entry} in {FileName} is {Size} bytes, over the limit; skipped.", entry.FullName, archiveItem.FileName, entry.Length);
+                logger.LogWarning("Archive entry {Entry} in {FileName} declares {Size} bytes from {Compressed} compressed, over the entry size or compression limit; skipped.", entry.FullName, archiveItem.FileName, entry.Length, entry.CompressedLength);
                 skipped++;
                 continue;
             }
 
             if (entry.Length > budget.Bytes)
             {
-                var reason = UnpackBudget.BytesReason(_options);
+                var reason = budget.BytesReason(_options);
+                logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
+                return (children, skipped, reason);
+            }
+
+            if (entry.Length > archiveLeft)
+            {
+                var reason = ArchiveRatioReason(bytes.Length);
                 logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
                 return (children, skipped, reason);
             }
 
             // The declared length is not trusted: the copy stops as soon as the inflated bytes pass the smallest of the
-            // entry limit, what is left of the ingestion's budget and what the entry's compressed size allows.
-            var sizeLimit = Math.Min(_options.MaxArchiveEntryBytes, budget.Bytes);
-            var ratioLimit = RatioLimit(entry.CompressedLength);
+            // entry limit, what is left of the ingestion's budget, what is left of the archive's ratio allowance and
+            // what the entry's compressed size allows.
+            var sizeLimit = Math.Min(Math.Min(_options.MaxArchiveEntryBytes, budget.Bytes), archiveLeft);
             byte[]? content;
             await using (var entryStream = entry.Open())
             {
@@ -473,9 +493,16 @@ internal sealed class IngestHandler(
                     continue;
                 }
 
+                if (archiveLeft < Math.Min(_options.MaxArchiveEntryBytes, budget.Bytes))
+                {
+                    var reason = ArchiveRatioReason(bytes.Length);
+                    logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
+                    return (children, skipped, reason);
+                }
+
                 if (budget.Bytes < _options.MaxArchiveEntryBytes)
                 {
-                    var reason = UnpackBudget.BytesReason(_options);
+                    var reason = budget.BytesReason(_options);
                     logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
                     return (children, skipped, reason);
                 }
@@ -486,6 +513,7 @@ internal sealed class IngestHandler(
             }
 
             budget.Take(content.Length);
+            archiveLeft -= content.Length;
 
             var mimeType = ItemKinds.MimeTypeFor(entry.Name);
             var stored = await blobs.PutRawAsync(ingestion.TenantId, content, mimeType, cancellationToken).ConfigureAwait(false);
@@ -509,8 +537,13 @@ internal sealed class IngestHandler(
         return (children, skipped, null);
     }
 
-    /// <summary>The most an entry of <paramref name="compressedLength"/> bytes may inflate to under the ratio limit.</summary>
-    private long RatioLimit(long compressedLength)
+    /// <summary>
+    /// The most <paramref name="compressedLength"/> bytes may inflate to under <see cref="PipelineOptions.MaxArchiveCompressionRatio"/>,
+    /// never less than <see cref="PipelineOptions.CompressionRatioFloorBytes"/>; unbounded when the check is off. Applied
+    /// per entry, per archive (all its entries together) and per ingestion (everything unpacked, every level together,
+    /// against the archive bytes the client uploaded).
+    /// </summary>
+    private long RatioAllowance(long compressedLength)
     {
         var ratio = _options.MaxArchiveCompressionRatio;
         if (ratio <= 0)
@@ -522,22 +555,31 @@ internal sealed class IngestHandler(
         return Math.Max(PipelineOptions.CompressionRatioFloorBytes, allowed);
     }
 
+    private string ArchiveRatioReason(long archiveBytes) =>
+        $"the archive inflates past {_options.MaxArchiveCompressionRatio} times its {archiveBytes} bytes";
+
     /// <summary>An item that owns a document after the decision, with the rows the attempt created for it.</summary>
     private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received);
 
     /// <summary>
     /// What is left of an ingestion's unpack budget (<see cref="PipelineOptions.MaxUnpackedBytesPerIngestion"/>,
-    /// <see cref="PipelineOptions.MaxUnpackedItemsPerIngestion"/>), drawn down by every unpacked file.
+    /// <see cref="PipelineOptions.MaxUnpackedItemsPerIngestion"/>, and <see cref="PipelineOptions.MaxArchiveCompressionRatio"/>
+    /// times the uploaded archive bytes), drawn down by every unpacked file.
     /// </summary>
-    private sealed class UnpackBudget(long bytes, int items)
+    private sealed class UnpackBudget(long capBytes, int items, long ratioBytes, long ratioAllowance)
     {
-        public long Bytes { get; private set; } = Math.Max(0, bytes);
+        private long _capBytes = Math.Max(0, capBytes);
+        private long _ratioBytes = Math.Max(0, ratioBytes);
+
+        /// <summary>Inflated bytes still allowed: the smaller of what is left of the byte cap and of the ratio allowance.</summary>
+        public long Bytes => Math.Min(_capBytes, _ratioBytes);
 
         public int Items { get; private set; } = Math.Max(0, items);
 
         public void Take(long size)
         {
-            Bytes = Math.Max(0, Bytes - size);
+            _capBytes = Math.Max(0, _capBytes - size);
+            _ratioBytes = Math.Max(0, _ratioBytes - size);
             Items = Math.Max(0, Items - 1);
         }
 
@@ -547,6 +589,9 @@ internal sealed class IngestHandler(
             : Bytes <= 0 ? BytesReason(options)
             : null;
 
-        public static string BytesReason(PipelineOptions options) => $"the ingestion's limit of {options.MaxUnpackedBytesPerIngestion} unpacked bytes is reached";
+        /// <summary>The limit behind <see cref="Bytes"/>: the byte cap or the ratio allowance, whichever has less left.</summary>
+        public string BytesReason(PipelineOptions options) => _ratioBytes < _capBytes
+            ? $"the ingestion's limit of {ratioAllowance} unpacked bytes ({options.MaxArchiveCompressionRatio} times the archive bytes uploaded) is reached"
+            : $"the ingestion's limit of {options.MaxUnpackedBytesPerIngestion} unpacked bytes is reached";
     }
 }

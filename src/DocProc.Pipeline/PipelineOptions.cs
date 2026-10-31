@@ -44,12 +44,18 @@ public sealed class PipelineOptions
     public int MaxUnpackedItemsPerIngestion { get; set; } = 500;
 
     /// <summary>
-    /// Largest inflated-to-compressed ratio of an archive entry that inflates past <see cref="CompressionRatioFloorBytes"/>;
-    /// a more compressed entry is skipped. Documents compress a few times, a zip bomb a thousand times. 0 turns the check off.
+    /// Largest inflated-to-compressed ratio, applied three times: per archive entry (a more compressed entry is skipped),
+    /// per archive (its entries together; the archive stops) and per ingestion (everything unpacked at every level
+    /// against the archive bytes the client uploaded; the unpack budget runs out), so entries that each stay under
+    /// <see cref="CompressionRatioFloorBytes"/> cannot add up to a bomb. Documents compress a few times, a zip bomb a
+    /// thousand times. 0 turns all three off.
     /// </summary>
     public int MaxArchiveCompressionRatio { get; set; } = 100;
 
-    /// <summary>Entries up to this size are unpacked whatever their compression ratio (a small text file can compress well).</summary>
+    /// <summary>
+    /// The least each ratio check allows whatever the compressed size: an entry, an archive or an ingestion may always
+    /// inflate this far (a small text file can compress well).
+    /// </summary>
     public const long CompressionRatioFloorBytes = 1024 * 1024;
 
     /// <summary>Images smaller than this are signatures, logos and tracking pixels, not documents (docs/03 stage 2).</summary>

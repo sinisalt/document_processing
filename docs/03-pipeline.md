@@ -210,7 +210,13 @@ skipped, and the copy itself stops at that limit, so a header that under-declare
 does not get around it; an entry that inflates past 1 MiB and more than
 `Pipeline:MaxArchiveCompressionRatio` (default 100) times its compressed size is skipped as well,
 and the archive's reason counts both kinds (`N file(s) unpacked; K skipped over the entry size or
-compression limit`);
+compression limit`); the ratio is also cumulative, so entries that each stay under the 1 MiB floor
+cannot add up to a bomb: one archive's entries together inflate to at most the ratio times the
+archive's own size (or 1 MiB), else the archive stops with `the rest was not: the archive inflates
+past R times its B bytes`, and everything an ingestion unpacks, every level together, to at most
+the ratio times the archive bytes the client uploaded (or 1 MiB), else the ingestion's budget below
+runs out with `the ingestion's limit of N unpacked bytes (R times the archive bytes uploaded) is
+reached`;
 and one ingestion has a budget across all its archives, nested ones included, of
 `Pipeline:MaxUnpackedBytesPerIngestion` (default 256 MiB) inflated bytes and
 `Pipeline:MaxUnpackedItemsPerIngestion` (default 500) unpacked files: when it runs out, the
