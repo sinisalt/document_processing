@@ -58,7 +58,7 @@ internal sealed class ValidateHandler(
 
             if (await IsDuplicateAsync(document, cancellationToken).ConfigureAwait(false))
             {
-                raised.Add(FlagCodes.Create(FlagCodes.DuplicateSuspected, $"Another document of this supplier carries the number {document.DocumentNumber}.", "invoiceNumber"));
+                raised.Add(FlagCodes.Create(FlagCodes.DuplicateSuspected, $"Another document of this supplier carries the number {document.DocumentNumber}.", "invoiceNumber", FlagParams.Of(("number", document.DocumentNumber))));
             }
         }
 

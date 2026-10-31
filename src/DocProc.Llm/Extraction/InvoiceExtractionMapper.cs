@@ -71,7 +71,11 @@ public sealed class InvoiceExtractionMapper(ProvenanceLocator locator, string de
     /// </summary>
     private static DocumentFlag UnreadableRegionFlag(UnreadableRegion region, Invoice invoice)
     {
-        var flag = FlagCodes.Create(FlagCodes.UnreadablePages, $"Page {region.Page}, {region.Area}: {region.Reason}");
+        // Area and reason are the model's own words (in the document's language or English): parameters, not translated.
+        var flag = FlagCodes.Create(
+            FlagCodes.UnreadablePages,
+            $"Page {region.Page}, {region.Area}: {region.Reason}",
+            parameters: FlagParams.Of((FlagParams.Reason, "region"), ("page", FlagParams.Number(region.Page)), ("area", region.Area), ("detail", region.Reason)));
         return RequiredHeaderFieldMissing(invoice) ? flag : flag with { Severity = FlagSeverity.Warning };
     }
 

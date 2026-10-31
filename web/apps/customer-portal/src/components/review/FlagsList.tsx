@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
 import { Badge, Button, cn } from "@docproc/ui";
+import { flagMessage } from "@docproc/app-shell";
 import type { DocumentFlag } from "@/lib/queries";
 import type { ValidationState } from "@/lib/validation";
 
@@ -31,7 +32,7 @@ export function sortFlags(flags: DocumentFlag[]): DocumentFlag[] {
 
 /** The flags strip at the top of the review screen; each entry jumps to its field. */
 export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, validation }: FlagsListProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (flags.length === 0) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="flags-empty" data-validation={validation}>
@@ -63,11 +64,14 @@ export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, 
               <Badge variant={flag.severity === "Blocking" ? "destructive" : flag.severity === "Warning" ? "outline" : "secondary"} className="shrink-0">
                 {t(`flagSeverity.${flag.severity}`)}
               </Badge>
-              {/* The code in the UI language (the raw code stays the tooltip); the message is the API's own text. */}
+              {/* Code and message in the UI language (the raw code stays the tooltip); an unknown code, or a flag stored
+                  without parameters, shows the API's English message. */}
               <span className="shrink-0 text-xs font-medium text-muted-foreground" title={flag.code} data-code={flag.code}>
                 {t(`flagCodes.${flag.code}`, { defaultValue: flag.code })}
               </span>
-              <span className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">{flag.message}</span>
+              <span className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">
+                {flagMessage(flag, { language: i18n.language, fieldLabel, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) })}
+              </span>
               {flag.field && <span className="min-w-0 text-xs break-words sm:shrink-0 text-muted-foreground underline-offset-2 hover:underline">{fieldLabel(flag.field)}</span>}
               {flag.resolvedAt && <Badge variant="secondary">{t("review.flags.resolved")}</Badge>}
             </Button>

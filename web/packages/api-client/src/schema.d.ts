@@ -897,6 +897,12 @@ export interface components {
             id: number | string;
             toStatus: null | components["schemas"]["DocumentStatus"];
         };
+        /**
+         * @description One flag of a document. `Message` is English for API clients; `Params` holds the same facts as invariant
+         *     strings (field paths, ISO dates, amounts and ratios with a dot, `reason` naming the message variant) so a UI can
+         *     phrase the flag in its own language from `Code` (docs/02 §5 "Flag parameters"). Empty for a flag without
+         *     parameters, and for flags stored before parameters existed: show `Message` then.
+         */
         DocumentFlagDto: {
             code: string;
             /** Format: date-time */
@@ -906,6 +912,9 @@ export interface components {
             /** Format: uuid */
             id: string;
             message: string;
+            params: {
+                [key: string]: string;
+            };
             /** Format: date-time */
             resolvedAt: null | string;
             resolvedBy: null | string;

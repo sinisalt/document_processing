@@ -417,6 +417,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("Params")
+                        .HasColumnType("json");
+
                     b.Property<DateTimeOffset?>("ResolvedAt")
                         .HasColumnType("datetimeoffset");
 

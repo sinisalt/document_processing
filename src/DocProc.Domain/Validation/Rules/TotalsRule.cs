@@ -30,7 +30,8 @@ public sealed class TotalsRule : IInvoiceRule
                     yield return FlagCodes.Create(
                         FlagCodes.TotalsMismatch,
                         $"Lines sum to {Fmt(sum)} but the subtotal is {Fmt(subtotal)}.",
-                        "subtotalNet");
+                        "subtotalNet",
+                        FlagParams.Of((FlagParams.Reason, "lines"), ("sum", FlagParams.Amount(sum)), ("subtotal", FlagParams.Amount(subtotal))));
                 }
             }
         }
@@ -47,7 +48,8 @@ public sealed class TotalsRule : IInvoiceRule
                 yield return FlagCodes.Create(
                     FlagCodes.TotalsMismatch,
                     $"Net {Fmt(net)} plus tax {Fmt(tax)} is {Fmt(net + tax)}, but the gross total is {Fmt(gross)}.",
-                    "totalGross");
+                    "totalGross",
+                    FlagParams.Of((FlagParams.Reason, "gross"), ("net", FlagParams.Amount(net)), ("tax", FlagParams.Amount(tax)), ("sum", FlagParams.Amount(net + tax)), ("gross", FlagParams.Amount(gross))));
             }
         }
 
@@ -57,7 +59,8 @@ public sealed class TotalsRule : IInvoiceRule
             yield return FlagCodes.Create(
                 FlagCodes.TotalsMismatch,
                 $"Amount due {Fmt(invoice.AmountDue.Value!.Amount)} exceeds the gross total {Fmt(invoice.TotalGross.Value!.Amount)}.",
-                "amountDue");
+                "amountDue",
+                FlagParams.Of((FlagParams.Reason, "amountDue"), ("amountDue", FlagParams.Amount(invoice.AmountDue.Value!.Amount)), ("gross", FlagParams.Amount(invoice.TotalGross.Value!.Amount))));
         }
     }
 

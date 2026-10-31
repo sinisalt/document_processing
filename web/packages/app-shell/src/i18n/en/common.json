@@ -163,5 +163,70 @@
     "close": "Close",
     "refresh": "Refresh",
     "back": "Back"
+  },
+  "flagMessages": {
+    "UNREADABLE_PAGES": {
+      "region": "Page {{page}}, {{area}}: {{detail}}",
+      "noTextLayer": "The file has no text layer and OCR is not configured; only the AI has read these pages."
+    },
+    "TYPE_UNKNOWN": {
+      "default": "The document type could not be determined."
+    },
+    "SUPPLIER_UNMATCHED": {
+      "default": "No supplier of this tenant matched the document; a new supplier may be needed."
+    },
+    "CUSTOMER_MISMATCH": {
+      "vatId": "The customer VAT ID {{customerVatId}} does not match the tenant's {{tenantVatId}}.",
+      "noName": "The customer block has no name to compare with the tenant.",
+      "name": "The customer “{{customerName}}” does not look like the tenant “{{tenantName}}”."
+    },
+    "MISSING_REQUIRED": {
+      "notFound": "The required field {{field}} was not found.",
+      "unreadable": "The required field {{field}} could not be read.",
+      "supplierName": "The supplier name was not found.",
+      "taxBreakdown": "The document carries tax but no tax breakdown was found."
+    },
+    "TOTALS_MISMATCH": {
+      "lines": "The lines sum to {{sum}}, but the subtotal is {{subtotal}}.",
+      "gross": "Net {{net}} plus tax {{tax}} is {{sum}}, but the gross total is {{gross}}.",
+      "amountDue": "The amount due {{amountDue}} exceeds the gross total {{gross}}."
+    },
+    "TAX_MISMATCH": {
+      "row": "{{taxable}} at {{rate}} % should give {{expected}} tax, but {{printed}} is printed.",
+      "total": "The tax rows sum to {{sum}}, but the total tax is {{total}}.",
+      "taxable": "The taxable amounts sum to {{taxable}}, but the net subtotal is {{net}}."
+    },
+    "LINE_ARITHMETIC": {
+      "default": "Line {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, but the line net is {{actual}}."
+    },
+    "LOW_CONFIDENCE": {
+      "default": "{{field}} was read with {{confidence}} confidence, below the threshold of {{threshold}}."
+    },
+    "DUPLICATE_SUSPECTED": {
+      "default": "Another document of this supplier carries the number {{number}}."
+    },
+    "LLM_PROVIDER_UNAVAILABLE": {
+      "default": "The AI provider could not be used: {{detail}}"
+    },
+    "MULTI_DOCUMENT_SPLIT": {
+      "default_one": "The attachment was split into {{count}} document.",
+      "default_other": "The attachment was split into {{count}} documents."
+    },
+    "CURRENCY_INFERRED": {
+      "default": "No currency was printed; {{currency}} was assumed."
+    },
+    "DATE_IMPLAUSIBLE": {
+      "future": "The issue date {{issueDate}} is in the future.",
+      "tooOld": "The issue date {{issueDate}} is more than {{maxAgeDays}} days old.",
+      "dueBeforeIssue": "The due date {{dueDate}} is before the issue date {{issueDate}}.",
+      "servicePeriodInverted": "The service period ends before it starts."
+    },
+    "INVALID_VALUE": {
+      "currencyCode": "“{{currency}}” is not a valid ISO 4217 currency code.",
+      "currencyMismatch": "{{field}} is in {{currency}}, but the document currency is {{documentCurrency}}."
+    },
+    "UNSUPPORTED_TYPE": {
+      "default": "There is no extraction for the document type {{type}} yet; enter the data by hand."
+    }
   }
 }

@@ -189,5 +189,5 @@ internal sealed class NormalizeHandler(
     /// must reach a reviewer instead of being auto-approved on the LLM's say-so alone.
     /// </summary>
     private static DocumentFlag NoTextLayer() =>
-        FlagCodes.Create(FlagCodes.UnreadablePages, "No text layer and OCR is not configured; the pages have not been read by anything but the LLM.");
+        FlagCodes.Create(FlagCodes.UnreadablePages, "No text layer and OCR is not configured; the pages have not been read by anything but the LLM.", parameters: FlagParams.Of((FlagParams.Reason, "noTextLayer")));
 }

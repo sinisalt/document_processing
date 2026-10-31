@@ -20,6 +20,7 @@ import {
   formatDateTime,
   formatMoney,
   formatNumber,
+  flagMessage,
   formatPercent,
   queryKeys,
   unwrap,
@@ -74,7 +75,12 @@ function DocumentDetailPage() {
         flagHelper.accessor("severity", { header: t("document.flagSeverity"), cell: (info) => <Badge variant={flagSeverityVariant[info.getValue()]}>{t(`flagSeverity.${info.getValue()}`, { defaultValue: info.getValue() })}</Badge> }),
         flagHelper.accessor("code", { header: t("document.flagCode"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
         flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
-        flagHelper.accessor("message", { header: t("document.flagMessage") }),
+        // The message in the UI language from the flag's code and parameters; the API's English text for an unknown
+        // code or a flag stored without parameters. Paths stay paths here: they are the field column's vocabulary.
+        flagHelper.accessor("message", {
+          header: t("document.flagMessage"),
+          cell: (info) => flagMessage(info.row.original, { language: i18n.language, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) }),
+        }),
         flagHelper.accessor("createdBy", { header: t("document.flagOrigin"), cell: (info) => t(`flagOrigin.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         flagHelper.accessor("resolvedAt", { header: t("document.flagResolved"), sortFn: "datetime", cell: (info) => (info.getValue() ? `${formatDateTime(info.getValue(), i18n.language)}${info.row.original.resolvedBy ? ` · ${info.row.original.resolvedBy}` : ""}` : t("document.flagOpen")) }),
       ]),

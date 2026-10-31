@@ -47,6 +47,7 @@ internal sealed class DocumentFlagConfiguration : IEntityTypeConfiguration<Docum
         b.Property(f => f.Field).HasMaxLength(200);
         b.Property(f => f.Message).HasMaxLength(1000);
         b.Property(f => f.ResolvedBy).HasMaxLength(200);
+        b.Property(f => f.Params!).AsJson();
         b.HasIndex(f => new { f.DocumentId, f.ResolvedAt });
         b.HasIndex(f => new { f.TenantId, f.Code });
         b.HasOne(f => f.Document).WithMany(d => d.Flags).HasForeignKey(f => f.DocumentId);

@@ -95,7 +95,7 @@ internal sealed class SplitHandler(
         var pageStart = document.PageStart;
         var imageKeys = document.PageImageKeys.ToList();
         var siblings = new List<ProcessDocument>();
-        var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.");
+        var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.", Params: FlagParams.Of(("count", FlagParams.Number(ranges.Count))));
 
         // Stage 2's "no text layer" flag is about every page of the file, so each part carries it on.
         var inherited = document.Flags

@@ -100,12 +100,15 @@ public static class DocumentQueries
             d.Flags
                 .OrderBy(f => f.CreatedAt)
                 .ThenBy(f => f.Id)
-                .Select(f => new DocumentFlagDto(f.Id, f.Code, f.Severity, f.Field, f.Message, f.CreatedBy, f.CreatedAt, f.ResolvedAt, f.ResolvedBy))
+                .Select(f => new DocumentFlagDto(f.Id, f.Code, f.Severity, f.Field, f.Message, f.Params ?? NoParams, f.CreatedBy, f.CreatedAt, f.ResolvedAt, f.ResolvedBy))
                 .ToList(),
             new DocumentCostsDto(d.Costs.LlmInputTokens, d.Costs.LlmOutputTokens, d.Costs.LlmCacheReadTokens, d.Costs.OcrPages, d.Costs.EstimatedUsd, d.Costs.LlmProvider, d.Costs.LlmModel, d.Costs.KeyOwner),
             ingestion,
             Enumerable.Range(1, d.PageImageKeys.Count).Select(n => PageImageUrl(d.Id, n)).ToList());
     }
+
+    /// <summary>What a flag without parameters (or one stored before they existed) sends: <c>{}</c>, never null.</summary>
+    private static readonly IReadOnlyDictionary<string, string> NoParams = new Dictionary<string, string>();
 
     public static string PageImageUrl(Guid documentId, int page) => $"/api/v1/documents/{documentId}/pages/{page}.png";
 

@@ -104,9 +104,15 @@ public sealed class DocumentFlagRecord : ITenantScoped
     public DateTimeOffset? ResolvedAt { get; set; }
     public string? ResolvedBy { get; set; }
 
+    /// <summary>
+    /// <see cref="DocumentFlag.Params"/> as a json column; null for a flag without parameters (and for every flag
+    /// written before the column existed, which a UI then shows with its <see cref="Message"/>).
+    /// </summary>
+    public Dictionary<string, string>? Params { get; set; }
+
     public Document? Document { get; set; }
 
-    public DocumentFlag ToDomain() => new(Code, Severity, Message, Field, CreatedBy, ResolvedAt);
+    public DocumentFlag ToDomain() => new(Code, Severity, Message, Field, CreatedBy, ResolvedAt, Params);
 
     /// <summary>
     /// The record of a flag, with the message and field cut to their columns: messages quote model output (an
@@ -125,7 +131,13 @@ public sealed class DocumentFlagRecord : ITenantScoped
         CreatedBy = flag.CreatedBy,
         CreatedAt = at,
         ResolvedAt = flag.ResolvedAt,
+        Params = flag.Params is { Count: > 0 } parameters
+            ? parameters.ToDictionary(p => p.Key, p => Truncate(p.Value, MaxParamLength)!, StringComparer.Ordinal)
+            : null,
     };
+
+    /// <summary>A parameter value is cut like the message: some quote model output (an unreadable region's reason).</summary>
+    public const int MaxParamLength = MaxMessageLength;
 
     private static string? Truncate(string? value, int max) =>
         value is null || value.Length <= max ? value : value[..max];

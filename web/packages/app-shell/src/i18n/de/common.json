@@ -163,5 +163,70 @@
     "close": "Schließen",
     "refresh": "Aktualisieren",
     "back": "Zurück"
+  },
+  "flagMessages": {
+    "UNREADABLE_PAGES": {
+      "region": "Seite {{page}}, {{area}}: {{detail}}",
+      "noTextLayer": "Die Datei hat keine Textebene und OCR ist nicht eingerichtet; diese Seiten hat nur die KI gelesen."
+    },
+    "TYPE_UNKNOWN": {
+      "default": "Die Dokumentart konnte nicht bestimmt werden."
+    },
+    "SUPPLIER_UNMATCHED": {
+      "default": "Kein Lieferant dieses Mandanten passt zum Dokument; eventuell muss ein neuer Lieferant angelegt werden."
+    },
+    "CUSTOMER_MISMATCH": {
+      "vatId": "Die USt-IdNr. des Kunden {{customerVatId}} stimmt nicht mit der des Mandanten ({{tenantVatId}}) überein.",
+      "noName": "Der Kundenblock enthält keinen Namen, der mit dem Mandanten verglichen werden kann.",
+      "name": "Der Kunde „{{customerName}}“ sieht nicht nach dem Mandanten „{{tenantName}}“ aus."
+    },
+    "MISSING_REQUIRED": {
+      "notFound": "Das Pflichtfeld {{field}} wurde nicht gefunden.",
+      "unreadable": "Das Pflichtfeld {{field}} konnte nicht gelesen werden.",
+      "supplierName": "Der Name des Lieferanten wurde nicht gefunden.",
+      "taxBreakdown": "Das Dokument weist Steuer aus, aber keine Steueraufstellung wurde gefunden."
+    },
+    "TOTALS_MISMATCH": {
+      "lines": "Die Positionen ergeben {{sum}}, die Zwischensumme ist aber {{subtotal}}.",
+      "gross": "Netto {{net}} plus Steuer {{tax}} ergibt {{sum}}, der Bruttobetrag ist aber {{gross}}.",
+      "amountDue": "Der Zahlbetrag {{amountDue}} übersteigt den Bruttobetrag {{gross}}."
+    },
+    "TAX_MISMATCH": {
+      "row": "{{taxable}} zu {{rate}} % ergibt {{expected}} Steuer, gedruckt sind aber {{printed}}.",
+      "total": "Die Steuerzeilen ergeben {{sum}}, die Gesamtsteuer ist aber {{total}}.",
+      "taxable": "Die Bemessungsgrundlagen ergeben {{taxable}}, die Netto-Zwischensumme ist aber {{net}}."
+    },
+    "LINE_ARITHMETIC": {
+      "default": "Position {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, der Positionsbetrag ist aber {{actual}}."
+    },
+    "LOW_CONFIDENCE": {
+      "default": "{{field}} wurde mit {{confidence}} Sicherheit gelesen, unter dem Schwellenwert von {{threshold}}."
+    },
+    "DUPLICATE_SUSPECTED": {
+      "default": "Ein anderes Dokument dieses Lieferanten trägt die Nummer {{number}}."
+    },
+    "LLM_PROVIDER_UNAVAILABLE": {
+      "default": "Der KI-Anbieter konnte nicht verwendet werden: {{detail}}"
+    },
+    "MULTI_DOCUMENT_SPLIT": {
+      "default_one": "Der Anhang wurde in {{count}} Dokument aufgeteilt.",
+      "default_other": "Der Anhang wurde in {{count}} Dokumente aufgeteilt."
+    },
+    "CURRENCY_INFERRED": {
+      "default": "Es war keine Währung angegeben; {{currency}} wurde angenommen."
+    },
+    "DATE_IMPLAUSIBLE": {
+      "future": "Das Rechnungsdatum {{issueDate}} liegt in der Zukunft.",
+      "tooOld": "Das Rechnungsdatum {{issueDate}} ist mehr als {{maxAgeDays}} Tage alt.",
+      "dueBeforeIssue": "Das Fälligkeitsdatum {{dueDate}} liegt vor dem Rechnungsdatum {{issueDate}}.",
+      "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt."
+    },
+    "INVALID_VALUE": {
+      "currencyCode": "„{{currency}}“ ist kein gültiger ISO-4217-Währungscode.",
+      "currencyMismatch": "{{field}} ist in {{currency}}, die Dokumentwährung ist aber {{documentCurrency}}."
+    },
+    "UNSUPPORTED_TYPE": {
+      "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen."
+    }
   }
 }

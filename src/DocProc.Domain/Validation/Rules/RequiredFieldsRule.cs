@@ -13,20 +13,25 @@ public sealed class RequiredFieldsRule : IInvoiceRule
         {
             if (!field.HasValue)
             {
-                var why = field.Status == FieldStatus.Unreadable ? "could not be read" : "was not found";
-                yield return FlagCodes.Create(FlagCodes.MissingRequired, $"Required field '{path}' {why}.", path);
+                var unreadable = field.Status == FieldStatus.Unreadable;
+                var why = unreadable ? "could not be read" : "was not found";
+                yield return FlagCodes.Create(
+                    FlagCodes.MissingRequired,
+                    $"Required field '{path}' {why}.",
+                    path,
+                    FlagParams.Of((FlagParams.Reason, unreadable ? "unreadable" : "notFound"), ("field", path)));
             }
         }
 
         if (invoice.Supplier.HasValue && string.IsNullOrWhiteSpace(invoice.Supplier.Value!.Name))
         {
-            yield return FlagCodes.Create(FlagCodes.MissingRequired, "Supplier name was not found.", "supplier.name");
+            yield return FlagCodes.Create(FlagCodes.MissingRequired, "Supplier name was not found.", "supplier.name", FlagParams.Of((FlagParams.Reason, "supplierName")));
         }
 
         var taxable = invoice.TotalTax.HasValue && invoice.TotalTax.Value.Amount != 0;
         if (taxable && invoice.TaxBreakdown.Count == 0)
         {
-            yield return FlagCodes.Create(FlagCodes.MissingRequired, "The document carries tax but no tax breakdown was found.", "taxBreakdown");
+            yield return FlagCodes.Create(FlagCodes.MissingRequired, "The document carries tax but no tax breakdown was found.", "taxBreakdown", FlagParams.Of((FlagParams.Reason, "taxBreakdown")));
         }
     }
 

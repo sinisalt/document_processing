@@ -118,6 +118,31 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task Detail_flags_carry_their_parameters_and_an_empty_map_without_any()
+    {
+        var withParams = FlagCodes.Create(
+            FlagCodes.LowConfidence,
+            "'dueDate' has confidence 0.50, below the threshold 0.80.",
+            "dueDate",
+            FlagParams.Of(("field", "dueDate"), ("confidence", "0.50"), ("threshold", "0.80")));
+        var withoutParams = FlagCodes.Create(FlagCodes.SupplierUnmatched, "No supplier of the tenant matched the document; a new supplier may be needed.");
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { Flags = [withParams, withoutParams], ReviewTask = true });
+        using var reviewer = ReviewerA();
+
+        var json = JsonDocument.Parse(await (await reviewer.GetAsync(Document(seeded.DocumentId), Ct)).Content.ReadAsStringAsync(Ct)).RootElement;
+
+        var flags = json.GetProperty("flags").EnumerateArray().ToDictionary(f => f.GetProperty("code").GetString()!);
+        var low = flags["LOW_CONFIDENCE"];
+        low.GetProperty("message").GetString().ShouldBe("'dueDate' has confidence 0.50, below the threshold 0.80.");
+        var parameters = low.GetProperty("params");
+        parameters.GetProperty("field").GetString().ShouldBe("dueDate");
+        parameters.GetProperty("confidence").GetString().ShouldBe("0.50");
+        parameters.GetProperty("threshold").GetString().ShouldBe("0.80");
+        flags["SUPPLIER_UNMATCHED"].GetProperty("params").ValueKind.ShouldBe(JsonValueKind.Object);
+        flags["SUPPLIER_UNMATCHED"].GetProperty("params").EnumerateObject().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Detail_returns_the_canonical_model_with_provenance_flags_costs_and_origin()
     {
         var png = TestInvoices.FakePng();

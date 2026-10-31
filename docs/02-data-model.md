@@ -180,7 +180,7 @@ Stored with page images and text only; no header fields. Classified for the revi
 
 ```
 DocumentFlag
-  code, severity (Info | Warning | Blocking), field (optional), message, createdBy (Pipeline | Human), resolvedAt
+  code, severity (Info | Warning | Blocking), field (optional), message, params, createdBy (Pipeline | Human), resolvedAt
 ```
 
 Initial flag codes:
@@ -205,6 +205,34 @@ Initial flag codes:
 | DATE_IMPLAUSIBLE | Warning | issue date in the future or > 1 year old |
 | INVALID_VALUE | Warning | a value failed its type or format check (malformed currency code, amount in a different currency than the document) |
 | UNSUPPORTED_TYPE | Warning | the document type (purchase order, delivery note, statement, other) has no extraction path yet; the document goes to review without canonical data |
+
+### Flag parameters
+
+`message` is English, for API clients and logs. `params` (a string-to-string map, `{}` when a flag has none; a json
+column on `DocumentFlags`, null for flags stored before it existed) carries the same facts so the apps phrase the flag
+in the UI language from `code`. Values are invariant strings: field paths as `field`, ISO dates (`2026-10-31`),
+amounts and ratios with a dot and two decimals (`1234.50`, `0.80`), plain numbers as printed (`19`, `2.5`). A code
+that is phrased more than one way names the variant in `reason`. The apps translate `flagMessages.<CODE>.<reason>`
+(or `.default`) with these values, format dates and numbers for the locale, show `field` with its label, and fall back
+to `message` for an unknown code or variant or when a value the sentence needs is missing.
+
+| Code | `reason` | Other parameters |
+|---|---|---|
+| UNREADABLE_PAGES | `region` / `noTextLayer` | region: `page`, `area`, `detail` (the model's own words) |
+| TYPE_UNKNOWN, SUPPLIER_UNMATCHED | — | — |
+| CUSTOMER_MISMATCH | `vatId` / `noName` / `name` | vatId: `customerVatId`, `tenantVatId`; name: `customerName`, `tenantName` |
+| MISSING_REQUIRED | `notFound` / `unreadable` / `supplierName` / `taxBreakdown` | notFound, unreadable: `field` |
+| TOTALS_MISMATCH | `lines` / `gross` / `amountDue` | lines: `sum`, `subtotal`; gross: `net`, `tax`, `sum`, `gross`; amountDue: `amountDue`, `gross` |
+| TAX_MISMATCH | `row` / `total` / `taxable` | row: `taxable`, `rate`, `expected`, `printed`; total: `sum`, `total`; taxable: `taxable`, `net` |
+| LINE_ARITHMETIC | — | `line`, `quantity`, `unitPrice`, `expected`, `actual` |
+| LOW_CONFIDENCE | — | `field`, `confidence`, `threshold` |
+| DUPLICATE_SUSPECTED | — | `number` |
+| LLM_PROVIDER_UNAVAILABLE (and any stage failure that raises a flag) | — | `detail` (the provider's or runtime's English text) |
+| MULTI_DOCUMENT_SPLIT | — | `count` |
+| CURRENCY_INFERRED | — | `currency` |
+| DATE_IMPLAUSIBLE | `future` / `tooOld` / `dueBeforeIssue` / `servicePeriodInverted` | future: `issueDate`; tooOld: `issueDate`, `maxAgeDays`; dueBeforeIssue: `dueDate`, `issueDate` |
+| INVALID_VALUE | `currencyCode` / `currencyMismatch` | currencyCode: `currency`; currencyMismatch: `field`, `currency`, `documentCurrency` |
+| UNSUPPORTED_TYPE | — | `type` (the `DocumentType` name) |
 
 ## 6. Review and audit
 

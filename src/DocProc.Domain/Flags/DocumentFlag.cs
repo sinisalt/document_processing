@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Globalization;
 
 namespace DocProc.Domain.Flags;
 
@@ -15,14 +16,20 @@ public enum FlagOrigin
     Human,
 }
 
-/// <summary>Something the customer should see about a document: unreadable data, failed checks, informational notes.</summary>
+/// <summary>
+/// Something the customer should see about a document: unreadable data, failed checks, informational notes.
+/// <see cref="Message"/> is the English text for API clients; <see cref="Params"/> carries the same facts as invariant
+/// strings (field paths, ISO dates, amounts and ratios with a dot, and a <c>reason</c> naming the variant when a code
+/// has several messages), so a UI can say it in its own language (docs/02 §5 "Flag parameters").
+/// </summary>
 public sealed record DocumentFlag(
     string Code,
     FlagSeverity Severity,
     string Message,
     string? Field = null,
     FlagOrigin CreatedBy = FlagOrigin.Pipeline,
-    DateTimeOffset? ResolvedAt = null)
+    DateTimeOffset? ResolvedAt = null,
+    IReadOnlyDictionary<string, string>? Params = null)
 {
     public bool IsResolved => ResolvedAt is not null;
 
@@ -78,13 +85,51 @@ public static class FlagCodes
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);
 
     /// <summary>Creates a flag with the catalogue's default severity for the code.</summary>
-    public static DocumentFlag Create(string code, string message, string? field = null)
+    public static DocumentFlag Create(string code, string message, string? field = null, IReadOnlyDictionary<string, string>? parameters = null)
     {
         if (!Catalogue.TryGetValue(code, out var def))
         {
             throw new ArgumentException($"Unknown flag code '{code}'.", nameof(code));
         }
 
-        return new DocumentFlag(code, def.DefaultSeverity, message, field);
+        return new DocumentFlag(code, def.DefaultSeverity, message, field, Params: parameters is { Count: > 0 } ? parameters : null);
     }
+}
+
+/// <summary>
+/// Builds a flag's <see cref="DocumentFlag.Params"/>: invariant strings only, so a value reads the same in every
+/// culture and the UI formats it itself. Keys are camelCase; <see cref="Reason"/> names the message variant of a code
+/// that has several (docs/02 §5 "Flag parameters").
+/// </summary>
+public static class FlagParams
+{
+    /// <summary>The key that tells a code's message variants apart (<c>DATE_IMPLAUSIBLE</c>: <c>future</c>, <c>tooOld</c>, ...).</summary>
+    public const string Reason = "reason";
+
+    /// <summary>The pairs that have a value; a null value (an unknown VAT id, no number) is left out.</summary>
+    public static IReadOnlyDictionary<string, string> Of(params (string Key, string? Value)[] pairs)
+    {
+        var result = new Dictionary<string, string>(pairs.Length, StringComparer.Ordinal);
+        foreach (var (key, value) in pairs)
+        {
+            if (value is not null)
+            {
+                result[key] = value;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>A money amount with two decimals and a dot (<c>1234.50</c>).</summary>
+    public static string Amount(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>A confidence or threshold with two decimals (<c>0.80</c>).</summary>
+    public static string Ratio(double value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>An ISO date (<c>2026-10-31</c>).</summary>
+    public static string Date(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary>A plain number as printed (a quantity, a tax rate, a line or page number): invariant, no fixed decimals.</summary>
+    public static string Number(decimal value) => value.ToString(CultureInfo.InvariantCulture);
 }
