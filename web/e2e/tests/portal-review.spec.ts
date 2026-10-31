@@ -105,8 +105,9 @@ test.describe("customer portal review flow", () => {
     await expect(page.getByTestId("document-total")).toHaveText("€142.80");
     const form = page.getByRole("form", { name: "Canonical data" });
     await expect(form.getByLabel("Invoice number")).toHaveValue(number);
-    await expect(form.getByLabel("Total (gross)")).toHaveValue("142.8");
-    await expect(form.getByLabel("Subtotal (net)")).toHaveValue("130");
+    // Amounts as the invoice prints them, with two decimals.
+    await expect(form.getByLabel("Total (gross)")).toHaveValue("142.80");
+    await expect(form.getByLabel("Subtotal (net)")).toHaveValue("130.00");
     await expect(form.locator('[data-section="supplier"]').getByLabel("VAT ID")).toHaveValue(SUPPLIER_VAT);
     const grid = page.getByTestId("line-item-grid");
     await expect(grid.getByRole("table", { name: "Line items" })).toBeVisible();

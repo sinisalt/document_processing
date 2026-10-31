@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { setByPath } from "@docproc/app-shell";
-import { allSpecs, fieldDomId, formName, pathOfFormName, toFormValues, type CanonicalInvoice } from "./canonical";
+import { allSpecs, fieldDomId, formName, pathOfFormName, toEditable, toFormValues, type CanonicalInvoice } from "./canonical";
 import { diffCorrections, parseAmount, sameValue, toCorrectionValue } from "./corrections";
 
 const canonical: CanonicalInvoice = {
@@ -34,7 +34,29 @@ describe("toFormValues", () => {
     expect(values.notes).toBe("");
     expect((values.orderReferences as unknown[])[0]).toBe("PO-7781");
     expect((values.lines as Array<Record<string, unknown>>)[0]?.quantity).toBe("12.5");
-    expect((values.lines as Array<Record<string, unknown>>)[0]?.unitPrice).toBe("18.4");
+    // An amount as the invoice prints it, two decimals; a quantity with the decimals it has.
+    expect((values.lines as Array<Record<string, unknown>>)[0]?.unitPrice).toBe("18.40");
+    expect((values.lines as Array<Record<string, unknown>>)[0]?.lineNet).toBe("230.00");
+  });
+
+  it("writes numbers with the UI language's decimal mark", () => {
+    const values = toFormValues(canonical, allSpecs(canonical), "de") as Record<string, unknown>;
+    expect(values.totalGross).toBe("437,99");
+    expect((values.lines as Array<Record<string, unknown>>)[0]?.quantity).toBe("12,5");
+    expect((values.lines as Array<Record<string, unknown>>)[0]?.unitPrice).toBe("18,40");
+    // Never grouped: "1.234" would read back as 1.234 in English.
+    expect(toEditable("money", { amount: 1234.5, currency: "EUR" }, "en")).toBe("1234.50");
+    expect(toEditable("money", 0.0125, "de")).toBe("0,0125");
+    expect(toEditable("number", 7, "de")).toBe("7");
+    expect(toEditable("number", "2.4", "de")).toBe("2,4");
+    expect(toEditable("number", "n/a", "de")).toBe("n/a");
+  });
+
+  it("finds no change in untouched German amounts", () => {
+    const specs = allSpecs(canonical);
+    const initial = toFormValues(canonical, specs, "de");
+    expect(diffCorrections(specs, initial, structuredClone(initial))).toEqual([]);
+    expect(diffCorrections(specs, initial, setByPath(initial, "lines[0].unitPrice", "18,41"))).toEqual([{ path: "lines[0].unitPrice", value: 18.41, reason: null }]);
   });
 });
 

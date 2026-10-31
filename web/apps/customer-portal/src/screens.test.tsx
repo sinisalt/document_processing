@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { hasPolicy, type AuthUser, type Policy } from "@docproc/app-shell";
+import { TooltipProvider } from "@docproc/ui";
 import { i18n } from "@/i18n";
 
 /**
@@ -48,11 +49,14 @@ async function renderRoute(route: { Route: unknown }) {
   const Component = (route.Route as { options: { component: ComponentType & { preload?: () => Promise<void> } } }).options.component;
   await Component.preload?.();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // TooltipProvider as AppProviders sets it up around every screen.
   render(
     <QueryClientProvider client={queryClient}>
-      <Suspense fallback={<p>loading</p>}>
-        <Component />
-      </Suspense>
+      <TooltipProvider>
+        <Suspense fallback={<p>loading</p>}>
+          <Component />
+        </Suspense>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   await waitFor(() => expect(screen.queryByText("loading")).not.toBeInTheDocument(), { timeout: 10_000 });

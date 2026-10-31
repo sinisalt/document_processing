@@ -225,6 +225,17 @@ describe("review screen empty flag list", () => {
     await waitFor(() => expect(screen.getByTestId("flags-empty")).toHaveTextContent("No flags: every validation rule passed."));
   });
 
+  it("says why a document without flags waits for review, and offers no flag keys", async () => {
+    routes.set("/api/v1/documents/{id}/events", () => ({
+      status: 200,
+      data: [event(1, "document.stage_completed", "Extracted", "Validated"), { ...event(2, "document.review_requested", "Validated", "NeedsReview"), details: { reason: "ALWAYS_REVIEW" } }],
+    }));
+    renderScreen(documentOf({ flags: [], blockingFlagCount: 0, warningFlagCount: 0 }));
+    await waitFor(() => expect(screen.getByTestId("review-reason")).toHaveTextContent("Waiting for review: Supplier is always reviewed."));
+    expect(screen.getByRole("heading", { name: "0 flags" })).toBeInTheDocument();
+    expect(screen.queryByText(/press j \/ k/)).not.toBeInTheDocument();
+  });
+
   it("does not claim a pass after a correction the API has not re-validated", async () => {
     routes.set("/api/v1/documents/{id}/events", () => ({
       status: 200,
@@ -364,6 +375,20 @@ describe("review screen page follow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
     fireEvent.mouseEnter(input("totalGross"));
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+  });
+
+  it("keeps the focused field highlighted when the pointer crosses another field", () => {
+    renderScreen(documentOf());
+    const root = screen.getByTestId("review-screen");
+    fireEvent.focus(input("invoiceNumber"));
+    expect(root).toHaveAttribute("data-highlighted", "invoiceNumber");
+    fireEvent.mouseEnter(input("totalGross"));
+    expect(root).toHaveAttribute("data-highlighted", "totalGross");
+    // Leaving the hovered field falls back to the focused one instead of clearing the highlight.
+    fireEvent.mouseLeave(input("totalGross"));
+    expect(root).toHaveAttribute("data-highlighted", "invoiceNumber");
+    fireEvent.blur(input("invoiceNumber"));
+    expect(root).not.toHaveAttribute("data-highlighted");
   });
 });
 

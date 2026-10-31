@@ -130,7 +130,7 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
                   <FormItem>
                     <FormLabel>{t("settings.general.retention")}</FormLabel>
                     <FormControl>
-                      <Input type="number" min={1} max={30} name={field.name} ref={field.ref} onBlur={field.onBlur} value={Number.isNaN(field.value) ? "" : String(field.value)} onChange={(event) => field.onChange(event.target.value === "" ? Number.NaN : Number(event.target.value))} disabled={!canEdit} className="w-32" />
+                      <Input type="number" min={1} max={30} name={field.name} ref={field.ref} onBlur={field.onBlur} value={Number.isNaN(field.value) ? "" : String(field.value)} onChange={(event) => field.onChange(event.target.value === "" ? Number.NaN : Number(event.target.value))} disabled={!canEdit} className="w-24 text-right tabular-nums" />
                     </FormControl>
                     <FormDescription>{t("settings.general.retentionHint")}</FormDescription>
                     <FormMessage />

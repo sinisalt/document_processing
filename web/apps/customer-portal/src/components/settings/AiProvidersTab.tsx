@@ -49,6 +49,8 @@ import {
 } from "@docproc/ui";
 import { ApiError, ConfirmDialog, DataTable, EmptyState, createDataTableColumnHelper, formatDate, formatMoney, formatNumber, queryKeys, relativeTime, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type LlmPolicy, type LlmProvider } from "@/lib/queries";
+import { usageDays } from "@/lib/usage";
+import { SectionIntro } from "./SectionIntro";
 
 /** `LlmProviderKind` without the test-only Replay kind; `LlmStage`; `DataResidency`. */
 export const providerKinds = ["Anthropic", "AnthropicFoundry", "OpenAi", "AzureOpenAi", "OpenAiCompatible"] as const;
@@ -204,99 +206,37 @@ export function AiProvidersTab() {
   );
 
   const chartConfig: ChartConfig = { calls: { label: t("settings.ai.usage.calls"), color: "var(--chart-1)" } };
-  const chartData = useMemo(() => (usage.data?.buckets ?? []).map((bucket) => ({ day: bucket.key, calls: Number(bucket.calls), cost: Number(bucket.estimatedCostUsd), tokens: Number(bucket.inputTokens) + Number(bucket.outputTokens) })), [usage.data]);
+  // Every day of the window the card names, not only the days with calls: the axis matches "Oct 1 – Oct 31".
+  const chartData = useMemo(() => usageDays(usage.data?.buckets ?? [], usage.data?.from, usage.data?.to), [usage.data]);
+  const usedDays = useMemo(() => chartData.filter((day) => day.calls > 0), [chartData]);
 
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div>
-            <CardTitle>{t("settings.ai.providersTitle")}</CardTitle>
-            <CardDescription>{t("settings.ai.providersDescription")}</CardDescription>
-          </div>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <Button onClick={() => setAddOpen(true)}>
-              <Plus aria-hidden />
-              {t("settings.ai.add")}
-            </Button>
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>{t("settings.ai.addTitle")}</DialogTitle>
-                <DialogDescription>{t("settings.ai.addDescription")}</DialogDescription>
-              </DialogHeader>
-              <Form {...providerForm}>
-                <form id="add-provider-form" onSubmit={providerForm.handleSubmit((values) => create.mutate(values))} className="flex flex-col gap-4">
-                  <FormField
-                    control={providerForm.control}
-                    name="kind"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("settings.ai.fields.kind")}</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {providerKinds.map((kind) => (
-                              <SelectItem key={kind} value={kind}>
-                                {t(`settings.ai.kinds.${kind}`)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={providerForm.control}
-                    name="apiKey"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("settings.ai.fields.apiKey")}</FormLabel>
-                        <FormControl>
-                          <Input type="password" autoComplete="off" {...field} />
-                        </FormControl>
-                        <FormDescription>{t("settings.ai.fields.apiKeyHint")}</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {/* A list like Channels, Members and API keys: the same plain heading, not a card of its own. */}
+      <section className="flex flex-col gap-4" aria-labelledby="ai-providers-title">
+        <SectionIntro
+          id="ai-providers-title"
+          title={t("settings.ai.providersTitle")}
+          description={t("settings.ai.providersDescription")}
+          action={
+            <Dialog open={addOpen} onOpenChange={setAddOpen}>
+              <Button onClick={() => setAddOpen(true)}>
+                <Plus aria-hidden />
+                {t("settings.ai.add")}
+              </Button>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>{t("settings.ai.addTitle")}</DialogTitle>
+                  <DialogDescription>{t("settings.ai.addDescription")}</DialogDescription>
+                </DialogHeader>
+                <Form {...providerForm}>
+                  <form id="add-provider-form" onSubmit={providerForm.handleSubmit((values) => create.mutate(values))} className="flex flex-col gap-4">
                     <FormField
                       control={providerForm.control}
-                      name="endpoint"
+                      name="kind"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("settings.ai.fields.endpoint")}</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="https://" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={providerForm.control}
-                      name="apiVersion"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("settings.ai.fields.apiVersion")}</FormLabel>
-                          <FormControl>
-                            <Input {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={providerForm.control}
-                      name="dataResidency"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("settings.ai.fields.dataResidency")}</FormLabel>
+                          <FormLabel>{t("settings.ai.fields.kind")}</FormLabel>
                           <Select value={field.value} onValueChange={field.onChange}>
                             <FormControl>
                               <SelectTrigger>
@@ -304,9 +244,9 @@ export function AiProvidersTab() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {dataResidencies.map((value) => (
-                                <SelectItem key={value} value={value}>
-                                  {t(`settings.ai.residencies.${value}`)}
+                              {providerKinds.map((kind) => (
+                                <SelectItem key={kind} value={kind}>
+                                  {t(`settings.ai.kinds.${kind}`)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -317,54 +257,118 @@ export function AiProvidersTab() {
                     />
                     <FormField
                       control={providerForm.control}
-                      name="monthlySpendCapUsd"
+                      name="apiKey"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>{t("settings.ai.fields.cap")}</FormLabel>
+                          <FormLabel>{t("settings.ai.fields.apiKey")}</FormLabel>
                           <FormControl>
-                            <Input type="number" min={0} step="1" {...field} />
+                            <Input type="password" autoComplete="off" {...field} />
                           </FormControl>
+                          <FormDescription>{t("settings.ai.fields.apiKeyHint")}</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
-                  <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <legend className="mb-1 text-sm font-medium">{t("settings.ai.fields.models")}</legend>
-                    {llmStages.map((stage) => (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <FormField
-                        key={stage}
                         control={providerForm.control}
-                        name={`models.${stage}`}
+                        name="endpoint"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs text-muted-foreground">{t(`stages.${stage}`)}</FormLabel>
+                            <FormLabel>{t("settings.ai.fields.endpoint")}</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder={t("settings.ai.fields.modelPlaceholder")} />
+                              <Input {...field} placeholder="https://" />
                             </FormControl>
+                            <FormMessage />
                           </FormItem>
                         )}
                       />
-                    ))}
-                  </fieldset>
-                </form>
-              </Form>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
-                  {t("common:dialog.cancel")}
-                </Button>
-                <Button type="submit" form="add-provider-form" disabled={create.isPending} aria-busy={create.isPending}>
-                  {create.isPending && <Loader2 className="animate-spin" aria-hidden />}
-                  {t("settings.ai.add")}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-        <CardContent>
-          <DataTable columns={columns} data={providers.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={providers.isPending} query={providers} caption={t("settings.ai.caption")} emptyTitle={t("settings.ai.empty")} emptyDescription={t("settings.ai.emptyDescription")} />
-        </CardContent>
-      </Card>
+                      <FormField
+                        control={providerForm.control}
+                        name="apiVersion"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("settings.ai.fields.apiVersion")}</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={providerForm.control}
+                        name="dataResidency"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("settings.ai.fields.dataResidency")}</FormLabel>
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {dataResidencies.map((value) => (
+                                  <SelectItem key={value} value={value}>
+                                    {t(`settings.ai.residencies.${value}`)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={providerForm.control}
+                        name="monthlySpendCapUsd"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("settings.ai.fields.cap")}</FormLabel>
+                            <FormControl>
+                              <Input type="number" min={0} step="1" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <legend className="mb-1 text-sm font-medium">{t("settings.ai.fields.models")}</legend>
+                      {llmStages.map((stage) => (
+                        <FormField
+                          key={stage}
+                          control={providerForm.control}
+                          name={`models.${stage}`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs text-muted-foreground">{t(`stages.${stage}`)}</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder={t("settings.ai.fields.modelPlaceholder")} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      ))}
+                    </fieldset>
+                  </form>
+                </Form>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                    {t("common:dialog.cancel")}
+                  </Button>
+                  <Button type="submit" form="add-provider-form" disabled={create.isPending} aria-busy={create.isPending}>
+                    {create.isPending && <Loader2 className="animate-spin" aria-hidden />}
+                    {t("settings.ai.add")}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          }
+        />
+        <DataTable columns={columns} data={providers.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={providers.isPending} query={providers} caption={t("settings.ai.caption")} emptyTitle={t("settings.ai.empty")} emptyDescription={t("settings.ai.emptyDescription")} />
+      </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
@@ -452,7 +456,7 @@ export function AiProvidersTab() {
                 </div>
               </dl>
             )}
-            {chartData.length === 0 ? (
+            {usedDays.length === 0 ? (
               <EmptyState title={t("settings.ai.usage.empty")} description={t("settings.ai.usage.emptyDescription")} className="py-8" />
             ) : (
               <>
@@ -478,7 +482,7 @@ export function AiProvidersTab() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {chartData.map((row) => (
+                      {usedDays.map((row) => (
                         <TableRow key={row.day}>
                           <TableCell>{formatDate(row.day, i18n.language)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatNumber(row.calls, i18n.language)}</TableCell>

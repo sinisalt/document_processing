@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight } from "lucide-react";
 import { Skeleton } from "@docproc/ui";
-import { EmptyState, StatusBadge, formatDateTime } from "@docproc/app-shell";
+import { EmptyState, StatusBadge, formatDateTime, formatPercent } from "@docproc/app-shell";
 import { useDocumentEvents } from "@/lib/queries";
 
 /** Actors the pipeline writes (`DocumentTimeline.Actor`); a person's name is shown as stored. */
@@ -14,17 +14,37 @@ export function humanizeKey(key: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** An event's details as label/value pairs: scalars as text, yes/no for flags, lists joined, nested objects as compact JSON. */
-export function detailEntries(details: unknown, words: { yes: string; no: string } = { yes: "yes", no: "no" }): Array<[string, string]> {
+/** Detail keys whose values are flag codes (`ValidateHandler`: flags, openFlags; a flag event's code). */
+const FLAG_CODE_KEYS = new Set(["flags", "openFlags", "code"]);
+/** Detail keys whose values are ratios 0..1 (the auto-approve threshold, classification and match confidences). */
+const RATIO_KEYS = new Set(["threshold", "confidence", "heuristicConfidence"]);
+
+export interface DetailFormat {
+  yes: string;
+  no: string;
+  /** A flag code's name ("LOW_CONFIDENCE" → "Low confidence"), as the flag list shows it. */
+  flagCode?: (code: string) => string;
+  /** A ratio as a percentage (0.8 → "80%"), as the flag list writes the threshold. */
+  percent?: (ratio: number) => string;
+}
+
+/**
+ * An event's details as label/value pairs: scalars as text, yes/no for flags, lists joined, nested objects as compact
+ * JSON; flag codes by their names and ratios as percentages when the formatters are given, so the details say what
+ * the screen above them says.
+ */
+export function detailEntries(details: unknown, format: DetailFormat = { yes: "yes", no: "no" }): Array<[string, string]> {
   if (!details || typeof details !== "object" || Array.isArray(details)) return [];
+  const scalar = (key: string, value: unknown): string => {
+    if (typeof value === "object") return JSON.stringify(value);
+    if (typeof value === "boolean") return value ? format.yes : format.no;
+    if (FLAG_CODE_KEYS.has(key) && typeof value === "string" && format.flagCode) return format.flagCode(value);
+    if (RATIO_KEYS.has(key) && typeof value === "number" && Number.isFinite(value) && format.percent) return format.percent(value);
+    return String(value);
+  };
   return Object.entries(details as Record<string, unknown>)
-    .filter(([, value]) => value !== null && value !== undefined && value !== "")
-    .map(([key, value]): [string, string] => {
-      if (Array.isArray(value)) return [key, value.map((item) => (typeof item === "object" ? JSON.stringify(item) : String(item))).join(", ")];
-      if (typeof value === "object") return [key, JSON.stringify(value)];
-      if (typeof value === "boolean") return [key, value ? words.yes : words.no];
-      return [key, String(value)];
-    });
+    .filter(([, value]) => value !== null && value !== undefined && value !== "" && !(Array.isArray(value) && value.length === 0))
+    .map(([key, value]): [string, string] => [key, Array.isArray(value) ? value.map((item) => scalar(key, item)).join(", ") : scalar(key, value)]);
 }
 
 /** The Timeline tab: `GET /documents/{id}/events`, oldest first, with each event's details collapsible. */
@@ -46,7 +66,12 @@ export function Timeline({ documentId, enabled }: { documentId: string; enabled:
   return (
     <ol className="relative flex flex-col gap-3 border-l pl-4" aria-label={t("review.timeline.title")} data-testid="timeline">
       {events.data.map((event) => {
-        const details = detailEntries(event.details, { yes: t("review.timeline.yes"), no: t("review.timeline.no") });
+        const details = detailEntries(event.details, {
+          yes: t("review.timeline.yes"),
+          no: t("review.timeline.no"),
+          flagCode: (code) => t(`flagCodes.${code}`, { defaultValue: code }),
+          percent: (ratio) => formatPercent(ratio, i18n.language),
+        });
         const actor = event.actor && SYSTEM_ACTORS.has(event.actor.toLowerCase()) ? t(`review.timeline.actors.${event.actor.toLowerCase()}`) : event.actor;
         return (
           <li key={String(event.id)} className="relative text-sm">

@@ -282,6 +282,8 @@
       "title_one": "{{count}} flag",
       "title_other": "{{count}} flags",
       "hint": "Click a flag or press j / k to jump to its field.",
+      "hintTouch": "Tap a flag to jump to its field.",
+      "reviewReason": "Waiting for review: {{reason}}.",
       "none": "No flags: every validation rule passed.",
       "resolved": "Resolved",
       "notValidated": "Not validated yet: flags appear once the document has passed the Validate stage.",
@@ -414,8 +416,8 @@
         "alwaysReview": "Always review",
         "threshold": "Threshold"
       },
-      "yes": "yes",
-      "no": "no"
+      "yes": "Yes",
+      "no": "No"
     },
     "original": {
       "fileName": "File",
@@ -435,7 +437,7 @@
     "columns": {
       "reason": "Reason",
       "status": "Task status",
-      "slaDue": "Due",
+      "slaDue": "Review due",
       "actions": "Actions",
       "task": "Task"
     },
