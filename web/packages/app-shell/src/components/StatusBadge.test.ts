@@ -9,6 +9,12 @@ describe("status colours", () => {
     expect(reviewTaskStatusVariant.Open).toBe("warning");
     expect(Object.entries(documentStatusVariant).filter(([, variant]) => variant === "destructive").map(([status]) => status)).toEqual(["Failed"]);
   });
+
+  it("shows approvals as a calm green, not the loud primary pill", () => {
+    expect(documentStatusVariant.AutoApproved).toBe("success");
+    expect(documentStatusVariant.Approved).toBe("success");
+    expect(Object.values(documentStatusVariant)).not.toContain("default");
+  });
 });
 
 describe("tenantLabel", () => {

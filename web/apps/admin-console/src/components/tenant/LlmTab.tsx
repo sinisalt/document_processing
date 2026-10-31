@@ -52,18 +52,19 @@ function PolicyForm({ policy, providers }: { policy: Policy; providers: LlmProvi
       <div className="grid gap-2">
         <Label htmlFor="policy-default">{t("llm.policyDefault")}</Label>
         {providerSelect("policy-default", defaultConfigId, setDefaultConfigId, t("llm.policyDefault"))}
-        <p className="text-xs text-muted-foreground">{t("llm.policyDefaultHint")}</p>
+        {/* Hints at the Settings tab's FormDescription size (text-sm), so the two tenant forms read as one style. */}
+        <p className="text-sm text-muted-foreground">{t("llm.policyDefaultHint")}</p>
       </div>
       <div className="flex items-center justify-between gap-4 rounded-md border p-3">
         <div>
           <Label htmlFor="policy-fallback">{t("llm.policyFallback")}</Label>
-          <p className="text-xs text-muted-foreground">
+          <p id="policy-fallback-hint" className="text-sm text-muted-foreground">
             {t("llm.policyFallbackHint")}{" "}
             {/* The switch shows an allowed fallback; only the platform's veto, which also disables it, needs saying. */}
             {!policy.allowPlatformKeyAtAll && <Badge variant="destructive">{t("llm.platformKeyForbidden")}</Badge>}
           </p>
         </div>
-        <Switch id="policy-fallback" checked={fallback} onCheckedChange={setFallback} disabled={!policy.allowPlatformKeyAtAll} />
+        <Switch id="policy-fallback" aria-describedby="policy-fallback-hint" checked={fallback} onCheckedChange={setFallback} disabled={!policy.allowPlatformKeyAtAll} />
       </div>
       <fieldset className="grid gap-3 rounded-md border p-3">
         <legend className="px-1 text-sm font-medium">{t("llm.policyOverrides")}</legend>
@@ -111,7 +112,7 @@ export function LlmTab() {
           <CardDescription>{t("llm.tenantProvidersDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <ProviderTable providers={providers.data} isLoading={providers.isPending} query={providers} scope="tenant" queryKey={queryKeys.llm.providers()} canManage toolbar={<AddProviderDialog scope="tenant" queryKey={queryKeys.llm.providers()} />} />
+          <ProviderTable providers={providers.data} isLoading={providers.isPending} query={providers} scope="tenant" queryKey={queryKeys.llm.providers()} canManage actions={<AddProviderDialog scope="tenant" queryKey={queryKeys.llm.providers()} />} />
         </CardContent>
       </Card>
       <Card>

@@ -60,7 +60,7 @@ function TenantsPage() {
 
   return (
     <>
-      <PageHeader title={t("tenants.title")} description={t("tenants.description")} actions={hasPolicy(Policies.PlatformAdmin) ? <TenantFormDialog /> : undefined} />
+      <PageHeader title={t("tenants.title")} description={t("tenants.description")} />
       <DataTable
         columns={columns}
         data={tenants.items}
@@ -71,6 +71,7 @@ function TenantsPage() {
         emptyDescription={t("tenants.emptyDescription")}
         initialColumnVisibility={{ legalName: false }}
         enableColumnVisibility
+        actions={hasPolicy(Policies.PlatformAdmin) ? <TenantFormDialog /> : undefined}
         toolbar={
           <>
             <div className="relative w-full sm:w-auto">

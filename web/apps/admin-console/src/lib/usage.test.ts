@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisLabel, daysBetween, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, niceTicks, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
+import { axisLabel, daysBetween, defaultUsageSorting, usageBucketSortValue, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, niceTicks, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
 
 function bucket(key: string, overrides: Partial<LlmUsageBucket> = {}): LlmUsageBucket {
   return { key, calls: 10, errors: 1, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50, cacheWriteTokens: 25, reasoningTokens: 5, estimatedCostUsd: 0.5, ...overrides };
@@ -105,5 +105,25 @@ describe("axisLabel", () => {
     expect(axisLabel("Gasthaus zur Post GmbH", 6)).toBe("Gasthaus zur Post…");
     expect(axisLabel("Gasthaus zur Post GmbH", 30)).toBe("Gasthaus zur…");
     expect(axisLabel("2026-10-21", 30)).toBe("2026-10-21");
+  });
+});
+
+describe("usage table order", () => {
+  it("lists days in calendar order like the chart, every other grouping by cost", () => {
+    expect(defaultUsageSorting("day")).toEqual([{ id: "label", desc: false }]);
+    expect(defaultUsageSorting("tenant")).toEqual([{ id: "costUsd", desc: true }]);
+    expect(defaultUsageSorting("stage")).toEqual([{ id: "costUsd", desc: true }]);
+    expect(defaultUsageSorting("model")).toEqual([{ id: "costUsd", desc: true }]);
+  });
+
+  it("sorts a day by its ISO key, not its formatted label", () => {
+    const days = [
+      { key: "2026-11-01", label: "Nov 1, 2026" },
+      { key: "2026-10-31", label: "Oct 31, 2026" },
+      { key: "2026-10-05", label: "Oct 5, 2026" },
+    ];
+    const order = (groupBy: "day" | "model") => [...days].sort((a, b) => usageBucketSortValue(a, groupBy).localeCompare(usageBucketSortValue(b, groupBy))).map((d) => d.key);
+    expect(order("day")).toEqual(["2026-10-05", "2026-10-31", "2026-11-01"]);
+    expect(usageBucketSortValue({ key: "gpt-4.1", label: "GPT 4.1" }, "model")).toBe("GPT 4.1");
   });
 });

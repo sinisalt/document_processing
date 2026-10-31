@@ -53,6 +53,17 @@ describe("/review", () => {
     expect(within(row("OTHER-1")).getByText("Pizzeria Napoli")).toBeInTheDocument();
   });
 
+  it("names who holds a task under its status, with the assignee column one click away in Columns", async () => {
+    serve(devUsers.operator);
+    renderScreen(<Queue />);
+
+    await screen.findByText("OPEN-1");
+    expect(within(row("MINE-1")).getByTestId("task-assignee")).toHaveTextContent("You");
+    expect(within(row("OTHER-1")).getByTestId("task-assignee")).toHaveTextContent("anna");
+    expect(within(row("OPEN-1")).queryByTestId("task-assignee")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /Assigned to/ })).not.toBeInTheDocument();
+  });
+
   it("as superadmin: releasing someone else's task asks first", async () => {
     serve({ ...devUsers.superadmin, name: "operator" });
     renderScreen(<Queue />);

@@ -77,6 +77,8 @@ public static class DocumentQueries
 
         return new DocumentDetail(
             d.Id,
+            d.TenantId,
+            row.TenantName,
             d.Status,
             d.Type,
             d.TypeConfidence,

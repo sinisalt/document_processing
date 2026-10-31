@@ -17,6 +17,7 @@ import {
   formatDateTime,
   formatMoney,
   queryKeys,
+  relativeTime,
   unwrap,
   useApi,
   useAuth,
@@ -110,8 +111,16 @@ function DocumentsPage() {
         }),
         helper.accessor("status", { header: t("documents.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
-        // Names wrap (a "GmbH & Co. KG" is long) so the received column still fits beside them at 1440 px.
-        helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => <span className="block min-w-32 whitespace-normal">{info.getValue() ?? "—"}</span> }),
+        // One line per row: a long name ("… GmbH & Co. KG") is cut with an ellipsis and shown in full on hover and on the
+        // detail page, instead of wrapping to three lines and making the rows uneven.
+        helper.accessor("supplierName", {
+          header: t("documents.supplier"),
+          cell: (info) => (
+            <span className="block max-w-48 truncate" title={info.getValue() ?? undefined}>
+              {info.getValue() ?? "—"}
+            </span>
+          ),
+        }),
         helper.accessor("issueDate", { header: t("documents.issueDate"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDate(info.getValue(), i18n.language)}</span> }),
         helper.accessor("totalGross", { header: t("documents.total"), cell: (info) => <span className="tabular-nums">{formatMoney(info.getValue(), info.row.original.currency, i18n.language)}</span> }),
         helper.display({
@@ -131,7 +140,17 @@ function DocumentsPage() {
         }),
         helper.accessor("extractionMethod", { header: t("documents.method"), cell: (info) => (info.getValue() ? t(`common:sourceMethod.${info.getValue()}`, { defaultValue: info.getValue() ?? "" }) : "—") }),
         helper.accessor("pageCount", { header: t("documents.pages"), cell: (info) => <span className="tabular-nums">{String(info.getValue())}</span> }),
-        helper.accessor("createdAt", { header: t("documents.receivedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        // Relative ("3 minutes ago", the list is newest first) with the exact time on hover: the full date and time made the
+        // table wider than the page at 1440 px.
+        helper.accessor("createdAt", {
+          header: t("documents.receivedAt"),
+          sortFn: "datetime",
+          cell: (info) => (
+            <time dateTime={info.getValue()} title={formatDateTime(info.getValue(), i18n.language)} className="whitespace-nowrap">
+              {relativeTime(info.getValue(), i18n.language)}
+            </time>
+          ),
+        }),
       ]),
     [t, i18n.language],
   );
@@ -161,7 +180,7 @@ function DocumentsPage() {
           <>
             {canSwitch && switcher && (
               <Select value={tenantId ?? PLATFORM} onValueChange={(value) => switcher.setTenantId(value === PLATFORM ? null : value)}>
-                <SelectTrigger size="sm" className="w-52" aria-label={t("documents.tenantFilter")}>
+                <SelectTrigger className="w-52" aria-label={t("documents.tenantFilter")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -175,7 +194,7 @@ function DocumentsPage() {
               </Select>
             )}
             <Select value={search.status ?? ALL} onValueChange={(value) => set({ status: value === ALL ? undefined : (value as DocumentStatus) })}>
-              <SelectTrigger size="sm" className="w-44" aria-label={t("documents.status")}>
+              <SelectTrigger className="w-44" aria-label={t("documents.status")}>
                 <SelectValue placeholder={t("documents.status")} />
               </SelectTrigger>
               <SelectContent>
@@ -188,7 +207,7 @@ function DocumentsPage() {
               </SelectContent>
             </Select>
             <Select value={search.type ?? ALL} onValueChange={(value) => set({ type: value === ALL ? undefined : (value as DocumentType) })}>
-              <SelectTrigger size="sm" className="w-44" aria-label={t("documents.type")}>
+              <SelectTrigger className="w-44" aria-label={t("documents.type")}>
                 <SelectValue placeholder={t("documents.type")} />
               </SelectTrigger>
               <SelectContent>
@@ -205,11 +224,11 @@ function DocumentsPage() {
                 {t("documents.search")}
               </Label>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="h-8 w-72 pl-8" />
+              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="w-72 pl-8" />
             </div>
             {/* The flags by their translated names, not a free-text box for raw codes. */}
             <Select value={search.flag ?? ALL} onValueChange={(value) => set({ flag: value === ALL ? undefined : value })}>
-              <SelectTrigger size="sm" className="w-56" aria-label={t("documents.flag")}>
+              <SelectTrigger className="w-56" aria-label={t("documents.flag")}>
                 <SelectValue placeholder={t("documents.flag")} />
               </SelectTrigger>
               <SelectContent>
@@ -225,17 +244,17 @@ function DocumentsPage() {
               <Label htmlFor="document-from" className="sr-only">
                 {t("documents.from")}
               </Label>
-              <Input id="document-from" type="date" value={search.from ?? ""} onChange={(event) => set({ from: event.target.value || undefined })} className="h-8 w-38" aria-label={t("documents.from")} />
+              <Input id="document-from" type="date" value={search.from ?? ""} onChange={(event) => set({ from: event.target.value || undefined })} className="w-38" aria-label={t("documents.from")} />
               <span aria-hidden className="text-muted-foreground">
                 –
               </span>
               <Label htmlFor="document-to" className="sr-only">
                 {t("documents.to")}
               </Label>
-              <Input id="document-to" type="date" value={search.to ?? ""} onChange={(event) => set({ to: event.target.value || undefined })} className="h-8 w-38" aria-label={t("documents.to")} />
+              <Input id="document-to" type="date" value={search.to ?? ""} onChange={(event) => set({ to: event.target.value || undefined })} className="w-38" aria-label={t("documents.to")} />
             </div>
             {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={() => void navigate({ search: {}, replace: true })}>
+              <Button variant="ghost" onClick={() => void navigate({ search: {}, replace: true })}>
                 <X aria-hidden />
                 {t("documents.clearFilters")}
               </Button>

@@ -47,6 +47,7 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+const HIDDEN_COLUMNS = { userId: false };
 const helper = createDataTableColumnHelper<Member>();
 const EMPTY: Member[] = [];
 
@@ -82,7 +83,7 @@ function AddMemberDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus aria-hidden />
           {t("members.add")}
         </Button>
@@ -250,7 +251,10 @@ export function MembersTab() {
         data={members.data ?? EMPTY}
         getRowId={(row) => row.userId}
         isLoading={members.isPending} query={members}
-        toolbar={<AddMemberDialog />}
+        actions={<AddMemberDialog />}
+        // The identity provider's subject is for support, not for reading: one click away in Columns.
+        initialColumnVisibility={HIDDEN_COLUMNS}
+        enableColumnVisibility
         footer={<RowCount count={members.data?.length} />}
         caption={t("members.caption")}
         emptyTitle={t("members.empty")}

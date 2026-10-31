@@ -113,7 +113,7 @@ export function AddProviderDialog({ scope, queryKey }: { scope: ProviderScope; q
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus aria-hidden />
           {t("llm.addProvider")}
         </Button>

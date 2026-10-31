@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalRows, documentLabel, formatCanonicalValue, pageCountLabel, shortId } from "./documents";
+import { canonicalRows, documentLabel, documentSubtitle, formatCanonicalValue, pageCountLabel, shortId } from "./documents";
 
 describe("pageCountLabel", () => {
   it("marks a full page with more behind it and otherwise counts exactly", () => {
@@ -68,5 +68,13 @@ describe("shortId and documentLabel", () => {
     expect(documentLabel({ id: first, documentNumber: null })).toBe("526d662c");
     expect(documentLabel({ id: first, documentNumber: "  " })).toBe("526d662c");
     expect(documentLabel({ id: first })).toBe("526d662c");
+  });
+});
+
+describe("documentSubtitle", () => {
+  it("names the tenant first and skips the parts a document does not have", () => {
+    expect(documentSubtitle(["Pizzeria Napoli d.o.o.", "Unknown", null, "01a1905c"])).toBe("Pizzeria Napoli d.o.o. · Unknown · 01a1905c");
+    expect(documentSubtitle([null, "Invoice", "Bio-Hof Müller", "01a1905c"])).toBe("Invoice · Bio-Hof Müller · 01a1905c");
+    expect(documentSubtitle([undefined, "Invoice", "  ", "x"])).toBe("Invoice · x");
   });
 });

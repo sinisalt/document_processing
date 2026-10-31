@@ -66,10 +66,13 @@ public sealed record DocumentIngestionRef(Guid IngestionId, Guid ItemId, string 
 /// The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
 /// canonical model exactly as stored (<c>Canonical</c>: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
 /// extraction has run), so every <c>FieldValue</c> keeps its provenance and history verbatim. <c>PageImageUrls</c> are
-/// API-relative, in page order (<c>/api/v1/documents/{id}/pages/{n}.png</c>).
+/// API-relative, in page order (<c>/api/v1/documents/{id}/pages/{n}.png</c>). <c>TenantId</c> / <c>TenantName</c> name
+/// the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
 /// </summary>
 public sealed record DocumentDetail(
     Guid Id,
+    Guid TenantId,
+    string? TenantName,
     DocumentStatus Status,
     DocumentType Type,
     double? TypeConfidence,

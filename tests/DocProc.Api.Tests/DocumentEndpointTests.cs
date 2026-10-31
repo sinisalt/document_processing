@@ -233,6 +233,11 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         json.GetProperty("tenantId").GetString().ShouldBe(south.ToString());
         json.GetProperty("tenantName").GetString().ShouldBe("Tenant South");
 
+        // The detail names its tenant too: a platform-scope detail page has no other way to say whose document it is.
+        var detail = (await operatorClient.GetFromJsonAsync<DocumentDetail>(Document(northDoc.DocumentId), ApiFactory.Json, Ct))!;
+        detail.TenantId.ShouldBe(north);
+        detail.TenantName.ShouldBe("Tenant North");
+
         using var northViewer = factory.ClientFor(new TokenSpec("north-viewer", [Roles.Viewer], north.ToString()));
         var own = (await northViewer.GetFromJsonAsync<Page<DocumentSummary>>(Documents(), ApiFactory.Json, Ct))!.Items.ShouldHaveSingleItem();
         own.Id.ShouldBe(northDoc.DocumentId);

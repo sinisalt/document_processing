@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import { DataTable, createDataTableColumnHelper, formatDate, formatNumber, formatPercent, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
 import type { ApiClient } from "@docproc/api-client";
-import { fillDays, formatTokens, formatUsd, monthRange, usageRows, type LlmUsageResponse, type UsageGrouping, type UsageRow } from "@/lib/usage";
+import { defaultUsageSorting, fillDays, formatTokens, formatUsd, monthRange, USAGE_BUCKET_COLUMN, usageBucketSortValue, usageRows, type LlmUsageResponse, type UsageGrouping, type UsageRow } from "@/lib/usage";
 import { UsageChart } from "./UsageChart";
 
 export interface UsageQuery {
@@ -79,7 +79,15 @@ export function UsageExplorer({ source, title, description }: { source: UsageSou
   const columns = useMemo<DataTableColumns<UsageRow>>(
     () =>
       helper.columns([
-        helper.accessor("label", { header: t(`usage.groupBy.${groupBy}`), cell: (info) => <span className={groupBy === "tenant" && info.getValue() === info.row.original.key ? "font-mono text-xs" : undefined}>{info.getValue()}</span> }),
+        // Sorts by the ISO day when grouped by day (the label is "Oct 26, 2026"), so the order is the calendar's.
+        helper.accessor((row) => usageBucketSortValue(row, groupBy), {
+          id: USAGE_BUCKET_COLUMN,
+          header: t(`usage.groupBy.${groupBy}`),
+          cell: (info) => {
+            const row = info.row.original;
+            return <span className={groupBy === "tenant" && row.label === row.key ? "font-mono text-xs" : undefined}>{row.label}</span>;
+          },
+        }),
         helper.accessor("calls", { header: t("usage.calls"), cell: (info) => <span className="tabular-nums">{formatNumber(info.getValue(), i18n.language)}</span> }),
         helper.accessor("errors", { header: t("usage.errors"), cell: (info) => <span className="tabular-nums">{formatNumber(info.getValue(), i18n.language)}</span> }),
         helper.accessor("errorRate", { header: t("usage.errorRate"), cell: (info) => <span className="tabular-nums">{formatPercent(info.getValue(), i18n.language, 1)}</span> }),
@@ -135,12 +143,14 @@ export function UsageExplorer({ source, title, description }: { source: UsageSou
         {chartRows.length > 1 && <UsageChart rows={chartRows} />}
 
         <DataTable
+          // A new grouping starts from its own sort (days in calendar order like the chart, the rest by cost).
+          key={groupBy}
           columns={columns}
           data={rows}
           getRowId={(row) => row.key}
           isLoading={usage.isPending && validRange}
           query={usage}
-          initialSorting={[{ id: "costUsd", desc: true }]}
+          initialSorting={defaultUsageSorting(groupBy)}
           caption={t("usage.tableCaption")}
           emptyTitle={t("usage.empty")}
           emptyDescription={t("usage.emptyDescription")}

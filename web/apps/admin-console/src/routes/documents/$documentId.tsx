@@ -28,7 +28,7 @@ import {
   useAuth,
   type DataTableColumns,
 } from "@docproc/app-shell";
-import { canDecide, canReprocess, canonicalRows, documentLabel, flagSeverityVariant, type CanonicalRow } from "@/lib/documents";
+import { canDecide, canReprocess, canonicalRows, documentLabel, documentSubtitle, flagSeverityVariant, shortId, type CanonicalRow } from "@/lib/documents";
 import { formatUsd } from "@/lib/usage";
 import { KeyValue } from "@/components/KeyValue";
 import { TimelineTable } from "@/components/TimelineTable";
@@ -68,6 +68,8 @@ function DocumentDetailPage() {
 
   // Review is SuperAdmin, Operator, TenantAdmin and Reviewer (Roles.cs), so an Operator sees Approve/Reject too, by design.
   const canReview = hasPolicy(Policies.Review);
+  // In platform scope the header's switcher reads "all tenants", so the page itself says whose document this is.
+  const isPlatform = hasPolicy(Policies.Platform);
   const rows = useMemo(() => canonicalRows(document.data?.canonical, i18n.language), [document.data?.canonical, i18n.language]);
 
   const flagColumns = useMemo<DataTableColumns<DocumentFlag>>(
@@ -119,6 +121,7 @@ function DocumentDetailPage() {
   const doc = document.data;
   const label = documentLabel({ id: documentId, documentNumber: doc?.documentNumber });
   const failure = doc?.failureReason ? parseFailureReason(doc.failureReason) : null;
+  const tenant = doc ? doc.tenantName ?? shortId(doc.tenantId) : null;
 
   return (
     <>
@@ -126,14 +129,15 @@ function DocumentDetailPage() {
         title={
           doc ? (
             <span className="flex flex-wrap items-center gap-2">
-              {doc.documentNumber ?? t("document.untitled")}
+              {/* The name the list, the dashboard and the action dialogs use: the number, else the short id. */}
+              {label}
               <StatusBadge status={doc.status} />
             </span>
           ) : (
             <Skeleton className="h-8 w-56" />
           )
         }
-        description={doc ? `${t(`documentType.${doc.type}`, { defaultValue: doc.type })}${doc.supplierName ? ` · ${doc.supplierName}` : ""} · ${doc.id}` : undefined}
+        description={doc ? documentSubtitle([isPlatform ? tenant : null, t(`documentType.${doc.type}`, { defaultValue: doc.type }), doc.supplierName, doc.id]) : undefined}
         actions={
           <>
             <Button variant="ghost" size="sm" asChild>
@@ -182,6 +186,7 @@ function DocumentDetailPage() {
               <KeyValue
                 columns={3}
                 items={[
+                  ...(isPlatform ? [{ label: t("documents.tenant"), value: tenant ?? "—" }] : []),
                   { label: t("documents.supplier"), value: doc.supplierName ?? "—" },
                   { label: t("documents.issueDate"), value: formatDate(doc.issueDate, i18n.language) },
                   { label: t("documents.total"), value: formatMoney(doc.totalGross, doc.currency, i18n.language) },
