@@ -36,6 +36,9 @@ internal sealed class SplitHandler(
     // succeeds owns it too, so the flag does not outlive the outage.
     private static readonly string[] OwnedFlags = [FlagCodes.MultiDocumentSplit, FlagCodes.LlmProviderUnavailable];
 
+    // Once the file is split, stage 2's "no text layer" flag is decided per part (see PartFlags), so the parts own it.
+    private static readonly string[] OwnedFlagsWhenSplit = [.. OwnedFlags, FlagCodes.UnreadablePages];
+
     public override PipelineStage Stage => PipelineStage.Split;
 
     protected override bool Accepts(DocumentStatus status) => status == DocumentStatus.Normalized;
@@ -97,7 +100,9 @@ internal sealed class SplitHandler(
         var siblings = new List<ProcessDocument>();
         var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.");
 
-        // Stage 2's "no text layer" flag is about every page of the file, so each part carries it on.
+        // Stage 2 decides "no text layer" for the whole file: a mixed scan with text on some pages gets no flag. Each
+        // part is decided from its own pages instead, as stage 2 does for a part on a reprocess; without a text layer
+        // to slice, a part carries the file's flag on.
         var inherited = document.Flags
             .Where(f => f.Code == FlagCodes.UnreadablePages && f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null)
             .Select(f => f.ToDomain())
@@ -116,16 +121,17 @@ internal sealed class SplitHandler(
                 // The original file holds every range; a part is read from its own page images and text only.
                 NormalizedBlob = null,
                 PageImageKeys = Slice(imageKeys, range),
-                TextLayerBlob = await SliceTextLayerAsync(document.TenantId, textLayer, range, cancellationToken).ConfigureAwait(false),
                 Status = DocumentStatus.Received,
                 CreatedAt = now,
                 UpdatedAt = now,
             };
+            var (childLayer, childText) = await SliceTextLayerAsync(document.TenantId, textLayer, range, cancellationToken).ConfigureAwait(false);
+            child.TextLayerBlob = childLayer;
             Db.Documents.Add(child);
             Timeline.Record(child, DocumentEventTypes.Received, null, DocumentStatus.Received, new { splitFrom = document.Id, pageStart = child.PageStart, pageEnd = child.PageEnd });
             Timeline.Transition(child, DocumentStatus.Normalized, new { inheritedFrom = document.Id });
             Timeline.Transition(child, DocumentStatus.Split, details);
-            flags.Replace(child, OwnedFlags, [splitFlag, .. inherited]);
+            flags.Replace(child, OwnedFlagsWhenSplit, [splitFlag, .. PartFlags(childText, inherited)]);
             siblings.Add(new ProcessDocument(document.TenantId, child.Id, PipelineStage.Classify));
         }
 
@@ -134,8 +140,9 @@ internal sealed class SplitHandler(
         document.PageCount = first.EndPage - first.StartPage + 1;
         document.NormalizedBlob = null;
         document.PageImageKeys = Slice(imageKeys, first);
-        document.TextLayerBlob = await SliceTextLayerAsync(document.TenantId, textLayer, first, cancellationToken).ConfigureAwait(false);
-        flags.Replace(document, OwnedFlags, [splitFlag]);
+        var (firstLayer, firstText) = await SliceTextLayerAsync(document.TenantId, textLayer, first, cancellationToken).ConfigureAwait(false);
+        document.TextLayerBlob = firstLayer;
+        flags.Replace(document, OwnedFlagsWhenSplit, [splitFlag, .. PartFlags(firstText, inherited)]);
         Timeline.Transition(document, DocumentStatus.Split, details);
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -159,16 +166,25 @@ internal sealed class SplitHandler(
         return keys.GetRange(start, count);
     }
 
+    /// <summary>
+    /// A part's "no text layer" flag: set when its own pages carry no word (what stage 2 decides for a part on a
+    /// reprocess), dropped when they do. Without a text layer to slice, the file's flag is carried on.
+    /// </summary>
+    private static IEnumerable<DocumentFlag> PartFlags(TextLayer? part, IReadOnlyList<DocumentFlag> inherited) =>
+        part is null ? inherited
+        : part.WordCount == 0 ? [NormalizeHandler.NoTextLayer()]
+        : [];
+
     /// <summary>The pages of the range renumbered from 1, so provenance and the viewer count within the new document.</summary>
-    private async Task<BlobReference?> SliceTextLayerAsync(Guid tenantId, TextLayer? layer, PageRange range, CancellationToken cancellationToken)
+    private async Task<(BlobReference? Blob, TextLayer? Layer)> SliceTextLayerAsync(Guid tenantId, TextLayer? layer, PageRange range, CancellationToken cancellationToken)
     {
         if (layer is null)
         {
-            return null;
+            return (null, null);
         }
 
         var sliced = Slice(layer, range.StartPage, range.EndPage);
-        return PipelineBlobs.ToEntity(await blobs.PutTextLayerAsync(tenantId, sliced, cancellationToken).ConfigureAwait(false));
+        return (PipelineBlobs.ToEntity(await blobs.PutTextLayerAsync(tenantId, sliced, cancellationToken).ConfigureAwait(false)), sliced);
     }
 
     /// <summary>The pages <paramref name="startPage"/> to <paramref name="endPage"/> of the layer, renumbered from 1.</summary>

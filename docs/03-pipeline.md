@@ -76,7 +76,10 @@ delivery note. Splitting runs before classification:
 3. Each resulting page range becomes a `Document`. Single-document files skip the LLM step.
    A part of a split keeps only its own page images and text layer, not the original PDF (which
    holds every range), so classification and extraction read the part and never the whole file.
-   What stage 2 found about the pages (no text layer: `UNREADABLE_PAGES`) goes with every part.
+   Stage 2 sets `UNREADABLE_PAGES` (no text layer) only when no page of the file carries text, so
+   each part is decided again from its own sliced text layer: a part without a single word gets the
+   blocking flag and a part with text drops it, even in a mixed scan. A reprocess of a part from
+   Normalize reaches the same answer.
    A part reprocessed from Normalize is normalised to its own range again and is not split a
    second time, so its siblings are never created twice.
 

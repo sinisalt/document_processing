@@ -60,6 +60,22 @@ internal static class TestPdfs
         AddTextPage(doc, InvoicePage2);
     });
 
+    /// <summary>A mixed batch scan: the two-page German invoice, then a page of drawn shapes with no text (three pages).</summary>
+    public static byte[] GermanInvoiceThenShapesOnlyPage() => Build(doc =>
+    {
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage2);
+        AddShapesPage(doc, 0);
+    });
+
+    /// <summary>A mixed batch scan the other way round: a page of drawn shapes, then the two-page German invoice.</summary>
+    public static byte[] ShapesOnlyPageThenGermanInvoice() => Build(doc =>
+    {
+        AddShapesPage(doc, 0);
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage2);
+    });
+
     /// <summary>The two-page German invoice with an XML attachment, as a Factur-X / ZUGFeRD PDF/A-3 carries one.</summary>
     public static byte[] GermanInvoiceWithAttachment(string fileName, byte[] xml) => Build(doc =>
     {
@@ -73,10 +89,7 @@ internal static class TestPdfs
     {
         for (var i = 0; i < count; i++)
         {
-            var page = doc.AddPage();
-            page.Size = PageSize.A4;
-            using var gfx = XGraphics.FromPdfPage(page);
-            gfx.DrawRectangle(XBrushes.Black, 50, 50 + (i * 30), 300, 20);
+            AddShapesPage(doc, i);
         }
     });
 
@@ -105,6 +118,14 @@ internal static class TestPdfs
         using var stream = new MemoryStream();
         document.Save(stream, closeStream: false);
         return stream.ToArray();
+    }
+
+    private static void AddShapesPage(PdfDocument document, int index)
+    {
+        var page = document.AddPage();
+        page.Size = PageSize.A4;
+        using var gfx = XGraphics.FromPdfPage(page);
+        gfx.DrawRectangle(XBrushes.Black, 50, 50 + (index * 30), 300, 20);
     }
 
     private static void AddTextPage(PdfDocument document, IEnumerable<Line> lines)

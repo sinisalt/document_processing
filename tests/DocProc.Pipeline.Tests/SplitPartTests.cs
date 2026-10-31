@@ -10,8 +10,8 @@ namespace DocProc.Pipeline.Tests;
 
 /// <summary>
 /// The parts of a multi-document attachment (docs/03 "Split"): each part is extracted from its own pages, a reprocess
-/// from Normalize keeps its range instead of splitting the file again, and what stage 2 learnt about the pages is
-/// carried to every part.
+/// from Normalize keeps its range instead of splitting the file again, and whether the pages have a text layer is
+/// decided for every part from its own pages.
 /// </summary>
 public class SplitPartTests
 {
@@ -132,6 +132,72 @@ public class SplitPartTests
         }
 
         host.Llm.Remaining.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task In_a_mixed_scan_only_the_part_without_text_carries_the_unreadable_pages_flag_on_the_first_run_and_after_a_reprocess(bool imageOnlyLast)
+    {
+        // Stage 2 sees "some text in the file" and sets no flag; the image-only part must still get it, on the first
+        // run (stage 3 decides from the part's own text) just as on a reprocess from Normalize.
+        await using var host = await PipelineTestHost.StartAsync(SplitByLlm);
+        await host.AddReplayProviderAsync();
+        var (pdf, split) = imageOnlyLast
+            ? (TestPdfs.GermanInvoiceThenShapesOnlyPage(), """{ "documents": [ { "startPage": 1, "endPage": 2 }, { "startPage": 3, "endPage": 3 } ] }""")
+            : (TestPdfs.ShapesOnlyPageThenGermanInvoice(), """{ "documents": [ { "startPage": 1, "endPage": 1 }, { "startPage": 2, "endPage": 3 } ] }""");
+        host.Llm.Enqueue(split);
+        EnqueuePartAnswers(host, text: true, image: true);
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("stapel.pdf", PdfMime, pdf)]);
+        await host.RunUntilIdleAsync();
+
+        var documents = await DocumentsAsync(host, ingestion.Id);
+        AssertOnlyImagePartFlagged(documents, imageOnlyLast);
+        host.Llm.Remaining.ShouldBe(0);
+
+        // A reprocess from Normalize decides from the part's own text layer too, and comes to the same answer.
+        foreach (var document in documents)
+        {
+            EnqueuePartAnswers(host, text: document.PageCount == 2, image: document.PageCount == 1);
+            await ResetAsync(host, document.Id, DocumentStatus.Received);
+            await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, document.Id, PipelineStage.Normalize), CancellationToken.None);
+            await host.RunUntilIdleAsync();
+        }
+
+        AssertOnlyImagePartFlagged(await DocumentsAsync(host, ingestion.Id), imageOnlyLast);
+        host.Llm.Remaining.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The keyword rules classify the invoice part; the image-only part has no words, so the LLM classifies it. The
+    /// queue interleaves the two parts stage by stage, and both extract answers are the same, so the order holds.
+    /// </summary>
+    private static void EnqueuePartAnswers(PipelineTestHost host, bool text, bool image)
+    {
+        if (image)
+        {
+            host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+            host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+        }
+
+        if (text)
+        {
+            host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+        }
+    }
+
+    private static void AssertOnlyImagePartFlagged(List<Document> documents, bool imageOnlyLast)
+    {
+        documents.Count.ShouldBe(2);
+        var image = imageOnlyLast ? documents[1] : documents[0];
+        var text = imageOnlyLast ? documents[0] : documents[1];
+        image.PageCount.ShouldBe(1);
+        text.PageCount.ShouldBe(2);
+        documents.Select(d => d.FailureReason).ShouldAllBe(r => r == null);
+        image.Flags.ShouldContain(f => f.Code == FlagCodes.UnreadablePages && f.Severity == FlagSeverity.Blocking && f.ResolvedAt == null);
+        image.Status.ShouldBe(DocumentStatus.NeedsReview, "nobody but the LLM has read the image-only part");
+        text.Flags.ShouldNotContain(f => f.Code == FlagCodes.UnreadablePages && f.ResolvedAt == null);
     }
 
     private static Task<List<Document>> DocumentsAsync(PipelineTestHost host, Guid ingestionId) =>
