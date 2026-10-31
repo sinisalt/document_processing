@@ -223,7 +223,7 @@ function DocumentDetailPage() {
           <CardTitle>{t("document.flags")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable columns={flagColumns} data={doc?.flags ?? NO_FLAGS} getRowId={(row) => row.id} isLoading={document.isPending} caption={t("document.flags")} emptyTitle={t("document.noFlags")} emptyDescription={t("document.noFlagsDescription")} />
+          <DataTable columns={flagColumns} data={doc?.flags ?? NO_FLAGS} getRowId={(row) => row.id} isLoading={document.isPending} query={document} caption={t("document.flags")} emptyTitle={t("document.noFlags")} emptyDescription={t("document.noFlagsDescription")} />
         </CardContent>
       </Card>
 
@@ -233,7 +233,7 @@ function DocumentDetailPage() {
           <CardDescription>{t("document.canonicalDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable columns={canonicalColumns} data={rows} getRowId={(row) => row.path} isLoading={document.isPending} caption={t("document.canonical")} emptyTitle={t("document.noCanonical")} emptyDescription={t("document.noCanonicalDescription")} />
+          <DataTable columns={canonicalColumns} data={rows} getRowId={(row) => row.path} isLoading={document.isPending} query={document} caption={t("document.canonical")} emptyTitle={t("document.noCanonical")} emptyDescription={t("document.noCanonicalDescription")} />
         </CardContent>
       </Card>
 
@@ -243,7 +243,7 @@ function DocumentDetailPage() {
           <CardDescription>{t("timeline.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <TimelineTable events={events.data ?? NO_EVENTS} isLoading={events.isPending} />
+          <TimelineTable events={events.data ?? NO_EVENTS} isLoading={events.isPending} query={events} />
         </CardContent>
       </Card>
 

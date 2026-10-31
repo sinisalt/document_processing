@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 import { documentEvent } from "@/test/fixtures";
 import { TimelineTable } from "./TimelineTable";
 
@@ -59,5 +59,14 @@ describe("TimelineTable", () => {
   it("shows the empty state without events", () => {
     render(<TimelineTable events={[]} />);
     expect(screen.getByText("No events")).toBeInTheDocument();
+  });
+
+  it("says the timeline did not load instead of claiming it is empty", () => {
+    const refetch = vi.fn();
+    render(<TimelineTable events={[]} query={{ isError: true, error: new Error("Boom"), refetch }} />);
+    expect(screen.getByText("This list could not be loaded")).toBeInTheDocument();
+    expect(screen.queryByText("No events")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalled();
   });
 });

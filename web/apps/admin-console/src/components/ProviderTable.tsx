@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { components } from "@docproc/api-client";
 import { Badge, Button } from "@docproc/ui";
-import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
+import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, unwrap, useApi, type DataTableColumns, type DataTableQueryState } from "@docproc/app-shell";
 import { formatUsd } from "@/lib/usage";
 
 export type LlmProvider = components["schemas"]["LlmProviderResponse"];
@@ -18,6 +18,8 @@ const EMPTY: LlmProvider[] = [];
 export interface ProviderTableProps {
   providers: LlmProvider[] | undefined;
   isLoading: boolean;
+  /** The providers query: when it failed the table says so (with Retry) instead of "No providers". */
+  query?: DataTableQueryState;
   scope: ProviderScope;
   /** Invalidated after a switch. */
   queryKey: QueryKey;
@@ -27,7 +29,7 @@ export interface ProviderTableProps {
 }
 
 /** Provider configurations without credentials (only `keyLast4`), with the per-provider kill switch of docs/08. */
-export function ProviderTable({ providers, isLoading, scope, queryKey, canManage, toolbar }: ProviderTableProps) {
+export function ProviderTable({ providers, isLoading, query, scope, queryKey, canManage, toolbar }: ProviderTableProps) {
   const { t, i18n } = useTranslation("admin");
   const { client } = useApi();
   const queryClient = useQueryClient();
@@ -107,6 +109,7 @@ export function ProviderTable({ providers, isLoading, scope, queryKey, canManage
         data={providers ?? EMPTY}
         getRowId={(row) => row.id}
         isLoading={isLoading}
+        query={query}
         toolbar={toolbar}
         caption={t("llm.providersCaption")}
         emptyTitle={t("llm.noProviders")}

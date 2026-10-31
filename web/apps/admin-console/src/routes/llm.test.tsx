@@ -38,4 +38,15 @@ describe("/llm", () => {
     renderScreen(<LlmPage />);
     await vi.waitFor(() => expect(shell.calls).toEqual(expect.arrayContaining(["GET /api/v1/llm/providers", "GET /api/v1/tenants", "GET /api/v1/llm/usage"])));
   });
+
+  it("says the providers did not load instead of claiming there are none", async () => {
+    resetShell(devUsers.superadmin);
+    serve();
+    answer("GET /api/v1/llm/providers", { title: "Boom", status: 500, detail: "The provider store is down." }, 500);
+    renderScreen(<LlmPage />);
+    expect(await screen.findByText("This list could not be loaded")).toBeInTheDocument();
+    expect(screen.getByText("The provider store is down.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByText("No providers")).not.toBeInTheDocument();
+  });
 });

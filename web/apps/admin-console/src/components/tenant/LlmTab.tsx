@@ -110,7 +110,7 @@ export function LlmTab() {
           <CardDescription>{t("llm.tenantProvidersDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <ProviderTable providers={providers.data} isLoading={providers.isPending} scope="tenant" queryKey={queryKeys.llm.providers()} canManage toolbar={<AddProviderDialog scope="tenant" queryKey={queryKeys.llm.providers()} />} />
+          <ProviderTable providers={providers.data} isLoading={providers.isPending} query={providers} scope="tenant" queryKey={queryKeys.llm.providers()} canManage toolbar={<AddProviderDialog scope="tenant" queryKey={queryKeys.llm.providers()} />} />
         </CardContent>
       </Card>
       <Card>
