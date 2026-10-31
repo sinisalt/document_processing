@@ -31,10 +31,14 @@ The Keycloak realm is imported from `src/DocProc.AppHost/realms/docproc-realm.js
 roles `SuperAdmin`, `Operator`, `TenantAdmin`, `Reviewer`, `Viewer`, clients `docproc-api`
 (bearer-only audience), `docproc-portal` and `docproc-admin` (public, PKCE), a `tenant_id`
 claim from a user attribute, and six users across the platform and two tenants (see README).
-Secrets for BYOK go to Lowkey Vault (`vault`, HTTPS 8443); mail flows use GreenMail (`mail`).
+Lowkey Vault (`vault`, HTTPS 8443) runs and both hosts get `KeyVault__Endpoint`, but no
+Key Vault `ISecretStore` reads it yet: BYOK keys go to the file-backed store, and the AppHost
+gives the API and the worker the same absolute `Secrets__Path`
+(`src/DocProc.AppHost/data/secrets`), so a key the API stores is the key the worker's LLM stages
+read. Mail flows use GreenMail (`mail`).
 Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
-assert the resource set, images, waits and realm contents, so a rename is caught before anyone
-runs the stack.
+assert the resource set, images, waits, the shared secret-store path and realm contents, so a
+rename is caught before anyone runs the stack.
 
 ## Running without Docker
 

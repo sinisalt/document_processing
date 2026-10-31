@@ -1,3 +1,4 @@
+using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,6 +71,39 @@ public class AppModelTests
 
         var worker = model.Resources.Single(r => r.Name == "worker");
         worker.Annotations.OfType<WaitAnnotation>().Select(w => w.Resource.Name).ShouldContain("api");
+    }
+
+    /// <summary>
+    /// The API writes BYOK keys to the file-backed secret store and the worker reads them back for every LLM stage it
+    /// runs; with each host on its own content root's <c>./data/secrets</c>, every API-created provider failed in the
+    /// worker with "No key is stored". Both must get the same absolute directory.
+    /// </summary>
+    [Fact]
+    public async Task Api_and_worker_share_one_secret_store_directory()
+    {
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(TestContext.Current.CancellationToken);
+        await using var app = await builder.BuildAsync(TestContext.Current.CancellationToken);
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var executionContext = app.Services.GetRequiredService<DistributedApplicationExecutionContext>();
+
+        async Task<string?> SecretsPathOf(string name)
+        {
+            var resource = (IResourceWithEnvironment)model.Resources.Single(r => r.Name == name);
+            var context = new EnvironmentCallbackContext(executionContext, resource, cancellationToken: TestContext.Current.CancellationToken);
+            foreach (var callback in resource.Annotations.OfType<EnvironmentCallbackAnnotation>())
+            {
+                await callback.Callback(context);
+            }
+
+            return context.EnvironmentVariables.TryGetValue("Secrets__Path", out var value) ? value as string : null;
+        }
+
+        var apiPath = await SecretsPathOf("api");
+        var workerPath = await SecretsPathOf("worker");
+
+        apiPath.ShouldNotBeNullOrWhiteSpace("the API would fall back to its own content root");
+        Path.IsPathFullyQualified(apiPath).ShouldBeTrue("a relative path resolves against each host's own content root");
+        workerPath.ShouldBe(apiPath);
     }
 
     [Fact]

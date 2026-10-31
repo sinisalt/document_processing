@@ -57,6 +57,10 @@ var mail = builder.AddContainer("mail", "greenmail/standalone", "2.1.15")
     .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local,invoices@tenant-b.local")
     .WithLifetime(ContainerLifetime.Persistent);
 
+// The file-backed ISecretStore stands in for Key Vault until the Key Vault store is wired. The API writes BYOK keys
+// and the worker reads them, so both get one absolute directory instead of each its own content root's ./data/secrets.
+var secretsPath = Path.Combine(builder.AppHostDirectory, "data", "secrets");
+
 var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithReference(database).WaitFor(database)
     .WithReference(blobs).WaitFor(storage)
@@ -68,6 +72,7 @@ var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithEnvironment("Authentication__Oidc__Authority", ReferenceExpression.Create($"{keycloak.GetEndpoint("http")}/realms/docproc"))
     .WithEnvironment("Authentication__Oidc__RequireHttpsMetadata", "false")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
+    .WithEnvironment("Secrets__Path", secretsPath)
     .WithHttpHealthCheck("/health/ready")
     .WithExternalHttpEndpoints();
 
@@ -78,6 +83,7 @@ builder.AddProject<Projects.DocProc_Worker>("worker")
     .WithEnvironment("Persistence__Provider", "SqlServer")
     .WithEnvironment("Authentication__Dev__Enabled", "false")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
+    .WithEnvironment("Secrets__Path", secretsPath)
     .WithEnvironment("Mail__ImapHost", mail.GetEndpoint("imap").Property(EndpointProperty.Host))
     .WithEnvironment("Mail__ImapPort", mail.GetEndpoint("imap").Property(EndpointProperty.Port))
     .WaitFor(api); // the API applies migrations first
