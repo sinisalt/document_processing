@@ -145,6 +145,13 @@ public sealed class AnthropicProviderFactory(TimeProvider? clock = null) : ILlmP
     /// <summary>The clock the providers built here time their requests with.</summary>
     public TimeProvider Clock { get; } = clock ?? TimeProvider.System;
 
+    /// <summary>
+    /// The client tenant-scope configurations talk through: <see cref="TenantEndpointGuard.HttpClient"/> unless a test
+    /// sets one from <see cref="TenantEndpointGuard.CreateClient"/>. An init property, not a constructor parameter,
+    /// so dependency injection can never hand it an unguarded <see cref="HttpClient"/>.
+    /// </summary>
+    public HttpClient TenantHttpClient { get; init; } = TenantEndpointGuard.HttpClient;
+
     public bool Supports(LlmProviderKind kind) => kind is LlmProviderKind.Anthropic or LlmProviderKind.AnthropicFoundry;
 
     public ILlmProvider Create(LlmProviderConfig config, LlmCredential credential)
@@ -156,20 +163,24 @@ public sealed class AnthropicProviderFactory(TimeProvider? clock = null) : ILlmP
             throw new LlmException(LlmErrorKind.Auth, $"Provider configuration {config.Id} has no API key.");
         }
 
-        var client = config.Endpoint is { } endpoint
-            ? new AnthropicClient
-            {
-                ApiKey = credential.ApiKey,
-                BaseUrl = endpoint.ToString().TrimEnd('/'),
-                MaxRetries = 0, // the worker owns retry policy via LlmException.IsRetryable
-                Timeout = NetworkTimeout,
-            }
-            : new AnthropicClient
-            {
-                ApiKey = credential.ApiKey,
-                MaxRetries = 0,
-                Timeout = NetworkTimeout,
-            };
+        TenantEndpointGuard.EnsureAllowed(config);
+        IAnthropicClient client = new AnthropicClient
+        {
+            ApiKey = credential.ApiKey,
+            MaxRetries = 0, // the worker owns retry policy via LlmException.IsRetryable
+            Timeout = NetworkTimeout,
+        };
+
+        if (config.Endpoint is { } endpoint)
+        {
+            client = client.WithOptions(options => options with { BaseUrl = endpoint.ToString().TrimEnd('/') });
+        }
+
+        // A tenant chose the endpoint: public https hosts only, checked again at connect time (docs/08 "Endpoint restrictions").
+        if (config.Scope == ConfigScope.Tenant)
+        {
+            client = client.WithOptions(options => options with { HttpClient = TenantHttpClient });
+        }
 
         var validationModel = config.ModelFor(LlmStage.Classify) ?? config.Models.Values.FirstOrDefault() ?? "claude-haiku-5-5";
         return new AnthropicProvider(client, config.Kind, validationModel, Clock);

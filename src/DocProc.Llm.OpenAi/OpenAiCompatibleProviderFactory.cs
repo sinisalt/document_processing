@@ -18,8 +18,10 @@ namespace DocProc.Llm.OpenAi;
 /// the self-hosted capability profile.</item>
 /// </list>
 /// The client holds the key; nothing else does. Retries belong to the worker (<see cref="LlmException.IsRetryable"/>).
+/// A tenant-scope configuration talks through <see cref="TenantEndpointGuard.HttpClient"/> (public https hosts only,
+/// checked at connect time); a platform configuration through the SDK's default transport.
 /// </summary>
-/// <param name="transport">Replaces the SDK's HTTP transport (tests); null keeps the default.</param>
+/// <param name="transport">Replaces the SDK's HTTP transport for every configuration (tests); null keeps the defaults above.</param>
 /// <param name="clock">Drives every provider's per-request timeout; the host's <see cref="TimeProvider"/>, <see cref="TimeProvider.System"/> when null.</param>
 public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport = null, TimeProvider? clock = null) : ILlmProviderFactory
 {
@@ -28,8 +30,17 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
     /// <summary>The hard ceiling on one network call; <see cref="LlmOptions.Timeout"/> bounds each request below it.</summary>
     public static readonly TimeSpan NetworkTimeout = TimeSpan.FromMinutes(5);
 
+    private HttpClientPipelineTransport? _tenantTransport;
+
     /// <summary>The clock the providers built here time their requests with.</summary>
     public TimeProvider Clock { get; } = clock ?? TimeProvider.System;
+
+    /// <summary>
+    /// The client tenant-scope configurations talk through: <see cref="TenantEndpointGuard.HttpClient"/> unless a test
+    /// sets one from <see cref="TenantEndpointGuard.CreateClient"/>. An init property, not a constructor parameter,
+    /// so dependency injection can never hand it an unguarded <see cref="HttpClient"/>.
+    /// </summary>
+    public HttpClient TenantHttpClient { get; init; } = TenantEndpointGuard.HttpClient;
 
     public bool Supports(LlmProviderKind kind) => OpenAiCompatibleCapabilities.Supports(kind);
 
@@ -42,6 +53,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
             throw new ArgumentOutOfRangeException(nameof(config), config.Kind, "This factory serves OpenAI, Azure OpenAI and OpenAI-compatible endpoints only.");
         }
 
+        TenantEndpointGuard.EnsureAllowed(config);
         var validationModel = config.ModelFor(LlmStage.Classify) ?? config.Models.Values.FirstOrDefault()
             ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"Provider configuration {config.Id} has no models configured.");
 
@@ -57,7 +69,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
 
     private OpenAIClient CreateOpenAiClient(LlmProviderConfig config, LlmCredential credential)
     {
-        var options = NewOptions();
+        var options = NewOptions(config);
         if (config.Endpoint is { } endpoint)
         {
             options.Endpoint = endpoint;
@@ -71,7 +83,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
         var endpoint = config.Endpoint
             ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"Azure OpenAI configuration {config.Id} has no endpoint.");
 
-        var options = NewOptions();
+        var options = NewOptions(config);
         options.Endpoint = AzureOpenAiEndpoint.Resolve(endpoint);
 
         // Resolve() strips the query; an api-version a tenant left on the pasted endpoint still counts when the configuration sets none.
@@ -93,7 +105,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
         var endpoint = config.Endpoint
             ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"OpenAI-compatible configuration {config.Id} has no endpoint.");
 
-        var options = NewOptions();
+        var options = NewOptions(config);
         options.Endpoint = endpoint;
         options.AddPolicy(LegacyMaxTokensPolicy.Instance, PipelinePosition.PerCall); // Ollama only honours max_tokens
 
@@ -102,7 +114,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
             : new OpenAIClient(new ApiKeyCredential(credential.ApiKey), options);
     }
 
-    private OpenAIClientOptions NewOptions()
+    private OpenAIClientOptions NewOptions(LlmProviderConfig config)
     {
         var options = new OpenAIClientOptions
         {
@@ -113,6 +125,10 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
         if (transport is not null)
         {
             options.Transport = transport;
+        }
+        else if (config.Scope == ConfigScope.Tenant)
+        {
+            options.Transport = _tenantTransport ??= new HttpClientPipelineTransport(TenantHttpClient);
         }
 
         return options;

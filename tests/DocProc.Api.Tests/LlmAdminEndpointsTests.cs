@@ -141,6 +141,71 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
         (await numericStage.Content.ReadAsStringAsync(Ct)).ShouldContain("\"models\"");
     }
 
+    /// <summary>
+    /// The worker posts the tenant's key and documents to the endpoint from inside the platform network, so a tenant
+    /// endpoint that names the platform's own hosts would turn BYOK into a probe of internal services (SSRF).
+    /// </summary>
+    [Theory]
+    [InlineData("http://api.openai.com/v1")] // plain http
+    [InlineData("https://127.0.0.1:5394/v1")]
+    [InlineData("https://localhost/v1")]
+    [InlineData("https://api.localhost/v1")]
+    [InlineData("https://169.254.169.254/latest/meta-data")] // cloud metadata
+    [InlineData("https://metadata.google.internal/v1")]
+    [InlineData("https://10.0.0.5/v1")]
+    [InlineData("https://172.20.1.1/v1")]
+    [InlineData("https://192.168.1.10/v1")]
+    [InlineData("https://100.64.0.1/v1")]
+    [InlineData("https://0.0.0.0/v1")]
+    [InlineData("https://[::1]/v1")]
+    [InlineData("https://[::]/v1")]
+    [InlineData("https://[::ffff:127.0.0.1]/v1")] // IPv4-mapped IPv6
+    [InlineData("https://[::ffff:a9fe:a9fe]/v1")]
+    [InlineData("https://[fd00::1]/v1")] // unique local
+    [InlineData("https://[fe80::1]/v1")] // link-local
+    [InlineData("https://2130706433/v1")] // 127.0.0.1 in decimal
+    [InlineData("https://0x7f.0.0.1/v1")] // hexadecimal
+    [InlineData("https://0177.0.0.1/v1")] // octal
+    [InlineData("https://127.1/v1")]
+    [InlineData("https://vllm/v1")] // a single-label name resolves through the platform's search domains
+    [InlineData("https://user:pass@api.openai.com/v1")]
+    public async Task A_tenant_provider_endpoint_on_a_private_or_reserved_host_is_rejected(string endpoint)
+    {
+        using var admin = TenantAdminClient();
+        const string apiKey = "sk-test-ssrf-probe-1234567890";
+
+        var response = await admin.PostAsJsonAsync(ProvidersUri, NewProvider(apiKey, "OpenAiCompatible") with { Endpoint = endpoint }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("\"endpoint\"");
+        factory.Query(db => db.LlmProviderConfigs.Any(c => c.TenantId == ApiFactory.TenantA && c.Endpoint == endpoint)).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("https://api.openai.com/v1")]
+    [InlineData("https://contoso-eu.openai.azure.com/openai/v1?api-version=preview")]
+    [InlineData("https://203.0.114.10/v1")] // a public address literal
+    [InlineData("https://[2a01:111:f400::1]/v1")]
+    public async Task A_tenant_provider_endpoint_on_a_public_https_host_is_accepted(string endpoint)
+    {
+        using var admin = TenantAdminClient();
+
+        var response = await admin.PostAsJsonAsync(ProvidersUri, NewProvider($"sk-test-public-{endpoint.Length:D4}-abcdefgh", "OpenAiCompatible") with { Endpoint = endpoint }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task A_platform_provider_may_point_at_a_self_hosted_model_on_the_private_network()
+    {
+        using var superAdmin = SuperAdmin();
+
+        var response = await superAdmin.PostAsJsonAsync(PlatformProvidersUri, NewProvider("sk-test-platform-selfhosted-0001", "OpenAiCompatible") with { Endpoint = "http://127.0.0.1:11434/v1" }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await response.Content.ReadFromJsonAsync<LlmProviderResponse>(Ct))!.Endpoint.ShouldBe("http://127.0.0.1:11434/v1");
+    }
+
     [Fact]
     public async Task Deleting_a_provider_removes_its_key_from_the_secret_store()
     {

@@ -31,6 +31,11 @@ public static partial class OpenAiErrorMapper
     {
         ArgumentNullException.ThrowIfNull(exception);
 
+        if (Providers.TenantEndpointGuard.FindBlocked(exception) is { } blocked)
+        {
+            return Providers.TenantEndpointGuard.ToLlmException(blocked);
+        }
+
         return exception switch
         {
             ClientResultException api => FromStatus((HttpStatusCode)api.Status, api, RetryAfter(api.GetRawResponse())),

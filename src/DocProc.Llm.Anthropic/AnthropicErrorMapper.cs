@@ -1,5 +1,6 @@
 using System.Net;
 using Anthropic.Exceptions;
+using DocProc.Llm.Providers;
 
 namespace DocProc.Llm.Anthropic;
 
@@ -12,6 +13,11 @@ public static class AnthropicErrorMapper
     public static LlmException Map(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
+
+        if (TenantEndpointGuard.FindBlocked(exception) is { } blocked)
+        {
+            return TenantEndpointGuard.ToLlmException(blocked);
+        }
 
         return exception switch
         {

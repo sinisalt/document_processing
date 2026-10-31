@@ -200,7 +200,7 @@ public static class LlmAdminEndpoints
                 return problem;
             }
 
-            if (Validate(request) is { } invalid)
+            if (Validate(request, ConfigScope.Tenant) is { } invalid)
             {
                 return invalid;
             }
@@ -302,7 +302,7 @@ public static class LlmAdminEndpoints
 
         llm.MapPost("/providers", async Task<Results<Created<LlmProviderResponse>, ValidationProblem>> (CreateLlmProviderRequest request, ClaimsPrincipal user, [FromServices] ISystemDbContextFactory factory, ISecretStore secrets, TimeProvider clock, CancellationToken ct) =>
         {
-            if (Validate(request) is { } invalid)
+            if (Validate(request, ConfigScope.Platform) is { } invalid)
             {
                 return invalid;
             }
@@ -341,7 +341,12 @@ public static class LlmAdminEndpoints
         .WithSummary("Calls, tokens and estimated cost across tenants per tenant, model or day (inclusive UTC dates; the last 30 days by default).");
     }
 
-    private static ValidationProblem? Validate(CreateLlmProviderRequest request)
+    /// <summary>
+    /// A tenant's endpoint must also pass <see cref="TenantEndpointGuard"/> (public https hosts only): the worker sends
+    /// the tenant's key and documents to it from inside the platform's network. A platform configuration may point
+    /// anywhere, plain http and private addresses included, for self-hosted models (docs/08 "Endpoint restrictions").
+    /// </summary>
+    private static ValidationProblem? Validate(CreateLlmProviderRequest request, ConfigScope scope)
     {
         var errors = new Errors().Optional("apiVersion", request.ApiVersion, 32);
         if (!TryParseEnum<LlmProviderKind>(request.Kind, out var kind) || kind == LlmProviderKind.Replay)
@@ -352,6 +357,10 @@ public static class LlmAdminEndpoints
         if (request.Endpoint is not null && (request.Endpoint.Length > 500 || !IsAbsoluteHttpUri(request.Endpoint)))
         {
             errors.Add("endpoint", "endpoint must be an absolute http(s) URL of at most 500 characters.");
+        }
+        else if (scope == ConfigScope.Tenant && request.Endpoint is not null && TenantEndpointGuard.Validate(request.Endpoint.Trim()) is { } refused)
+        {
+            errors.Add("endpoint", refused);
         }
 
         if (string.IsNullOrWhiteSpace(request.ApiKey) || request.ApiKey.Length is < MinApiKeyLength or > MaxApiKeyLength || request.ApiKey.Any(char.IsWhiteSpace))
