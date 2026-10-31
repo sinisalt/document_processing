@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -12,6 +13,7 @@ namespace DocProc.Integration.Tests;
 public sealed class DockerFactsTests : IDisposable
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ShortTimeout = TimeSpan.FromSeconds(1);
 
     private readonly string _temp = Directory.CreateTempSubdirectory("docproc-docker-facts-").FullName;
 
@@ -64,7 +66,70 @@ public sealed class DockerFactsTests : IDisposable
         (await server).ShouldContain("/_ping");
     }
 
+    [Fact]
+    public void A_docker_host_that_accepts_connections_but_never_answers_is_given_up_on_within_the_timeout()
+    {
+        using var silent = SilentListener(out var port);
+        var clock = Stopwatch.StartNew();
+
+        DockerFacts.Answers(Endpoint($"tcp://127.0.0.1:{port}"), ShortTimeout).ShouldBeFalse();
+
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Discovery_that_hangs_on_an_endpoint_that_never_answers_counts_as_no_docker_within_the_timeout()
+    {
+        // What Testcontainers' discovery does for each candidate: build a client and ping it with Docker.DotNet's
+        // default timeout (minutes), which a DOCKER_HOST of a stopped VM or of a VPN that is off never answers.
+        using var silent = SilentListener(out var port);
+        var candidate = Endpoint($"tcp://127.0.0.1:{port}");
+        IDockerEndpointAuthenticationConfiguration? Discover()
+        {
+            using var client = candidate.GetDockerClientBuilder(Guid.Empty).Build();
+            client.System.PingAsync().GetAwaiter().GetResult();
+            return candidate;
+        }
+
+        var clock = Stopwatch.StartNew();
+
+        DockerFacts.Detect(Discover, ShortTimeout).ShouldBeFalse();
+
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10), "the gate waits for its own timeout, not for Docker.DotNet's default");
+    }
+
+    [Fact]
+    public void Discovery_that_finds_no_endpoint_or_throws_counts_as_no_docker()
+    {
+        DockerFacts.Detect(() => null, Timeout).ShouldBeFalse();
+        DockerFacts.Detect(() => throw new InvalidOperationException("a broken ~/.testcontainers.properties"), Timeout).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Discovery_that_finds_a_daemon_that_answers_counts_as_docker()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var server = AnswerPingAsync(listener, ct);
+
+        var available = await Task.Run(() => DockerFacts.Detect(() => Endpoint($"tcp://127.0.0.1:{port}"), Timeout), ct);
+
+        available.ShouldBeTrue();
+        (await server).ShouldContain("/_ping");
+    }
+
     private static DockerEndpointAuthenticationConfiguration Endpoint(string uri) => new(new Uri(uri));
+
+    /// <summary>A listener that never accepts: the connection completes in the backlog and the request is never answered.</summary>
+    private static TcpListener SilentListener(out int port)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start(backlog: 16);
+        port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        return listener;
+    }
 
     private static int UnusedPort()
     {

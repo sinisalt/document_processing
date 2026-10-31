@@ -11,12 +11,16 @@ namespace DocProc.Integration.Tests;
 /// <c>/var/run/docker.sock</c> symlink behind when they quit, and a <c>DOCKER_HOST</c> for a stopped colima or podman
 /// machine stays set. The endpoint is the one Testcontainers itself discovers (environment, <c>~/.testcontainers.properties</c>,
 /// the Docker context, the default sockets), so the tests skip exactly when the containers could not start.
+/// Testcontainers' discovery pings each candidate with Docker.DotNet's default timeout, which for an endpoint that
+/// never answers (a TCP <c>DOCKER_HOST</c> of a stopped VM, a remote host behind a VPN that is off) takes minutes, so
+/// discovery and ping are each bounded by <see cref="PingTimeout"/>, and an endpoint not found in time counts as no
+/// Docker.
 /// </remarks>
 internal static class DockerFacts
 {
     private static readonly TimeSpan PingTimeout = TimeSpan.FromSeconds(5);
 
-    public static bool IsAvailable { get; } = Detect();
+    public static bool IsAvailable { get; } = Detect(() => TestcontainersSettings.OS.DockerEndpointAuthConfig, PingTimeout);
 
     public static void SkipUnlessAvailable()
     {
@@ -44,13 +48,25 @@ internal static class DockerFacts
         }
     }
 
-    private static bool Detect()
+    /// <summary>
+    /// True when <paramref name="discover"/> finds an endpoint within <paramref name="timeout"/> and a daemon there
+    /// answers a ping within <paramref name="timeout"/> too. A discovery still running when the time is up is left to
+    /// finish on its own; the gate does not wait for it.
+    /// </summary>
+    internal static bool Detect(Func<IDockerEndpointAuthenticationConfiguration?> discover, TimeSpan timeout)
     {
+        ArgumentNullException.ThrowIfNull(discover);
         IDockerEndpointAuthenticationConfiguration? endpoint;
         try
         {
             // Null when none of Testcontainers' candidate endpoints answered its own ping.
-            endpoint = TestcontainersSettings.OS.DockerEndpointAuthConfig;
+            var discovery = Task.Run(discover);
+            if (!discovery.Wait(timeout))
+            {
+                return false;
+            }
+
+            endpoint = discovery.Result;
         }
         catch (Exception)
         {
@@ -58,6 +74,6 @@ internal static class DockerFacts
             return false;
         }
 
-        return endpoint is not null && Answers(endpoint, PingTimeout);
+        return endpoint is not null && Answers(endpoint, timeout);
     }
 }

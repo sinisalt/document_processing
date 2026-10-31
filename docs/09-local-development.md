@@ -300,7 +300,10 @@ present. Without Docker the container tests report themselves skipped and the ru
 `DockerFacts` (`tests/DocProc.Integration.Tests`) counts Docker as present only when a daemon
 answers a ping at the endpoint Testcontainers discovers, so the `/var/run/docker.sock` symlink
 that Docker Desktop or OrbStack leaves behind after quitting, or a `DOCKER_HOST` of a stopped
-machine, does not turn the skips into failures. CI's runner has Docker, so there they run.
+machine, does not turn the skips into failures. Finding the endpoint and pinging it are each bounded by five
+seconds, so a `DOCKER_HOST` that accepts connections but never answers (a remote host behind a VPN that is off)
+skips the tests in seconds rather than after Docker.DotNet's default timeout of minutes. CI's runner has Docker, so
+there they run.
 Azurite is started with `--skipApiVersionCheck`, as the AppHost starts it, because every Azurite
 release trails the service version the Blob SDK sends.
 
