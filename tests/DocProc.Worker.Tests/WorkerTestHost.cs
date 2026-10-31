@@ -30,6 +30,7 @@ internal static class WorkerTestHost
         ("Persistence:Provider", "Sqlite"),
         ("Persistence:SqlitePath", Path.Combine(directory, "docproc.db")),
         ("Blobs:RootPath", Path.Combine(directory, "blobs")),
+        ("Secrets:Path", Path.Combine(directory, "secrets")),
         ("Llm:Replay:Scripted", "true"),
         ("Pipeline:RunInProcess", "true"),
         ("Pipeline:ShutdownGracePeriod", "00:00:05"));
@@ -42,6 +43,7 @@ internal static class WorkerTestHost
 
         // Resolving the hosted services builds the local blob store, which creates its root: keep it out of the output folder.
         ("Blobs:RootPath", Path.Combine(Path.GetTempPath(), "docproc-worker-tests", "sql-server-blobs")),
+        ("Secrets:Path", Path.Combine(Path.GetTempPath(), "docproc-worker-tests", "sql-server-secrets")),
         .. extra,
     ]);
 

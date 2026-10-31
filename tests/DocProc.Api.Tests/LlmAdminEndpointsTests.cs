@@ -8,6 +8,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm;
+using DocProc.Llm.Gateway;
 using DocProc.Llm.Providers;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -68,6 +69,39 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
         var list = (await admin.GetFromJsonAsync<List<LlmProviderResponse>>(ProvidersUri, Ct))!;
         list.ShouldContain(p => p.Id == created.Id);
         (await admin.GetStringAsync(ProvidersUri, Ct)).ShouldNotContain(apiKey);
+    }
+
+    [Fact]
+    public async Task The_gateway_resolves_the_key_of_a_provider_created_through_the_api()
+    {
+        using var admin = TenantAdminClient();
+        using var superAdmin = SuperAdmin();
+        const string tenantKey = "sk-test-byok-gateway-resolves-Gw01";
+        const string platformKey = "sk-test-platform-gateway-resolves-Gw02";
+
+        var tenantCreated = await admin.PostAsJsonAsync(ProvidersUri, NewProvider(tenantKey), Ct);
+        tenantCreated.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var tenantConfigId = (await tenantCreated.Content.ReadFromJsonAsync<LlmProviderResponse>(Ct))!.Id;
+        var platformCreated = await superAdmin.PostAsJsonAsync(PlatformProvidersUri, NewProvider(platformKey), Ct);
+        platformCreated.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var platformConfigId = (await platformCreated.Content.ReadFromJsonAsync<LlmProviderResponse>(Ct))!.Id;
+
+        // The gateway's two ports, as it calls them per request: the policy store hands over the configuration, the
+        // credential store turns its secret reference into the key the API stored.
+        var policies = factory.Services.GetRequiredService<ILlmPolicyStore>();
+        var credentials = factory.Services.GetRequiredService<ILlmCredentialStore>();
+        var setup = await policies.GetAsync(ApiFactory.TenantA, Ct);
+        (await credentials.GetAsync(setup.TenantConfigs[tenantConfigId], Ct)).ApiKey.ShouldBe(tenantKey);
+
+        var platformConfig = factory.Query(db => db.LlmProviderConfigs.Single(c => c.Id == platformConfigId)).ToDomain();
+        (await credentials.GetAsync(platformConfig, Ct)).ApiKey.ShouldBe(platformKey);
+
+        // A deleted provider's key is gone, and the error the document would show names neither the reference nor a variable.
+        (await admin.DeleteAsync(new Uri($"/api/v1/llm-providers/{tenantConfigId}", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var ex = await Should.ThrowAsync<LlmException>(() => credentials.GetAsync(setup.TenantConfigs[tenantConfigId], Ct));
+        ex.Kind.ShouldBe(LlmErrorKind.Auth);
+        ex.Message.ShouldNotContain(setup.TenantConfigs[tenantConfigId].Auth.SecretRef!);
+        ex.Message.ShouldNotContain("LLM_SECRET_");
     }
 
     [Fact]

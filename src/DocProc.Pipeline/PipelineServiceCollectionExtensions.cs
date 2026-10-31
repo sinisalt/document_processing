@@ -4,6 +4,7 @@ using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure;
 using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Llm;
+using DocProc.Infrastructure.Security;
 using DocProc.Llm;
 using DocProc.Llm.Anthropic;
 using DocProc.Llm.OpenAi;
@@ -74,7 +75,7 @@ public static class PipelineServiceCollectionExtensions
     /// <summary>
     /// Everything a host needs to process documents, on top of persistence: PDF, classification and splitting
     /// (<c>DocumentProcessing:*</c>), e-invoice parsing, the LLM gateway with its EF-backed ports and the vendor
-    /// adapters, blob storage (unless the host registered it already), and the pipeline itself. The runner is
+    /// adapters, blob storage and the secret store (unless the host registered them already), and the pipeline itself. The runner is
     /// registered when <c>Pipeline:RunInProcess</c> is true; unset, it defaults to <paramref name="runInProcessDefault"/>
     /// or, when that is null too, to "not in Production". Without the runner only the queue is registered.
     /// </summary>
@@ -96,6 +97,13 @@ public static class PipelineServiceCollectionExtensions
         if (!services.Any(d => d.ServiceType == typeof(IContainerBlobStore)))
         {
             services.AddDocProcBlobs(configuration, builder.Environment);
+        }
+
+        // The credential store reads the BYOK and platform keys the API wrote to the secret store (docs/08 "Key
+        // handling"), so the worker needs the same store: the file store under Secrets:Path unless the host has one.
+        if (!services.Any(d => d.ServiceType == typeof(ISecretStore)))
+        {
+            services.AddDocProcSecrets(configuration, builder.Environment);
         }
 
         var runInProcess = configuration.GetValue<bool?>(PipelineOptions.RunInProcessKey)

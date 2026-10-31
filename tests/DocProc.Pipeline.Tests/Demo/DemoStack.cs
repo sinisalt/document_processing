@@ -45,6 +45,7 @@ internal static class DemoStack
         {
             ["Persistence:SqlitePath"] = Path.Combine(work, "docproc.db"),
             ["Blobs:RootPath"] = Path.Combine(work, "blobs"),
+            ["Secrets:Path"] = Path.Combine(work, "secrets"),
             // A replay store must be configured for the demo data to add the Replay provider, but it must not be the
             // committed folder: the tests' provider answers instead, and a stale fixture must not hide a change.
             ["Llm:Replay:Directory"] = Path.Combine(work, "empty-replay"),

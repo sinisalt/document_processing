@@ -1,4 +1,5 @@
 using DocProc.Infrastructure.Llm;
+using DocProc.Infrastructure.Security;
 using DocProc.Llm;
 using DocProc.Llm.Providers;
 using Microsoft.Extensions.Configuration;
@@ -15,8 +16,31 @@ public class LlmPersistenceTests
         Auth = new LlmAuth(auth, secretRef),
     };
 
-    private static ConfigurationLlmCredentialStore Store(params (string Key, string? Value)[] settings) =>
-        new(new ConfigurationBuilder().AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => s.Value)).Build());
+    private static SecretStoreLlmCredentialStore Store(params (string Key, string? Value)[] settings) => Store(null, settings);
+
+    private static SecretStoreLlmCredentialStore Store(InMemorySecretStore? secrets, params (string Key, string? Value)[] settings) =>
+        new(secrets, new ConfigurationBuilder().AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => s.Value)).Build());
+
+    [Fact]
+    public async Task Resolves_a_key_the_api_wrote_to_the_secret_store_before_configuration()
+    {
+        var secrets = new InMemorySecretStore();
+        var tenantRef = $"tenant/{Guid.NewGuid()}/{Guid.NewGuid()}";
+        await secrets.SetAsync(tenantRef, "sk-byok-tenant", CancellationToken.None);
+        await secrets.SetAsync("llm-platform-eu", "sk-from-store", CancellationToken.None);
+        var store = Store(secrets, ("Llm:Secrets:llm-platform-eu", "sk-from-configuration"));
+
+        (await store.GetAsync(Config(secretRef: tenantRef), CancellationToken.None)).ApiKey.ShouldBe("sk-byok-tenant");
+        (await store.GetAsync(Config(), CancellationToken.None)).ApiKey.ShouldBe("sk-from-store", "the secret store wins over configuration");
+    }
+
+    [Fact]
+    public async Task Falls_back_to_configuration_when_the_secret_store_has_nothing_under_the_reference()
+    {
+        var credential = await Store(new InMemorySecretStore(), ("Llm:Secrets:llm-platform-eu", "sk-seeded")).GetAsync(Config(), CancellationToken.None);
+
+        credential.ApiKey.ShouldBe("sk-seeded");
+    }
 
     [Fact]
     public async Task Resolves_the_key_from_configuration_under_the_secret_reference()
@@ -30,8 +54,8 @@ public class LlmPersistenceTests
     [Fact]
     public async Task Falls_back_to_the_environment_variable_in_upper_snake_case()
     {
-        ConfigurationLlmCredentialStore.EnvironmentVariableFor("llm-platform-eu").ShouldBe("LLM_SECRET_LLM_PLATFORM_EU");
-        ConfigurationLlmCredentialStore.EnvironmentVariableFor("tenant.a/openai").ShouldBe("LLM_SECRET_TENANT_A_OPENAI");
+        SecretStoreLlmCredentialStore.EnvironmentVariableFor("llm-platform-eu").ShouldBe("LLM_SECRET_LLM_PLATFORM_EU");
+        SecretStoreLlmCredentialStore.EnvironmentVariableFor("tenant.a/openai").ShouldBe("LLM_SECRET_TENANT_A_OPENAI");
 
         var variable = "LLM_SECRET_PIPELINE_TEST_" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
         var secretRef = variable["LLM_SECRET_".Length..].ToLowerInvariant().Replace('_', '-');
@@ -48,14 +72,17 @@ public class LlmPersistenceTests
     }
 
     [Fact]
-    public async Task Missing_key_is_an_auth_error_that_names_both_places_to_put_it()
+    public async Task Missing_key_is_an_auth_error_that_keeps_internal_names_out_of_the_tenant_visible_message()
     {
-        var ex = await Should.ThrowAsync<LlmException>(() => Store().GetAsync(Config(secretRef: "nowhere-to-be-found"), CancellationToken.None));
+        var secretRef = $"tenant/{Guid.NewGuid()}/nowhere-to-be-found";
+        var ex = await Should.ThrowAsync<LlmException>(() => Store(new InMemorySecretStore()).GetAsync(Config(secretRef: secretRef), CancellationToken.None));
 
         ex.Kind.ShouldBe(LlmErrorKind.Auth);
         ex.BlocksTenant.ShouldBeTrue();
-        ex.Message.ShouldContain("Llm:Secrets:nowhere-to-be-found");
-        ex.Message.ShouldContain("LLM_SECRET_NOWHERE_TO_BE_FOUND");
+        ex.Message.ShouldContain(Config().Id.ToString());
+        ex.Message.ShouldNotContain(secretRef);
+        ex.Message.ShouldNotContain("Llm:Secrets");
+        ex.Message.ShouldNotContain("LLM_SECRET_");
     }
 
     [Fact]

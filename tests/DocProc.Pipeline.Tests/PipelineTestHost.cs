@@ -64,6 +64,7 @@ internal sealed class PipelineTestHost : IAsyncDisposable
             ["Persistence:Provider"] = "Sqlite",
             ["Persistence:SqlitePath"] = Path.Combine(directory, "docproc.db"),
             ["Blobs:RootPath"] = Path.Combine(directory, "blobs"),
+            ["Secrets:Path"] = Path.Combine(directory, "secrets"),
             ["Llm:Replay:Scripted"] = "true",
             ["Pipeline:MaxParallelism"] = "2",
             ["Pipeline:RetryBaseDelay"] = "00:00:00.020",
