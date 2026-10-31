@@ -28,7 +28,7 @@ import {
   useAuth,
   type DataTableColumns,
 } from "@docproc/app-shell";
-import { canDecide, canReprocess, canonicalRows, flagSeverityVariant, type CanonicalRow } from "@/lib/documents";
+import { canDecide, canReprocess, canonicalRows, documentLabel, flagSeverityVariant, type CanonicalRow } from "@/lib/documents";
 import { formatUsd } from "@/lib/usage";
 import { KeyValue } from "@/components/KeyValue";
 import { TimelineTable } from "@/components/TimelineTable";
@@ -74,7 +74,7 @@ function DocumentDetailPage() {
       flagHelper.columns([
         flagHelper.accessor("severity", { header: t("document.flagSeverity"), cell: (info) => <Badge variant={flagSeverityVariant[info.getValue()]}>{t(`flagSeverity.${info.getValue()}`, { defaultValue: info.getValue() })}</Badge> }),
         flagHelper.accessor("code", { header: t("document.flagCode"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
-        flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
+        flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
         // The message in the UI language from the flag's code and parameters; the API's English text for an unknown
         // code or a flag stored without parameters. Paths stay paths here: they are the field column's vocabulary.
         // Accessed as the displayed sentence, so sorting follows what the user reads, not the hidden English text.
@@ -116,7 +116,7 @@ function DocumentDetailPage() {
   }
 
   const doc = document.data;
-  const label = doc?.documentNumber ?? documentId.slice(0, 8);
+  const label = documentLabel({ id: documentId, documentNumber: doc?.documentNumber });
 
   return (
     <>

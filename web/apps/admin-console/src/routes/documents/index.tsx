@@ -24,7 +24,7 @@ import {
   useTenantSwitcherOptional,
   type DataTableColumns,
 } from "@docproc/app-shell";
-import { documentStatuses, documentTypes, type DocumentStatus, type DocumentType } from "@/lib/documents";
+import { documentStatuses, documentTypes, shortId, type DocumentStatus, type DocumentType } from "@/lib/documents";
 import { LoadMore } from "@/components/LoadMore";
 
 type DocumentSummary = components["schemas"]["DocumentSummary"];
@@ -97,18 +97,19 @@ function DocumentsPage() {
           header: t("documents.number"),
           cell: (info) => (
             <Link to="/documents/$documentId" params={{ documentId: info.row.original.id }} className="font-medium underline-offset-4 hover:underline">
-              {info.getValue() ?? <span className="font-mono text-xs">{info.row.original.id.slice(0, 8)}</span>}
+              {info.getValue() ?? <span className="font-mono text-xs">{shortId(info.row.original.id)}</span>}
             </Link>
           ),
         }),
         helper.accessor((row) => row.tenantName ?? row.tenantId, {
           id: "tenant",
           header: t("documents.tenant"),
-          cell: (info) => (info.row.original.tenantName ? <span className="whitespace-nowrap">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{info.row.original.tenantId.slice(0, 8)}</span>),
+          cell: (info) => (info.row.original.tenantName ? <span className="block min-w-28 whitespace-normal">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{shortId(info.row.original.tenantId)}</span>),
         }),
         helper.accessor("status", { header: t("documents.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
-        helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => info.getValue() ?? "—" }),
+        // Names wrap (a "GmbH & Co. KG" is long) so the received column still fits beside them at 1440 px.
+        helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => <span className="block min-w-32 whitespace-normal">{info.getValue() ?? "—"}</span> }),
         helper.accessor("issueDate", { header: t("documents.issueDate"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDate(info.getValue(), i18n.language)}</span> }),
         helper.accessor("totalGross", { header: t("documents.total"), cell: (info) => <span className="tabular-nums">{formatMoney(info.getValue(), info.row.original.currency, i18n.language)}</span> }),
         helper.display({
@@ -195,7 +196,7 @@ function DocumentsPage() {
                 {t("documents.search")}
               </Label>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="w-56 pl-8" />
+              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="w-72 pl-8" />
             </div>
             <div>
               <Label htmlFor="document-flag" className="sr-only">

@@ -246,7 +246,7 @@ export function SuppliersTab() {
     () =>
       helper.columns([
         helper.accessor("name", { header: t("suppliers.name"), cell: (info) => <span className="font-medium">{info.getValue()}</span> }),
-        helper.accessor("vatId", { header: t("suppliers.vatId"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
+        helper.accessor("vatId", { header: t("suppliers.vatId"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
         helper.accessor("defaultCurrency", { header: t("suppliers.currency"), cell: (info) => info.getValue() ?? "—" }),
         helper.accessor("emailDomains", { header: t("suppliers.emailDomains"), enableSorting: false, cell: (info) => (info.getValue().length ? info.getValue().join(", ") : "—") }),
         helper.accessor("aliases", { header: t("suppliers.aliases"), enableSorting: false, cell: (info) => (info.getValue().length ? info.getValue().join(", ") : "—") }),

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { adminUrl, apiUrl, portalUrl } from "../playwright.config";
+import { devUser, reachable, signIn, type DevUser } from "./support/dev-api";
 
 /**
  * Smoke: the development sign-in page of each app lists GET /dev/users, one click signs in through POST /dev/token, and
@@ -7,37 +8,11 @@ import { adminUrl, apiUrl, portalUrl } from "../playwright.config";
  * servers; set E2E_API_URL (and E2E_PORTAL_URL / E2E_ADMIN_URL when not on the default ports) to opt in.
  */
 
-interface DevUser {
-  username: string;
-  displayName: string;
-  roles: string[];
-}
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    return response.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-async function devUser(username: string): Promise<DevUser> {
-  const response = await fetch(`${apiUrl}/dev/users`);
-  const users = (await response.json()) as DevUser[];
-  const user = users.find((u) => u.username === username);
-  if (!user) throw new Error(`Dev user '${username}' is not in GET /dev/users`);
-  return user;
-}
-
 async function signInAs(page: Page, appUrl: string, user: DevUser) {
-  await page.goto(`${appUrl}/sign-in`);
-  await page.getByRole("button", { name: `Sign in as ${user.displayName}` }).click();
+  await signIn(page, appUrl, user.username);
   // The shell redirects to the dashboard once /me answered; the header (role=banner) names the user.
-  const banner = page.getByRole("banner");
-  await expect(banner.getByRole("button", { name: `Account menu for ${user.displayName}` })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Dashboard");
-  return banner;
+  return page.getByRole("banner");
 }
 
 test.describe("dev sign-in", () => {

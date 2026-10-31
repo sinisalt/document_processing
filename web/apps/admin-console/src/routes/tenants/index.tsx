@@ -73,7 +73,7 @@ function TenantsPage() {
         enableColumnVisibility
         toolbar={
           <>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Label htmlFor="tenant-search" className="sr-only">
                 {t("tenants.search")}
               </Label>
@@ -84,7 +84,7 @@ function TenantsPage() {
                 defaultValue={search.q ?? ""}
                 onChange={(event) => void navigate({ search: (prev) => ({ ...prev, q: event.target.value || undefined }), replace: true })}
                 placeholder={t("tenants.search")}
-                className="w-64 pl-8"
+                className="w-full pl-8 sm:w-96"
               />
             </div>
             <Select value={search.status ?? ALL} onValueChange={(value) => void navigate({ search: (prev) => ({ ...prev, status: value === ALL ? undefined : (value as (typeof tenantStatuses)[number]) }) })}>

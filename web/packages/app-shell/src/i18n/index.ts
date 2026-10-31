@@ -57,6 +57,7 @@ export function createI18n(options: CreateI18nOptions = {}): typeof i18n {
     return i18n;
   }
 
+  syncDocumentLanguage(i18n);
   const namespaces = new Set<string>(["common"]);
   for (const bundles of Object.values(resources)) for (const ns of Object.keys(bundles)) namespaces.add(ns);
 
@@ -83,6 +84,20 @@ export function createI18n(options: CreateI18nOptions = {}): typeof i18n {
       },
     });
   return i18n;
+}
+
+/**
+ * Keeps `<html lang>` on the UI language (index.html ships `lang="en"`): screen readers pick their voice and browsers
+ * their hyphenation and spell-check dictionary by it, so a German UI under `lang="en"` was read out in English.
+ */
+export function syncDocumentLanguage(instance: typeof i18n): void {
+  if (typeof document === "undefined") return;
+  const apply = (language: string | undefined) => {
+    const short = (language ?? "").split("-")[0] ?? "";
+    document.documentElement.lang = isSupportedLanguage(short) ? short : "en";
+  };
+  instance.on("initialized", () => apply(instance.resolvedLanguage ?? instance.language));
+  instance.on("languageChanged", (language) => apply(instance.resolvedLanguage ?? language));
 }
 
 export function isSupportedLanguage(value: string): value is SupportedLanguage {

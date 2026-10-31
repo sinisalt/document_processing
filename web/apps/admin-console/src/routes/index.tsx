@@ -5,8 +5,8 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Building2, ClipboardList, Coins, Info, RotateCcw } from "lucide-react";
 import type { components } from "@docproc/api-client";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from "@docproc/ui";
-import { DataTable, Policies, StatusBadge, createDataTableColumnHelper, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
-import { documentStatuses, pageCountLabel } from "@/lib/documents";
+import { DataTable, Policies, StatusBadge, createDataTableColumnHelper, formatDate, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
+import { documentLabel, documentStatuses, pageCountLabel } from "@/lib/documents";
 import { formatUsd, monthRange, usageRows } from "@/lib/usage";
 import { statValue } from "@/lib/dashboard";
 import { ReprocessDialog } from "@/components/DocumentActions";
@@ -104,7 +104,7 @@ function DashboardPage() {
           header: t("documents.number"),
           cell: (info) => (
             <Link to="/documents/$documentId" params={{ documentId: info.row.original.id }} className="font-medium underline-offset-4 hover:underline">
-              {info.getValue() ?? info.row.original.id.slice(0, 8)}
+              {documentLabel(info.row.original)}
             </Link>
           ),
         }),
@@ -182,7 +182,7 @@ function DashboardPage() {
           <StatCard
             title={t("dashboard.spend")}
             value={spend.data ? formatUsd(spend.data.total.estimatedCostUsd, i18n.language) : spend.isError ? "—" : <Skeleton className="h-9 w-24" />}
-            hint={spend.data ? t("dashboard.spendHint", { calls: formatNumber(spend.data.total.calls, i18n.language), from: spend.data.from }) : undefined}
+            hint={spend.data ? t("dashboard.spendHint", { calls: formatNumber(spend.data.total.calls, i18n.language), from: formatDate(spend.data.from, i18n.language) }) : undefined}
             icon={Coins}
             to="/llm"
           />
@@ -204,7 +204,8 @@ function DashboardPage() {
                 return (
                   <li key={status}>
                     <Link to="/documents" search={{ status }} className="flex flex-col gap-1 rounded-md border p-3 transition-colors hover:bg-accent/40" data-status={status}>
-                      <StatusBadge status={status} className="w-fit max-w-full truncate" />
+                      {/* Wraps instead of clipping: a badge is a flex box, so `truncate` cut "Automatisch freigegeben" at both ends. */}
+                      <StatusBadge status={status} className="h-auto w-fit max-w-full whitespace-normal text-left" />
                       <span className="text-2xl font-semibold tabular-nums">{statValue(result, true, (data) => pageCountLabel(data.items.length, data.nextCursor, PAGE), <Skeleton className="h-8 w-10" />)}</span>
                     </Link>
                   </li>
@@ -218,7 +219,8 @@ function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>{t("dashboard.spendByTenant")}</CardTitle>
-            <CardDescription>{t("dashboard.spendByTenantDescription", { from: month.from, to: month.to })}</CardDescription>
+            {/* The window only means something to whoever sees the figures. */}
+            {isPlatformAdmin && <CardDescription>{t("dashboard.spendByTenantDescription", { from: formatDate(month.from, i18n.language), to: formatDate(month.to, i18n.language) })}</CardDescription>}
           </CardHeader>
           <CardContent>
             {!isPlatformAdmin ? (
@@ -272,7 +274,7 @@ function DashboardPage() {
       </Card>
 
       {retrying && (
-        <ReprocessDialog documentId={retrying.id} documentLabel={retrying.documentNumber ?? retrying.id.slice(0, 8)} status={retrying.status} open onOpenChange={(open) => !open && setRetrying(null)} />
+        <ReprocessDialog documentId={retrying.id} documentLabel={documentLabel(retrying)} status={retrying.status} open onOpenChange={(open) => !open && setRetrying(null)} />
       )}
     </>
   );

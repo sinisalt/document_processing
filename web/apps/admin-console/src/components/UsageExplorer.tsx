@@ -147,8 +147,9 @@ export function UsageExplorer({ source, title, description }: { source: UsageSou
             total ? (
               <span className="tabular-nums" aria-live="polite">
                 {t("usage.total", {
-                  calls: formatNumber(total.calls, i18n.language),
-                  errors: formatNumber(total.errors, i18n.language),
+                  // Each count picks its own plural ("1 error", not "1 errors") and keeps the locale's digit grouping.
+                  calls: t("usage.totalCalls", { count: Number(total.calls), value: formatNumber(total.calls, i18n.language) }),
+                  errors: t("usage.totalErrors", { count: Number(total.errors), value: formatNumber(total.errors, i18n.language) }),
                   cost: formatUsd(total.estimatedCostUsd, i18n.language),
                 })}
               </span>

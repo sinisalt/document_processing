@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daysBetween, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
+import { axisLabel, daysBetween, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
 
 function bucket(key: string, overrides: Partial<LlmUsageBucket> = {}): LlmUsageBucket {
   return { key, calls: 10, errors: 1, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50, cacheWriteTokens: 25, reasoningTokens: 5, estimatedCostUsd: 0.5, ...overrides };
@@ -79,5 +79,14 @@ describe("formatting", () => {
     expect(formatUsd(0, "en")).toBe("$0.00");
     expect(formatUsd("3.25", "en")).toBe("$3.25");
     expect(formatUsd(null, "en")).toBe("—");
+  });
+});
+
+describe("axisLabel", () => {
+  it("keeps a tenant name whole while there are few bars and shortens it as they crowd", () => {
+    expect(axisLabel("Gasthaus zur Post GmbH", 2)).toBe("Gasthaus zur Post GmbH");
+    expect(axisLabel("Gasthaus zur Post GmbH", 6)).toBe("Gasthaus zur Post…");
+    expect(axisLabel("Gasthaus zur Post GmbH", 30)).toBe("Gasthaus zur…");
+    expect(axisLabel("2026-10-21", 30)).toBe("2026-10-21");
   });
 });

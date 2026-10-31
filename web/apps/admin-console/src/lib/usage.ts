@@ -139,6 +139,15 @@ export function formatUsd(value: Numeric, locale?: string): string {
   return new Intl.NumberFormat(locale ?? undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: digits }).format(n);
 }
 
+/**
+ * An x-axis label of the usage chart: whole while the bars leave room for it (a handful of tenants), cut with an
+ * ellipsis only as they crowd (thirty days).
+ */
+export function axisLabel(value: string, barCount: number): string {
+  const max = barCount <= 4 ? 32 : barCount <= 8 ? 20 : 14;
+  return value.length > max ? `${value.slice(0, max - 2).trimEnd()}…` : value;
+}
+
 /** `1234567` → `1.2M` style token counts for tight table cells. */
 export function formatTokens(value: Numeric, locale?: string): string {
   return formatNumber(value, locale, { notation: "compact", maximumFractionDigits: 1 });

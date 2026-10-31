@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import i18next from "i18next";
 import enCommon from "../../../../packages/app-shell/src/i18n/en/common.json";
 import deCommon from "../../../../packages/app-shell/src/i18n/de/common.json";
 import en from "./en/admin.json";
@@ -9,6 +10,7 @@ import { documentStatuses, documentTypes, reprocessStages } from "@/lib/document
 import { apiKeyScopes } from "@/components/tenant/ApiKeysTab";
 import { channelTypes } from "@/components/tenant/ChannelsTab";
 import { dataResidencies, llmStages } from "@/components/AddProviderDialog";
+import { flagCodes } from "@/lib/review";
 
 type Tree = { [key: string]: string | Tree };
 
@@ -59,6 +61,16 @@ describe("admin console i18n resources", () => {
     expect([...deCommonKeys].filter((key) => !commonKeys.has(key))).toEqual([]);
   });
 
+  it("never shows a raw flag or enum code inside a sentence", () => {
+    // "Fields below it raise LOW_CONFIDENCE" put an API code in front of the user; codes are translated by key.
+    const values = (tree: Tree, prefix = ""): [string, string][] =>
+      Object.entries(tree).flatMap(([key, value]) => (typeof value === "string" ? [[`${prefix}${key}`, value] as [string, string]] : values(value, `${prefix}${key}.`)));
+    for (const bundle of [en, de]) {
+      const offending = values(bundle as Tree).filter(([, text]) => /\b[A-Z]{2,}(?:_[A-Z]+)+\b/.test(text));
+      expect(offending).toEqual([]);
+    }
+  });
+
   it("defines every literal key the screens use", () => {
     const literal = literalKeys();
     expect(literal.length).toBeGreaterThan(100);
@@ -81,9 +93,27 @@ describe("admin console i18n resources", () => {
       ...apiKeyScopes.map((scope) => `apiKeys.scope.${scope}`),
       ...channelTypes.map((type) => `channels.types.${type}`),
       ...dataResidencies.map((residency) => `llm.residency.${residency}`),
+      ...flagCodes.map((code) => `flagCodes.${code}`),
     ];
     expect(expected.filter((key) => !has(enKeys, key))).toEqual([]);
     const common = [...documentStatuses.map((status) => `documentStatus.${status}`), ...["SuperAdmin", "Operator", "TenantAdmin", "Reviewer", "Viewer"].map((role) => `roles.${role}`)];
     expect(common.filter((key) => !has(commonKeys, key))).toEqual([]);
+  });
+});
+
+describe("usage totals", () => {
+  it("pluralises each count on its own ('1 error', not '1 errors')", async () => {
+    const instance = i18next.createInstance();
+    await instance.init({ lng: "en", fallbackLng: "en", defaultNS: "admin", resources: { en: { admin: en }, de: { admin: de } }, interpolation: { escapeValue: false } });
+    const line = (lng: string, calls: number, errors: number) =>
+      instance.t("usage.total", {
+        lng,
+        calls: instance.t("usage.totalCalls", { lng, count: calls, value: String(calls) }),
+        errors: instance.t("usage.totalErrors", { lng, count: errors, value: String(errors) }),
+        cost: "$1.78",
+      });
+    expect(line("en", 47, 1)).toBe("Total: 47 calls · 1 error · $1.78");
+    expect(line("en", 1, 2)).toBe("Total: 1 call · 2 errors · $1.78");
+    expect(line("de", 47, 1)).toBe("Gesamt: 47 Aufrufe · 1 Fehler · $1.78");
   });
 });

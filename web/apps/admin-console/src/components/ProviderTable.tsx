@@ -78,10 +78,21 @@ export function ProviderTable({ providers, isLoading, query, scope, queryKey, ca
             </ul>
           ),
         }),
-        helper.accessor("endpoint", { header: t("llm.endpoint"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
-        helper.accessor("keyLast4", { header: t("llm.key"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ? `••••${info.getValue()}` : "—"}</span> }),
+        helper.accessor("endpoint", { header: t("llm.endpoint"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
+        helper.accessor("keyLast4", { header: t("llm.key"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{`••••${info.getValue()}`}</span> : "—") }),
         helper.accessor("monthlySpendCapUsd", { header: t("llm.spendCap"), cell: (info) => <span className="tabular-nums">{info.getValue() == null ? "—" : formatUsd(info.getValue(), i18n.language)}</span> }),
-        helper.accessor("lastError", { header: t("llm.lastError"), cell: (info) => <span className="block max-w-xs truncate text-destructive" title={info.getValue() ?? undefined}>{info.getValue() ?? "—"}</span> }),
+        helper.accessor("lastError", { header: t("llm.lastError"), cell: (info) => {
+            // Only an actual error is red; "no error" is the muted dash every other empty cell shows.
+            const error = info.getValue();
+            return error ? (
+              <span className="block max-w-xs truncate text-destructive" title={error}>
+                {error}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            );
+          },
+        }),
         helper.accessor("updatedAt", { header: t("llm.updatedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
         helper.display({
           id: "actions",

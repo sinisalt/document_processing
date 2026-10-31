@@ -90,7 +90,7 @@ export function TimelineTable({ events, isLoading = false, query }: TimelineTabl
           header: t("timeline.summary"),
           enableSorting: false,
           cell: (info) => (
-            <span className="block max-w-md truncate" title={info.getValue() || undefined}>
+            <span className="block max-w-sm truncate" title={info.getValue() || undefined}>
               {info.getValue() || "—"}
             </span>
           ),

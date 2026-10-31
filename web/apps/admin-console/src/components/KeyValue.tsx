@@ -15,7 +15,8 @@ export function KeyValue({ items, columns = 2, className }: { items: KeyValueIte
       {items.map((item, index) => (
         <div key={index} className="min-w-0">
           <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{item.label}</dt>
-          <dd className={cn("mt-0.5 break-words", item.mono && "font-mono text-xs")}>{item.value ?? "—"}</dd>
+          {/* Monospace only for an actual value: the empty dash in a small mono face reads as a different, shorter dash. */}
+          <dd className={cn("mt-0.5 break-words", item.mono && item.value != null && item.value !== "—" && "font-mono text-xs")}>{item.value ?? "—"}</dd>
         </div>
       ))}
     </dl>
@@ -30,5 +31,6 @@ export function JsonBlock({ value, className }: { value: unknown; className?: st
   } catch {
     text = String(value);
   }
-  return <pre className={cn("max-h-80 overflow-auto rounded-md bg-muted p-3 font-mono text-xs", className)}>{text}</pre>;
+  // Long strings (an error message) wrap instead of running off the right edge of the panel.
+  return <pre className={cn("max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs", className)}>{text}</pre>;
 }
