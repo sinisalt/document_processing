@@ -5,7 +5,7 @@ import enCommon from "../../../../packages/app-shell/src/i18n/en/common.json";
 import en from "./en/portal.json";
 import de from "./de/portal.json";
 import { fieldLabelKey } from "@/components/review/CanonicalForm";
-import { allSpecs, type CanonicalInvoice } from "@/lib/canonical";
+import { allSpecs, invoiceKinds, paymentMeans, unitsOfMeasure, type CanonicalInvoice } from "@/lib/canonical";
 
 type Tree = { [key: string]: string | Tree };
 
@@ -65,9 +65,30 @@ describe("portal i18n resources", () => {
       ...["Normalize", "Classify", "Extract", "Validate", "Split", "Synthesize"].map((stage) => `stages.${stage}`),
       ...["document", "supplier", "customer", "totals", "payment", "notes"].map((section) => `review.sections.${section}`),
       ...["received", "stage_completed", "stage_failed", "flagged", "review_requested", "auto_approved", "approved", "rejected", "corrected", "reprocessed"].map((event) => `events.document.${event}`),
-      ...["Invoice", "CreditNote", "Proforma", "BankTransfer", "DirectDebit", "Card", "Cash", "Other"].map((value) => `enums.${value}`),
+      ...[...invoiceKinds, ...paymentMeans, ...unitsOfMeasure].map((value) => `enums.${value}`),
       ...["general", "members", "apiKeys", "channels", "ai"].map((tab) => `settings.tabs.${tab}`),
-      ...["none", "notValidated", "stale"].map((state) => `review.flags.${state}`),
+      ...["none", "notValidated", "stale", "staleSettled"].map((state) => `review.flags.${state}`),
+      // FlagCodes (src/DocProc.Domain/Flags/DocumentFlag.cs).
+      ...[
+        "UNREADABLE_PAGES",
+        "TYPE_UNKNOWN",
+        "SUPPLIER_UNMATCHED",
+        "CUSTOMER_MISMATCH",
+        "MISSING_REQUIRED",
+        "TOTALS_MISMATCH",
+        "TAX_MISMATCH",
+        "LINE_ARITHMETIC",
+        "LOW_CONFIDENCE",
+        "DUPLICATE_SUSPECTED",
+        "PROFILE_FALLBACK",
+        "LLM_PROVIDER_UNAVAILABLE",
+        "MULTI_DOCUMENT_SPLIT",
+        "CURRENCY_INFERRED",
+        "PO_UNMATCHED",
+        "DATE_IMPLAUSIBLE",
+        "INVALID_VALUE",
+        "UNSUPPORTED_TYPE",
+      ].map((code) => `flagCodes.${code}`),
       ...["ApiUpload", "Mailbox", "WatchedFolder", "PortalUpload"].flatMap((type) => [`settings.channels.types.${type}`, `settings.channels.configHints.${type}`]),
       ...["Anthropic", "AnthropicFoundry", "OpenAi", "AzureOpenAi", "OpenAiCompatible"].map((kind) => `settings.ai.kinds.${kind}`),
       ...["ingest", "read"].flatMap((scope) => [`settings.apiKeys.scopes.${scope}`, `settings.apiKeys.scopeHints.${scope}`]),

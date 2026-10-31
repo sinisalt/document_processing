@@ -26,6 +26,8 @@ function LlmPage() {
     queryKey: queryKeys.tenants.list({ limit: 200 }),
     queryFn: async () => unwrap(await client.GET("/api/v1/tenants", { params: { query: { limit: 200 } } })),
     staleTime: 60_000,
+    // Only the usage explorer reads the names, and GET /tenants needs the Platform policy (docs/05).
+    enabled: isPlatformAdmin,
   });
 
   const source = useMemo<UsageSource>(() => {

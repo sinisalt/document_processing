@@ -5,7 +5,7 @@ import { flexRender, useTable } from "@tanstack/react-table";
 import { AlertTriangle, CheckCircle2, MinusCircle } from "lucide-react";
 import { Badge, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, cn } from "@docproc/ui";
 import { createDataTableColumnHelper, dataTableFeatures, formatNumber, isLowConfidence } from "@docproc/app-shell";
-import { FieldInput } from "./FieldInput";
+import { FieldInput, type HighlightHandler } from "./FieldInput";
 import { useFieldLabel } from "./CanonicalForm";
 import { currencyOf, fieldOf, lineColumns, type CanonicalInvoice, type CanonicalLine, type FieldSpec } from "@/lib/canonical";
 import { parseAmount } from "@/lib/corrections";
@@ -15,7 +15,7 @@ export interface LineItemGridProps {
   canonical: CanonicalInvoice | null;
   disabled: boolean;
   threshold?: number;
-  onHighlight: (fieldPath: string | null) => void;
+  onHighlight: HighlightHandler;
   /** Lines named by flags (`lines[2].lineNet`), highlighted in the grid. */
   flaggedLines?: ReadonlySet<number>;
 }
@@ -36,7 +36,8 @@ function textOf(values: unknown, index: number, name: string): string {
 
 /**
  * The line-item grid (docs/05 "custom components"): a TanStack Table whose cells are the review form's inputs for
- * `lines[i].*`, with a per-line arithmetic indicator (quantity × unit price − discount vs. line net, within a cent)
+ * `lines[i].*`, with a per-line arithmetic indicator (quantity × unit price − discount vs. line net, within the
+ * validator's tolerance)
  * computed from what is currently typed, so a correction turns the indicator green before it is saved.
  */
 export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flaggedLines }: LineItemGridProps) {
@@ -80,9 +81,11 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
             id: column.name,
             header: label(`lines[0].${column.name}`),
             cell: ({ row }) => {
-              const spec: FieldSpec = { path: `lines[${row.original.index}].${column.name}`, kind: column.kind, fieldPath: `lines[${row.original.index}].${column.name}` };
+              const spec: FieldSpec = { path: `lines[${row.original.index}].${column.name}`, kind: column.kind, fieldPath: `lines[${row.original.index}].${column.name}`, options: column.options };
               const field = fieldOf(canonical, spec);
-              return (
+              // The unit as the invoice prints it ("Stk", "kg"), beside the normalised unit the select edits.
+              const printed = column.name === "unit" ? row.original.line.unitRaw?.trim() : undefined;
+              const input = (
                 <FieldInput
                   spec={spec}
                   field={field}
@@ -94,6 +97,15 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
                   aria-label={t("review.lines.cellLabel", { line: row.original.line.lineNumber, field: label(spec) })}
                   className={cn(column.name === "description" ? "min-w-48" : column.kind === "money" || column.kind === "number" ? "w-24" : "w-28")}
                 />
+              );
+              if (!printed) return input;
+              return (
+                <div className="flex flex-col gap-0.5">
+                  {input}
+                  <span className="text-xs text-muted-foreground" data-testid="unit-raw">
+                    {t("review.lines.unitRaw", { unit: printed })}
+                  </span>
+                </div>
               );
             },
           }),

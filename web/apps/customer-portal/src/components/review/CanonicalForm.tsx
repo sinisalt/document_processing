@@ -2,14 +2,14 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, parsePath } from "@docproc/app-shell";
-import { FieldInput } from "./FieldInput";
+import { FieldInput, type HighlightHandler } from "./FieldInput";
 import { currencyOf, fieldDomId, fieldOf, headerSections, type CanonicalInvoice, type FieldSpec } from "@/lib/canonical";
 
 export interface CanonicalFormProps {
   canonical: CanonicalInvoice | null;
   disabled: boolean;
   threshold?: number;
-  onHighlight: (fieldPath: string | null) => void;
+  onHighlight: HighlightHandler;
 }
 
 /** Paths whose labels are a group under `fields`; the path alone (a flag on `supplier`) is labelled from `fieldBlocks`. */

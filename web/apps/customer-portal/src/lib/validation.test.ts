@@ -48,6 +48,21 @@ describe("validationState", () => {
     expect(validationState("Extracted", [])).toBe("notValidated");
   });
 
+  it("does not advise a reprocess on a decided document that cannot be reprocessed", () => {
+    const corrected = [...pipeline, event("document.corrected", "NeedsReview", "NeedsReview")];
+    expect(validationState("Approved", [...corrected, event("document.approved", "NeedsReview", "Approved")])).toBe("staleSettled");
+    expect(validationState("AutoApproved", [...corrected, event("document.auto_approved", "Validated", "AutoApproved")])).toBe("staleSettled");
+    // Rejected documents can be reprocessed, so the advice stands.
+    expect(validationState("Rejected", [...corrected, event("document.rejected", "NeedsReview", "Rejected")])).toBe("stale");
+  });
+
+  it("treats a timeline that ends in another status than the document's as outdated", () => {
+    // Fetched right after a reprocess, before Validate ran again: the document is NeedsReview by now.
+    const beforeRevalidation = [...pipeline, event("document.reprocessed", "NeedsReview", "Extracted")];
+    expect(validationState("NeedsReview", beforeRevalidation)).toBe("passed");
+    expect(validationState("Extracted", beforeRevalidation)).toBe("notValidated");
+  });
+
   it("falls back to the status while the timeline is not loaded", () => {
     expect(validationState("NeedsReview", undefined)).toBe("passed");
     expect(validationState("Failed", undefined)).toBe("notValidated");

@@ -4,7 +4,7 @@ import { FormProvider, useForm } from "react-hook-form";
 import { i18n } from "@/i18n";
 import { CanonicalForm } from "./CanonicalForm";
 import { ArithmeticIndicator, LineItemGrid } from "./LineItemGrid";
-import { allSpecs, fieldDomId, toFormValues, type CanonicalInvoice } from "@/lib/canonical";
+import { allSpecs, fieldDomId, toFormValues, unitsOfMeasure, type CanonicalInvoice } from "@/lib/canonical";
 import { diffCorrections, type FieldCorrection } from "@/lib/corrections";
 
 const money = (amount: number) => ({ amount, currency: "EUR" });
@@ -24,7 +24,7 @@ const canonical: CanonicalInvoice = {
     { lineNumber: 1, description: extracted("Lachsfilet"), quantity: extracted(10), unitPrice: extracted(money(18)), lineNet: extracted(money(180)) },
     // 5 × 14 = 70, but the line says 75: a mismatch the grid must show.
     { lineNumber: 2, description: extracted("Kabeljau"), quantity: extracted(5), unitPrice: extracted(money(14)), lineNet: extracted(money(75)) },
-    { lineNumber: 3, description: extracted("Versand") },
+    { lineNumber: 3, description: extracted("Versand"), unit: extracted("Piece"), unitRaw: "Stk" },
   ],
 };
 
@@ -124,5 +124,38 @@ describe("ArithmeticIndicator", () => {
   it("names an incomplete line", () => {
     render(<ArithmeticIndicator result={{ status: "incomplete", expected: null, actual: null, difference: null }} locale="en" />);
     expect(screen.getByLabelText("Quantity, unit price or line net missing")).toBeInTheDocument();
+  });
+});
+
+describe("line unit", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+    // Radix Select uses pointer capture and scrollIntoView, which jsdom lacks.
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.scrollIntoView ??= () => {};
+  });
+
+  it("is a select of the API's UnitOfMeasure names, with the printed unit beside it", async () => {
+    expect(specs.find((spec) => spec.path === "lines[2].unit")).toMatchObject({ kind: "enum", options: unitsOfMeasure });
+    render(<Harness onSave={vi.fn()} />);
+    const unit = screen.getByRole("combobox", { name: "Line 3, Unit" });
+    expect(unit).toHaveTextContent("Piece");
+    expect(within(lineRow(2)).getByTestId("unit-raw")).toHaveTextContent("Printed: Stk");
+
+    fireEvent.keyDown(unit, { key: "Enter" });
+    const listbox = await screen.findByRole("listbox");
+    expect(within(listbox).getByRole("option", { name: "Kilogram" })).toBeInTheDocument();
+    expect(within(listbox).queryByRole("option", { name: "kg" })).not.toBeInTheDocument();
+  });
+
+  it("sends the enum name the API accepts", async () => {
+    const onSave = vi.fn();
+    render(<Harness onSave={onSave} />);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Line 3, Unit" }), { key: "Enter" });
+    fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "Kilogram" }));
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toEqual([{ path: "lines[2].unit", value: "Kilogram", reason: null }]);
   });
 });

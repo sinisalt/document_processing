@@ -5,20 +5,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { components } from "@docproc/api-client";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Skeleton, Switch } from "@docproc/ui";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Label, Skeleton, Switch } from "@docproc/ui";
 import { isApiError, queryKeys, toNumber, unwrap, useApi } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
 
 type Settings = components["schemas"]["TenantSettingsDto"];
 type Supplier = components["schemas"]["SupplierResponse"];
 
-const schema = z.object({
-  autoApproveConfidenceThreshold: z.coerce.number(translated("settings.validation.threshold")).min(0, translated("settings.validation.threshold")).max(1, translated("settings.validation.threshold")),
-  retentionYears: z.coerce.number(translated("settings.validation.retention")).int(translated("settings.validation.retention")).min(1, translated("settings.validation.retention")).max(30, translated("settings.validation.retention")),
+/** `z.coerce.number()` reads an emptied input ("") as 0, which passes `min(0)`; an empty field must fail instead. */
+const blankAsMissing = (value: unknown) => (typeof value === "string" && value.trim() === "" ? undefined : value);
+
+export const settingsSchema = z.object({
+  autoApproveConfidenceThreshold: z.preprocess(blankAsMissing, z.coerce.number(translated("settings.validation.threshold")).min(0, translated("settings.validation.threshold")).max(1, translated("settings.validation.threshold"))),
+  retentionYears: z.preprocess(blankAsMissing, z.coerce.number(translated("settings.validation.retention")).int(translated("settings.validation.retention")).min(1, translated("settings.validation.retention")).max(30, translated("settings.validation.retention"))),
   shareExtractorProfiles: z.boolean(),
   alwaysReviewSupplierIds: z.array(z.string()),
 });
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<typeof settingsSchema>;
 
 function toForm(settings: Settings): FormValues {
   return {
@@ -33,7 +36,7 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
   const { t } = useTranslation("admin");
   const { client } = useApi();
   const queryClient = useQueryClient();
-  const form = useForm<z.input<typeof schema>, unknown, FormValues>({ resolver: zodResolver(schema), defaultValues: toForm(settings) });
+  const form = useForm<z.input<typeof settingsSchema>, unknown, FormValues>({ resolver: zodResolver(settingsSchema), defaultValues: toForm(settings) });
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => unwrap(await client.PUT("/api/v1/settings", { body: values })),
     meta: { silent: true },
@@ -117,9 +120,9 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
                     return (
                       <li key={supplier.id} className="flex items-center gap-2">
                         <Checkbox id={id} checked={checked} onCheckedChange={(next) => field.onChange(next === true ? [...field.value, supplier.id] : field.value.filter((v) => v !== supplier.id))} />
-                        <label htmlFor={id} className="text-sm">
+                        <Label htmlFor={id} className="font-normal">
                           {supplier.name}
-                        </label>
+                        </Label>
                       </li>
                     );
                   })}

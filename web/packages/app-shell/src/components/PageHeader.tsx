@@ -17,7 +17,8 @@ export function PageHeader({ title, description, actions, className }: PageHeade
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {/* The actions wrap instead of overflowing when they are wider than the screen (four buttons on a phone). */}
+      {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

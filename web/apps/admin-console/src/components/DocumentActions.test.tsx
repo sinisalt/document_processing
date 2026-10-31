@@ -75,4 +75,22 @@ describe("ReprocessDialog", () => {
     renderScreen(<ReprocessDialog documentId={ID} documentLabel="RE-1001" status="Failed" open={false} onOpenChange={() => {}} />);
     expect(shell.calls).toEqual([]);
   });
+
+  it("falls back to the stages the status proves, with a retry, when the timeline does not load", async () => {
+    answer("GET /api/v1/documents/{id}/events", { title: "Boom", status: 500 }, 500);
+    renderScreen(<ReprocessDialog documentId={ID} documentLabel="RE-1001" status="Failed" open onOpenChange={() => {}} />);
+
+    const dialog = await screen.findByRole("alertdialog");
+    const trigger = within(dialog).getByRole("combobox", { name: i18n.t("admin:document.fromStage") });
+    // Not stuck on "Loading the timeline": Normalize is always reachable, and the API's 409 guards the rest.
+    await waitFor(() => expect(trigger).toHaveTextContent(stageLabel("Normalize")));
+    expect(within(dialog).getByRole("button", { name: i18n.t("admin:document.reprocess") })).toBeEnabled();
+    const failed = within(dialog).getByTestId("reprocess-timeline-failed");
+    expect(failed).toHaveTextContent(i18n.t("admin:document.fromStageTimelineFailed"));
+
+    answer("GET /api/v1/documents/{id}/events", [documentEvent({ id: 1, fromStatus: "Matched", toStatus: "Extracted" }), documentEvent({ id: 2, eventType: "document.stage_failed", fromStatus: "Extracted", toStatus: "Failed" })]);
+    fireEvent.click(within(failed).getByRole("button", { name: i18n.t("common:errors.tryAgain") }));
+    await waitFor(() => expect(trigger).toHaveTextContent(stageLabel("Validate")));
+    expect(within(dialog).queryByTestId("reprocess-timeline-failed")).not.toBeInTheDocument();
+  });
 });

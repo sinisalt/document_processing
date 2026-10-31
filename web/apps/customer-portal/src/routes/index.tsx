@@ -67,10 +67,11 @@ function DashboardPage() {
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <QuickLink to="/documents" icon={Inbox} title={t("nav.inbox")} description={t("dashboard.links.inbox")} />
-          {hasPolicy(Policies.Ingest) && <QuickLink to="/documents" icon={Upload} title={t("upload.button")} description={t("dashboard.links.upload")} />}
+          {/* Uploads, suppliers and settings belong to a tenant: a platform account gets 400 there (navFor hides them too). */}
+          {user?.scope === "tenant" && hasPolicy(Policies.Ingest) && <QuickLink to="/documents" icon={Upload} title={t("upload.button")} description={t("dashboard.links.upload")} />}
           {hasPolicy(Policies.Review) && <QuickLink to="/review" icon={ClipboardList} title={t("nav.review")} description={t("dashboard.links.review")} />}
           {user?.scope === "tenant" && <QuickLink to="/suppliers" icon={Building2} title={t("nav.suppliers")} description={t("dashboard.links.suppliers")} />}
-          {hasPolicy(Policies.TenantAdmin) && <QuickLink to="/settings" icon={Settings} title={t("nav.settings")} description={t("dashboard.links.settings")} />}
+          {user?.scope === "tenant" && hasPolicy(Policies.TenantAdmin) && <QuickLink to="/settings" icon={Settings} title={t("nav.settings")} description={t("dashboard.links.settings")} />}
         </div>
       </section>
     </>

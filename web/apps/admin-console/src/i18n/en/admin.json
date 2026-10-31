@@ -338,6 +338,7 @@
   "document": {
     "fromStageLoading": "Loading the timeline…",
     "fromStageReached": "The document got as far as {{status}}; later stages need output it never produced.",
+    "fromStageTimelineFailed": "The timeline did not load, so only the stages the current status proves are offered.",
     "pagesShowing": "Showing {{shown}} of {{count}} pages.",
     "pagesShowAll": "Show all {{count}} pages",
     "notFound": "This document does not exist or is out of scope",
@@ -414,8 +415,6 @@
     "actor": "Actor",
     "summary": "Summary",
     "details": "Details",
-    "showDetails": "Show details",
-    "hideDetails": "Hide details",
     "eventType": {
       "received": "Received",
       "stage_completed": "Stage completed",

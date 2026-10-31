@@ -67,7 +67,9 @@ function InboxPage() {
     [tab, search.type, search.supplierId, search.from, search.to, search.q],
   );
 
-  const list = useDocumentList(query);
+  // The API answers from > to with 400; such a range is shown as an error at the inputs and not sent.
+  const rangeInvalid = !!(search.from && search.to && search.from > search.to);
+  const list = useDocumentList(query, !rangeInvalid);
   const suppliers = useSuppliers({ limit: 200 }, tenantScope);
 
   const setSearch = (patch: Partial<InboxSearch>) =>
@@ -111,7 +113,8 @@ function InboxPage() {
 
   return (
     <>
-      <PageHeader title={t("inbox.title")} description={t("inbox.description")} actions={hasPolicy(Policies.Ingest) ? <UploadDialog /> : undefined} />
+      {/* Uploads belong to a tenant: in platform scope POST /ingestions answers 400 (docs/05), so no Upload there. */}
+      <PageHeader title={t("inbox.title")} description={t("inbox.description")} actions={tenantScope && hasPolicy(Policies.Ingest) ? <UploadDialog /> : undefined} />
 
       <Tabs value={tab} onValueChange={(value) => setSearch({ tab: value as InboxTab })}>
         <TabsList aria-label={t("inbox.tabsLabel")} className="flex-wrap">
@@ -127,12 +130,13 @@ function InboxPage() {
         columns={columns}
         data={list.items.length ? list.items : EMPTY_ARRAY}
         getRowId={(row) => row.id}
-        isLoading={list.isLoading}
+        isLoading={list.isLoading && !rangeInvalid}
+        query={list}
         enableColumnVisibility
         caption={t("inbox.caption")}
         onRowClick={(row) => void navigate({ to: "/documents/$documentId", params: { documentId: row.id } })}
-        emptyTitle={t("inbox.emptyTitle")}
-        emptyDescription={hasFilters ? t("inbox.emptyFiltered") : t(`inbox.empty.${tab}`)}
+        emptyTitle={rangeInvalid ? t("inbox.filters.rangeInvalidTitle") : t("inbox.emptyTitle")}
+        emptyDescription={rangeInvalid ? t("inbox.filters.rangeInvalid") : hasFilters ? t("inbox.emptyFiltered") : t(`inbox.empty.${tab}`)}
         toolbar={
           <form
             className="flex flex-wrap items-end gap-2"
@@ -199,7 +203,21 @@ function InboxPage() {
               <Label htmlFor="inbox-to" className="text-xs text-muted-foreground">
                 {t("inbox.filters.to")}
               </Label>
-              <Input id="inbox-to" type="date" value={search.to ?? ""} onChange={(event) => setSearch({ to: event.target.value || undefined })} className="w-40" />
+              <Input
+                id="inbox-to"
+                type="date"
+                value={search.to ?? ""}
+                min={search.from || undefined}
+                onChange={(event) => setSearch({ to: event.target.value || undefined })}
+                className="w-40"
+                aria-invalid={rangeInvalid || undefined}
+                aria-describedby={rangeInvalid ? "inbox-range-error" : undefined}
+              />
+              {rangeInvalid && (
+                <p id="inbox-range-error" role="alert" className="text-xs text-destructive">
+                  {t("inbox.filters.rangeInvalid")}
+                </p>
+              )}
             </div>
             <Button type="submit" variant="secondary" size="sm">
               {t("inbox.filters.apply")}

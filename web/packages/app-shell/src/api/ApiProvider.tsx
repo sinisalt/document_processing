@@ -7,8 +7,10 @@ import { createApiClient, type ApiClient } from "@docproc/api-client";
 /** openapi-fetch's `Middleware`, taken from the client so this package needs no direct dependency on it. */
 type Middleware = Parameters<ApiClient["use"]>[number];
 import { useAuthSession } from "../auth/AuthProvider";
+import { Roles } from "../auth/policies";
 import { useTenantSwitcherOptional } from "./tenantContext";
 import { ApiError, errorMessage } from "./ApiError";
+import { queryKeys } from "./queryKeys";
 
 export interface ApiContextValue {
   client: ApiClient;
@@ -98,6 +100,18 @@ async function isOverrideRefusal(response: Response): Promise<boolean> {
   }
 }
 
+/**
+ * Whether the tenant override may go out: only while the signed-in user is known to be a SuperAdmin. The API answers
+ * every other role's `X-Tenant-Id` with 403 "Tenant override not allowed" (even on `/me`), so a stale override must never
+ * reach another user. Before `/me` has answered the roles are unknown; the override is cleared on sign-out, so what is
+ * left then is the SuperAdmin's own choice from this tab.
+ */
+export function mayOverrideTenant(me: unknown): boolean {
+  if (!me || typeof me !== "object") return true;
+  const roles = (me as { roles?: unknown }).roles;
+  return Array.isArray(roles) && roles.includes(Roles.SuperAdmin);
+}
+
 export interface ApiProviderProps {
   /** API origin; empty for same origin (the Vite dev proxy forwards `/api`). */
   baseUrl?: string;
@@ -134,7 +148,7 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
     const tenantOverride: Middleware = {
       onRequest({ request }) {
         const override = tenantRef.current;
-        if (override) request.headers.set("X-Tenant-Id", override);
+        if (override && mayOverrideTenant(queryClient.getQueryData(queryKeys.me()))) request.headers.set("X-Tenant-Id", override);
         else request.headers.delete("X-Tenant-Id");
         return request;
       },
@@ -150,7 +164,7 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
     };
     created.use(tenantOverride);
     return created;
-  }, [baseUrl, session.getAccessToken]);
+  }, [baseUrl, session.getAccessToken, queryClient]);
 
   // Sign-out: everything cached belonged to that user. Nothing authenticated is in flight by then (the layout is
   // gone), so dropping the cache is safe. A fresh sign-in must *not* clear: `/me` is already fetching and
@@ -161,6 +175,14 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
     if (hadToken.current && !hasToken) queryClient.clear();
     hadToken.current = hasToken;
   }, [hasToken, queryClient]);
+
+  // The tenant override is the signed-out SuperAdmin's choice, not the next user's: drop it whenever nobody is signed
+  // in (sign-out, an expired token, a tab that reopens without one). "loading" (OIDC restoring its user) keeps it.
+  const anonymous = session.status === "anonymous";
+  const clearOverride = switcher?.setTenantId;
+  useEffect(() => {
+    if (anonymous && tenantRef.current !== null) clearOverride?.(null);
+  }, [anonymous, clearOverride]);
 
   // Tenant override: every tenant-scoped query now means something else. Reset (not clear) so active queries refetch
   // under the new `X-Tenant-Id` while their observers stay attached.

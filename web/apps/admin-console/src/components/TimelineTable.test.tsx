@@ -42,9 +42,12 @@ describe("TimelineTable", () => {
     render(<TimelineTable events={events} />);
     const when = screen.getAllByRole("columnheader").find((header) => header.textContent?.includes("When"))!;
     const order = () => eventRows().map((row) => row.getAttribute("data-event-type"));
-    fireEvent.click(within(when).getByRole("button", { name: "Sort ascending" }));
+    const sort = within(when).getByRole("button", { name: "When" });
+    expect(sort).toHaveAccessibleDescription("Sort ascending");
+    fireEvent.click(sort);
     expect(order()).toEqual(["document.received", "document.stage_completed", "document.stage_failed"]);
-    fireEvent.click(within(when).getByRole("button", { name: "Sort descending" }));
+    expect(sort).toHaveAccessibleDescription("Sort descending");
+    fireEvent.click(sort);
     expect(eventRows().map((row) => row.getAttribute("data-event-type"))).toEqual(["document.stage_failed", "document.stage_completed", "document.received"]);
   });
 

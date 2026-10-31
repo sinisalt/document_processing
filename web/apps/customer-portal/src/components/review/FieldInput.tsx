@@ -4,6 +4,11 @@ import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, T
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, isLowConfidence, type FieldValue } from "@docproc/app-shell";
 import { fieldDomId, formName, type FieldSpec } from "@/lib/canonical";
 
+/** Why a field is highlighted: the pointer is over it, or it has the keyboard focus. */
+export type HighlightReason = "hover" | "focus";
+
+export type HighlightHandler = (fieldPath: string | null, reason?: HighlightReason) => void;
+
 export interface FieldInputProps {
   spec: FieldSpec;
   field: FieldValue | undefined;
@@ -12,7 +17,7 @@ export interface FieldInputProps {
   disabled?: boolean;
   threshold?: number;
   /** Called with the field's `fieldPath` when the input is hovered or focused, null when left. */
-  onHighlight?: (fieldPath: string | null) => void;
+  onHighlight?: HighlightHandler;
   /** Compact variant for grid cells: no badges, dense input. */
   compact?: boolean;
   /** Hide the badges (a nested property of a block field shows them once, at the block). */
@@ -35,9 +40,9 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
   const error = form.getFieldState(name, form.formState).error;
   const low = isLowConfidence(field, threshold);
   const hover = {
-    onMouseEnter: () => onHighlight?.(spec.fieldPath),
-    onMouseLeave: () => onHighlight?.(null),
-    onFocus: () => onHighlight?.(spec.fieldPath),
+    onMouseEnter: () => onHighlight?.(spec.fieldPath, "hover"),
+    onMouseLeave: () => onHighlight?.(null, "hover"),
+    onFocus: () => onHighlight?.(spec.fieldPath, "focus"),
   };
   const common = {
     id,

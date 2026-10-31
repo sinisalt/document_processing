@@ -76,4 +76,16 @@ describe("/review", () => {
     expect(shell.calls).toEqual([]);
     expect(screen.queryByRole("button", { name: /Claim|Release/ })).not.toBeInTheDocument();
   });
+
+  it("shows a failed queue request as an error with Retry, not as an empty queue", async () => {
+    resetShell(devUsers.operator);
+    answer("GET /api/v1/review-tasks", { title: "Boom", status: 500, detail: "The database is down." }, 500);
+    renderScreen(<Queue />);
+
+    expect(await screen.findByText("This list could not be loaded")).toBeInTheDocument();
+    expect(screen.getByText("The database is down.")).toBeInTheDocument();
+    answer("GET /api/v1/review-tasks", page(tasks));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("OPEN-1")).toBeInTheDocument();
+  });
 });

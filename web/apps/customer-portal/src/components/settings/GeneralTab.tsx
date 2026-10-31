@@ -6,7 +6,7 @@ import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Skeleton, Switch } from "@docproc/ui";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Label, Skeleton, Switch } from "@docproc/ui";
 import { ApiError, formatPercent, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import { useSuppliers, useTenantSettings, type TenantSettings } from "@/lib/queries";
 
@@ -144,14 +144,14 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
                       {suppliers.items.map((supplier) => {
                         const checked = field.value.includes(supplier.id);
                         return (
-                          <label key={supplier.id} className="flex items-center gap-2 py-1 text-sm">
+                          <Label key={supplier.id} className="py-1 font-normal">
                             <Checkbox
                               checked={checked}
                               disabled={!canEdit}
                               onCheckedChange={(next) => field.onChange(next === true ? [...field.value, supplier.id] : field.value.filter((id) => id !== supplier.id))}
                             />
                             {supplier.name}
-                          </label>
+                          </Label>
                         );
                       })}
                     </div>

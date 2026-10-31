@@ -233,7 +233,7 @@ export function MembersTab({ canEdit }: { canEdit: boolean }) {
           </Dialog>
         </div>
       )}
-      <DataTable columns={columns} data={members.data ?? EMPTY_ARRAY} getRowId={(row) => row.userId} isLoading={members.isPending} caption={t("settings.members.caption")} emptyTitle={t("settings.members.empty")} />
+      <DataTable columns={columns} data={members.data ?? EMPTY_ARRAY} getRowId={(row) => row.userId} isLoading={members.isPending} query={members} caption={t("settings.members.caption")} emptyTitle={t("settings.members.empty")} />
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}

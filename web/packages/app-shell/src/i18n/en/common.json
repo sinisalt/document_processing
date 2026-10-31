@@ -2,7 +2,8 @@
   "app": {
     "name": "DocProc",
     "loading": "Loading…",
-    "skipToContent": "Skip to content"
+    "skipToContent": "Skip to content",
+    "notifications": "Notifications"
   },
   "nav": {
     "main": "Main navigation",
@@ -112,6 +113,8 @@
     "clearSort": "Clear sorting",
     "empty": "Nothing here yet",
     "emptyDescription": "There is nothing to show for this view.",
+    "loadFailed": "This list could not be loaded",
+    "refreshFailed": "The list could not be refreshed, so it may be out of date.",
     "loading": "Loading rows…",
     "loadMore": "Load more",
     "rowCount": "{{count}} row",

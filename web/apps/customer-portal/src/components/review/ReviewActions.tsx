@@ -4,12 +4,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, RotateCcw, X } from "lucide-react";
 import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
-import { ConfirmDialog, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { ConfirmDialog, canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, queryKeys, reprocessStages, unwrap, useApi, type ReprocessStage } from "@docproc/app-shell";
 import { isApplePlatform } from "@/lib/platform";
-import type { DocumentDetail } from "@/lib/queries";
-
-export const reprocessStages = ["Normalize", "Classify", "Extract", "Validate"] as const;
-export type ReprocessStage = (typeof reprocessStages)[number];
+import { useDocumentEvents, type DocumentDetail } from "@/lib/queries";
 
 /** Where `:approve` / `:reject` are allowed (docs/05). */
 export function canDecide(status: DocumentDetail["status"]): boolean {
@@ -26,7 +23,7 @@ export interface ReviewActionsProps {
   /** The approve dialog is opened from outside too (Ctrl/Cmd+Enter). */
   approveOpen: boolean;
   onApproveOpenChange: (open: boolean) => void;
-  /** Unsaved corrections block approve/reject so a decision never discards what the reviewer typed. */
+  /** Unsaved corrections block approve, reject and reprocess, so no action discards what the reviewer typed. */
   hasUnsavedChanges: boolean;
   onDecided?: () => void;
 }
@@ -39,7 +36,12 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [reprocessOpen, setReprocessOpen] = useState(false);
-  const [stage, setStage] = useState<ReprocessStage>("Extract");
+  // The API refuses a stage the document never reached (409 "Stage not reached"): offer what the timeline proves, and
+  // default to the latest of it. A timeline that does not load leaves what the status proves.
+  const timeline = useDocumentEvents(document.id, reprocessOpen);
+  const furthest = timeline.data ? furthestPipelineStatus(timeline.data, document.status) : timeline.isError ? furthestPipelineStatus([], document.status) : null;
+  const [picked, setPicked] = useState<ReprocessStage | null>(null);
+  const stage: ReprocessStage | null = furthest === null ? null : picked !== null && canReprocessFrom(picked, furthest) ? picked : defaultReprocessStage(furthest);
 
   const settle = (updated: DocumentDetail, message: string) => {
     queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
@@ -62,7 +64,7 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   });
   const reprocess = useMutation({
     mutationFn: async (fromStage: ReprocessStage) => unwrap(await client.POST("/api/v1/documents/{id}:reprocess", { params: { path: { id: document.id } }, body: { fromStage } })),
-    onSuccess: (updated) => settle(updated, t("review.actions.reprocessing", { stage: t(`stages.${stage}`) })),
+    onSuccess: (updated, fromStage) => settle(updated, t("review.actions.reprocessing", { stage: t(`stages.${fromStage}`) })),
   });
 
   const decidable = canDecide(document.status) && !hasUnsavedChanges;
@@ -116,10 +118,11 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
         title={t("review.actions.reprocessTitle")}
         description={t("review.actions.reprocessDescription")}
         confirmLabel={t("review.actions.reprocess")}
-        onConfirm={() => reprocess.mutateAsync(stage).then(() => undefined)}
+        onConfirm={() => (stage === null ? undefined : reprocess.mutateAsync(stage).then(() => undefined))}
         isPending={reprocess.isPending}
+        confirmDisabled={stage === null}
         trigger={
-          <Button variant="ghost" disabled={!canReprocess(document.status)} data-testid="reprocess-button">
+          <Button variant="ghost" disabled={!canReprocess(document.status) || hasUnsavedChanges} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} data-testid="reprocess-button">
             <RotateCcw aria-hidden />
             {t("review.actions.reprocess")}
           </Button>
@@ -127,13 +130,13 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
       >
         <div className="flex flex-col gap-1">
           <Label htmlFor="reprocess-stage">{t("review.actions.fromStage")}</Label>
-          <Select value={stage} onValueChange={(value) => setStage(value as ReprocessStage)}>
+          <Select value={stage ?? ""} onValueChange={(value) => setPicked(value as ReprocessStage)} disabled={stage === null}>
             <SelectTrigger id="reprocess-stage">
-              <SelectValue />
+              <SelectValue placeholder={t("review.actions.fromStageLoading")} />
             </SelectTrigger>
             <SelectContent>
               {reprocessStages.map((s) => (
-                <SelectItem key={s} value={s}>
+                <SelectItem key={s} value={s} disabled={furthest === null || !canReprocessFrom(s, furthest)}>
                   {t(`stages.${s}`)}
                 </SelectItem>
               ))}

@@ -140,7 +140,7 @@ function DocumentsPage() {
         columns={columns}
         data={documents.items}
         getRowId={(row) => row.id}
-        isLoading={documents.isLoading}
+        isLoading={documents.isLoading} query={documents}
         caption={t("documents.caption")}
         emptyTitle={t("documents.empty")}
         emptyDescription={t("documents.emptyDescription")}

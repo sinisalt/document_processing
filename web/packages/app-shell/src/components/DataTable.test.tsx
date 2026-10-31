@@ -1,4 +1,6 @@
+import { vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { ApiError } from "../api/ApiError";
 import { createI18n } from "../i18n";
 import { DataTable, createDataTableColumnHelper, type DataTableColumns } from "./DataTable";
 
@@ -73,7 +75,9 @@ describe("DataTable", () => {
     expect(names()).toEqual(["Alpha", "Beta", "Gamma"]);
 
     // A numeric column sorts descending first, and the button says so.
-    fireEvent.click(within(screen.getAllByRole("columnheader")[2]!).getByRole("button", { name: "Sort descending" }));
+    const sizeButton = within(screen.getAllByRole("columnheader")[2]!).getByRole("button", { name: "Size" });
+    expect(sizeButton).toHaveAccessibleDescription("Sort descending");
+    fireEvent.click(sizeButton);
     expect(names()).toEqual(["Gamma", "Alpha", "Beta"]);
     expect(screen.getByText("gamma details")).toBeInTheDocument();
 
@@ -81,5 +85,38 @@ describe("DataTable", () => {
       <DataTable columns={columns} data={rows.map((row) => ({ ...row }))} getRowId={(row) => row.id} renderSubRow={(row) => <p>{row.details}</p>} rowAttributes={(row) => ({ "data-row": row.id })} />,
     );
     expect(screen.getByText("gamma details")).toBeInTheDocument();
+  });
+
+  it("names a sortable header by its column, with the sort action as its description", () => {
+    render(<DataTable columns={columns} data={rows} getRowId={(row) => row.id} />);
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveAttribute("aria-sort", "none");
+    const button = screen.getByRole("button", { name: "Name" });
+    expect(button).toHaveAccessibleDescription("Sort ascending");
+    fireEvent.click(button);
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveAttribute("aria-sort", "ascending");
+    expect(button).toHaveAccessibleDescription("Sort descending");
+  });
+
+  it("shows a failed request as an error with Retry, not as the empty state", () => {
+    const refetch = vi.fn();
+    const error = new ApiError(500, { title: "Boom", status: 500, detail: "The database is down." }, "/api/v1/documents");
+    render(<DataTable columns={columns} data={[]} getRowId={(row) => row.id} emptyTitle="No documents" query={{ isError: true, error, refetch }} />);
+    expect(screen.queryByText("No documents")).not.toBeInTheDocument();
+    expect(screen.getByText("This list could not be loaded")).toBeInTheDocument();
+    expect(screen.getByText("The database is down.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the rows of a failed refresh and says that they may be outdated", () => {
+    render(<DataTable columns={columns} data={rows} getRowId={(row) => row.id} query={{ isError: true, error: new Error("offline"), refetch: () => undefined }} />);
+    expect(screen.getByTestId("table-refresh-error")).toHaveTextContent("The list could not be refreshed");
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when the query succeeded with no rows", () => {
+    render(<DataTable columns={columns} data={[]} getRowId={(row) => row.id} emptyTitle="No documents" query={{ isError: false, error: null, refetch: () => undefined }} />);
+    expect(screen.getByText("No documents")).toBeInTheDocument();
+    expect(screen.queryByText("This list could not be loaded")).not.toBeInTheDocument();
   });
 });

@@ -179,7 +179,7 @@ function ReviewQueue() {
         columns={columns}
         data={list.items.length ? list.items : EMPTY_ARRAY}
         getRowId={(row) => row.id}
-        isLoading={list.isLoading}
+        isLoading={list.isLoading} query={list}
         caption={t("queue.caption")}
         emptyTitle={t("queue.emptyTitle")}
         emptyDescription={mine ? t("queue.emptyMine") : t("queue.empty")}

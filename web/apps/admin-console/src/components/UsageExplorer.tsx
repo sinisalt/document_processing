@@ -138,6 +138,7 @@ export function UsageExplorer({ source, title, description }: { source: UsageSou
           data={rows}
           getRowId={(row) => row.key}
           isLoading={usage.isPending && validRange}
+          query={usage}
           initialSorting={[{ id: "costUsd", desc: true }]}
           caption={t("usage.tableCaption")}
           emptyTitle={t("usage.empty")}

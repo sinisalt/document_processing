@@ -362,7 +362,7 @@ export function AiProvidersTab() {
           </Dialog>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} data={providers.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={providers.isPending} caption={t("settings.ai.caption")} emptyTitle={t("settings.ai.empty")} emptyDescription={t("settings.ai.emptyDescription")} />
+          <DataTable columns={columns} data={providers.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={providers.isPending} query={providers} caption={t("settings.ai.caption")} emptyTitle={t("settings.ai.empty")} emptyDescription={t("settings.ai.emptyDescription")} />
         </CardContent>
       </Card>
 

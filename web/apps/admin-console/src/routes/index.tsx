@@ -254,7 +254,7 @@ function DashboardPage() {
             columns={failedColumns}
             data={failed.data?.items ?? EMPTY}
             getRowId={(row) => row.id}
-            isLoading={failed.isPending}
+            isLoading={failed.isPending} query={failed}
             caption={t("dashboard.failedDocuments")}
             emptyTitle={t("dashboard.noFailed")}
             emptyDescription={t("dashboard.noFailedDescription")}
