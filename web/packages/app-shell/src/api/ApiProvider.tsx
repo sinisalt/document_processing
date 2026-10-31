@@ -185,14 +185,15 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
   }, [anonymous, clearOverride]);
 
   // Tenant override: every tenant-scoped query now means something else. Reset (not clear) so active queries refetch
-  // under the new `X-Tenant-Id` while their observers stay attached.
+  // under the new `X-Tenant-Id` while their observers stay attached. Not while nobody is signed in: that change is the
+  // sign-out clearing the override, the cache is dropped anyway, and a refetch could only go out without a token.
   const previousTenant = useRef(tenantId);
   useEffect(() => {
     if (previousTenant.current !== tenantId) {
       previousTenant.current = tenantId;
-      void queryClient.resetQueries();
+      if (!anonymous) void queryClient.resetQueries();
     }
-  }, [tenantId, queryClient]);
+  }, [tenantId, anonymous, queryClient]);
 
   const value = useMemo<ApiContextValue>(() => ({ client, queryClient, baseUrl }), [client, queryClient, baseUrl]);
 

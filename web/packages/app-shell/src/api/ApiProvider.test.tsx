@@ -20,15 +20,16 @@ interface Probe {
   api: ApiContextValue;
   tenantId: string | null;
   signOut: () => Promise<void>;
+  setTenantId: (tenantId: string | null) => void;
 }
 
 function renderShell() {
   const probe: { current: Probe | null } = { current: null };
   function Capture() {
     const api = useApi();
-    const { tenantId } = useTenantSwitcher();
+    const { tenantId, setTenantId } = useTenantSwitcher();
     const { signOut } = useAuthSession();
-    probe.current = { api, tenantId, signOut };
+    probe.current = { api, tenantId, signOut, setTenantId };
     return null;
   }
   render(
@@ -87,6 +88,25 @@ describe("the SuperAdmin tenant override", () => {
     await waitFor(() => expect(probe.current!.tenantId).toBeNull());
     expect(window.sessionStorage.getItem(TENANT_OVERRIDE_KEY)).toBeNull();
     expect(await sentTenantHeader(probe)).toBeNull();
+  });
+
+  it("is cleared on sign-out without resetting the queries, which could only refetch without a token", async () => {
+    const probe = renderShell();
+    const reset = vi.spyOn(probe.current!.api.queryClient, "resetQueries");
+
+    await act(() => probe.current!.signOut());
+
+    await waitFor(() => expect(probe.current!.tenantId).toBeNull());
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("resets the queries when a signed-in SuperAdmin switches tenants", async () => {
+    const probe = renderShell();
+    const reset = vi.spyOn(probe.current!.api.queryClient, "resetQueries");
+
+    act(() => probe.current!.setTenantId(null));
+
+    await waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
   });
 
   it("is not applied when the tab opens without a session", async () => {
