@@ -113,7 +113,9 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
       setTab("fields");
       const target = spec ? window.document.getElementById(fieldDomId(spec.path)) : null;
       if (target) {
-        target.scrollIntoView({ block: "center", behavior: "smooth" });
+        // "nearest": only as far as needed, and not at all when the field is already in sight. "center" also scrolled
+        // the window, pushing the header with Approve off the screen when a flag was picked whose field was visible.
+        target.scrollIntoView({ block: "nearest", behavior: "smooth" });
         if (focus) target.focus({ preventScroll: true });
       }
     },

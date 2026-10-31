@@ -23,6 +23,7 @@ import {
   type ReviewTaskListQuery,
 } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type ReviewTask } from "@/lib/queries";
+import { reviewReasonLabels } from "@/lib/reviewReason";
 
 export const Route = createFileRoute("/review")({ component: ReviewQueuePage });
 
@@ -96,7 +97,17 @@ function ReviewQueue() {
           cell: ({ row }) => <span className="tabular-nums">{formatMoney(row.original.document?.totalGross, row.original.document?.currency, i18n.language)}</span>,
           sortFn: "basic",
         }),
-        helper.accessor("reason", { header: t("queue.columns.reason"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
+        // The reason is the open flags' codes (or ALWAYS_REVIEW / MANUAL_REVIEW): their names, the codes as the tooltip.
+        helper.accessor("reason", {
+          header: t("queue.columns.reason"),
+          cell: (info) => (
+            <span className="flex flex-col gap-0.5" title={info.getValue() ?? undefined}>
+              {reviewReasonLabels(info.getValue(), t).map((label, index) => (
+                <span key={index}>{label}</span>
+              ))}
+            </span>
+          ),
+        }),
         helper.accessor((task) => task.document?.status ?? null, {
           id: "documentStatus",
           header: t("inbox.columns.status"),

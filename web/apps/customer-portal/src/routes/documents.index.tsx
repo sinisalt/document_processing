@@ -152,7 +152,7 @@ function InboxPage() {
               </Label>
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input id="inbox-q" value={draftQ} onChange={(event) => setDraftQ(event.target.value)} placeholder={t("inbox.filters.searchPlaceholder")} className="w-56 pl-8" />
+                <Input id="inbox-q" value={draftQ} onChange={(event) => setDraftQ(event.target.value)} placeholder={t("inbox.filters.searchPlaceholder")} className="w-64 pl-8" />
               </div>
             </div>
             <div className="flex flex-col gap-1">
@@ -179,7 +179,7 @@ function InboxPage() {
                   {t("inbox.filters.supplier")}
                 </Label>
                 <Select value={search.supplierId ?? ALL} onValueChange={(value) => setSearch({ supplierId: value === ALL ? undefined : value })}>
-                  <SelectTrigger id="inbox-supplier" className="w-48" aria-label={t("inbox.filters.supplier")}>
+                  <SelectTrigger id="inbox-supplier" className="w-44" aria-label={t("inbox.filters.supplier")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -197,7 +197,7 @@ function InboxPage() {
               <Label htmlFor="inbox-from" className="text-xs text-muted-foreground">
                 {t("inbox.filters.from")}
               </Label>
-              <Input id="inbox-from" type="date" value={search.from ?? ""} onChange={(event) => setSearch({ from: event.target.value || undefined })} className="w-40" />
+              <Input id="inbox-from" type="date" value={search.from ?? ""} onChange={(event) => setSearch({ from: event.target.value || undefined })} className="w-36" />
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="inbox-to" className="text-xs text-muted-foreground">
@@ -209,7 +209,7 @@ function InboxPage() {
                 value={search.to ?? ""}
                 min={search.from || undefined}
                 onChange={(event) => setSearch({ to: event.target.value || undefined })}
-                className="w-40"
+                className="w-36"
                 aria-invalid={rangeInvalid || undefined}
                 aria-describedby={rangeInvalid ? "inbox-range-error" : undefined}
               />

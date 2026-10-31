@@ -396,6 +396,10 @@
     "empty": "Kein Dokument wartet auf eine Prüfung.",
     "emptyMine": "Sie haben keine Aufgaben übernommen.",
     "createdAt": "Erstellt {{when}}",
+    "reasons": {
+      "ALWAYS_REVIEW": "Lieferant wird immer geprüft",
+      "MANUAL_REVIEW": "Prüfung erforderlich"
+    },
     "reviewersOnlyTitle": "Die Prüfliste ist für Prüfer",
     "reviewersOnly": "Ihre Rolle darf Dokumente lesen, aber nicht prüfen. Fragen Sie einen Mandanten-Admin, wenn Sie die Prüfliste bearbeiten sollen."
   },

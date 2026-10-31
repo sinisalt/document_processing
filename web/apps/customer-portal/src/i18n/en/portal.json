@@ -396,6 +396,10 @@
     "empty": "No document waits for a review.",
     "emptyMine": "You have no claimed tasks.",
     "createdAt": "Created {{when}}",
+    "reasons": {
+      "ALWAYS_REVIEW": "Supplier is always reviewed",
+      "MANUAL_REVIEW": "Review required"
+    },
     "reviewersOnlyTitle": "The review queue is for reviewers",
     "reviewersOnly": "Your role can read documents but not review them. Ask a tenant admin if you should work the queue."
   },

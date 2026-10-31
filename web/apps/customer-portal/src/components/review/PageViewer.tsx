@@ -107,7 +107,7 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
         <Button variant="ghost" size="icon-sm" aria-label={t("review.viewer.nextPage")} onClick={() => onPageChange(page + 1)} disabled={page >= pageCount}>
           <ChevronRight aria-hidden />
         </Button>
-        <span className="mx-2 h-4 w-px bg-border" aria-hidden />
+        <span className="mx-1 h-4 w-px bg-border sm:mx-2" aria-hidden />
         <Button variant="ghost" size="icon-sm" aria-label={t("review.viewer.zoomOut")} onClick={() => setZoomIndex((i) => Math.max(0, i - 1))} disabled={zoomIndex === 0}>
           <ZoomOut aria-hidden />
         </Button>
@@ -121,7 +121,7 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
         >
           <ZoomIn aria-hidden />
         </Button>
-        <span className="mx-2 h-4 w-px bg-border" aria-hidden />
+        <span className="mx-1 h-4 w-px bg-border sm:mx-2" aria-hidden />
         <Toggle pressed={showWords} onPressedChange={setShowWords} size="sm" aria-label={t("review.viewer.showWords")} disabled={!text.data}>
           <Type aria-hidden />
           <span className="hidden lg:inline">{t("review.viewer.words")}</span>

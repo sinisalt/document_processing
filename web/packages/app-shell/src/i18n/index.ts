@@ -60,6 +60,10 @@ export function createI18n(options: CreateI18nOptions = {}): typeof i18n {
   const namespaces = new Set<string>(["common"]);
   for (const bundles of Object.values(resources)) for (const ns of Object.keys(bundles)) namespaces.add(ns);
 
+  // `<html lang>` follows the UI language (index.html ships "en"): screen readers pronounce the text in that language,
+  // and the browser hyphenates and spell-checks by it. languageChanged also fires for the language init resolves.
+  i18n.on("languageChanged", syncDocumentLanguage);
+
   void i18n
     .use(LanguageDetector)
     .use(initReactI18next)
@@ -85,15 +89,23 @@ export function createI18n(options: CreateI18nOptions = {}): typeof i18n {
   return i18n;
 }
 
+/** The supported two-letter language of an i18next language code (`de-AT` → `de`, anything else → `en`). */
+export function supportedLanguageOf(language: string | undefined): SupportedLanguage {
+  const short = (language ?? "en").split("-")[0] ?? "en";
+  return isSupportedLanguage(short) ? short : "en";
+}
+
+function syncDocumentLanguage(language: string) {
+  if (typeof document !== "undefined") document.documentElement.lang = supportedLanguageOf(language);
+}
+
 export function isSupportedLanguage(value: string): value is SupportedLanguage {
   return (supportedLanguages as readonly string[]).includes(value);
 }
 
 /** The two-letter language i18next resolved (`de-AT` → `de`). */
 export function currentLanguage(): SupportedLanguage {
-  const resolved = i18n.resolvedLanguage ?? i18n.language ?? "en";
-  const short = resolved.split("-")[0] ?? "en";
-  return isSupportedLanguage(short) ? short : "en";
+  return supportedLanguageOf(i18n.resolvedLanguage ?? i18n.language);
 }
 
 export { i18n };

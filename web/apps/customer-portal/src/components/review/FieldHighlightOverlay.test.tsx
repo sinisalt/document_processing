@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { i18n } from "@/i18n";
-import { FieldHighlightOverlay } from "./FieldHighlightOverlay";
+import { FieldHighlightOverlay, boxClassName } from "./FieldHighlightOverlay";
 import type { ProvenanceBox } from "@/lib/overlay";
 
 const boxes: ProvenanceBox[] = [
@@ -70,6 +70,22 @@ describe("FieldHighlightOverlay", () => {
     const box = screen.getByRole("button", { name: "Field Invoice number" });
     expect(box.querySelector("title")).toHaveTextContent("Invoice number");
     expect(box).toHaveAttribute("data-path", "invoiceNumber");
+  });
+
+  it("colours boxes independently of the theme, because the page image is white in dark mode too", () => {
+    for (const [active, historical] of [
+      [false, false],
+      [true, false],
+      [false, true],
+      [true, true],
+    ] as const) {
+      const classes = boxClassName(active, historical);
+      // Theme tokens such as primary (near-white in dark mode) or muted-foreground would vanish on the white page.
+      expect(classes).not.toMatch(/(fill|stroke)-(primary|foreground|muted|accent|ring|background)/);
+    }
+    expect(boxClassName(true, false)).toContain("stroke-blue-600");
+    render(<FieldHighlightOverlay rendered={{ width: 1000, height: 1000 }} boxes={boxes.slice(0, 1)} highlightedPath="invoiceNumber" />);
+    expect(screen.getByRole("button", { name: "Field invoiceNumber" }).getAttribute("class")).toContain("stroke-blue-600");
   });
 
   it("renders nothing before the image has a size", () => {
