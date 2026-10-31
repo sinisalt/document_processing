@@ -26,11 +26,12 @@ export interface ProviderTableProps {
   queryKey: QueryKey;
   /** Hides the kill switch for readers who may not flip it. */
   canManage: boolean;
-  toolbar?: React.ReactNode;
+  /** The create action ("Add provider"), at the toolbar's right end like every other table's. */
+  actions?: React.ReactNode;
 }
 
 /** Provider configurations without credentials (only `keyLast4`), with the per-provider kill switch of docs/08. */
-export function ProviderTable({ providers, isLoading, query, scope, queryKey, canManage, toolbar }: ProviderTableProps) {
+export function ProviderTable({ providers, isLoading, query, scope, queryKey, canManage, actions }: ProviderTableProps) {
   const { t, i18n } = useTranslation("admin");
   const { client } = useApi();
   const queryClient = useQueryClient();
@@ -122,7 +123,7 @@ export function ProviderTable({ providers, isLoading, query, scope, queryKey, ca
         getRowId={(row) => row.id}
         isLoading={isLoading}
         query={query}
-        toolbar={toolbar}
+        actions={actions}
         caption={t("llm.providersCaption")}
         emptyTitle={t("llm.noProviders")}
         emptyDescription={t("llm.noProvidersDescription")}

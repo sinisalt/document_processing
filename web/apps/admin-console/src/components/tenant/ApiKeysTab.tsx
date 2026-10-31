@@ -91,7 +91,7 @@ function CreateApiKeyDialog() {
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus aria-hidden />
           {t("apiKeys.create")}
         </Button>
@@ -242,7 +242,7 @@ export function ApiKeysTab() {
         data={keys.data ?? EMPTY}
         getRowId={(row) => row.id}
         isLoading={keys.isPending} query={keys}
-        toolbar={<CreateApiKeyDialog />}
+        actions={<CreateApiKeyDialog />}
         footer={<RowCount count={keys.data?.length} />}
         caption={t("apiKeys.caption")}
         emptyTitle={t("apiKeys.empty")}

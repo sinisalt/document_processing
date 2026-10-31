@@ -345,7 +345,6 @@
     "pagesShowAll": "Alle {{count}} Seiten anzeigen",
     "notFound": "Dieses Dokument gibt es nicht oder es liegt außerhalb des Bereichs",
     "backToList": "Alle Dokumente",
-    "untitled": "Dokument ohne Nummer",
     "summary": "Zusammenfassung",
     "failureReason": "Fehlergrund",
     "flagsCount": "Hinweise",

@@ -95,7 +95,7 @@ function CreateChannelDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus aria-hidden />
           {t("channels.create")}
         </Button>
@@ -282,7 +282,7 @@ export function ChannelsTab() {
         data={channels.data ?? EMPTY}
         getRowId={(row) => row.id}
         isLoading={channels.isPending} query={channels}
-        toolbar={<CreateChannelDialog />}
+        actions={<CreateChannelDialog />}
         footer={<RowCount count={channels.data?.length} />}
         caption={t("channels.caption")}
         emptyTitle={t("channels.empty")}

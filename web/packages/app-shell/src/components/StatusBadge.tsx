@@ -8,8 +8,9 @@ export type ReviewTaskStatus = components["schemas"]["ReviewTaskStatus"];
 export type TenantStatus = "Active" | "Suspended" | "Closed";
 
 /**
- * Settled states read calm, a document waiting for a reviewer reads amber (work to do, not an error), only a failure
- * reads red, in-flight states read neutral.
+ * Settled states read calm (an approval is a quiet green, never the solid primary pill that outshouts the work still to
+ * do), a document waiting for a reviewer reads amber (work to do, not an error), only a failure reads red, in-flight
+ * states read neutral.
  */
 export const documentStatusVariant: Readonly<Record<DocumentStatus, BadgeVariant>> = {
   Received: "outline",
@@ -19,9 +20,9 @@ export const documentStatusVariant: Readonly<Record<DocumentStatus, BadgeVariant
   Matched: "outline",
   Extracted: "outline",
   Validated: "secondary",
-  AutoApproved: "default",
+  AutoApproved: "success",
   NeedsReview: "warning",
-  Approved: "default",
+  Approved: "success",
   Rejected: "secondary",
   Failed: "destructive",
 };

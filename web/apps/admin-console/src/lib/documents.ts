@@ -55,6 +55,14 @@ export function documentLabel(document: { id: string; documentNumber?: string | 
   return document.documentNumber?.trim() || shortId(document.id);
 }
 
+/** The detail page's subtitle: the parts that are there (tenant, type, supplier, id), joined by a middle dot. */
+export function documentSubtitle(parts: readonly (string | null | undefined)[]): string {
+  return parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => !!part)
+    .join(" · ");
+}
+
 /**
  * The count a status card can honestly show from one page: the page size when the page was full and more follow
  * (`200+`), else the exact number of items.

@@ -6,7 +6,7 @@ import { AlertTriangle, Building2, ClipboardList, Coins, Info, RotateCcw } from 
 import type { components } from "@docproc/api-client";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from "@docproc/ui";
 import { DataTable, Policies, Roles, StatusBadge, createDataTableColumnHelper, formatDate, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
-import { documentLabel, documentStatuses, pageCountLabel } from "@/lib/documents";
+import { documentLabel, documentStatuses, pageCountLabel, shortId } from "@/lib/documents";
 import { formatUsd, monthRange, usageRows } from "@/lib/usage";
 import { byStatusScope, statValue } from "@/lib/dashboard";
 import { ReprocessDialog } from "@/components/DocumentActions";
@@ -121,6 +121,16 @@ function DashboardPage() {
             </Link>
           ),
         }),
+        // "Across all tenants" needs the tenant on the row, as in the documents list, or the failure belongs to nobody.
+        ...(isPlatform
+          ? [
+              helper.accessor((row) => row.tenantName ?? row.tenantId, {
+                id: "tenant",
+                header: t("documents.tenant"),
+                cell: (info) => (info.row.original.tenantName ? <span className="whitespace-nowrap">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{shortId(info.row.original.tenantId)}</span>),
+              }),
+            ]
+          : []),
         helper.accessor("supplierName", { header: t("documents.supplier"), cell: (info) => info.getValue() ?? "—" }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         helper.accessor("updatedAt", { header: t("documents.updatedAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
@@ -144,7 +154,7 @@ function DashboardPage() {
           ),
         }),
       ]),
-    [t, i18n.language, canReview],
+    [t, i18n.language, canReview, isPlatform],
   );
 
   return (

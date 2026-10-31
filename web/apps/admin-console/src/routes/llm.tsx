@@ -52,7 +52,7 @@ function LlmPage() {
               scope="platform"
               queryKey={queryKeys.llm.platformProviders()}
               canManage
-              toolbar={<AddProviderDialog scope="platform" queryKey={queryKeys.llm.platformProviders()} />}
+              actions={<AddProviderDialog scope="platform" queryKey={queryKeys.llm.platformProviders()} />}
             />
           ) : (
             <p className="text-sm text-muted-foreground">{t("llm.needsPlatformAdmin")}</p>

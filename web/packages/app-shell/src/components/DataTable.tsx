@@ -103,8 +103,16 @@ export interface DataTableProps<TData extends RowData> {
   initialColumnVisibility?: Record<string, boolean>;
   /** Shows the column-visibility menu in the toolbar. */
   enableColumnVisibility?: boolean;
-  /** Toolbar content to the left of the column menu (filters, search). */
+  /**
+   * Toolbar content to the left of the column menu (filters, search). Use default-height controls (h-9) so every
+   * toolbar reads alike and lines up with the column menu and the actions.
+   */
   toolbar?: ReactNode;
+  /**
+   * The table's primary actions (a "New …" create button), always at the toolbar's right end after the column menu, so
+   * every screen puts its create action in the same place whatever filters it has.
+   */
+  actions?: ReactNode;
   /** Rendered under the rows (a "Load more" button for cursor pagination, a row count). */
   footer?: ReactNode;
   onRowClick?: (row: TData) => void;
@@ -147,6 +155,7 @@ export function DataTable<TData extends RowData>({
   initialColumnVisibility,
   enableColumnVisibility = false,
   toolbar,
+  actions,
   footer,
   onRowClick,
   rowClassName,
@@ -232,7 +241,7 @@ export function DataTable<TData extends RowData>({
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      {(toolbar || enableColumnVisibility) && (
+      {(toolbar || actions || enableColumnVisibility) && (
         // Bottom-aligned: a toolbar of labelled filters wraps onto several rows, and the Columns button belongs on the
         // row of inputs it sits beside (the last), at their height, instead of centred against the whole block.
         <div className="flex flex-wrap items-end gap-2">
@@ -250,7 +259,8 @@ export function DataTable<TData extends RowData>({
                 <DropdownMenuSeparator />
                 {table
                   .getAllLeafColumns()
-                  .filter((column) => column.getCanHide())
+                  // Only columns with a name to show: a row-actions column (its header is sr-only) is not data to hide.
+                  .filter((column) => column.getCanHide() && typeof column.columnDef.header === "string")
                   .map((column) => (
                     <DropdownMenuCheckboxItem
                       key={column.id}
@@ -258,12 +268,13 @@ export function DataTable<TData extends RowData>({
                       onCheckedChange={(checked) => column.toggleVisibility(checked === true)}
                       onSelect={(event) => event.preventDefault()}
                     >
-                      {typeof column.columnDef.header === "string" ? column.columnDef.header : column.id}
+                      {column.columnDef.header as string}
                     </DropdownMenuCheckboxItem>
                   ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {actions && <div className="flex flex-wrap items-end gap-2">{actions}</div>}
         </div>
       )}
 

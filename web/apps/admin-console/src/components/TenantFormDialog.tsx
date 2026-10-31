@@ -102,7 +102,7 @@ export function TenantFormDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button>
           <Plus aria-hidden />
           {t("tenants.create")}
         </Button>

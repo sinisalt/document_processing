@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, vi } from "vitest";
 import type { components } from "@docproc/api-client";
 import { i18n } from "@/i18n";
-import { answer, renderScreen, resetShell, routeComponent, shell } from "@/test/shell";
+import { answer, devUsers, renderScreen, resetShell, routeComponent, shell } from "@/test/shell";
 import { documentEvent } from "@/test/fixtures";
 import { Route } from "./$documentId";
 
@@ -34,6 +34,8 @@ function flag(overrides: Partial<DocumentFlag>): DocumentFlag {
 function detail(flags: DocumentFlag[]): DocumentDetail {
   return {
     id: ID,
+    tenantId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    tenantName: "Pizzeria Napoli d.o.o.",
     status: "NeedsReview",
     type: "Invoice",
     typeConfidence: 0.99,
@@ -101,6 +103,28 @@ describe("/documents/$documentId", () => {
     const timeline = table("Timeline");
     expect(within(timeline).getByText("This list could not be loaded")).toBeInTheDocument();
     expect(within(timeline).queryByText("No events")).not.toBeInTheDocument();
+  });
+
+  it("names a document without a number by its short id, like the list and the dialogs, and says whose it is", async () => {
+    answer("GET /api/v1/documents/{id}", { ...detail([]), documentNumber: null, supplierName: null, status: "Failed", type: "Unknown" });
+    answer("GET /api/v1/documents/{id}/events", []);
+    renderScreen(<DetailPage />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: /00000001/ })).toBeInTheDocument();
+    expect(screen.queryByText("Untitled document")).not.toBeInTheDocument();
+    expect(screen.getByText(`Pizzeria Napoli d.o.o. · Unknown · ${ID}`)).toBeInTheDocument();
+    expect(screen.getByText("Tenant")).toBeInTheDocument();
+  });
+
+  it("leaves the tenant out for a tenant user, who only ever sees their own", async () => {
+    resetShell(devUsers.tenantBViewer);
+    shell.params = { documentId: ID };
+    answer("GET /api/v1/documents/{id}", detail([]));
+    answer("GET /api/v1/documents/{id}/events", []);
+    renderScreen(<DetailPage />);
+
+    expect(await screen.findByText(`Invoice · Nordsee Fisch GmbH · ${ID}`)).toBeInTheDocument();
+    expect(screen.queryByText("Pizzeria Napoli d.o.o.")).not.toBeInTheDocument();
   });
 
   it("says the flags did not load when the document request failed", async () => {

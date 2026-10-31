@@ -845,7 +845,8 @@ export interface components {
          * @description The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
          *     canonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
          *     extraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are
-         *     API-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`).
+         *     API-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name
+         *     the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
          */
         DocumentDetail: {
             /** Format: date-time */
@@ -876,6 +877,9 @@ export interface components {
             /** Format: uuid */
             supplierId: null | string;
             supplierName: null | string;
+            /** Format: uuid */
+            tenantId: string;
+            tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
             type: components["schemas"]["DocumentType"];

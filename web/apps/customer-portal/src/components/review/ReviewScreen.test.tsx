@@ -66,6 +66,8 @@ const flag = (id: string, field: string, severity: DocumentFlag["severity"], cod
 function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
   return {
     id: "6f1c1d2e-0000-4000-8000-000000000001",
+    tenantId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    tenantName: "Gasthaus zur Post GmbH",
     type: "Invoice",
     status: "NeedsReview",
     canonical: canonical as unknown as DocumentDetail["canonical"],

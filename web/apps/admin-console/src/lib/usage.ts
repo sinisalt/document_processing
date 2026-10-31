@@ -112,6 +112,25 @@ export function usageRows(response: Pick<LlmUsageResponse, "buckets" | "total">,
     .sort((a, b) => b.costUsd - a.costUsd || a.key.localeCompare(b.key));
 }
 
+/** The id of the usage table's first column (the bucket: day, tenant, stage or model). */
+export const USAGE_BUCKET_COLUMN = "label";
+
+/**
+ * What the bucket column sorts by: a day by its ISO key (chronological, "Nov 1" after "Oct 31"), anything else by the
+ * label the table shows.
+ */
+export function usageBucketSortValue(row: Pick<UsageRow, "key" | "label">, groupBy: UsageGrouping): string {
+  return groupBy === "day" ? row.key : row.label;
+}
+
+/**
+ * The usage table's first sort: days in calendar order, oldest first, so the table reads like the chart above it;
+ * every other grouping by cost, highest first.
+ */
+export function defaultUsageSorting(groupBy: UsageGrouping): { id: string; desc: boolean }[] {
+  return groupBy === "day" ? [{ id: USAGE_BUCKET_COLUMN, desc: false }] : [{ id: "costUsd", desc: true }];
+}
+
 /** Every calendar day from `from` to `to` inclusive (both `YYYY-MM-DD`), in order; empty when the range is inverted. */
 export function daysBetween(from: string, to: string): string[] {
   const start = Date.parse(`${from}T00:00:00Z`);

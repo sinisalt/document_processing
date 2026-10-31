@@ -40,7 +40,7 @@ const searchSchema = z.object({
   mine: z.boolean().optional().catch(undefined),
 });
 
-const HIDDEN_COLUMNS = { documentStatus: false, slaDueAt: false };
+const HIDDEN_COLUMNS = { documentStatus: false, slaDueAt: false, assignedTo: false };
 
 export const Route = createFileRoute("/review")({ validateSearch: searchSchema, component: ReviewQueuePage });
 
@@ -103,7 +103,7 @@ function ReviewQueuePage() {
           id: "document",
           header: t("review.document"),
           cell: (info) => (
-            <Link to="/documents/$documentId" params={{ documentId: info.row.original.documentId }} className="block max-w-40 font-medium [overflow-wrap:anywhere] whitespace-normal underline-offset-4 hover:underline">
+            <Link to="/documents/$documentId" params={{ documentId: info.row.original.documentId }} className="font-medium whitespace-nowrap underline-offset-4 hover:underline">
               {info.row.original.document?.documentNumber ?? <span className="font-mono text-xs">{shortId(info.row.original.documentId)}</span>}
             </Link>
           ),
@@ -127,10 +127,27 @@ function ReviewQueuePage() {
             </div>
           ),
         }),
-        helper.accessor("status", { header: t("review.status"), cell: (info) => <ReviewTaskStatusBadge status={info.getValue()} /> }),
+        // Who holds the task sits under its status ("In progress" / "tenant-a-reviewer"): a column of its own pushed Claim
+        // and Open off screen at 1440 px once a username was in it. The sortable Assigned to column stays in Columns.
+        helper.accessor("status", {
+          header: t("review.status"),
+          cell: (info) => {
+            const assignee = info.row.original.assignedTo;
+            return (
+              <div className="flex flex-col items-start gap-0.5">
+                <ReviewTaskStatusBadge status={info.getValue()} />
+                {assignee && (
+                  <span className={cn("text-xs whitespace-nowrap text-muted-foreground", assignee === me && "font-medium text-foreground")} data-testid="task-assignee">
+                    {assignee === me ? t("review.you") : assignee}
+                  </span>
+                )}
+              </div>
+            );
+          },
+        }),
         helper.accessor((row) => row.document?.status ?? "", { id: "documentStatus", header: t("documents.status"), cell: (info) => (info.row.original.document ? <StatusBadge status={info.row.original.document.status} /> : "—") }),
-        helper.accessor("assignedTo", { header: t("review.assignedTo"), cell: (info) => (info.getValue() ? <span className={cn("block max-w-36 whitespace-normal [overflow-wrap:anywhere]", info.getValue() === me && "font-medium")}>{info.getValue() === me ? t("review.you") : info.getValue()}</span> : <span className="text-muted-foreground">{t("review.unassigned")}</span>) }),
-        helper.accessor("createdAt", { header: t("review.waiting"), sortFn: "datetime", cell: (info) => <span className="block min-w-20 whitespace-normal" title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("assignedTo", { header: t("review.assignedTo"), cell: (info) => (info.getValue() ? <span className={cn("whitespace-nowrap", info.getValue() === me && "font-medium")}>{info.getValue() === me ? t("review.you") : info.getValue()}</span> : <span className="text-muted-foreground">{t("review.unassigned")}</span>) }),
+        helper.accessor("createdAt", { header: t("review.waiting"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap" title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
         helper.accessor("slaDueAt", { header: t("review.slaDue"), sortFn: "datetime", cell: (info) => (info.getValue() ? <span className={new Date(info.getValue()!) < new Date() ? "text-destructive" : undefined}>{formatDateTime(info.getValue(), i18n.language)}</span> : "—") }),
         // Claim and release are Review-policy actions; without it there is no column to render.
         ...(canReview
@@ -227,7 +244,7 @@ function ReviewQueuePage() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-2">
+            <div className="flex h-9 items-center gap-2">
               <Checkbox id="review-mine" checked={search.mine === true} onCheckedChange={(checked) => void navigate({ search: (prev) => ({ ...prev, mine: checked === true ? true : undefined }), replace: true })} />
               <Label htmlFor="review-mine">{t("review.mine")}</Label>
             </div>
