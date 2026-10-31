@@ -33,6 +33,25 @@ public sealed class PipelineOptions
     /// <summary>Most entries unpacked from one archive; the rest are skipped with a recorded reason.</summary>
     public int MaxArchiveEntries { get; set; } = 200;
 
+    /// <summary>
+    /// Budget of one ingestion across all its archives, nested ones included: once this many inflated bytes were
+    /// unpacked, the current archive stops and every archive still waiting is ignored with a recorded reason. Without it
+    /// a few kilobytes of nested zips expand to terabytes of stored blobs (docs/03 stage 2).
+    /// </summary>
+    public long MaxUnpackedBytesPerIngestion { get; set; } = 256 * 1024 * 1024;
+
+    /// <summary>Budget of one ingestion across all its archives: the most files unpacked in total (each can become a document).</summary>
+    public int MaxUnpackedItemsPerIngestion { get; set; } = 500;
+
+    /// <summary>
+    /// Largest inflated-to-compressed ratio of an archive entry that inflates past <see cref="CompressionRatioFloorBytes"/>;
+    /// a more compressed entry is skipped. Documents compress a few times, a zip bomb a thousand times. 0 turns the check off.
+    /// </summary>
+    public int MaxArchiveCompressionRatio { get; set; } = 100;
+
+    /// <summary>Entries up to this size are unpacked whatever their compression ratio (a small text file can compress well).</summary>
+    public const long CompressionRatioFloorBytes = 1024 * 1024;
+
     /// <summary>Images smaller than this are signatures, logos and tracking pixels, not documents (docs/03 stage 2).</summary>
     public long MinimumImageBytes { get; set; } = 20 * 1024;
 

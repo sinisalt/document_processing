@@ -110,6 +110,12 @@ internal sealed class IngestHandler(
         var pending = new Queue<IngestionItem>(items.Where(i => i.Disposition == ItemDisposition.Candidate));
         var unpacked = 0;
 
+        // One budget for the whole ingestion, nested archives included; what an earlier attempt committed counts.
+        var alreadyUnpacked = items.Where(i => i.ParentItemId is not null).ToList();
+        var budget = new UnpackBudget(
+            _options.MaxUnpackedBytesPerIngestion - alreadyUnpacked.Sum(i => i.SizeBytes),
+            _options.MaxUnpackedItemsPerIngestion - alreadyUnpacked.Count);
+
         while (pending.TryDequeue(out var item))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -125,10 +131,18 @@ internal sealed class IngestHandler(
                 continue;
             }
 
+            if (budget.ExhaustedReason(_options) is { } exhausted)
+            {
+                Ignore(item, $"not unpacked: {exhausted}");
+                continue;
+            }
+
             List<IngestionItem> children;
+            int skipped;
+            string? stoppedBecause;
             try
             {
-                children = await ExpandArchiveAsync(ingestion, item, now, cancellationToken).ConfigureAwait(false);
+                (children, skipped, stoppedBecause) = await ExpandArchiveAsync(ingestion, item, budget, now, cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidDataException ex)
             {
@@ -146,7 +160,18 @@ internal sealed class IngestHandler(
             }
 
             item.Disposition = ItemDisposition.Unpacked;
-            item.DispositionReason = $"{children.Count} file(s) unpacked";
+            var reason = $"{children.Count} file(s) unpacked";
+            if (skipped > 0)
+            {
+                reason += $"; {skipped} skipped over the entry size or compression limit";
+            }
+
+            if (stoppedBecause is not null)
+            {
+                reason += $"; the rest was not: {stoppedBecause}";
+            }
+
+            item.DispositionReason = Truncate(reason);
             unpacked += children.Count;
         }
 
@@ -315,8 +340,10 @@ internal sealed class IngestHandler(
     private static void Ignore(IngestionItem item, string reason)
     {
         item.Disposition = ItemDisposition.Ignored;
-        item.DispositionReason = reason.Length <= MaxReasonLength ? reason : reason[..MaxReasonLength];
+        item.DispositionReason = Truncate(reason);
     }
+
+    private static string Truncate(string reason) => reason.Length <= MaxReasonLength ? reason : reason[..MaxReasonLength];
 
     private static void MarkDuplicate(IngestionItem item, Guid ownerId)
     {
@@ -379,11 +406,17 @@ internal sealed class IngestHandler(
             .FirstOrDefault()?.Id;
     }
 
-    /// <summary>Unpacks one level of the archive; throws <see cref="InvalidDataException"/> when the bytes are not a readable zip.</summary>
-    private async Task<List<IngestionItem>> ExpandArchiveAsync(Ingestion ingestion, IngestionItem archiveItem, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <summary>
+    /// Unpacks one level of the archive within the ingestion's <paramref name="budget"/>, which it draws down; returns
+    /// the files, how many entries were skipped over the entry size or compression limit and, when the budget ran out
+    /// before the last entry, why the rest was not unpacked. Throws <see cref="InvalidDataException"/> when the bytes
+    /// are not a readable zip.
+    /// </summary>
+    private async Task<(List<IngestionItem> Children, int Skipped, string? StoppedBecause)> ExpandArchiveAsync(Ingestion ingestion, IngestionItem archiveItem, UnpackBudget budget, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var bytes = await blobs.ReadAsync(archiveItem.Blob, cancellationToken).ConfigureAwait(false);
         var children = new List<IngestionItem>();
+        var skipped = 0;
         using var archive = new ZipArchive(new MemoryStream(bytes, writable: false), ZipArchiveMode.Read, leaveOpen: false);
 
         foreach (var entry in archive.Entries)
@@ -400,24 +433,58 @@ internal sealed class IngestHandler(
                 break;
             }
 
+            if (budget.ExhaustedReason(_options) is { } exhausted)
+            {
+                logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, exhausted, archiveItem.FileName);
+                return (children, skipped, exhausted);
+            }
+
             if (entry.Length > _options.MaxArchiveEntryBytes)
             {
                 logger.LogWarning("Archive entry {Entry} in {FileName} is {Size} bytes, over the limit; skipped.", entry.FullName, archiveItem.FileName, entry.Length);
+                skipped++;
                 continue;
             }
 
-            // The declared length is not trusted: the copy stops as soon as the inflated bytes pass the limit.
+            if (entry.Length > budget.Bytes)
+            {
+                var reason = UnpackBudget.BytesReason(_options);
+                logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
+                return (children, skipped, reason);
+            }
+
+            // The declared length is not trusted: the copy stops as soon as the inflated bytes pass the smallest of the
+            // entry limit, what is left of the ingestion's budget and what the entry's compressed size allows.
+            var sizeLimit = Math.Min(_options.MaxArchiveEntryBytes, budget.Bytes);
+            var ratioLimit = RatioLimit(entry.CompressedLength);
             byte[]? content;
             await using (var entryStream = entry.Open())
             {
-                content = await BoundedCopy.ReadAsync(entryStream, _options.MaxArchiveEntryBytes, cancellationToken).ConfigureAwait(false);
+                content = await BoundedCopy.ReadAsync(entryStream, Math.Min(sizeLimit, ratioLimit), cancellationToken).ConfigureAwait(false);
             }
 
             if (content is null)
             {
+                if (ratioLimit < sizeLimit)
+                {
+                    logger.LogWarning("Archive entry {Entry} in {FileName} inflates more than {Ratio} times its {Compressed} compressed bytes; skipped.", entry.FullName, archiveItem.FileName, _options.MaxArchiveCompressionRatio, entry.CompressedLength);
+                    skipped++;
+                    continue;
+                }
+
+                if (budget.Bytes < _options.MaxArchiveEntryBytes)
+                {
+                    var reason = UnpackBudget.BytesReason(_options);
+                    logger.LogWarning("Ingestion {IngestionId}: {Reason}; the rest of archive {FileName} is not unpacked.", ingestion.Id, reason, archiveItem.FileName);
+                    return (children, skipped, reason);
+                }
+
                 logger.LogWarning("Archive entry {Entry} in {FileName} declares {Declared} bytes but inflates past the {Max} byte limit; skipped.", entry.FullName, archiveItem.FileName, entry.Length, _options.MaxArchiveEntryBytes);
+                skipped++;
                 continue;
             }
+
+            budget.Take(content.Length);
 
             var mimeType = ItemKinds.MimeTypeFor(entry.Name);
             var stored = await blobs.PutRawAsync(ingestion.TenantId, content, mimeType, cancellationToken).ConfigureAwait(false);
@@ -438,9 +505,47 @@ internal sealed class IngestHandler(
             });
         }
 
-        return children;
+        return (children, skipped, null);
+    }
+
+    /// <summary>The most an entry of <paramref name="compressedLength"/> bytes may inflate to under the ratio limit.</summary>
+    private long RatioLimit(long compressedLength)
+    {
+        var ratio = _options.MaxArchiveCompressionRatio;
+        if (ratio <= 0)
+        {
+            return long.MaxValue;
+        }
+
+        var allowed = compressedLength > long.MaxValue / ratio ? long.MaxValue : compressedLength * ratio;
+        return Math.Max(PipelineOptions.CompressionRatioFloorBytes, allowed);
     }
 
     /// <summary>An item that owns a document after the decision, with the rows the attempt created for it.</summary>
     private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received);
+
+    /// <summary>
+    /// What is left of an ingestion's unpack budget (<see cref="PipelineOptions.MaxUnpackedBytesPerIngestion"/>,
+    /// <see cref="PipelineOptions.MaxUnpackedItemsPerIngestion"/>), drawn down by every unpacked file.
+    /// </summary>
+    private sealed class UnpackBudget(long bytes, int items)
+    {
+        public long Bytes { get; private set; } = Math.Max(0, bytes);
+
+        public int Items { get; private set; } = Math.Max(0, items);
+
+        public void Take(long size)
+        {
+            Bytes = Math.Max(0, Bytes - size);
+            Items = Math.Max(0, Items - 1);
+        }
+
+        /// <summary>Why nothing more can be unpacked, or null while the budget lasts.</summary>
+        public string? ExhaustedReason(PipelineOptions options) =>
+            Items <= 0 ? $"the ingestion's limit of {options.MaxUnpackedItemsPerIngestion} unpacked files is reached"
+            : Bytes <= 0 ? BytesReason(options)
+            : null;
+
+        public static string BytesReason(PipelineOptions options) => $"the ingestion's limit of {options.MaxUnpackedBytesPerIngestion} unpacked bytes is reached";
+    }
 }

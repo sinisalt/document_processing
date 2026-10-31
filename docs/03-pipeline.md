@@ -41,7 +41,10 @@ Output: `Ingestion` + `IngestionItem` rows, blobs stored, SHA-256 computed. Exac
 
 ## Stage 2 – Unpack and normalize
 
-- Expand archives (zip) one level; refuse nested archives beyond a depth of 2.
+- Expand archives (zip) one level; refuse nested archives beyond a depth of 2. One ingestion
+  unpacks at most 256 MiB and 500 files across all its archives, and an entry that inflates more
+  than 100 times its compressed size (past 1 MiB) is skipped, so a zip bomb stops with a recorded
+  reason instead of filling the raw store (see "Implementation").
 - Email body: if there are no candidate attachments and the HTML/text body itself looks like
   an invoice (some suppliers send inline), render the body to PDF and treat it as a candidate.
 - Ignore obvious non-documents (signature images, logos < 20 KB, `.ics`, tracking pixels) with a
@@ -154,8 +157,12 @@ The runner lives in `src/DocProc.Pipeline` and is composed into both hosts by on
 `builder.AddDocProcProcessingStack()` (API) / `builder.AddDocProcProcessingStack(runInProcessDefault: true)`
 (worker). The helper registers PDF processing, classification and splitting (`DocumentProcessing:*`),
 e-invoice parsing, the LLM gateway with its EF-backed ports (`EfLlmPolicyStore`,
-`ConfigurationLlmCredentialStore`, `EfLlmUsageRecorder`) and the vendor adapters, blob storage
-unless the host registered it already, and the pipeline itself.
+`SecretStoreLlmCredentialStore`, `EfLlmUsageRecorder`) and the vendor adapters, blob storage
+and the secret store unless the host registered them already, and the pipeline itself. The
+credential store resolves a configuration's secret reference in the secret store first (where
+the API writes BYOK and platform keys), then in `Llm:Secrets:<ref>` / `LLM_SECRET_<REF>`; a
+missing key fails the call with an `Auth` error that names only the configuration id (the
+reference and the places to put the key go to the log, never to the tenant's `failureReason`).
 
 **Queue modes.** `InProcessPipelineQueue` implements `IPipelineQueue` over an unbounded
 `System.Threading.Channels` channel; a delayed enqueue (retry with backoff) waits on a background
@@ -187,7 +194,16 @@ stage 2: item kinds from extension and content type, zip archives expanded one l
 archives beyond depth 2 are ignored; a corrupt or truncated archive is ignored with the reason
 `unreadable zip archive: <reader message>`; entries over `Pipeline:MaxArchiveEntryBytes` are
 skipped, and the copy itself stops at that limit, so a header that under-declares the entry size
-does not get around it), exact duplicates (same tenant, same SHA-256) linked to the item that
+does not get around it; an entry that inflates past 1 MiB and more than
+`Pipeline:MaxArchiveCompressionRatio` (default 100) times its compressed size is skipped as well,
+and the archive's reason counts both kinds (`N file(s) unpacked; K skipped over the entry size or
+compression limit`);
+and one ingestion has a budget across all its archives, nested ones included, of
+`Pipeline:MaxUnpackedBytesPerIngestion` (default 256 MiB) inflated bytes and
+`Pipeline:MaxUnpackedItemsPerIngestion` (default 500) unpacked files: when it runs out, the
+archive being expanded stops with the reason `N file(s) unpacked; the rest was not: <budget>` and
+every archive still waiting is ignored with `not unpacked: <budget>`, so a few kilobytes of nested
+zips cannot fill the raw store or queue thousands of documents), exact duplicates (same tenant, same SHA-256) linked to the item that
 already owns a document for the bytes (disposition `Accepted`) or, when none does yet, to the
 strictly earlier candidate (older `CreatedAt`, or the same instant and the smaller v7 id), so two
 ingestions of the same bytes processed at the same time agree on the one that owns the document, an

@@ -1,3 +1,4 @@
+using System.Text;
 using DocProc.Application.Pipeline;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Support;
@@ -208,8 +209,108 @@ public class IngestHandlerTests
 
         var item = (await host.ItemsAsync(ingestion.Id)).ShouldHaveSingleItem("the entry was skipped, so no child item exists");
         item.Disposition.ShouldBe(ItemDisposition.Unpacked);
-        item.DispositionReason.ShouldBe("0 file(s) unpacked");
+        item.DispositionReason.ShouldBe("0 file(s) unpacked; 1 skipped over the entry size or compression limit");
         (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync())).ShouldBe(0);
+    }
+
+    /// <summary>A zip of <paramref name="archives"/> inner zips, each of <paramref name="entries"/> distinct text files of <paramref name="size"/> bytes.</summary>
+    private static byte[] NestedZips(int archives, int entries, int size, Func<int, int, byte[]>? content = null)
+    {
+        content ??= (i, j) =>
+        {
+            var bytes = new byte[size];
+            var random = new Random((i * 1000) + j);
+            random.NextBytes(bytes); // incompressible, so the ratio check never applies
+            return bytes;
+        };
+        return TestZips.With([.. Enumerable.Range(0, archives).Select(i =>
+            ($"inner-{i}.zip", TestZips.With([.. Enumerable.Range(0, entries).Select(j => ($"file-{i}-{j}.txt", content(i, j)))])))]);
+    }
+
+    [Fact]
+    public async Task Nested_archives_stop_at_the_ingestions_unpacked_file_budget()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:MaxUnpackedItemsPerIngestion"] = "7");
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, NestedZips(archives: 3, entries: 4, size: 512))]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        items.Count(i => i.ParentItemId is not null).ShouldBe(7, "the three inner zips and four of their files; nothing beyond the budget");
+        var outer = items.Single(i => i.ParentItemId is null);
+        outer.DispositionReason.ShouldBe("3 file(s) unpacked");
+        var inner = items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId == outer.Id).OrderBy(i => i.FileName).ToList();
+        inner[0].DispositionReason.ShouldBe("4 file(s) unpacked");
+        inner[1].Disposition.ShouldBe(ItemDisposition.Ignored);
+        inner[1].DispositionReason.ShouldBe("not unpacked: the ingestion's limit of 7 unpacked files is reached");
+        inner[2].Disposition.ShouldBe(ItemDisposition.Ignored);
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync(d => d.IngestionItem!.IngestionId == ingestion.Id))).ShouldBe(4);
+        (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().SingleAsync(i => i.Id == ingestion.Id))).Status.ShouldBe(IngestionStatus.Unpacked);
+    }
+
+    [Fact]
+    public async Task Nested_archives_stop_at_the_ingestions_unpacked_byte_budget()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:MaxUnpackedBytesPerIngestion"] = "40000");
+        var zip = NestedZips(archives: 2, entries: 5, size: 6000);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        var unpacked = items.Where(i => i.ParentItemId is not null).ToList();
+        unpacked.Sum(i => i.SizeBytes).ShouldBeLessThanOrEqualTo(40000);
+        unpacked.Count(i => i.Kind == ItemKind.Text).ShouldBeInRange(1, 9, "some files were unpacked, the rest left in the archives");
+
+        // Each inner zip is about 30 KB: the first fits, the second does not, so the outer archive stops after one file
+        // and the first inner zip after one of its files (6 KB of the 9 KB that were left).
+        var outer = items.Single(i => i.ParentItemId is null);
+        outer.Disposition.ShouldBe(ItemDisposition.Unpacked);
+        outer.DispositionReason.ShouldBe("1 file(s) unpacked; the rest was not: the ingestion's limit of 40000 unpacked bytes is reached");
+        var inner = items.Single(i => i.Kind == ItemKind.Archive && i.ParentItemId == outer.Id);
+        inner.DispositionReason.ShouldBe("1 file(s) unpacked; the rest was not: the ingestion's limit of 40000 unpacked bytes is reached");
+    }
+
+    [Fact]
+    public async Task A_small_nested_zip_bomb_does_not_inflate_into_the_raw_store()
+    {
+        // The shape of the reported attack: a few KB of nested zips whose entries are megabytes of one repeated byte.
+        await using var host = await PipelineTestHost.StartAsync();
+        var bomb = NestedZips(archives: 4, entries: 10, size: 4_000_000, content: (i, j) =>
+        {
+            var bytes = new byte[4_000_000];
+            Encoding.ASCII.GetBytes($"{i}-{j}-").CopyTo(bytes, 0);
+            return bytes;
+        });
+        bomb.Length.ShouldBeLessThan(200_000);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bomb.zip", TestZips.MimeType, bomb)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        items.Where(i => i.Kind == ItemKind.Text).ShouldBeEmpty("every entry inflates about a thousand times its compressed size");
+        // Only the four small inner zips themselves (under the ratio floor) are stored, not the 160 MB they hold.
+        items.Where(i => i.Kind == ItemKind.Archive && i.ParentItemId is not null).Select(i => i.DispositionReason).ShouldBe(Enumerable.Repeat("0 file(s) unpacked; 10 skipped over the entry size or compression limit", 4));
+        items.Where(i => i.ParentItemId is not null).Sum(i => i.SizeBytes).ShouldBeLessThan(4L * PipelineOptions.CompressionRatioFloorBytes);
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().CountAsync(d => d.IngestionItem!.IngestionId == ingestion.Id))).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Highly_compressed_entries_are_unpacked_below_the_ratio_floor_and_skipped_above_it()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var small = new byte[512 * 1024]; // zeros, but under the floor
+        "small"u8.CopyTo(small);
+        var large = new byte[2 * 1024 * 1024];
+        "large"u8.CopyTo(large);
+        var zip = TestZips.With(("small.txt", small), ("large.txt", large));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("batch.zip", TestZips.MimeType, zip)]);
+
+        await host.RunUntilIdleAsync();
+
+        var items = await host.ItemsAsync(ingestion.Id);
+        items.Where(i => i.ParentItemId is not null).Select(i => i.FileName).ShouldBe(["small.txt"]);
+        items.Single(i => i.ParentItemId is null).DispositionReason.ShouldBe("1 file(s) unpacked; 1 skipped over the entry size or compression limit");
     }
 
     [Fact]
