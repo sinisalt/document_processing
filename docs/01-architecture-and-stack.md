@@ -74,7 +74,7 @@ document_processing/
 │   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
 │   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
-│   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Application, Llm, Infrastructure and Extraction.EInvoice
+│   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Domain, Application, Llm, Llm.Anthropic, Llm.OpenAi, Infrastructure and Extraction.EInvoice, and composes them into both hosts
 │   ├── DocProc.Api/               ASP.NET Core host
 │   ├── DocProc.Worker/            Wolverine host
 │   └── DocProc.AppHost/           Aspire local orchestration
@@ -90,7 +90,10 @@ document_processing/
 └── deploy/                        docker-compose, Helm/ACA manifests, GitHub Actions
 ```
 
-Dependency direction: `Domain ← Application ← {Llm, Infrastructure, Extraction.*} ← Pipeline ← {Api, Worker}`.
+Dependency direction: `Domain ← Application ← Llm ← {Infrastructure, Llm.Anthropic, Llm.OpenAi} ← Pipeline ← {Api, Worker}`,
+with `Extraction.*` beside Llm (Domain and Application only) and also referenced by Pipeline. Infrastructure
+references Llm because it implements the gateway's ports (`EfLlmPolicyStore`, `ConfigurationLlmCredentialStore`,
+`EfLlmUsageRecorder`).
 `DocProc.Application` holds only contracts and pure domain services, so every implementation project
 (including `DocProc.Llm`) can reference it without a cycle; code that needs an implementation type
 (for example `LlmException` to choose between retry and `LLM_PROVIDER_UNAVAILABLE`) lives in

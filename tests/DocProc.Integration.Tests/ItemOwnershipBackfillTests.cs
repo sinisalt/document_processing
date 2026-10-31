@@ -1,11 +1,9 @@
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
-using DocProc.Infrastructure.Persistence.Migrations;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Testcontainers.MsSql;
 
 namespace DocProc.Integration.Tests;
@@ -14,6 +12,7 @@ namespace DocProc.Integration.Tests;
 /// The <c>AddItemOwnershipIndex</c> back-fill runs behind the row-level security policy. Neither migration path sets a
 /// tenant (the release script runs through sqlcmd, <c>MigrationHostedService</c> with an anonymous context), so the
 /// migration opens platform scope for its data statements itself; without that the UPDATE silently touches no rows.
+/// The shape of those statements is checked without a database by <see cref="ItemOwnershipBackfillSqlTests"/>.
 /// </summary>
 public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
 {
@@ -42,26 +41,6 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         {
             await _container.DisposeAsync();
         }
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Both_data_statements_open_platform_scope_and_close_it_again(bool up)
-    {
-        var migration = new AddItemOwnershipIndex();
-        var operations = up ? migration.UpOperations : migration.DownOperations;
-
-        var statements = operations.OfType<SqlOperation>().Select(o => o.Sql).ToList();
-        statements.Count.ShouldBe(1);
-        var sql = statements[0];
-
-        var open = sql.IndexOf($"@key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = N'{TenantSessionContextInterceptor.PlatformScopeValue}'", StringComparison.Ordinal);
-        var update = sql.IndexOf("UPDATE", StringComparison.Ordinal);
-        var close = sql.IndexOf($"@key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = NULL", StringComparison.Ordinal);
-        open.ShouldBeGreaterThanOrEqualTo(0, "platform scope is opened");
-        update.ShouldBeGreaterThan(open, "the UPDATE runs inside platform scope");
-        close.ShouldBeGreaterThan(update, "platform scope is closed after the UPDATE");
     }
 
     [Fact]

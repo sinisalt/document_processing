@@ -240,8 +240,8 @@ suite.
   `message`, so `<FormMessage />` is the normal case.
 - Components come from `@docproc/ui` (add missing shadcn ones with `pnpm dlx shadcn@latest add <name>` inside
   `packages/ui`, fix the generated `cn` import to `@/lib/utils`, export from `src/index.ts`). The `@/` alias inside that
-  package is resolved for consumers by `docprocAlias()` (`packages/ui/vite.ts`) in each app's `vite.config.ts` and the
-  second `paths` entry in its `tsconfig.json`.
+  package is resolved for consumers by `docprocAlias()` (`packages/ui/vite-plugin.ts`, imported as `@docproc/ui/vite`)
+  in each app's `vite.config.ts` and the second `paths` entry in its `tsconfig.json`.
 - Tests: vitest (jsdom) next to the code for anything with logic; Playwright in `web/e2e` for flows against the
   dev-mode API (`E2E_API_URL`, `E2E_PORTAL_URL`, `E2E_ADMIN_URL`; `tests/sign-in.spec.ts` is the smoke test and skips
   with the reason when the servers are not there).

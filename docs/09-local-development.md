@@ -20,7 +20,7 @@ by configuration.
 | Watched folder | SMB/SFTP/blob container | A bind-mounted local folder or an Azurite container. | Identical code path. | n/a |
 | LLM providers | Anthropic API, Claude on Microsoft Foundry, Azure OpenAI, OpenAI | Real APIs over the internet (no emulator). The gateway has a **replay provider** that serves recorded responses keyed by request hash, used by all CI tests. For offline smoke tests, the OpenAI-compatible adapter can point at **Ollama / LM Studio** on the Mac. | Replay is exact for regression; live calls are opt-in (`LLM_LIVE=1`) and cost cents. | The eval harness runs live in batch mode on demand, never in the default test run. |
 | Identity | Entra External ID / Entra ID | **Keycloak** container (arm64) as a local OIDC provider with seeded realms for superadmin, operator and two tenants; the API only knows OIDC authority + audience. Alternatively the test auth handler for unit tests. | Same OIDC flows; Entra-specific claims mapping is configuration. | Entra External ID dev tenant (free up to 50 000 monthly active users) used by the Azure dev environment. |
-| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts API, worker, both React apps and all containers above with one `dotnet run`; `docker compose` file generated from it for people who prefer that. | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
+| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts the API, the worker and all containers above with one `dotnet run`; `docker compose` file generated from it for people who prefer that. The two React apps run as Vite dev servers next to it (README "Web apps and end-to-end tests"); the AppHost does not start them yet. | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
 | Observability | Azure Monitor / Application Insights | Aspire dashboard (traces, logs, metrics via OpenTelemetry). | Same instrumentation, different exporter. | n/a |
 
 ## What the AppHost actually starts
@@ -55,7 +55,7 @@ checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
 | `Authentication:Dev:SigningKeyPath` | `./data/dev-signing-key.pem` (relative to the content root) | Unset: a key per process, tokens die on restart. Set: loaded, or generated and written on first start (owner-only permissions on Unix), so tokens survive restarts. The key is loaded at start-up, so a corrupt file stops the host rather than the first request. |
 | `Blobs:Provider` | unset: inferred. `Azure` whenever `ConnectionStrings:blobs` (injected by the AppHost) or `Blobs:ServiceUri` is present, `FileSystem` otherwise; an explicit value wins. | `FileSystem` is a content-addressed store on disk (`<root>/<container>/<tenant>/<sha256>` plus a `.meta.json` sidecar). Both files appear by atomic rename, the sidecar before the blob, and readers key on the blob file: a blob that exists always has its metadata, a sidecar on its own (a put that crashed between the two steps) reads as not found and is completed by the next upload of the same bytes, and concurrent uploads of the same bytes all succeed with one stored copy. It cannot issue short-lived read URLs (`GetReadUrlAsync` throws `NotSupportedException`), so the API streams bytes itself in this mode. |
 | `Blobs:RootPath` | `./data/blobs` (relative to the content root; the folder is created at start-up) | Both hosts must point at the same root, or the worker cannot read what the API ingested; under the AppHost both use Azurite instead. |
-| `Pipeline:RunInProcess` | `true` (the default outside Production; the worker defaults to true everywhere) | The API process consumes its own in-process queue, so an upload is processed without a running worker. `Pipeline:MaxParallelism`, `RetryBaseDelay`, `MaxAttempts` and the `DocumentProcessing:*` tunables sit next to it in `appsettings.Development.json` (docs/03 "Implementation"). |
+| `Pipeline:RunInProcess` | `true` (the default outside Production; the worker defaults to true everywhere) | The API process consumes its own in-process queue, so an upload is processed without a running worker. `Pipeline:MaxParallelism`, `RetryBaseDelay`, `MaxAttempts` and the `DocumentProcessing:*` tunables sit next to it in `appsettings.Development.json`; every one is listed in "Settings reference" below. |
 | `Llm:Secrets:<secretRef>` | empty for `llm-platform-eu` | Provider keys by secret reference (user secrets or `Llm__Secrets__<secretRef>`); the environment variable `LLM_SECRET_<SECRET_REF>` works too. Unset, any LLM stage ends the document `Failed` with `LLM_PROVIDER_UNAVAILABLE`; the structured e-invoice path never needs a key. |
 | `Secrets:Path` | `./data/secrets` (relative to the content root; created owner-only on first use) | Root of the file-backed `ISecretStore` that stands in for Key Vault: one owner-only file per secret reference (named by the reference's SHA-256, so `tenant/{id}/{configId}` never becomes a path). BYOK keys posted to `/llm-providers` and `/llm/providers` land here under `tenant/{tenantId}/{configId}` / `platform/{configId}`, channel credentials posted as `secret` to `/channels` under `tenant/{tenantId}/channel/{channelId}`; SQL keeps only the reference (BYOK rows also the last four characters and a fingerprint). Deleting a provider or channel, or clearing a channel's secret, deletes the file. |
 
@@ -157,6 +157,117 @@ Do not commit a classification fixture regenerated on such a machine. `fixtures/
 keeps every file's bytes exactly as committed on every checkout, whatever `core.autocrlf` says, since the bytes key
 the request hashes.
 
+## Settings reference
+
+Every setting the API and the worker read, by section. Environment variables use `__` for `:`
+(`Pipeline__MaxParallelism=4`). Every key has a code default, so a host starts with none of them; the
+two hosts' `appsettings.json` / `appsettings.Development.json` repeat the processing tunables with
+their defaults so they can be found and changed in one place. `SettingsReferenceTests`
+(`tests/DocProc.Api.Tests/Docs`) fails when an options class or a host settings file gains a key
+this section does not name.
+
+**Persistence** (`PersistenceSettings`, `PersistenceHostExtensions`; both hosts)
+
+| Key | Default | What it does |
+|---|---|---|
+| `ConnectionStrings:DocProc` | unset | SQL Server connection string; the AppHost injects it. Unset and no `Persistence:Provider`: the host starts without a database. |
+| `Persistence:Provider` | `SqlServer` when the connection string is set, else none | `SqlServer` or `Sqlite` ("Running without Docker"); `Sqlite` is refused in Production. |
+| `Persistence:SqlitePath` | `./data/docproc.db` | SQLite file, relative to the content root. |
+| `Persistence:MigrateOnStartup` | API: true outside Production; worker: false | Applies pending migrations at start-up (`MigrationHostedService`). The AppHost sets it for the API only. |
+| `Persistence:SeedDevData` | false (implied by `Sqlite`) | Runs `DevSeed`; refused in Production. |
+| `Persistence:SeedDemoDocuments` | false | Ingests the demo documents after the seed ("Demo data"); API only, refused in Production. |
+| `Persistence:DemoDocumentsPath` | `fixtures/demo` | Folder with one sub-folder per tenant slug; a relative path is searched upwards from the content root. |
+
+**Authentication** (`DevAuthOptions`, `OidcOptions`; API)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Authentication:Dev:Enabled` | false (true in `appsettings.Development.json`) | The API signs its own tokens (`/dev/token`, `/dev/users`); refused in Production. |
+| `Authentication:Dev:SigningKeyPath` | unset (a key per process) | PEM file of the dev signing key, created on first start. |
+| `Authentication:Dev:TokenLifetime` | `08:00:00` | Lifetime of a dev token (`DevTokenIssuer`). |
+| `Authentication:Oidc:Authority` | unset | Issuer URL; empty disables metadata discovery (the tests supply keys). Ignored while dev auth is on. |
+| `Authentication:Oidc:Audience` | `docproc-api` | Expected `aud`. |
+| `Authentication:Oidc:RequireHttpsMetadata` | true | False only for the local Keycloak over plain HTTP. |
+| `Authentication:Oidc:RoleClaimType` | `roles` | Claim the roles are read from (also for `/api/v1/me`). |
+| `Authentication:Oidc:NameClaimType` | `preferred_username` | Claim used as the user name. |
+| `Authentication:Oidc:TenantClaimType` | `tenant_id` | Claim that binds a customer user to a tenant (`TenantResolutionMiddleware`). |
+
+**Blob storage and secrets** (`BlobStoreOptions`, `SecretStoreOptions`; both hosts)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Blobs:Provider` | inferred | `FileSystem` or `Azure`; see the "Running without Docker" table for the inference. |
+| `Blobs:RootPath` | `./data/blobs` | Root of the file-system store. |
+| `ConnectionStrings:blobs` | unset | Azurite or Azure connection string, or a bare service URI; the AppHost injects it. |
+| `Blobs:ServiceUri` | unset | Blob endpoint used with `DefaultAzureCredential` when no connection string carries a key. |
+| `Blobs:MaxReadUrlLifetime` | `00:15:00` | Upper bound of a read URL; longer requests are clamped. At most seven days (the validator refuses more). |
+| `Blobs:CreateContainersOnStartup` | false | Creates `raw`, `derived` and `exports` at start-up (`BlobContainersHostedService`); off because the AppHost and Bicep own the containers. |
+| `Secrets:Path` | `./data/secrets` | Root of the file-backed secret store that stands in for Key Vault. |
+
+**Pipeline** (`PipelineOptions`; both hosts)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Pipeline:RunInProcess` | true outside Production; the worker: true everywhere | Whether this process consumes the in-process queue (docs/03 "Implementation"). |
+| `Pipeline:MaxParallelism` | 2 | Messages the runner processes at the same time. |
+| `Pipeline:RetryBaseDelay` | `00:00:05` | Delay before the second attempt; doubled per attempt. |
+| `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. |
+| `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. |
+| `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. |
+| `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`); capped by `DocumentProcessing:Pdf:MaximumRenderDpi`. |
+| `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. |
+| `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). |
+| `Pipeline:MaxArchiveEntries` | 200 | Entries unpacked from one archive; the rest are skipped with a reason. |
+| `Pipeline:MaxArchiveEntryBytes` | 67108864 (64 MiB) | Largest archive entry unpacked; the copy stops at the limit. |
+| `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. |
+
+**Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)
+
+| Key | Default | What it does |
+|---|---|---|
+| `DocumentProcessing:Pdf:TextLayerMinimumWordsPerPage` | 5 | A page has a text layer when it carries more words than this; otherwise it needs OCR. |
+| `DocumentProcessing:Pdf:MaximumRenderDpi` | 600 | Upper bound of a page render. |
+| `DocumentProcessing:Pdf:MaximumPdfBytes` | 104857600 (100 MiB) | Larger PDFs fail as too large instead of being read into memory. |
+| `DocumentProcessing:Pdf:MaximumAttachmentBytes` | 33554432 (32 MiB) | Largest embedded file the e-invoice finder decodes, stored and decoded. |
+| `DocumentProcessing:Classifier:ConfidenceThreshold` | 0.6 | Below this the keyword classifier answers `Unknown`. |
+| `DocumentProcessing:Classifier:FirstPageHeaderFactor` | 2.0 | Weight of a hit in the top third of the first page. |
+| `DocumentProcessing:Classifier:FirstPageFactor` | 1.0 | Weight of a hit elsewhere on the first page. |
+| `DocumentProcessing:Classifier:LaterPageFactor` | 0.4 | Weight of a hit on a later page. |
+| `DocumentProcessing:Classifier:BodyTitleFactorWhenHeaderTaken` | 0.5 | Extra factor for a body title when another type owns the header. |
+| `DocumentProcessing:Classifier:StrongEvidenceScore` | 8.0 | Score that counts as full evidence; weaker winners are scaled down. |
+| `DocumentProcessing:Splitter:BlankPageMaxWords` | 2 | A page with at most this many words is a blank separator. |
+| `DocumentProcessing:Splitter:StartThreshold` | 2.0 | Net start score from which a page starts a new document. |
+| `DocumentProcessing:Splitter:CertainScore` | 3.0 | Net score that counts as a certain decision either way. |
+| `DocumentProcessing:Splitter:NoSignalCertainty` | 0.6 | Certainty of a page without any signal (a continuation page). |
+| `DocumentProcessing:Splitter:ConfidenceThreshold` | 0.7 | Below this overall confidence the split counts as uncertain and the LLM splitter is asked. |
+| `DocumentProcessing:Splitter:MaxConfidentPageCount` | 6 | Above this many pages the LLM splitter is asked regardless. |
+| `DocumentProcessing:Splitter:HeaderBandFraction` | 0.12 | Height fraction of the header band compared for "supplier header repeated". |
+| `DocumentProcessing:Splitter:HeaderSimilarityThreshold` | 0.5 | Jaccard similarity of header words above which the header counts as repeated. |
+
+The two classification thresholds act one after the other. `DocumentProcessing:Classifier:ConfidenceThreshold`
+turns a weak keyword answer into `Unknown`; `Pipeline:LlmClassificationThreshold` decides when stage 4 asks the
+LLM. With both at 0.6 the LLM is asked exactly for `Unknown`. Raising the pipeline threshold above the classifier's
+also sends weak but typed keyword answers to the LLM, and the keyword answer stands when the LLM returns `Unknown`.
+A pipeline threshold below the classifier's changes nothing, because every answer under the classifier's threshold
+is already `Unknown`.
+
+**LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
+Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).
+
+| Key | Default | What it does |
+|---|---|---|
+| `Llm:Secrets:<secretRef>` | unset | Provider key for a secret reference; `LLM_SECRET_<SECRET_REF>` works too. |
+| `Llm:Replay:Directory` | unset (`fixtures/demo/llm-replay` in Development) | Registers the file replay provider over this fixture folder. |
+| `Llm:Replay:Record` | false | Wraps every real adapter so replay misses are recorded into the directory; needs `Llm:Replay:Directory`. |
+| `Llm:Replay:Scripted` | false | Serves the Replay kind from the in-memory `ScriptedLlmProvider` (tests). |
+| `Llm:Extraction:MaxOutputTokens` | 8192 (the `LlmOptions` default) | Output budget of the first extraction attempt; a truncated answer is retried once with twice the budget. |
+| `Llm:Extraction:MaxAuxiliaryOutputTokens` | 1024 | Output budget of the classification and split calls (always at low effort). |
+| `Llm:Extraction:Effort` | `Low` | Reasoning effort of the extraction call (docs/06 "Model choice"). |
+| `Llm:Extraction:ClassificationTextChars` | 2000 | How much of the text layer the LLM classifier sees. |
+| `Llm:Extraction:SplitTextCharsPerPage` | 300 | How much of every page's text the LLM splitter sees. |
+| `Llm:Extraction:SplitThumbnailLongEdge` | 768 | Long edge in pixels of the page thumbnails the splitter attaches. |
+| `Llm:Extraction:SplitMaxThumbnailPages` | 40 | Most thumbnails the splitter attaches (the first pages); zero attaches none. |
+
 ## Apple Silicon specifics
 
 - Enable **"Use Rosetta for x86_64/amd64 emulation"** in Docker Desktop (or Rosetta in
@@ -179,7 +290,13 @@ the request hashes.
 
 The default `dotnet test` run needs only Docker and finishes without any Azure account or API
 key. Contract and eval runs are tagged and skipped unless their environment variables are
-present.
+present. Without Docker the container tests report themselves skipped and the run stays green:
+`DockerFacts` (`tests/DocProc.Integration.Tests`) counts Docker as present only when a daemon
+answers a ping at the endpoint Testcontainers discovers, so the `/var/run/docker.sock` symlink
+that Docker Desktop or OrbStack leaves behind after quitting, or a `DOCKER_HOST` of a stopped
+machine, does not turn the skips into failures. CI's runner has Docker, so there they run.
+Azurite is started with `--skipApiVersionCheck`, as the AppHost starts it, because every Azurite
+release trails the service version the Blob SDK sends.
 
 Two checks guard the hosts themselves rather than a layer inside them. `tests/DocProc.Worker.Tests`
 boots the worker exactly as `src/DocProc.Worker/Program.cs` composes it (`WorkerHost.CreateBuilder`,
@@ -190,7 +307,10 @@ and asserts that `Persistence:Provider=Sqlite` and `Persistence:SeedDevData` are
 Production (the worker has no `Authentication:Dev`; that refusal is the API's). The CI `web` job
 runs `web/scripts/export-openapi.sh` against the freshly built API and fails, printing the diff,
 when the committed `web/packages/api-client/openapi/v1.json` or `src/schema.d.ts` differs from
-what the API serves: after changing an endpoint, run the script and commit the result.
+what the API serves: after changing an endpoint, run the script and commit the result. The script
+starts the API on port 5199 (`OPENAPI_EXPORT_PORT` moves it) and removes the document's `servers`
+entry, which the API fills from that port, so the committed file is the same from any port
+(`web/scripts/strip-openapi-servers.mjs`, tested in `packages/api-client/src/openapi.test.ts`).
 
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 
