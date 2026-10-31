@@ -27,6 +27,19 @@ const rawPath = (path: string) => path;
  * image. Every provenance box of the canonical JSON is a focusable rect; the one of the hovered/focused form field
  * is emphasised, and clicking a box focuses that field.
  */
+/**
+ * A box's colours. The rendered page is a white image in either theme, so they are fixed colours, never theme tokens:
+ * `primary` is near-white in dark mode, which made the highlighted box vanish on the page.
+ */
+export function boxClassName(active: boolean, historical: boolean): string {
+  return cn(
+    "cursor-pointer outline-none transition-colors",
+    historical ? "fill-transparent stroke-zinc-500/70 [stroke-dasharray:4_2]" : "fill-amber-300/15 stroke-amber-500/70",
+    active && "fill-blue-500/25 stroke-blue-600",
+    "hover:fill-blue-500/20 focus-visible:stroke-blue-600 focus-visible:[stroke-width:3]",
+  );
+}
+
 export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className }: FieldHighlightOverlayProps) {
   const { t } = useTranslation();
   if (rendered.width <= 0 || rendered.height <= 0) return null;
@@ -76,12 +89,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
             data-path={box.path}
             data-active={active}
             data-historical={box.historical}
-            className={cn(
-              "cursor-pointer outline-none transition-colors",
-              box.historical ? "fill-transparent stroke-muted-foreground/60 [stroke-dasharray:4_2]" : "fill-amber-300/15 stroke-amber-500/70",
-              active && "fill-primary/25 stroke-primary",
-              "hover:fill-primary/20 focus-visible:stroke-primary focus-visible:[stroke-width:3]",
-            )}
+            className={boxClassName(active, box.historical)}
             strokeWidth={active ? 2.5 : 1.5}
             onMouseEnter={() => onHover?.(box.path)}
             onMouseLeave={() => onHover?.(null)}

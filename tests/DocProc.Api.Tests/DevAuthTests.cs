@@ -62,6 +62,13 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
             .OrderBy(u => u.Username, StringComparer.Ordinal)
             .ShouldBe(expected);
         users.Select(u => u.Username).ShouldBe(DevUsers.All.Select(u => u.Username), "the endpoint lists DevUsers.All as is");
+
+        // The sign-in page names the tenant instead of printing a fragment of its id.
+        var names = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync(UsersUri, Ct)).RootElement.EnumerateArray()
+            .ToDictionary(u => u.GetProperty("username").GetString()!, u => u.GetProperty("tenantName").GetString());
+        names["tenant-a-admin"].ShouldBe("Gasthaus zur Post GmbH");
+        names["tenant-b-viewer"].ShouldBe("Pizzeria Napoli d.o.o.");
+        names["superadmin"].ShouldBeNull();
     }
 
     private static (string Username, string Email, string FirstName, string LastName, string Roles, Guid? TenantId) RealmUser(

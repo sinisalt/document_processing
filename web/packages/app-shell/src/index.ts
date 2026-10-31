@@ -37,6 +37,7 @@ export { DataTable, dataTableFeatures, createDataTableColumnHelper, loadErrorDes
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/ConfirmDialog";
 export { EmptyState, type EmptyStateProps } from "./components/EmptyState";
 export { PageHeader, type PageHeaderProps } from "./components/PageHeader";
+export { LocalizedDateInput, type LocalizedDateInputProps } from "./components/LocalizedDateInput";
 export * from "./components/StatusBadge";
 export { FieldStatusBadge, ConfidenceBadge, SourceBadge, type ConfidenceBadgeProps } from "./components/FieldBadges";
 

@@ -19,7 +19,8 @@
       "review": "Dokumente übernehmen und bearbeiten, die eine menschliche Entscheidung brauchen.",
       "suppliers": "Lieferantenstammdaten für die Zuordnung eingehender Dokumente.",
       "settings": "Prüfregeln, Mitglieder, API-Schlüssel, Kanäle und KI-Anbieter."
-    }
+    },
+    "nothing": "Nichts offen"
   },
   "documentType": {
     "Unknown": "Unbekannt",
@@ -192,7 +193,8 @@
       "total": "Betrag",
       "status": "Status",
       "flags": "Hinweise",
-      "received": "Empfangen"
+      "received": "Empfangen",
+      "document": "Dokument"
     },
     "filters": {
       "search": "Suche",
@@ -284,7 +286,9 @@
       "resolved": "Erledigt",
       "notValidated": "Noch nicht validiert: Hinweise erscheinen, sobald das Dokument den Schritt „Validieren“ durchlaufen hat.",
       "stale": "Korrekturen nicht erneut validiert: ab „Validieren“ neu verarbeiten, um sie zu prüfen.",
-      "staleSettled": "Die Korrekturen wurden vor der Entscheidung nicht erneut validiert."
+      "staleSettled": "Die Korrekturen wurden vor der Entscheidung nicht erneut validiert.",
+      "notOnPage": "Nicht im Seitenbild",
+      "notOnPageHint": "Der Wert steht so nicht im Text der Seite, daher gibt es auf der Seite keinen Rahmen zum Hervorheben."
     },
     "save": {
       "button": "Korrekturen speichern",
@@ -353,12 +357,65 @@
       "okDetail": "Erwartet {{expected}}",
       "incomplete": "Menge, Einzelpreis oder Nettobetrag fehlt",
       "mismatchDetail": "Menge × Einzelpreis ergibt {{expected}}, die Position nennt {{actual}}",
-      "unitRaw": "Gedruckt: {{unit}}"
+      "unitRaw": "Gedruckt: {{unit}}",
+      "inCurrency": "{{field}} ({{currency}})"
     },
     "timeline": {
       "title": "Verlauf",
       "empty": "Noch keine Ereignisse.",
-      "details": "Details"
+      "details": "Details",
+      "actors": {
+        "pipeline": "Verarbeitung",
+        "system": "System"
+      },
+      "detailKeys": {
+        "stage": "Stufe",
+        "fromStage": "Ab Stufe",
+        "comment": "Kommentar",
+        "reason": "Grund",
+        "paths": "Felder",
+        "error": "Fehler",
+        "attempt": "Versuch",
+        "retry": "Wiederholung",
+        "retryDelay": "Wiederholung in",
+        "fileName": "Datei",
+        "mimeType": "Dateityp",
+        "kind": "Art",
+        "ingestionId": "Eingang",
+        "itemId": "Element",
+        "pageCount": "Seiten",
+        "hasTextLayer": "Textebene",
+        "words": "Wörter",
+        "isEncrypted": "Verschlüsselt",
+        "producer": "Erzeuger",
+        "renderDpi": "Render-DPI",
+        "ranges": "Seitenbereiche",
+        "type": "Typ",
+        "confidence": "Konfidenz",
+        "source": "Quelle",
+        "language": "Sprache",
+        "usedLlm": "KI genutzt",
+        "supplierId": "Lieferanten-ID",
+        "supplierName": "Lieferant",
+        "method": "Methode",
+        "vatIdsFound": "Gefundene USt-IdNr.",
+        "pathsTried": "Versuchte Wege",
+        "documentNumber": "Belegnummer",
+        "totalGross": "Gesamt",
+        "currency": "Währung",
+        "cost": "Kosten",
+        "code": "Code",
+        "severity": "Schwere",
+        "field": "Feld",
+        "message": "Meldung",
+        "flags": "Hinweise",
+        "openFlags": "Offene Hinweise",
+        "eligibleForAutoApproval": "Automatisch freigebbar",
+        "alwaysReview": "Immer prüfen",
+        "threshold": "Schwelle"
+      },
+      "yes": "ja",
+      "no": "nein"
     },
     "original": {
       "fileName": "Datei",
@@ -396,6 +453,10 @@
     "empty": "Kein Dokument wartet auf eine Prüfung.",
     "emptyMine": "Sie haben keine Aufgaben übernommen.",
     "createdAt": "Erstellt {{when}}",
+    "reasons": {
+      "ALWAYS_REVIEW": "Lieferant wird immer geprüft",
+      "MANUAL_REVIEW": "Prüfung erforderlich"
+    },
     "reviewersOnlyTitle": "Die Prüfliste ist für Prüfer",
     "reviewersOnly": "Ihre Rolle darf Dokumente lesen, aber nicht prüfen. Fragen Sie einen Mandanten-Admin, wenn Sie die Prüfliste bearbeiten sollen."
   },
@@ -518,7 +579,10 @@
         "email": "E-Mail",
         "displayName": "Anzeigename",
         "role": "Rolle"
-      }
+      },
+      "title": "Mitglieder",
+      "description": "Personen Ihrer Organisation, die sich im Portal anmelden können, und was sie dürfen: Dokumente prüfen, Einstellungen verwalten oder nur lesen.",
+      "userIdTitle": "Benutzer-ID {{id}}"
     },
     "apiKeys": {
       "caption": "API-Schlüssel",
@@ -561,7 +625,9 @@
         "name": "Name",
         "namePlaceholder": "ERP-Anbindung",
         "scopes": "Berechtigungen"
-      }
+      },
+      "title": "API-Schlüssel",
+      "description": "Mit Schlüsseln laden Ihre eigenen Systeme (ein ERP-Export, ein Scanner) Dokumente hoch oder lesen Ergebnisse über die API, ohne persönliche Anmeldung."
     },
     "channels": {
       "caption": "Kanäle",
@@ -611,7 +677,9 @@
         "config": "Konfiguration (JSON)",
         "secret": "Secret",
         "secretHint": "Postfachpasswort oder Token; nur schreibbar."
-      }
+      },
+      "title": "Kanäle",
+      "description": "Woher Dokumente kommen: Upload im Portal, ein Postfach, ein überwachter Ordner oder die API. Jeder Kanal liefert in diese Organisation."
     },
     "ai": {
       "providersTitle": "KI-Anbieter",

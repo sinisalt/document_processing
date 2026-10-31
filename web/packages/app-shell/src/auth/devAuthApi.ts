@@ -15,6 +15,8 @@ export interface DevUser {
   subject: string;
   roles: string[];
   tenantId: string | null;
+  /** The seeded tenant's name; absent from an older API, null for a platform user. */
+  tenantName?: string | null;
 }
 
 export interface DevTokenResponse {

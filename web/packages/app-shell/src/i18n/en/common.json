@@ -95,7 +95,9 @@
     "Profile": "Profile",
     "Llm": "AI",
     "Ocr": "OCR",
-    "Human": "Reviewer"
+    "Human": "Reviewer",
+    "page": "p. {{page}}",
+    "onPageTitle": "Located on page {{page}} of the document"
   },
   "confidence": {
     "label": "Confidence {{value}}",
@@ -240,5 +242,11 @@
     "range": "Between {{min}} and {{max}}.",
     "positive": "Must be greater than zero.",
     "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters."
+  },
+  "dateInput": {
+    "pick": "Choose a date",
+    "day": "dd",
+    "month": "mm",
+    "year": "yyyy"
   }
 }

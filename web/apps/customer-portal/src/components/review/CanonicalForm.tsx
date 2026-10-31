@@ -1,9 +1,10 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useWatch } from "react-hook-form";
 import { Label } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, parsePath } from "@docproc/app-shell";
 import { FieldInput, type HighlightHandler } from "./FieldInput";
-import { currencyOf, fieldDomId, fieldOf, headerSections, type CanonicalInvoice, type FieldSpec } from "@/lib/canonical";
+import { currencyOf, fieldDomId, fieldOf, headerSections, isFieldApplicable, type CanonicalInvoice, type FieldSpec } from "@/lib/canonical";
 
 export interface CanonicalFormProps {
   canonical: CanonicalInvoice | null;
@@ -53,6 +54,8 @@ export function CanonicalForm({ canonical, disabled, threshold, onHighlight }: C
   const { t } = useTranslation();
   const label = useFieldLabel();
   const sections = headerSections(canonical);
+  // The kind as typed: switching to a credit note shows its original invoice reference at once.
+  const kind = useWatch({ name: "kind" });
   return (
     <div className="flex flex-col gap-6">
       {sections.map((section) => {
@@ -72,7 +75,7 @@ export function CanonicalForm({ canonical, disabled, threshold, onHighlight }: C
             )}
           </legend>
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 @lg:grid-cols-2">
-            {section.fields.map((spec) => {
+            {section.fields.filter((spec) => isFieldApplicable(spec, kind, canonical)).map((spec) => {
               const field = fieldOf(canonical, spec);
               const wide = spec.kind === "text";
               return (

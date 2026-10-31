@@ -52,7 +52,7 @@ function input(path: string): HTMLInputElement {
 }
 
 function lineRow(index: number): HTMLElement {
-  const row = document.querySelector<HTMLElement>(`tr[data-line="${index}"]`);
+  const row = document.querySelector<HTMLElement>(`[data-line="${index}"]`);
   if (!row) throw new Error(`no row ${index}`);
   return row;
 }

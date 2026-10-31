@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { test, expect, type Browser, type Page } from "@playwright/test";
+import { test, expect, type Browser } from "@playwright/test";
 import { apiUrl, portalUrl } from "../playwright.config";
+import { FIXTURE_NUMBER, SUPPLIER_NAME, SUPPLIER_VAT, devToken, ensureAlwaysReviewSupplier, fixture, reachable, signIn, uploadInvoice } from "./support/dev-api";
 
 /**
  * Customer portal, end to end against the real API (dev mode: SQLite, in-process pipeline, dev tokens): a tenant admin
@@ -12,77 +12,6 @@ import { apiUrl, portalUrl } from "../playwright.config";
  * Opt in with E2E_API_URL and E2E_PORTAL_URL (README "Running without Docker"; `vite --port <n>` with VITE_API_PROXY).
  */
 
-const fixture = readFileSync(new URL("../fixtures/xrechnung-ubl-invoice.xml", import.meta.url), "utf8");
-const FIXTURE_NUMBER = "2026/4471";
-const SUPPLIER_NAME = "Getränke Huber GmbH & Co. KG";
-const SUPPLIER_VAT = "DE276543210";
-const IN_FLIGHT = ["Received", "Normalized", "Split", "Classified", "Matched", "Extracted"];
-
-interface DevUser {
-  username: string;
-  displayName: string;
-}
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    return response.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-async function devUser(username: string): Promise<DevUser> {
-  const users = (await (await fetch(`${apiUrl}/dev/users`)).json()) as DevUser[];
-  const user = users.find((u) => u.username === username);
-  if (!user) throw new Error(`Dev user '${username}' is not in GET /dev/users`);
-  return user;
-}
-
-/** A bearer token for a dev user, for the API calls that set up what the UI then shows. */
-async function devToken(username: string): Promise<string> {
-  const response = await fetch(`${apiUrl}/dev/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username }) });
-  if (!response.ok) throw new Error(`POST /dev/token for ${username}: ${response.status}`);
-  return ((await response.json()) as { access_token: string }).access_token;
-}
-
-async function api<T>(token: string, method: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${apiUrl}/api/v1${path}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
-  return (await response.json()) as T;
-}
-
-interface SupplierRow {
-  id: string;
-  vatId: string | null;
-  alwaysReview: boolean;
-}
-
-/** The fixture's supplier with "always review" in the token's tenant: XML invoices of a known supplier auto-approve otherwise. */
-async function ensureAlwaysReviewSupplier(token: string) {
-  const page = await api<{ items: SupplierRow[] }>(token, "GET", `/suppliers?q=${encodeURIComponent(SUPPLIER_VAT)}&limit=50`);
-  const existing = page.items.find((s) => s.vatId === SUPPLIER_VAT);
-  if (!existing) await api(token, "POST", "/suppliers", { name: SUPPLIER_NAME, vatId: SUPPLIER_VAT, alwaysReview: true });
-  else if (!existing.alwaysReview) await api(token, "PATCH", `/suppliers/${existing.id}`, { alwaysReview: true });
-}
-
-/** Uploads the fixture under a fresh number through the API and waits until the pipeline is done with it. */
-async function uploadInvoice(token: string, number: string): Promise<{ id: string; status: string }> {
-  const xml = fixture.replace(`<cbc:ID>${FIXTURE_NUMBER}</cbc:ID>`, `<cbc:ID>${number}</cbc:ID>`);
-  await api(token, "POST", "/ingestions", { fileName: `${number}.xml`, contentType: "application/xml", base64: Buffer.from(xml, "utf8").toString("base64"), channelId: null });
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const list = await api<{ items: { id: string; status: string }[] }>(token, "GET", `/documents?q=${encodeURIComponent(number)}&limit=5`);
-    const document = list.items[0];
-    if (document && !IN_FLIGHT.includes(document.status)) return document;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  throw new Error(`${number} did not leave the pipeline within a minute`);
-}
-
 /** A document of tenant B waiting for review, uploaded by its admin through the API (the viewer cannot upload). */
 async function tenantBDocument(prefix: string) {
   const token = await devToken("tenant-b-admin");
@@ -91,14 +20,6 @@ async function tenantBDocument(prefix: string) {
   const document = await uploadInvoice(token, number);
   expect(document.status).toBe("NeedsReview");
   return { ...document, number };
-}
-
-async function signIn(page: Page, username: string, path = "/") {
-  const user = await devUser(username);
-  await page.goto(`${portalUrl}/sign-in?redirect=${encodeURIComponent(path)}`);
-  await page.getByRole("button", { name: `Sign in as ${user.displayName}` }).click();
-  await expect(page.getByRole("banner").getByRole("button", { name: `Account menu for ${user.displayName}` })).toBeVisible();
-  return user;
 }
 
 /** The suppliers screen as a tenant admin: the fixture's supplier exists and has "always review" on. */
@@ -209,7 +130,8 @@ test.describe("customer portal review flow", () => {
 
     // A correction: only the changed path is sent, the API marks it Corrected, approve waits until it is saved.
     const dueDate = form.getByLabel("Due date", { exact: true });
-    await dueDate.fill("2026-12-15");
+    // Typed as the English UI writes dates; the correction is sent as the ISO date.
+    await dueDate.fill("12/15/2026");
     await expect(page.getByTestId("approve-button")).toBeDisabled();
     // Unsaved: the first Esc leaves the input, the second would leave the screen and asks first.
     await page.keyboard.press("Escape");
@@ -218,12 +140,12 @@ test.describe("customer portal review flow", () => {
     await page.getByRole("button", { name: "Keep editing" }).click();
     await expect(page.getByRole("alertdialog")).toBeHidden();
     await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
-    await expect(dueDate).toHaveValue("2026-12-15");
+    await expect(dueDate).toHaveValue("12/15/2026");
     const patch = page.waitForRequest((request) => request.method() === "PATCH" && request.url().endsWith("/fields"));
     await page.getByTestId("save-button").click();
     expect((await patch).postDataJSON()).toEqual({ corrections: [{ path: "dueDate", value: "2026-12-15", reason: null }] });
     await expect(page.getByText("1 correction saved.")).toBeVisible();
-    await expect(form.getByLabel("Due date", { exact: true })).toHaveValue("2026-12-15");
+    await expect(form.getByLabel("Due date", { exact: true })).toHaveValue("12/15/2026");
     await expect(form.locator('[data-field="dueDate"]')).toHaveAttribute("data-field-status", "Corrected");
     await expect(form.locator('[data-field="dueDate"]')).toContainText("Corrected");
     await expect(page.getByTestId("approve-button")).toBeEnabled();

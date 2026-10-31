@@ -31,6 +31,7 @@ import {
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, queryKeys, relativeTime, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type ApiKey } from "@/lib/queries";
+import { SectionIntro } from "./SectionIntro";
 
 /** `ApiKeyScopes` of the API: what a machine client may do. */
 export const apiKeyScopes = ["ingest", "read"] as const;
@@ -128,6 +129,10 @@ export function ApiKeysTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      <SectionIntro
+        title={t("settings.apiKeys.title")}
+        description={t("settings.apiKeys.description")}
+        action={
       <div className="flex justify-end">
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <Button onClick={() => setCreateOpen(true)}>
@@ -192,6 +197,8 @@ export function ApiKeysTab() {
           </DialogContent>
         </Dialog>
       </div>
+        }
+      />
 
       <DataTable columns={columns} data={keys.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={keys.isPending} query={keys} caption={t("settings.apiKeys.caption")} emptyTitle={t("settings.apiKeys.empty")} emptyDescription={t("settings.apiKeys.emptyDescription")} />
 

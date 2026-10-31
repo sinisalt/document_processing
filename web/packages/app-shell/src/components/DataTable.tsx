@@ -222,12 +222,14 @@ export function DataTable<TData extends RowData>({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {(toolbar || enableColumnVisibility) && (
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
+        // Bottom-aligned: a toolbar of labelled filters wraps onto several rows, and the Columns button belongs on the
+        // row of inputs it sits beside (the last), at their height, instead of centred against the whole block.
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-end gap-2">{toolbar}</div>
           {enableColumnVisibility && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label={t("table.toggleColumns")}>
+                <Button variant="outline" aria-label={t("table.toggleColumns")}>
                   <Settings2 aria-hidden />
                   <span className="hidden sm:inline">{t("table.columns")}</span>
                 </Button>

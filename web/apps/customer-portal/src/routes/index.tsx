@@ -49,12 +49,19 @@ function DashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Button variant="link" size="sm" className="h-auto p-0" asChild>
-                    <Link to="/documents" search={{ tab: tab as InboxTab }}>
-                      {t("dashboard.open")}
-                      <ArrowRight aria-hidden />
-                    </Link>
-                  </Button>
+                  {/* Nothing to open behind a zero: the card says so instead of linking to an empty list. */}
+                  {count === 0 && !more ? (
+                    <span className="text-sm text-muted-foreground" data-testid={`count-${tab}-empty`}>
+                      {t("dashboard.nothing")}
+                    </span>
+                  ) : (
+                    <Button variant="link" size="sm" className="h-auto p-0 has-[>svg]:px-0" asChild>
+                      <Link to="/documents" search={{ tab: tab as InboxTab }}>
+                        {t("dashboard.open")}
+                        <ArrowRight aria-hidden />
+                      </Link>
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -65,7 +72,8 @@ function DashboardPage() {
         <h2 id="dashboard-links" className="mb-3 text-lg font-semibold">
           {t("dashboard.quickLinks")}
         </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* As many columns as fit: five links share one row on a desktop instead of leaving one alone on a second. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
           <QuickLink to="/documents" icon={Inbox} title={t("nav.inbox")} description={t("dashboard.links.inbox")} />
           {/* Uploads, suppliers and settings belong to a tenant: a platform account gets 400 there (navFor hides them too). */}
           {user?.scope === "tenant" && hasPolicy(Policies.Ingest) && <QuickLink to="/documents" icon={Upload} title={t("upload.button")} description={t("dashboard.links.upload")} />}

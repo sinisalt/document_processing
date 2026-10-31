@@ -1,34 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { adminUrl, apiUrl, portalUrl } from "../playwright.config";
+import { devUser, reachable, type DevUser } from "./support/dev-api";
 
 /**
  * Smoke: the development sign-in page of each app lists GET /dev/users, one click signs in through POST /dev/token, and
  * the header shows who is signed in. Needs the API in dev mode (README "Running without Docker") and both Vite dev
  * servers; set E2E_API_URL (and E2E_PORTAL_URL / E2E_ADMIN_URL when not on the default ports) to opt in.
  */
-
-interface DevUser {
-  username: string;
-  displayName: string;
-  roles: string[];
-}
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    return response.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-async function devUser(username: string): Promise<DevUser> {
-  const response = await fetch(`${apiUrl}/dev/users`);
-  const users = (await response.json()) as DevUser[];
-  const user = users.find((u) => u.username === username);
-  if (!user) throw new Error(`Dev user '${username}' is not in GET /dev/users`);
-  return user;
-}
 
 async function signInAs(page: Page, appUrl: string, user: DevUser) {
   await page.goto(`${appUrl}/sign-in`);

@@ -62,7 +62,8 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
   const tenant = settings.data?.tenant;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    // items-start: each card as tall as its content, so the short identity card leaves no empty block beside the policy.
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>{t("settings.general.identityTitle")}</CardTitle>
@@ -74,7 +75,7 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
               {(["name", "legalName", "slug", "vatId", "countryCode", "defaultCurrency", "timeZone"] as const).map((key) => (
                 <div key={key} className="contents">
                   <dt className="text-muted-foreground">{t(`settings.general.identity.${key}`)}</dt>
-                  <dd>{tenant[key] ?? "—"}</dd>
+                  <dd>{key === "countryCode" ? countryName(tenant.countryCode, i18n.language) : tenant[key] ?? "—"}</dd>
                 </div>
               ))}
             </dl>
@@ -96,7 +97,26 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
                   <FormItem>
                     <FormLabel>{t("settings.general.threshold")}</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.01" min={0} max={1} name={field.name} ref={field.ref} onBlur={field.onBlur} value={Number.isNaN(field.value) ? "" : String(field.value)} onChange={(event) => field.onChange(event.target.value === "" ? Number.NaN : Number(event.target.value))} disabled={!canEdit} className="w-32" />
+                      {/* Edited in percent like the hint below it and the review screen; stored as the API's 0..1 ratio. */}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step="1"
+                          min={0}
+                          max={100}
+                          inputMode="numeric"
+                          name={field.name}
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          value={ratioToPercentText(field.value)}
+                          onChange={(event) => field.onChange(percentTextToRatio(event.target.value))}
+                          disabled={!canEdit}
+                          className="w-24 text-right tabular-nums"
+                        />
+                        <span className="text-sm text-muted-foreground" aria-hidden>
+                          %
+                        </span>
+                      </div>
                     </FormControl>
                     <FormDescription>{t("settings.general.thresholdHint", { value: formatPercent(form.watch("autoApproveConfidenceThreshold"), i18n.language) })}</FormDescription>
                     <FormMessage />
@@ -173,4 +193,27 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
       </Card>
     </div>
   );
+}
+
+/** 0.8 → "80" (two decimals at most); NaN (an emptied input) → "". */
+export function ratioToPercentText(ratio: number): string {
+  if (Number.isNaN(ratio)) return "";
+  return String(Math.round(ratio * 10000) / 100);
+}
+
+/** "80" → 0.8; "" → NaN, which the form's schema reports as required. */
+export function percentTextToRatio(text: string): number {
+  if (text.trim() === "") return Number.NaN;
+  return Number(text) / 100;
+}
+
+/** "DE" → "Germany" / "Deutschland" in the UI language; an unknown code is shown as is. */
+export function countryName(code: string | null | undefined, language: string): string {
+  if (!code) return "—";
+  try {
+    const name = new Intl.DisplayNames([language], { type: "region" }).of(code.toUpperCase());
+    return name && name !== code.toUpperCase() ? `${name} (${code.toUpperCase()})` : code;
+  } catch {
+    return code;
+  }
 }

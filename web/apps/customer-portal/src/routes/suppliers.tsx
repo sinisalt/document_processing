@@ -371,7 +371,7 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
             )}
           </TabsContent>
         </Tabs>
-        <SheetFooter className="border-t">
+        <SheetFooter className="border-t sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {canManage ? t("common:dialog.cancel") : t("common:actions.close")}
           </Button>

@@ -1,7 +1,7 @@
 import { Controller, useFormContext, type FieldValues } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, cn } from "@docproc/ui";
-import { ConfidenceBadge, FieldStatusBadge, SourceBadge, isLowConfidence, type FieldValue } from "@docproc/app-shell";
+import { ConfidenceBadge, FieldStatusBadge, LocalizedDateInput, SourceBadge, isLowConfidence, type FieldValue } from "@docproc/app-shell";
 import { fieldDomId, formName, type FieldSpec } from "@/lib/canonical";
 
 /** Why a field is highlighted: the pointer is over it, or it has the keyboard focus. */
@@ -52,7 +52,9 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
     "aria-label": ariaLabel,
     "data-path": spec.path,
     "data-low-confidence": low || undefined,
-    className: cn(compact && "h-8 text-sm", low && "border-destructive/60", className),
+    // Read-only (a viewer, a decided document): the values are what the screen is for, so they keep full contrast
+    // instead of the 50 % opacity of a disabled control.
+    className: cn(compact && "h-8 text-sm", low && "border-destructive/60", disabled && "disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100", className),
     ...hover,
   };
 
@@ -64,7 +66,7 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
         name={name}
         render={({ field: f }) => (
           <Select value={f.value ? String(f.value) : CLEAR} onValueChange={(value) => f.onChange(value === CLEAR ? "" : value)} disabled={disabled}>
-            <SelectTrigger {...common} ref={f.ref} onBlur={f.onBlur} size={compact ? "sm" : "default"}>
+            <SelectTrigger {...common} className={cn(!compact && "w-full", common.className)} ref={f.ref} onBlur={f.onBlur} size={compact ? "sm" : "default"}>
               <SelectValue placeholder={t("review.form.none")} />
             </SelectTrigger>
             <SelectContent>
@@ -79,6 +81,26 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
         )}
       />
     );
+  } else if (spec.kind === "date") {
+    // Not a native date input (type="date"): Chromium writes that in the browser's locale, so a German UI showed 10/28/2026.
+    control = (
+      <Controller
+        control={form.control}
+        name={name}
+        render={({ field: f }) => (
+          <LocalizedDateInput
+            {...common}
+            className={undefined}
+            inputClassName={common.className}
+            ref={f.ref}
+            name={f.name}
+            value={typeof f.value === "string" ? f.value : ""}
+            onValueChange={f.onChange}
+            onBlur={f.onBlur}
+          />
+        )}
+      />
+    );
   } else if (spec.kind === "text") {
     control = <Textarea {...common} {...form.register(name)} rows={compact ? 1 : 3} />;
   } else {
@@ -86,7 +108,7 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
       <Input
         {...common}
         {...form.register(name)}
-        type={spec.kind === "date" ? "date" : "text"}
+        type="text"
         inputMode={spec.kind === "money" || spec.kind === "number" ? "decimal" : undefined}
         className={cn(common.className, (spec.kind === "money" || spec.kind === "number") && "text-right tabular-nums")}
       />

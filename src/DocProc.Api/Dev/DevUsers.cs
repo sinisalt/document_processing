@@ -10,6 +10,9 @@ public sealed record DevUser(string Username, string Email, string FirstName, st
 
     /// <summary>Stable <c>sub</c> derived from the username, so a user keeps its identity across restarts and key rotations.</summary>
     public string Subject => DevUsers.SubjectFor(Username);
+
+    /// <summary>The name of the seeded tenant the user belongs to, for the sign-in page; null for a platform user.</summary>
+    public string? TenantName => DevUsers.TenantNameOf(TenantId);
 }
 
 /// <summary>
@@ -38,4 +41,7 @@ public static class DevUsers
 
     /// <summary>A GUID in the shape Keycloak would issue, computed from the username so it never changes; shared with the demo members of the development seed.</summary>
     public static string SubjectFor(string username) => DevSeed.SubjectFor(username);
+
+    public static string? TenantNameOf(Guid? tenantId) =>
+        tenantId == TenantA ? DevSeed.TenantAName : tenantId == TenantB ? DevSeed.TenantBName : null;
 }

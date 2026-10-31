@@ -84,7 +84,7 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
           <Button disabled={!decidable} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} aria-keyshortcuts={apple ? "Meta+Enter" : "Control+Enter"} data-testid="approve-button">
             <Check aria-hidden />
             {t("review.actions.approve")}
-            <kbd className="ml-1 hidden rounded border px-1 text-[10px] text-primary-foreground/80 lg:inline" aria-hidden data-testid="approve-shortcut">
+            <kbd className="ml-1 hidden rounded border border-primary-foreground/40 bg-primary-foreground/10 px-1 text-[10px] font-medium text-primary-foreground lg:inline" aria-hidden data-testid="approve-shortcut">
               {apple ? t("review.actions.shortcutApple") : t("review.actions.shortcutOther")}
             </kbd>
           </Button>

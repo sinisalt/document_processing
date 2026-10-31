@@ -167,6 +167,8 @@ describe("review screen flag keys", () => {
     expect(window.document.activeElement).toBe(flagButtons[1]);
     // The second flag's field was brought into view, not focused.
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts.at(-1)).toBe(input("totalGross"));
+    // Only as far as needed: centring also scrolled the window and hid the header with the actions.
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.calls.at(-1)?.[0]).toMatchObject({ block: "nearest" });
 
     press("k");
     expect(flagButtons[0]).toHaveAttribute("aria-current", "true");
