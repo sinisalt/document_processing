@@ -74,4 +74,11 @@ internal abstract class DocumentStageHandler(DocProcDbContext db, DocumentTimeli
 
     protected Task<Tenant> LoadTenantAsync(Document document, CancellationToken cancellationToken) =>
         Db.Tenants.AsNoTracking().SingleAsync(t => t.Id == document.TenantId, cancellationToken);
+
+    /// <summary>
+    /// True when stage 3 cut the document's ingestion item into several documents and this is one of them: only a
+    /// split creates a second document for an item. Such a document owns its page range, not the whole file.
+    /// </summary>
+    protected Task<bool> IsSplitPartAsync(Document document, CancellationToken cancellationToken) =>
+        Db.Documents.AnyAsync(d => d.IngestionItemId == document.IngestionItemId && d.Id != document.Id, cancellationToken);
 }

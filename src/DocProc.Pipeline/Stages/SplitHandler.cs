@@ -17,8 +17,9 @@ namespace DocProc.Pipeline.Stages;
 /// <summary>
 /// Stage 3 (docs/03 "Split"): heuristics first, the LLM splitter when they are uncertain or the attachment is long,
 /// then one <c>Document</c> per page range. The current row keeps the first range (its page images and a sliced text
-/// layer); every further range becomes a new row at <c>Split</c>, queued straight for classification. Single-page
-/// files and e-invoices skip all of it.
+/// layer); every further range becomes a new row at <c>Split</c>, queued straight for classification. No part keeps
+/// the normalised PDF, which holds every range: later stages read a part from its own pages. Single-page files,
+/// e-invoices and a part of an earlier split (reprocessed from Normalize) skip all of it.
 /// </summary>
 internal sealed class SplitHandler(
     DocProcDbContext db,
@@ -41,12 +42,18 @@ internal sealed class SplitHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
-        if (document.PageCount <= 1 || document.EmbeddedXmlBlob is not null)
+        // A part of an earlier split (a reprocess from Normalize) keeps its range: splitting it again would create
+        // its siblings a second time.
+        var skipReason = document.EmbeddedXmlBlob is not null ? "e-invoice"
+            : document.PageCount <= 1 ? "single page"
+            : await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false) ? "already split"
+            : null;
+        if (skipReason is not null)
         {
             Timeline.Transition(document, DocumentStatus.Split, new
             {
                 ranges = new[] { new { start = document.PageStart, end = document.PageEnd } },
-                reason = document.EmbeddedXmlBlob is not null ? "e-invoice" : "single page",
+                reason = skipReason,
             });
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return StageOutcome.Advanced;
@@ -90,6 +97,12 @@ internal sealed class SplitHandler(
         var siblings = new List<ProcessDocument>();
         var splitFlag = new DocumentFlag(FlagCodes.MultiDocumentSplit, FlagSeverity.Info, $"The attachment was split into {ranges.Count} documents.");
 
+        // Stage 2's "no text layer" flag is about every page of the file, so each part carries it on.
+        var inherited = document.Flags
+            .Where(f => f.Code == FlagCodes.UnreadablePages && f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null)
+            .Select(f => f.ToDomain())
+            .ToList();
+
         foreach (var range in ranges.Skip(1))
         {
             var child = new Document
@@ -100,7 +113,8 @@ internal sealed class SplitHandler(
                 PageStart = pageStart + range.StartPage - 1,
                 PageEnd = pageStart + range.EndPage - 1,
                 PageCount = range.EndPage - range.StartPage + 1,
-                NormalizedBlob = document.NormalizedBlob is { } normalized ? PipelineBlobs.Clone(normalized) : null,
+                // The original file holds every range; a part is read from its own page images and text only.
+                NormalizedBlob = null,
                 PageImageKeys = Slice(imageKeys, range),
                 TextLayerBlob = await SliceTextLayerAsync(document.TenantId, textLayer, range, cancellationToken).ConfigureAwait(false),
                 Status = DocumentStatus.Received,
@@ -111,13 +125,14 @@ internal sealed class SplitHandler(
             Timeline.Record(child, DocumentEventTypes.Received, null, DocumentStatus.Received, new { splitFrom = document.Id, pageStart = child.PageStart, pageEnd = child.PageEnd });
             Timeline.Transition(child, DocumentStatus.Normalized, new { inheritedFrom = document.Id });
             Timeline.Transition(child, DocumentStatus.Split, details);
-            flags.Replace(child, OwnedFlags, [splitFlag]);
+            flags.Replace(child, OwnedFlags, [splitFlag, .. inherited]);
             siblings.Add(new ProcessDocument(document.TenantId, child.Id, PipelineStage.Classify));
         }
 
         var first = ranges[0];
         document.PageEnd = pageStart + first.EndPage - 1;
         document.PageCount = first.EndPage - first.StartPage + 1;
+        document.NormalizedBlob = null;
         document.PageImageKeys = Slice(imageKeys, first);
         document.TextLayerBlob = await SliceTextLayerAsync(document.TenantId, textLayer, first, cancellationToken).ConfigureAwait(false);
         flags.Replace(document, OwnedFlags, [splitFlag]);
@@ -152,12 +167,18 @@ internal sealed class SplitHandler(
             return null;
         }
 
+        var sliced = Slice(layer, range.StartPage, range.EndPage);
+        return PipelineBlobs.ToEntity(await blobs.PutTextLayerAsync(tenantId, sliced, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>The pages <paramref name="startPage"/> to <paramref name="endPage"/> of the layer, renumbered from 1.</summary>
+    internal static TextLayer Slice(TextLayer layer, int startPage, int endPage)
+    {
         var pages = layer.Pages
-            .Where(p => p.Number >= range.StartPage && p.Number <= range.EndPage)
+            .Where(p => p.Number >= startPage && p.Number <= endPage)
             .OrderBy(p => p.Number)
             .Select((p, index) => p with { Number = index + 1 })
             .ToList();
-        var sliced = new TextLayer(layer.Source, pages);
-        return PipelineBlobs.ToEntity(await blobs.PutTextLayerAsync(tenantId, sliced, cancellationToken).ConfigureAwait(false));
+        return new TextLayer(layer.Source, pages);
     }
 }

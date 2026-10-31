@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using DocProc.Application.Abstractions;
 using DocProc.Domain.Text;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Pipeline.Intake;
 
 namespace DocProc.Pipeline.Support;
 
@@ -22,7 +23,7 @@ internal sealed class PipelineBlobs(IContainerBlobStore store)
         Key = reference.Key,
         Sha256 = reference.Sha256,
         SizeBytes = reference.SizeBytes,
-        ContentType = reference.ContentType,
+        ContentType = UploadIntake.BlobContentType(reference.ContentType),
     };
 
     public static BlobReference Clone(BlobReference reference) => ToEntity(ToRef(reference));

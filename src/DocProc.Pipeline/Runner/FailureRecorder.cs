@@ -14,7 +14,8 @@ namespace DocProc.Pipeline.Runner;
 /// Writes the outcome of a failed attempt in a scope of its own, after the handler's scope (and its half-applied
 /// changes) is gone: a <c>document.stage_failed</c> event for a scheduled retry, or <c>Failed(reason)</c> plus the
 /// event and an optional flag for the final failure (docs/03 "Document state machine"). A row that another writer
-/// changed in the meantime (its concurrency token moved on) is left alone: the other writer's outcome stands.
+/// changed in the meantime (its concurrency token moved on), or that is no longer in the state the failed stage starts
+/// from (a twin message already advanced it), keeps its status: the other writer's outcome stands.
 /// </summary>
 internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline timeline, DocumentFlagWriter flags, TimeProvider clock, ILogger<FailureRecorder> logger)
 {
@@ -48,20 +49,20 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
         }
 
         var details = new { stage = message.Stage, attempt = message.Attempt, error = Truncate(reason), retry = false };
-        if (DocumentStateMachine.CanTransition(document.Status, DocumentStatus.Failed))
+        if (IsDue(message.Stage, document.Status) && DocumentStateMachine.CanTransition(document.Status, DocumentStatus.Failed))
         {
             timeline.Transition(document, DocumentStatus.Failed, details, DocumentEventTypes.StageFailed);
             document.FailureReason = Truncate(reason);
+            if (flagCode is not null)
+            {
+                flags.Replace(document, [flagCode], [FlagCodes.Create(flagCode, Truncate(reason, 1000))]);
+            }
         }
         else
         {
-            // Already failed, or settled by a human in the meantime: keep the audit trail, leave the status alone.
+            // Already failed, settled by a human, or moved past this stage by a twin message that succeeded: keep
+            // the audit trail, leave the status and the flags of the outcome that stands alone.
             timeline.Record(document, DocumentEventTypes.StageFailed, document.Status, document.Status, details);
-        }
-
-        if (flagCode is not null)
-        {
-            flags.Replace(document, [flagCode], [FlagCodes.Create(flagCode, Truncate(reason, 1000))]);
         }
 
         await CommitAsync("document", document.Id, cancellationToken).ConfigureAwait(false);
@@ -100,6 +101,23 @@ internal sealed class FailureRecorder(DocProcDbContext db, DocumentTimeline time
             }
         }
     }
+
+    /// <summary>
+    /// Whether the document is still where the failed stage starts from (the status its handler accepts). A stage
+    /// that does not move the document along the pipeline (publish) has no single start, so any state counts.
+    /// </summary>
+    internal static bool IsDue(PipelineStage stage, DocumentStatus status) => StartStatus(stage) is not { } start || status == start;
+
+    private static DocumentStatus? StartStatus(PipelineStage stage) => stage switch
+    {
+        PipelineStage.Normalize => DocumentStatus.Received,
+        PipelineStage.Split => DocumentStatus.Normalized,
+        PipelineStage.Classify => DocumentStatus.Split,
+        PipelineStage.Match => DocumentStatus.Classified,
+        PipelineStage.Extract => DocumentStatus.Matched,
+        PipelineStage.Validate => DocumentStatus.Extracted,
+        _ => null,
+    };
 
     private Task<Document?> LoadAsync(Guid documentId, CancellationToken cancellationToken) =>
         db.Documents.Include(d => d.Flags).SingleOrDefaultAsync(d => d.Id == documentId, cancellationToken);

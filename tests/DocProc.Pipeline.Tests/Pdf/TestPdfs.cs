@@ -52,6 +52,34 @@ internal static class TestPdfs
         AddTextPage(doc, InvoicePage2);
     });
 
+    /// <summary>A batch scan: the invoice's first page alone, then the whole two-page invoice (three pages).</summary>
+    public static byte[] SinglePageThenGermanInvoice() => Build(doc =>
+    {
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage2);
+    });
+
+    /// <summary>The two-page German invoice with an XML attachment, as a Factur-X / ZUGFeRD PDF/A-3 carries one.</summary>
+    public static byte[] GermanInvoiceWithAttachment(string fileName, byte[] xml) => Build(doc =>
+    {
+        AddTextPage(doc, InvoicePage1);
+        AddTextPage(doc, InvoicePage2);
+        doc.AddEmbeddedFile(fileName, new MemoryStream(xml));
+    });
+
+    /// <summary>Several pages of drawn shapes and no text: a multi-page scan with no text layer.</summary>
+    public static byte[] ShapesOnlyPages(int count) => Build(doc =>
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var page = doc.AddPage();
+            page.Size = PageSize.A4;
+            using var gfx = XGraphics.FromPdfPage(page);
+            gfx.DrawRectangle(XBrushes.Black, 50, 50 + (i * 30), 300, 20);
+        }
+    });
+
     public static byte[] NotAPdf() => Encoding.ASCII.GetBytes("%PDF-1.7 this is not a document at all, just a header and some words");
 
     /// <summary>One page of drawn shapes and no text at all: what a scanned invoice looks like to the text extractor.</summary>

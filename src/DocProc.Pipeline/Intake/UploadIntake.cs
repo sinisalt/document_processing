@@ -34,7 +34,7 @@ public static class UploadIntake
             var content = file.Open();
             await using (content.ConfigureAwait(false))
             {
-                stored.Add(new StoredUpload(file, await blobs.PutAsync(tenantId, content, file.ContentType, cancellationToken).ConfigureAwait(false)));
+                stored.Add(new StoredUpload(file, await blobs.PutAsync(tenantId, content, BlobContentType(file.ContentType), cancellationToken).ConfigureAwait(false)));
             }
         }
 
@@ -61,7 +61,7 @@ public static class UploadIntake
             ChannelId = channelId,
             ReceivedAt = now,
             SourceFrom = sourceFrom is null ? null : Truncate(sourceFrom, MaxSourceFromLength),
-            SourceFileName = Truncate(first.File.FileName, MaxFileNameLength),
+            SourceFileName = FitFileName(first.File.FileName),
             RawBlob = ToReference(first.Blob),
             Status = IngestionStatus.Received,
             UpdatedAt = now,
@@ -74,7 +74,7 @@ public static class UploadIntake
                 Id = Guid.CreateVersion7(),
                 TenantId = tenantId,
                 IngestionId = ingestion.Id,
-                FileName = Truncate(file.FileName, MaxFileNameLength),
+                FileName = FitFileName(file.FileName),
                 MimeType = Truncate(file.ContentType, MaxContentTypeLength),
                 SizeBytes = blob.SizeBytes,
                 Sha256 = blob.Sha256,
@@ -88,6 +88,33 @@ public static class UploadIntake
         return ingestion;
     }
 
+    /// <summary>
+    /// A file name that fits the <c>FileName</c> columns (<see cref="MaxFileNameLength"/>). A longer one (a crafted
+    /// upload, a deep archive entry) is cut in its stem so the extension, which the viewer and the kind detection
+    /// read, survives.
+    /// </summary>
+    public static string FitFileName(string fileName)
+    {
+        ArgumentNullException.ThrowIfNull(fileName);
+        if (fileName.Length <= MaxFileNameLength)
+        {
+            return fileName;
+        }
+
+        var extension = Path.GetExtension(fileName);
+        return extension.Length is > 0 and <= 16
+            ? string.Concat(fileName.AsSpan(0, MaxFileNameLength - extension.Length), extension)
+            : fileName[..MaxFileNameLength];
+    }
+
+    /// <summary>
+    /// The content type the blob is stored under. The blob reference columns hold <see cref="MaxContentTypeLength"/>
+    /// characters and the store echoes the type back, so a longer (necessarily bogus) media type is stored as
+    /// <c>application/octet-stream</c> instead of failing the ingestion's save.
+    /// </summary>
+    public static string BlobContentType(string contentType) =>
+        contentType.Length <= MaxContentTypeLength ? contentType : "application/octet-stream";
+
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength];
 
     private static BlobReference ToReference(BlobRef blob) => new()
@@ -96,6 +123,6 @@ public static class UploadIntake
         Key = blob.Key,
         Sha256 = blob.Sha256,
         SizeBytes = blob.SizeBytes,
-        ContentType = blob.ContentType,
+        ContentType = BlobContentType(blob.ContentType),
     };
 }

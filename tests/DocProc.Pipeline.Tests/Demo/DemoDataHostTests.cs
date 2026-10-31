@@ -1,3 +1,4 @@
+using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
@@ -168,8 +169,10 @@ public sealed class DemoDataHostTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task A_database_already_running_on_a_real_provider_keeps_it_and_the_start_up_names_it()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_database_already_running_on_a_real_provider_keeps_it_and_the_start_up_names_it(bool keyStored)
     {
         var data = Path.Combine(_work, "data");
         var empty = Directory.CreateDirectory(Path.Combine(_work, "no-documents")).FullName;
@@ -185,13 +188,31 @@ public sealed class DemoDataHostTests : IDisposable
         }
 
         var logs = new LogSink();
-        using (var demo = await DemoStack.StartAsync(data, configure: s => s["Persistence:DemoDocumentsPath"] = empty, logs: logs))
+        using (var demo = await DemoStack.StartAsync(
+                   data,
+                   configure: s =>
+                   {
+                       s["Persistence:DemoDocumentsPath"] = empty;
+                       s[$"Llm:Secrets:{DevSeed.PlatformSecretRef}"] = keyStored ? "sk-test" : null;
+                   },
+                   logs: logs))
         {
             await using var db = Db(demo);
             (await db.LlmProviderConfigs.AnyAsync(c => c.Id == DemoData.PlatformReplayConfig, Ct)).ShouldBeFalse();
             (await DemoData.PlatformConfigInUseAsync(db, Ct))!.Id.ShouldBe(DevSeed.PlatformAnthropicConfig);
             (await db.TenantMembers.CountAsync(Ct)).ShouldBe(DemoData.Members.Count, "the other demo rows are added as usual");
-            logs.Demo.ShouldContain(l => l.Message == $"LLM platform configuration in use: {DevSeed.PlatformAnthropicConfig} (Anthropic).");
+            if (keyStored)
+            {
+                logs.Demo.ShouldContain(l => l.Level == LogLevel.Information && l.Message == $"LLM platform configuration in use: {DevSeed.PlatformAnthropicConfig} (Anthropic).");
+            }
+            else
+            {
+                // An active configuration the gateway cannot get a key for is not "in use": every call would fail.
+                logs.Demo.ShouldNotContain(l => l.Message.StartsWith("LLM platform configuration in use", StringComparison.Ordinal));
+                logs.Demo.ShouldContain(l => l.Level == LogLevel.Warning
+                                             && l.Message.StartsWith($"LLM platform configuration {DevSeed.PlatformAnthropicConfig} (Anthropic) is active but has no usable key", StringComparison.Ordinal)
+                                             && l.Message.Contains(DevSeed.PlatformSecretRef, StringComparison.Ordinal));
+            }
         }
     }
 
@@ -227,6 +248,49 @@ public sealed class DemoDataHostTests : IDisposable
         miss.Message.ShouldStartWith("No recorded response for request ");
         miss.Message.ShouldEndWith(DemoData.ReplayMissHint);
         miss.Message.ShouldNotContain(ReplayLlmProvider.DefaultMissHint);
+    }
+
+    [Fact]
+    public async Task A_settled_demo_document_whose_publish_message_was_lost_is_published_on_the_next_start()
+    {
+        var data = Path.Combine(_work, "data");
+        var metro = DemoStack.CopyDemoDocuments(Path.Combine(_work, "demo-metro"), MetroInvoice);
+        Guid documentId;
+        using (var first = await DemoStack.StartAsync(data, new DemoAnswersProvider(), s => s["Persistence:DemoDocumentsPath"] = metro))
+        {
+            await SettleAsync(first);
+            await using var db = Db(first);
+            var document = await db.Documents.AsNoTracking().SingleAsync(Ct);
+            document.Status.ShouldBe(DocumentStatus.AutoApproved);
+            documentId = document.Id;
+
+            // The process died after validation committed AutoApproved and before the queued publish message ran.
+            db.OutboxMessages.RemoveRange(await db.OutboxMessages.ToListAsync(Ct));
+            await db.SaveChangesAsync(Ct);
+            await first.StopAsync(Ct);
+        }
+
+        var logs = new LogSink();
+        using (var again = await DemoStack.StartAsync(data, new DemoAnswersProvider(), s => s["Persistence:DemoDocumentsPath"] = metro, logs))
+        {
+            await SettleAsync(again);
+            await using var db = Db(again);
+            var message = await db.OutboxMessages.AsNoTracking().SingleAsync(Ct);
+            message.DocumentId.ShouldBe(documentId);
+            message.EventType.ShouldBe(DocumentEventTypes.Approved);
+            logs.Demo.ShouldContain(l => l.Message.StartsWith($"Resumed demo document {documentId} ({MetroInvoice}) of tenant ", StringComparison.Ordinal)
+                                         && l.Message.EndsWith("AutoApproved without an outbox row, queued for stage Publish.", StringComparison.Ordinal));
+        }
+
+        // Published now: a further restart queues nothing.
+        logs.Clear();
+        using (var third = await DemoStack.StartAsync(data, new DemoAnswersProvider(), s => s["Persistence:DemoDocumentsPath"] = metro, logs))
+        {
+            await SettleAsync(third);
+            await using var db = Db(third);
+            (await db.OutboxMessages.CountAsync(Ct)).ShouldBe(1);
+            logs.Demo.ShouldNotContain(l => l.Message.StartsWith("Resumed demo", StringComparison.Ordinal));
+        }
     }
 
     [Fact]

@@ -12,7 +12,8 @@ namespace DocProc.Pipeline.Stages;
 
 /// <summary>
 /// Stage 2 (docs/03 "Unpack and normalize"): the canonical pair of one PNG per page and a positioned text layer, both
-/// in the derived container, plus the embedded e-invoice XML when the PDF carries one. Images become a single page
+/// in the derived container, plus the embedded e-invoice XML when the PDF carries one the parser recognises. A part
+/// of an earlier split keeps its page range (a reprocess from Normalize). Images become a single page
 /// without text (OCR is a later block, so the page is flagged); UBL / CII files skip pages entirely; everything else
 /// is unsupported for now and fails without a retry.
 /// </summary>
@@ -59,11 +60,25 @@ internal sealed class NormalizeHandler(
             info = await pdf.InspectAsync(stream, cancellationToken).ConfigureAwait(false);
         }
 
-        var keys = new List<string>(info.PageCount);
+        // A part of an earlier split (a reprocess from Normalize) is normalised to its own range again, so the
+        // split it came from stays the only one; any other document covers the whole file.
+        var lastPage = Math.Max(1, info.PageCount);
+        var part = await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false);
+        var pageStart = part ? Math.Clamp(document.PageStart, 1, lastPage) : 1;
+        var pageEnd = part ? Math.Clamp(document.PageEnd, pageStart, lastPage) : lastPage;
+
+        var keys = new List<string>(pageEnd - pageStart + 1);
         await using (var stream = PipelineBlobs.AsStream(bytes))
         {
+            var number = 0;
             await foreach (var page in pdf.RenderPagesAsync(stream, _options.RenderDpi, cancellationToken).ConfigureAwait(false))
             {
+                number++;
+                if (number < pageStart || number > pageEnd)
+                {
+                    continue;
+                }
+
                 var stored = await blobs.PutDerivedAsync(document.TenantId, page.Png, PipelineBlobs.PngContentType, cancellationToken).ConfigureAwait(false);
                 keys.Add(stored.Key);
             }
@@ -75,34 +90,58 @@ internal sealed class NormalizeHandler(
             textLayer = await pdf.ExtractTextAsync(stream, cancellationToken).ConfigureAwait(false);
         }
 
-        EmbeddedXml? embedded;
-        await using (var stream = PipelineBlobs.AsStream(bytes))
+        if (part)
         {
+            textLayer = SplitHandler.Slice(textLayer, pageStart, pageEnd);
+        }
+
+        // A split part never has an embedded e-invoice (stage 3 does not split a file that carries one).
+        EmbeddedXml? embedded = null;
+        string? ignoredXml = null;
+        if (!part)
+        {
+            await using var stream = PipelineBlobs.AsStream(bytes);
             embedded = await pdf.FindEmbeddedInvoiceXmlAsync(stream, cancellationToken).ConfigureAwait(false);
         }
 
-        document.PageCount = info.PageCount;
-        document.PageStart = 1;
-        document.PageEnd = Math.Max(1, info.PageCount);
-        document.NormalizedBlob = PipelineBlobs.Clone(item.Blob);
+        // Only an attachment the e-invoice parser recognises takes the structured path; any other (ZUGFeRD 1.0, a
+        // broken file) would fail classification for good, while the pages can still be read.
+        if (embedded is not null && eInvoices.Detect(embedded.Content) is null)
+        {
+            ignoredXml = embedded.FileName;
+            if (Logger.IsEnabled(LogLevel.Information))
+            {
+                Logger.LogInformation("Document {DocumentId}: the embedded {File} is not a UBL or CII e-invoice; the pages are read instead.", document.Id, embedded.FileName);
+            }
+
+            embedded = null;
+        }
+
+        var hasText = part ? textLayer.WordCount > 0 : info.HasTextLayer;
+        document.PageCount = part ? pageEnd - pageStart + 1 : info.PageCount;
+        document.PageStart = pageStart;
+        document.PageEnd = pageEnd;
+        document.NormalizedBlob = part ? null : PipelineBlobs.Clone(item.Blob);
         document.PageImageKeys = keys;
         document.TextLayerBlob = PipelineBlobs.ToEntity(await blobs.PutTextLayerAsync(document.TenantId, textLayer, cancellationToken).ConfigureAwait(false));
         document.EmbeddedXmlBlob = embedded is null
             ? null
             : PipelineBlobs.ToEntity(await blobs.PutDerivedAsync(document.TenantId, embedded.Content, PipelineBlobs.XmlContentType, cancellationToken).ConfigureAwait(false));
 
-        flags.Replace(document, OwnedFlags, info.HasTextLayer ? [] : [NoTextLayer()]);
+        flags.Replace(document, OwnedFlags, hasText ? [] : [NoTextLayer()]);
 
         return new
         {
             kind = item.Kind,
             pageCount = info.PageCount,
-            hasTextLayer = info.HasTextLayer,
+            splitPart = part ? new { start = pageStart, end = pageEnd } : null,
+            hasTextLayer = hasText,
             words = textLayer.WordCount,
             isEncrypted = info.IsEncrypted,
             producer = info.Producer,
             embeddedXml = embedded?.FileName,
             embeddedXmlFlavour = embedded?.Flavour,
+            embeddedXmlIgnored = ignoredXml,
             renderDpi = _options.RenderDpi,
         };
     }

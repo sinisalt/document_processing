@@ -3,6 +3,8 @@ using DocProc.Application.Pipeline;
 using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
+using DocProc.Domain.Invoices;
+using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Support;
@@ -57,6 +59,20 @@ internal sealed class MatchHandler(
         return StageOutcome.Advanced;
     }
 
+    /// <summary>The parsed e-invoice, or null when it does not parse: the pages' text layer then gives the signals.</summary>
+    private Invoice? TryParse(Document document, byte[] xml, EInvoiceDetection detection)
+    {
+        try
+        {
+            return eInvoices.Parse(xml, detection);
+        }
+        catch (EInvoiceParseException ex)
+        {
+            Logger.LogWarning(ex, "Document {DocumentId}: the stored e-invoice XML could not be parsed; supplier signals come from the text layer.", document.Id);
+            return null;
+        }
+    }
+
     private async Task<SupplierSignals> CollectSignalsAsync(Document document, CancellationToken cancellationToken)
     {
         var senderDomain = SupplierMatcher.DomainOf(document.IngestionItem?.Ingestion?.SourceFrom);
@@ -64,9 +80,8 @@ internal sealed class MatchHandler(
         if (document.EmbeddedXmlBlob is { } xmlBlob)
         {
             var xml = await blobs.ReadAsync(xmlBlob, cancellationToken).ConfigureAwait(false);
-            if (eInvoices.Detect(xml) is { } detection)
+            if (eInvoices.Detect(xml) is { } detection && TryParse(document, xml, detection) is { } invoice)
             {
-                var invoice = eInvoices.Parse(xml, detection);
                 var supplier = invoice.Supplier.Value;
                 var ids = new[] { supplier?.VatId, supplier?.Iban, invoice.PaymentTerms.Value?.Iban }
                     .Select(Identifiers.NormalizeCompact)

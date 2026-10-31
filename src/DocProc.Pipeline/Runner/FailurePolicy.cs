@@ -21,6 +21,7 @@ internal abstract record FailureDecision(string Reason)
 /// <item>a <see cref="DocumentProcessingException"/> or <see cref="StageFailedException"/> is about the document itself: Failed(reason), no retry;</item>
 /// <item>a retryable <see cref="LlmException"/> (rate limit, transient) backs off exponentially up to the attempt limit, then fails with <c>LLM_PROVIDER_UNAVAILABLE</c>;</item>
 /// <item>an <see cref="LlmException"/> that blocks the tenant (invalid key, quota, no configuration) fails at once with the same flag: a retry cannot fix a missing key, and the document waits for an operator;</item>
+/// <item>a refused (<see cref="LlmErrorKind.ContentRefused"/>) or rejected (<see cref="LlmErrorKind.InvalidRequest"/>) LLM request fails at once without a flag: the provider would answer the same request the same way;</item>
 /// <item>anything else (a bug, a storage hiccup, an unusable model answer) is retried with backoff up to the limit, then Failed(reason).</item>
 /// </list>
 /// </summary>
@@ -51,6 +52,10 @@ internal static class FailurePolicy
 
             case LlmException { BlocksTenant: true } llm:
                 return new FailureDecision.Fail(Describe(llm), FlagCodes.LlmProviderUnavailable);
+
+            case LlmException { Kind: LlmErrorKind.ContentRefused or LlmErrorKind.InvalidRequest } llm:
+                // The same request would be refused or rejected again: resending it only spends tokens and time.
+                return new FailureDecision.Fail(Describe(llm));
 
             default:
                 return attempt < options.MaxAttempts

@@ -88,6 +88,10 @@ public sealed class Document : ITenantScoped, IVersioned
 /// <summary>Persisted <see cref="DocumentFlag"/>.</summary>
 public sealed class DocumentFlagRecord : ITenantScoped
 {
+    /// <summary>The column sizes of <see cref="Message"/> and <see cref="Field"/> (DocumentFlagConfiguration).</summary>
+    public const int MaxMessageLength = 1000;
+    public const int MaxFieldLength = 200;
+
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
     public Guid DocumentId { get; set; }
@@ -104,6 +108,11 @@ public sealed class DocumentFlagRecord : ITenantScoped
 
     public DocumentFlag ToDomain() => new(Code, Severity, Message, Field, CreatedBy, ResolvedAt);
 
+    /// <summary>
+    /// The record of a flag, with the message and field cut to their columns: messages quote model output (an
+    /// unreadable region's reason, an invalid currency), which has no length bound, and an over-long value would fail
+    /// the stage's save on SQL Server.
+    /// </summary>
     public static DocumentFlagRecord FromDomain(Guid tenantId, Guid documentId, DocumentFlag flag, DateTimeOffset at) => new()
     {
         Id = Guid.CreateVersion7(),
@@ -111,12 +120,15 @@ public sealed class DocumentFlagRecord : ITenantScoped
         DocumentId = documentId,
         Code = flag.Code,
         Severity = flag.Severity,
-        Field = flag.Field,
-        Message = flag.Message,
+        Field = Truncate(flag.Field, MaxFieldLength),
+        Message = Truncate(flag.Message, MaxMessageLength)!,
         CreatedBy = flag.CreatedBy,
         CreatedAt = at,
         ResolvedAt = flag.ResolvedAt,
     };
+
+    private static string? Truncate(string? value, int max) =>
+        value is null || value.Length <= max ? value : value[..max];
 }
 
 /// <summary>Append-only timeline (docs/03 "Document state machine"): state transitions, stage outcomes, human actions.</summary>

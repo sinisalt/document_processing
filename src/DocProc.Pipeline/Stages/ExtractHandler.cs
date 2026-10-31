@@ -16,7 +16,9 @@ namespace DocProc.Pipeline.Stages;
 /// Stage 6 (docs/03 "Extract"): builds the <see cref="ExtractionInput"/> from the stored artefacts and the supplier
 /// memory, then tries the registered <see cref="IDocumentExtractor"/>s in path order (structured XML, profile, LLM).
 /// The first outcome is stored as canonical JSON with the denormalised columns and the costs. Types without an
-/// extraction path (purchase orders, delivery notes, statements, other) skip straight on with <c>UNSUPPORTED_TYPE</c>.
+/// extraction path (purchase orders, delivery notes, statements, other) skip straight on with <c>UNSUPPORTED_TYPE</c>
+/// and lose any canonical data an earlier run as an invoice left. A part of a split is sent as its own pages, never
+/// as the original PDF.
 /// </summary>
 internal sealed class ExtractHandler(
     DocProcDbContext db,
@@ -39,6 +41,9 @@ internal sealed class ExtractHandler(
     {
         if (document.Type is not (DocumentType.Invoice or DocumentType.CreditNote))
         {
+            // A reprocess may have reclassified an extracted invoice: its data describes a type the document no
+            // longer has, so it goes (the costs stay, they were spent).
+            ClearExtraction(document);
             flags.Replace(document, OwnedFlags, [FlagCodes.Create(FlagCodes.UnsupportedType, $"No extraction path exists for {document.Type} documents yet.")]);
             Timeline.Transition(document, DocumentStatus.Extracted, new { type = document.Type, skipped = true });
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -100,6 +105,18 @@ internal sealed class ExtractHandler(
         document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value.Amount : null;
     }
 
+    private static void ClearExtraction(Document document)
+    {
+        document.CanonicalJson = null;
+        document.CanonicalSchemaVersion = null;
+        document.DocumentNumber = null;
+        document.DocumentNumberNormalized = null;
+        document.IssueDate = null;
+        document.Currency = null;
+        document.TotalGross = null;
+        document.ExtractionMethod = null;
+    }
+
     private static void AddCost(DocumentCosts costs, DocumentCost cost)
     {
         costs.LlmInputTokens += cost.LlmInputTokens;
@@ -117,9 +134,12 @@ internal sealed class ExtractHandler(
 
     private async Task<ExtractionInput> BuildInputAsync(Document document, CancellationToken cancellationToken)
     {
+        // The normalised PDF is the whole file: only a document that covers all of it may send it. A part of a split
+        // goes to the model as its own page images and text, or every part would be read from the first invoice.
         var item = document.IngestionItem;
-        ReadOnlyMemory<byte>? pdf = item is { Kind: ItemKind.Pdf }
-            ? await blobs.ReadAsync(item.Blob, cancellationToken).ConfigureAwait(false)
+        ReadOnlyMemory<byte>? pdf = item is { Kind: ItemKind.Pdf } && document.NormalizedBlob is { } normalized
+                                    && !await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false)
+            ? await blobs.ReadAsync(normalized, cancellationToken).ConfigureAwait(false)
             : null;
         var pages = await blobs.ReadPageImagesAsync(document, cancellationToken).ConfigureAwait(false);
         var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
