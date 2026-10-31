@@ -114,7 +114,9 @@ a crash) loses the queued work. Every start therefore resumes the demo work it f
 as "Resumed demo …": a demo ingestion still `Received` gets its `ProcessIngestion` again, and a demo document in a
 pipeline state gets the `ProcessDocument` of the stage whose handler accepts that state (`Received` → Normalize,
 `Normalized` → Split, … `Extracted` → Validate; `DemoData.ResumeStage`). A settled demo document (`AutoApproved`,
-`Approved`, `Rejected`) that has no outbox row lost its publish message and gets `ProcessDocument(Publish)` again;
+`Approved`, `Rejected`) whose settlement is not in the outbox lost its publish message and gets `ProcessDocument(Publish)`
+again; "in the outbox" is the publish stage's own rule (a row of the settlement's event type written at or after the
+settlement), so a row left by an earlier settlement, such as a rejection before a reprocess, does not count;
 otherwise `Failed`, `NeedsReview` and the settled states are left alone, as is a document persisted `Validated` (which
 the pipeline never does; it is logged). Every handler drops a message whose work is already done, so a twin is harmless.
 `DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table

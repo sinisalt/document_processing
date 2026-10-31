@@ -26,15 +26,13 @@ internal sealed class PublishHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
-        var eventType = document.Status == DocumentStatus.Rejected ? DocumentEventTypes.Rejected : DocumentEventTypes.Approved;
-        var settledAt = document.ApprovedAt ?? document.UpdatedAt;
-
+        var eventType = EventTypeOf(document.Status);
         var existing = await Db.OutboxMessages.AsNoTracking()
-            .Where(m => m.DocumentId == document.Id && m.EventType == eventType)
-            .Select(m => m.CreatedAt)
+            .Where(m => m.DocumentId == document.Id)
+            .Select(m => new PublishedEvent(m.EventType, m.CreatedAt))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (existing.Any(createdAt => createdAt >= settledAt))
+        if (IsPublished(document.Status, document.ApprovedAt, document.UpdatedAt, existing))
         {
             if (Logger.IsEnabled(LogLevel.Information))
             {
@@ -60,4 +58,23 @@ internal sealed class PublishHandler(
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Stopped;
     }
+
+    /// <summary>The outbox event a settled state publishes.</summary>
+    internal static string EventTypeOf(DocumentStatus status) =>
+        status == DocumentStatus.Rejected ? DocumentEventTypes.Rejected : DocumentEventTypes.Approved;
+
+    /// <summary>
+    /// Whether the current settlement is already in the outbox: a row of its event type written at or after it. A row
+    /// of an earlier settlement (rejected, reprocessed, settled again) does not count. The demo resume uses the same
+    /// rule, so it re-queues exactly the documents this stage would publish.
+    /// </summary>
+    internal static bool IsPublished(DocumentStatus status, DateTimeOffset? approvedAt, DateTimeOffset updatedAt, IEnumerable<PublishedEvent> outbox)
+    {
+        var eventType = EventTypeOf(status);
+        var settledAt = approvedAt ?? updatedAt;
+        return outbox.Any(m => string.Equals(m.EventType, eventType, StringComparison.Ordinal) && m.CreatedAt >= settledAt);
+    }
 }
+
+/// <summary>One outbox row of a document, as <see cref="PublishHandler.IsPublished"/> reads it.</summary>
+internal sealed record PublishedEvent(string EventType, DateTimeOffset CreatedAt);
