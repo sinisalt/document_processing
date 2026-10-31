@@ -18,6 +18,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace DocProc.Pipeline;
 
@@ -39,7 +40,8 @@ public static class PipelineServiceCollectionExtensions
 
     /// <summary>
     /// The queue, the runner (<see cref="PipelineRunnerHostedService"/>), every stage handler and the structured
-    /// e-invoice extractor, with <see cref="PipelineOptions"/> bound from <c>Pipeline:*</c>. Expects persistence, blobs,
+    /// e-invoice extractor, with <see cref="PipelineOptions"/> bound from <c>Pipeline:*</c> and validated at start-up
+    /// (<see cref="PipelineOptionsValidator"/>). Expects persistence, blobs,
     /// document processing, e-invoice parsing and the LLM services to be registered by the host; see
     /// <see cref="AddDocProcProcessingStack"/> for the complete set.
     /// </summary>
@@ -48,7 +50,9 @@ public static class PipelineServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.AddOptions<PipelineOptions>().Configure(o => configuration.GetSection(PipelineOptions.SectionName).Bind(o));
+        // Validated at start-up: a section the runner or the stages cannot work with fails the host, not every document.
+        services.AddOptions<PipelineOptions>().Configure(o => configuration.GetSection(PipelineOptions.SectionName).Bind(o)).ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<PipelineOptions>, PipelineOptionsValidator>());
         services.TryAddSingleton(TimeProvider.System);
         services.AddDocProcPipelineQueue();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PipelineRunnerHostedService>());

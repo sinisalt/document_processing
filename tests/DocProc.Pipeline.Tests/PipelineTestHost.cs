@@ -87,7 +87,19 @@ internal sealed class PipelineTestHost : IAsyncDisposable
         builder.AddDocProcProcessingStack(runInProcessDefault: true);
 
         var host = builder.Build();
-        await host.StartAsync();
+        try
+        {
+            await host.StartAsync();
+        }
+        catch
+        {
+            // A host that fails to start (an invalid setting) leaves nothing behind either.
+            host.Dispose();
+            SqliteConnection.ClearAllPools();
+            System.IO.Directory.Delete(directory, recursive: true);
+            throw;
+        }
+
         return new PipelineTestHost(host, directory, clock);
     }
 

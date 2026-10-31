@@ -279,7 +279,7 @@ public sealed class DemoDataHostTests : IDisposable
             message.DocumentId.ShouldBe(documentId);
             message.EventType.ShouldBe(DocumentEventTypes.Approved);
             logs.Demo.ShouldContain(l => l.Message.StartsWith($"Resumed demo document {documentId} ({MetroInvoice}) of tenant ", StringComparison.Ordinal)
-                                         && l.Message.EndsWith("AutoApproved without an outbox row, queued for stage Publish.", StringComparison.Ordinal));
+                                         && l.Message.EndsWith("AutoApproved but not in the outbox since it settled, queued for stage Publish.", StringComparison.Ordinal));
         }
 
         // Published now: a further restart queues nothing.
@@ -290,6 +290,41 @@ public sealed class DemoDataHostTests : IDisposable
             await using var db = Db(third);
             (await db.OutboxMessages.CountAsync(Ct)).ShouldBe(1);
             logs.Demo.ShouldNotContain(l => l.Message.StartsWith("Resumed demo", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task A_demo_document_settled_again_after_an_earlier_settlement_was_published_gets_its_new_event_on_the_next_start()
+    {
+        var data = Path.Combine(_work, "data");
+        var metro = DemoStack.CopyDemoDocuments(Path.Combine(_work, "demo-metro"), MetroInvoice);
+        Guid documentId;
+        using (var first = await DemoStack.StartAsync(data, new DemoAnswersProvider(), s => s["Persistence:DemoDocumentsPath"] = metro))
+        {
+            await SettleAsync(first);
+            await using var db = Db(first);
+            var document = await db.Documents.AsNoTracking().SingleAsync(Ct);
+            document.Status.ShouldBe(DocumentStatus.AutoApproved);
+            documentId = document.Id;
+
+            // The document was rejected first (its Rejected row is in the outbox), then reprocessed and settled again;
+            // the process died before the new publish message ran, so only the old row is left.
+            var message = await db.OutboxMessages.SingleAsync(Ct);
+            message.EventType = DocumentEventTypes.Rejected;
+            message.CreatedAt = (document.ApprovedAt ?? document.UpdatedAt).AddHours(-1);
+            await db.SaveChangesAsync(Ct);
+            await first.StopAsync(Ct);
+        }
+
+        var logs = new LogSink();
+        using (var again = await DemoStack.StartAsync(data, new DemoAnswersProvider(), s => s["Persistence:DemoDocumentsPath"] = metro, logs))
+        {
+            await SettleAsync(again);
+            await using var db = Db(again);
+            var messages = await db.OutboxMessages.AsNoTracking().Where(m => m.DocumentId == documentId).ToListAsync(Ct);
+            messages.Select(m => m.EventType).Order(StringComparer.Ordinal).ShouldBe([DocumentEventTypes.Approved, DocumentEventTypes.Rejected]);
+            logs.Demo.ShouldContain(l => l.Message.StartsWith($"Resumed demo document {documentId} ({MetroInvoice}) of tenant ", StringComparison.Ordinal)
+                                         && l.Message.EndsWith("AutoApproved but not in the outbox since it settled, queued for stage Publish.", StringComparison.Ordinal));
         }
     }
 

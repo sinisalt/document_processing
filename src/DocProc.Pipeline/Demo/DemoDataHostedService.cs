@@ -8,6 +8,7 @@ using DocProc.Llm.Gateway;
 using DocProc.Llm.Prompts;
 using DocProc.Llm.Providers;
 using DocProc.Pipeline.Intake;
+using DocProc.Pipeline.Stages;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -25,8 +26,8 @@ public sealed record DemoDataLocation(string Root);
 /// <see cref="DemoData"/>. On every start-up it then resumes the demo work an earlier process left behind, because
 /// the in-process queue is not durable: a demo ingestion still <see cref="IngestionStatus.Received"/> gets its
 /// <see cref="ProcessIngestion"/> again, a demo document stuck in a pipeline state gets the <see cref="ProcessDocument"/>
-/// of the stage that continues it (<see cref="DemoData.ResumeStage"/>), and a settled one without an outbox row gets its
-/// publish message again; the handlers drop a message whose work is done, so a twin is harmless. Finally every
+/// of the stage that continues it (<see cref="DemoData.ResumeStage"/>), and a settled one whose settlement is not in the
+/// outbox (<see cref="PublishHandler.IsPublished"/>) gets its publish message again; the handlers drop a message whose work is done, so a twin is harmless. Finally every
 /// fixture file of <see cref="DemoDataLocation"/> that is new is ingested for the tenant whose slug names its folder, through the same <see cref="UploadIntake"/> the API upload uses (raw blob,
 /// ingestion with one candidate item, <see cref="ProcessIngestion"/> after the commit). A file counts as present when
 /// the tenant already has an ingestion with that source file name, so a restart, or a second host on the same
@@ -237,19 +238,30 @@ public sealed class DemoDataHostedService(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // A settled document whose publish message died with the process has no outbox row, so no webhook would ever
-        // tell anyone; the publish stage is idempotent, so queuing it again for every such document is safe.
-        var unpublished = await db.Documents.AsNoTracking()
+        // A settled document whose publish message died with the process has no outbox row for its current settlement,
+        // so no webhook would ever tell anyone. "Published" is the publish stage's own rule (a row of the settlement's
+        // event type written at or after it), so a row left by an earlier settlement (rejected, reprocessed, settled
+        // again) does not hide the new one. The rule is applied here, not in SQL, so there is only one copy of it.
+        var settled = await db.Documents.AsNoTracking()
             .Where(d => d.TenantId == tenant.Id
                         && SettledStatuses.Contains(d.Status)
-                        && !db.OutboxMessages.Any(m => m.DocumentId == d.Id)
                         && d.IngestionItem != null
                         && d.IngestionItem.Ingestion != null
                         && d.IngestionItem.Ingestion.SourceFileName != null
                         && names.Contains(d.IngestionItem.Ingestion.SourceFileName))
-            .Select(d => new { d.Id, d.Status, File = d.IngestionItem!.FileName })
+            .Select(d => new { d.Id, d.Status, d.ApprovedAt, d.UpdatedAt, File = d.IngestionItem!.FileName })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var settledIds = settled.Select(d => d.Id).ToList();
+        var outbox = (await db.OutboxMessages.AsNoTracking()
+                .Where(m => m.TenantId == tenant.Id && settledIds.Contains(m.DocumentId))
+                .Select(m => new { m.DocumentId, m.EventType, m.CreatedAt })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .ToLookup(m => m.DocumentId, m => new PublishedEvent(m.EventType, m.CreatedAt));
+        var unpublished = settled
+            .Where(d => !PublishHandler.IsPublished(d.Status, d.ApprovedAt, d.UpdatedAt, outbox[d.Id]))
+            .ToList();
 
         foreach (var ingestion in ingestions)
         {
@@ -283,7 +295,7 @@ public sealed class DemoDataHostedService(
             resumed++;
             if (logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation("Resumed demo document {DocumentId} ({File}) of tenant {Slug}: {Status} without an outbox row, queued for stage {Stage}.", document.Id, document.File, tenant.Slug, document.Status, PipelineStage.Publish);
+                logger.LogInformation("Resumed demo document {DocumentId} ({File}) of tenant {Slug}: {Status} but not in the outbox since it settled, queued for stage {Stage}.", document.Id, document.File, tenant.Slug, document.Status, PipelineStage.Publish);
             }
         }
 
