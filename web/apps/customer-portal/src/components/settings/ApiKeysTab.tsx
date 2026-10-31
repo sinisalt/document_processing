@@ -27,6 +27,7 @@ import {
   FormLabel,
   FormMessage,
   Input,
+  Label,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, queryKeys, relativeTime, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type ApiKey } from "@/lib/queries";
@@ -161,7 +162,7 @@ export function ApiKeysTab() {
                       <FormLabel>{t("settings.apiKeys.fields.scopes")}</FormLabel>
                       <div className="flex flex-col gap-2" role="group" aria-label={t("settings.apiKeys.fields.scopes")}>
                         {apiKeyScopes.map((scope) => (
-                          <label key={scope} className="flex items-start gap-2 text-sm">
+                          <Label key={scope} className="items-start leading-normal font-normal">
                             <Checkbox
                               checked={field.value.includes(scope)}
                               onCheckedChange={(checked) => field.onChange(checked === true ? [...field.value, scope] : field.value.filter((s) => s !== scope))}
@@ -170,7 +171,7 @@ export function ApiKeysTab() {
                               <span className="font-medium">{t(`settings.apiKeys.scopes.${scope}`)}</span>
                               <FormDescription>{t(`settings.apiKeys.scopeHints.${scope}`)}</FormDescription>
                             </span>
-                          </label>
+                          </Label>
                         ))}
                       </div>
                       <FormMessage />
@@ -192,7 +193,7 @@ export function ApiKeysTab() {
         </Dialog>
       </div>
 
-      <DataTable columns={columns} data={keys.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={keys.isPending} caption={t("settings.apiKeys.caption")} emptyTitle={t("settings.apiKeys.empty")} emptyDescription={t("settings.apiKeys.emptyDescription")} />
+      <DataTable columns={columns} data={keys.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={keys.isPending} query={keys} caption={t("settings.apiKeys.caption")} emptyTitle={t("settings.apiKeys.empty")} emptyDescription={t("settings.apiKeys.emptyDescription")} />
 
       <Dialog open={created !== null} onOpenChange={(open) => !open && setCreated(null)}>
         <DialogContent>

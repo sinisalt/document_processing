@@ -86,12 +86,13 @@ export function useDocument(id: string) {
   });
 }
 
-export function useDocumentEvents(id: string, enabled = true) {
+export function useDocumentEvents(id: string, enabled = true, options: { refetchOnMount?: boolean | "always" } = {}) {
   const { client } = useApi();
   return useQuery({
     queryKey: queryKeys.documents.events(id),
     queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/events", { params: { path: { id } } })),
     enabled,
+    refetchOnMount: options.refetchOnMount,
   });
 }
 

@@ -65,6 +65,13 @@ describe("FieldHighlightOverlay", () => {
     expect(onSelect).toHaveBeenLastCalledWith("totalGross");
   });
 
+  it("names and titles a box by the field's label when one is given", () => {
+    render(<FieldHighlightOverlay rendered={{ width: 1000, height: 1000 }} boxes={boxes.slice(0, 1)} highlightedPath={null} labelOf={(path) => (path === "invoiceNumber" ? "Invoice number" : path)} />);
+    const box = screen.getByRole("button", { name: "Field Invoice number" });
+    expect(box.querySelector("title")).toHaveTextContent("Invoice number");
+    expect(box).toHaveAttribute("data-path", "invoiceNumber");
+  });
+
   it("renders nothing before the image has a size", () => {
     const { container } = render(<FieldHighlightOverlay rendered={{ width: 0, height: 0 }} boxes={boxes} highlightedPath={null} />);
     expect(container.querySelector("svg")).toBeNull();

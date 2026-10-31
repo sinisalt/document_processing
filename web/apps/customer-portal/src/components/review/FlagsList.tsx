@@ -20,6 +20,7 @@ const emptyKeys: Readonly<Record<ValidationState, string>> = {
   passed: "review.flags.none",
   notValidated: "review.flags.notValidated",
   stale: "review.flags.stale",
+  staleSettled: "review.flags.staleSettled",
 };
 
 const severityOrder = { Blocking: 0, Warning: 1, Info: 2 } as const;
@@ -62,7 +63,10 @@ export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, 
               <Badge variant={flag.severity === "Blocking" ? "destructive" : flag.severity === "Warning" ? "outline" : "secondary"} className="shrink-0">
                 {t(`flagSeverity.${flag.severity}`)}
               </Badge>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">{flag.code}</span>
+              {/* The code in the UI language (the raw code stays the tooltip); the message is the API's own text. */}
+              <span className="shrink-0 text-xs font-medium text-muted-foreground" title={flag.code} data-code={flag.code}>
+                {t(`flagCodes.${flag.code}`, { defaultValue: flag.code })}
+              </span>
               <span className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">{flag.message}</span>
               {flag.field && <span className="min-w-0 text-xs break-words sm:shrink-0 text-muted-foreground underline-offset-2 hover:underline">{fieldLabel(flag.field)}</span>}
               {flag.resolvedAt && <Badge variant="secondary">{t("review.flags.resolved")}</Badge>}

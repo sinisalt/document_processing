@@ -36,6 +36,26 @@
     "Warning": "Warnung",
     "Blocking": "Blockierend"
   },
+  "flagCodes": {
+    "UNREADABLE_PAGES": "Unlesbare Seiten",
+    "TYPE_UNKNOWN": "Dokumentart unbekannt",
+    "SUPPLIER_UNMATCHED": "Lieferant nicht zugeordnet",
+    "CUSTOMER_MISMATCH": "Empfänger stimmt nicht",
+    "MISSING_REQUIRED": "Pflichtfeld fehlt",
+    "TOTALS_MISMATCH": "Summen gehen nicht auf",
+    "TAX_MISMATCH": "Steuer geht nicht auf",
+    "LINE_ARITHMETIC": "Position geht nicht auf",
+    "LOW_CONFIDENCE": "Geringe Sicherheit",
+    "DUPLICATE_SUSPECTED": "Mögliches Duplikat",
+    "PROFILE_FALLBACK": "Profil nicht verwendet",
+    "LLM_PROVIDER_UNAVAILABLE": "KI-Anbieter nicht verfügbar",
+    "MULTI_DOCUMENT_SPLIT": "Aus einer Sammeldatei getrennt",
+    "CURRENCY_INFERRED": "Währung abgeleitet",
+    "PO_UNMATCHED": "Bestellung nicht zugeordnet",
+    "DATE_IMPLAUSIBLE": "Unplausibles Datum",
+    "INVALID_VALUE": "Ungültiger Wert",
+    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt"
+  },
   "stages": {
     "Normalize": "Normalisieren",
     "Classify": "Klassifizieren",
@@ -52,7 +72,17 @@
     "DirectDebit": "Lastschrift",
     "Card": "Karte",
     "Cash": "Bar",
-    "Other": "Sonstiges"
+    "Other": "Sonstiges",
+    "Kilogram": "Kilogramm",
+    "Gram": "Gramm",
+    "Litre": "Liter",
+    "Millilitre": "Milliliter",
+    "Piece": "Stück",
+    "Box": "Karton",
+    "Case": "Gebinde",
+    "Crate": "Kiste",
+    "Pallet": "Palette",
+    "Hour": "Stunde"
   },
   "events": {
     "document": {
@@ -173,6 +203,8 @@
       "anySupplier": "Alle Lieferanten",
       "from": "Belegdatum ab",
       "to": "Belegdatum bis",
+      "rangeInvalid": "Das Enddatum liegt vor dem Startdatum.",
+      "rangeInvalidTitle": "Zeitraum prüfen",
       "apply": "Anwenden",
       "clear": "Filter zurücksetzen"
     },
@@ -251,13 +283,20 @@
       "none": "Keine Hinweise: alle Prüfregeln sind erfüllt.",
       "resolved": "Erledigt",
       "notValidated": "Noch nicht validiert: Hinweise erscheinen, sobald das Dokument den Schritt „Validieren“ durchlaufen hat.",
-      "stale": "Korrekturen nicht erneut validiert: ab „Validieren“ neu verarbeiten, um sie zu prüfen."
+      "stale": "Korrekturen nicht erneut validiert: ab „Validieren“ neu verarbeiten, um sie zu prüfen.",
+      "staleSettled": "Die Korrekturen wurden vor der Entscheidung nicht erneut validiert."
     },
     "save": {
       "button": "Korrekturen speichern",
       "nothing": "Nichts geändert.",
       "saved_one": "{{count}} Korrektur gespeichert.",
       "saved_other": "{{count}} Korrekturen gespeichert."
+    },
+    "leave": {
+      "title": "Korrekturen verwerfen?",
+      "description": "Ihre Korrekturen an diesem Dokument sind nicht gespeichert. Wenn Sie es verlassen, gehen sie verloren.",
+      "confirm": "Verwerfen und verlassen",
+      "cancel": "Weiter bearbeiten"
     },
     "actions": {
       "label": "Prüfaktionen",
@@ -275,6 +314,7 @@
       "reprocessTitle": "Dieses Dokument neu verarbeiten?",
       "reprocessDescription": "Das Dokument durchläuft die Verarbeitung ab dem gewählten Schritt erneut; spätere Korrekturen werden neu berechnet.",
       "fromStage": "Ab Schritt",
+      "fromStageLoading": "Verlauf wird geladen…",
       "reprocessing": "Neuverarbeitung ab {{stage}}.",
       "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Korrekturen.",
       "shortcutApple": "⌘↵",
@@ -297,7 +337,7 @@
     "overlay": {
       "label_one": "{{count}} markiertes Feld auf dieser Seite",
       "label_other": "{{count}} markierte Felder auf dieser Seite",
-      "box": "Feld {{path}}"
+      "box": "Feld {{field}}"
     },
     "lines": {
       "title_one": "{{count}} Position",
@@ -312,7 +352,8 @@
       "ok": "Menge × Einzelpreis entspricht dem Nettobetrag",
       "okDetail": "Erwartet {{expected}}",
       "incomplete": "Menge, Einzelpreis oder Nettobetrag fehlt",
-      "mismatchDetail": "Menge × Einzelpreis ergibt {{expected}}, die Position nennt {{actual}}"
+      "mismatchDetail": "Menge × Einzelpreis ergibt {{expected}}, die Position nennt {{actual}}",
+      "unitRaw": "Gedruckt: {{unit}}"
     },
     "timeline": {
       "title": "Verlauf",

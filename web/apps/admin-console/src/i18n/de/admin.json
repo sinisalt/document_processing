@@ -338,6 +338,7 @@
   "document": {
     "fromStageLoading": "Zeitleiste wird geladen…",
     "fromStageReached": "Das Dokument kam bis {{status}}; spätere Stufen brauchen Ergebnisse, die es nie erzeugt hat.",
+    "fromStageTimelineFailed": "Der Verlauf wurde nicht geladen; angeboten werden nur die Schritte, die der aktuelle Status belegt.",
     "pagesShowing": "{{shown}} von {{count}} Seiten angezeigt.",
     "pagesShowAll": "Alle {{count}} Seiten anzeigen",
     "notFound": "Dieses Dokument gibt es nicht oder es liegt außerhalb des Bereichs",
@@ -414,8 +415,6 @@
     "actor": "Akteur",
     "summary": "Zusammenfassung",
     "details": "Details",
-    "showDetails": "Details anzeigen",
-    "hideDetails": "Details ausblenden",
     "eventType": {
       "received": "Eingegangen",
       "stage_completed": "Stufe abgeschlossen",

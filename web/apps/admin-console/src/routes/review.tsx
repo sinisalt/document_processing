@@ -189,7 +189,7 @@ function ReviewQueuePage() {
         columns={columns}
         data={tasks.items}
         getRowId={(row) => row.id}
-        isLoading={tasks.isLoading}
+        isLoading={tasks.isLoading} query={tasks}
         caption={t("review.caption")}
         emptyTitle={t("review.empty")}
         emptyDescription={t("review.emptyDescription")}

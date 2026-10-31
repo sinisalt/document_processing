@@ -36,6 +36,26 @@
     "Warning": "Warning",
     "Blocking": "Blocking"
   },
+  "flagCodes": {
+    "UNREADABLE_PAGES": "Unreadable pages",
+    "TYPE_UNKNOWN": "Unknown document type",
+    "SUPPLIER_UNMATCHED": "Supplier not matched",
+    "CUSTOMER_MISMATCH": "Customer mismatch",
+    "MISSING_REQUIRED": "Required field missing",
+    "TOTALS_MISMATCH": "Totals do not add up",
+    "TAX_MISMATCH": "Tax does not add up",
+    "LINE_ARITHMETIC": "Line does not add up",
+    "LOW_CONFIDENCE": "Low confidence",
+    "DUPLICATE_SUSPECTED": "Possible duplicate",
+    "PROFILE_FALLBACK": "Profile not used",
+    "LLM_PROVIDER_UNAVAILABLE": "AI provider unavailable",
+    "MULTI_DOCUMENT_SPLIT": "Split from a multi-document file",
+    "CURRENCY_INFERRED": "Currency inferred",
+    "PO_UNMATCHED": "Order not matched",
+    "DATE_IMPLAUSIBLE": "Implausible date",
+    "INVALID_VALUE": "Invalid value",
+    "UNSUPPORTED_TYPE": "Unsupported document type"
+  },
   "stages": {
     "Normalize": "Normalize",
     "Classify": "Classify",
@@ -52,7 +72,17 @@
     "DirectDebit": "Direct debit",
     "Card": "Card",
     "Cash": "Cash",
-    "Other": "Other"
+    "Other": "Other",
+    "Kilogram": "Kilogram",
+    "Gram": "Gram",
+    "Litre": "Litre",
+    "Millilitre": "Millilitre",
+    "Piece": "Piece",
+    "Box": "Box",
+    "Case": "Case",
+    "Crate": "Crate",
+    "Pallet": "Pallet",
+    "Hour": "Hour"
   },
   "events": {
     "document": {
@@ -173,6 +203,8 @@
       "anySupplier": "Any supplier",
       "from": "Issued from",
       "to": "Issued to",
+      "rangeInvalid": "The end date is before the start date.",
+      "rangeInvalidTitle": "Check the date range",
       "apply": "Apply",
       "clear": "Clear filters"
     },
@@ -251,13 +283,20 @@
       "none": "No flags: every validation rule passed.",
       "resolved": "Resolved",
       "notValidated": "Not validated yet: flags appear once the document has passed the Validate stage.",
-      "stale": "Corrections not re-validated: reprocess from Validate to re-check."
+      "stale": "Corrections not re-validated: reprocess from Validate to re-check.",
+      "staleSettled": "Corrections were not re-validated before the decision."
     },
     "save": {
       "button": "Save corrections",
       "nothing": "Nothing changed.",
       "saved_one": "{{count}} correction saved.",
       "saved_other": "{{count}} corrections saved."
+    },
+    "leave": {
+      "title": "Discard your corrections?",
+      "description": "Your corrections on this document are not saved. Leaving it discards them.",
+      "confirm": "Discard and leave",
+      "cancel": "Keep editing"
     },
     "actions": {
       "label": "Review actions",
@@ -275,6 +314,7 @@
       "reprocessTitle": "Reprocess this document?",
       "reprocessDescription": "The document is sent back through the pipeline from the selected stage; corrections made after that stage are recomputed.",
       "fromStage": "From stage",
+      "fromStageLoading": "Loading the timeline…",
       "reprocessing": "Reprocessing from {{stage}}.",
       "saveFirst": "Save or discard your corrections first.",
       "shortcutApple": "⌘↵",
@@ -297,7 +337,7 @@
     "overlay": {
       "label_one": "{{count}} highlighted field on this page",
       "label_other": "{{count}} highlighted fields on this page",
-      "box": "Field {{path}}"
+      "box": "Field {{field}}"
     },
     "lines": {
       "title_one": "{{count}} line item",
@@ -312,7 +352,8 @@
       "ok": "Quantity × unit price matches the line net",
       "okDetail": "Expected {{expected}}",
       "incomplete": "Quantity, unit price or line net missing",
-      "mismatchDetail": "Quantity × unit price is {{expected}}, the line says {{actual}}"
+      "mismatchDetail": "Quantity × unit price is {{expected}}, the line says {{actual}}",
+      "unitRaw": "Printed: {{unit}}"
     },
     "timeline": {
       "title": "Timeline",

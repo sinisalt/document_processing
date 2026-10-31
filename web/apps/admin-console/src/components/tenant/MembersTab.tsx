@@ -248,7 +248,7 @@ export function MembersTab() {
         columns={columns}
         data={members.data ?? EMPTY}
         getRowId={(row) => row.userId}
-        isLoading={members.isPending}
+        isLoading={members.isPending} query={members}
         toolbar={<AddMemberDialog />}
         caption={t("members.caption")}
         emptyTitle={t("members.empty")}

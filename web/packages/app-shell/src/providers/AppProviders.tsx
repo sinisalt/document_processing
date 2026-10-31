@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
-import { I18nextProvider } from "react-i18next";
+import { I18nextProvider, useTranslation } from "react-i18next";
 import { Toaster, TooltipProvider } from "@docproc/ui";
 import { AuthProvider } from "../auth/AuthProvider";
 import { ApiProvider } from "../api/ApiProvider";
@@ -29,6 +29,12 @@ export const themeProviderProps = {
   scriptProps: themeScriptProps,
 } as const;
 
+/** The app's toasts, with the region's label in the UI language (sonner's own is English, "Notifications"). */
+export function ShellToaster() {
+  const { t } = useTranslation("common");
+  return <Toaster richColors closeButton position="top-right" containerAriaLabel={t("app.notifications")} />;
+}
+
 export interface AppProvidersProps {
   config: ShellConfig;
   children: ReactNode;
@@ -48,7 +54,7 @@ export function AppProviders({ config, children }: AppProvidersProps) {
             <TenantSwitcherProvider>
               <ApiProvider baseUrl={config.apiBaseUrl}>
                 <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
-                <Toaster richColors closeButton position="top-right" />
+                <ShellToaster />
               </ApiProvider>
             </TenantSwitcherProvider>
           </AuthProvider>

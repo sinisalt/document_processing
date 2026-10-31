@@ -1,7 +1,13 @@
 import { toNumber, type Numeric } from "@docproc/app-shell";
 
-/** The validator's default money tolerance (docs/02 §"validation"): differences up to one cent pass. */
-export const DEFAULT_MONEY_TOLERANCE = 0.01;
+/**
+ * The validator's money tolerance (`ValidationOptions.MoneyTolerance`, 0.02 in `ValidationContext.cs`; the Validate
+ * stage does not override it): differences up to two cents pass, so the grid never reports what LINE_ARITHMETIC accepts.
+ */
+export const DEFAULT_MONEY_TOLERANCE = 0.02;
+
+/** The server compares decimals; here binary floating point leaves noise (76.82 − 76.8 is 0.0200000000000031). */
+const FLOAT_NOISE = 1e-9;
 
 export interface LineArithmeticInput {
   quantity: Numeric;
@@ -15,10 +21,10 @@ export type LineArithmeticStatus = "ok" | "mismatch" | "incomplete";
 
 export interface LineArithmeticResult {
   status: LineArithmeticStatus;
-  /** quantity × unit price less discount, rounded to cents; null when a factor is missing. */
+  /** quantity × unit price less discount, rounded to cents for display; null when a factor is missing. */
   expected: number | null;
   actual: number | null;
-  /** `actual − expected`, null when incomplete. */
+  /** `actual − expected`, rounded to cents for display; null when incomplete. */
   difference: number | null;
 }
 
@@ -29,7 +35,8 @@ function round2(value: number): number {
 /**
  * Mirrors `LineArithmeticRule`: expected = qty × unit price, minus a discount amount (if present) or a discount percent;
  * the line passes when |expected − actual| ≤ tolerance, or when their magnitudes agree (credit notes carry the sign
- * elsewhere). A line without quantity, unit price or line net is "incomplete", never a mismatch.
+ * elsewhere). Like the rule, it compares the unrounded expected value. A line without quantity, unit price or line net
+ * is "incomplete", never a mismatch.
  */
 export function checkLineArithmetic(line: LineArithmeticInput, tolerance = DEFAULT_MONEY_TOLERANCE): LineArithmeticResult {
   const quantity = toNumber(line.quantity);
@@ -43,8 +50,6 @@ export function checkLineArithmetic(line: LineArithmeticInput, tolerance = DEFAU
   const discountPercent = toNumber(line.discountPercent);
   if (discountAmount !== null) expected -= Math.abs(discountAmount);
   else if (discountPercent !== null) expected *= 1 - discountPercent / 100;
-  expected = round2(expected);
-  const difference = round2(actual - expected);
-  const ok = Math.abs(difference) <= tolerance || Math.abs(Math.abs(expected) - Math.abs(actual)) <= tolerance;
-  return { status: ok ? "ok" : "mismatch", expected, actual, difference };
+  const ok = Math.abs(actual - expected) <= tolerance + FLOAT_NOISE || Math.abs(Math.abs(expected) - Math.abs(actual)) <= tolerance + FLOAT_NOISE;
+  return { status: ok ? "ok" : "mismatch", expected: round2(expected), actual, difference: round2(actual - expected) };
 }

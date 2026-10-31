@@ -15,15 +15,19 @@ export interface FieldHighlightOverlayProps {
   onHover?: (path: string | null) => void;
   /** Clicking a box focuses its field in the form. */
   onSelect?: (path: string) => void;
+  /** The field's label in the UI language for a box's tooltip and accessible name; the raw path without it. */
+  labelOf?: (path: string) => string;
   className?: string;
 }
+
+const rawPath = (path: string) => path;
 
 /**
  * The field highlight overlay (docs/05 "custom components"): an SVG in the page's coordinate space laid over the page
  * image. Every provenance box of the canonical JSON is a focusable rect; the one of the hovered/focused form field
  * is emphasised, and clicking a box focuses that field.
  */
-export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, className }: FieldHighlightOverlayProps) {
+export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className }: FieldHighlightOverlayProps) {
   const { t } = useTranslation();
   if (rendered.width <= 0 || rendered.height <= 0) return null;
   return (
@@ -57,6 +61,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
       {boxes.map((box, index) => {
         const rect = mapBox(box.box, rendered);
         const active = highlightedPath !== null && box.path === highlightedPath;
+        const label = labelOf(box.path);
         return (
           <rect
             key={`${box.path}-${index}`}
@@ -67,7 +72,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
             rx={2}
             tabIndex={0}
             role="button"
-            aria-label={t("review.overlay.box", { path: box.path })}
+            aria-label={t("review.overlay.box", { field: label })}
             data-path={box.path}
             data-active={active}
             data-historical={box.historical}
@@ -90,7 +95,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
               }
             }}
           >
-            <title>{box.path}</title>
+            <title>{label}</title>
           </rect>
         );
       })}

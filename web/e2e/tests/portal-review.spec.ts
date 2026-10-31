@@ -193,24 +193,32 @@ test.describe("customer portal review flow", () => {
     // Linux Chromium: the approve button names Ctrl+Enter, not the Mac's ⌘↵.
     await expect(page.getByTestId("approve-shortcut")).toHaveText("Ctrl+Enter");
 
-    // j/k walk the flags without typing into the flagged field: twice j leaves every value and Approve as they were.
-    const flagButtons = page.getByTestId("flags-list").getByRole("button");
-    if ((await flagButtons.count()) > 0) {
-      const values = await form.locator("input").evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
-      await page.getByRole("heading", { level: 1 }).click();
-      await page.keyboard.press("j");
-      await expect(flagButtons.first()).toHaveAttribute("aria-current", "true");
-      await page.keyboard.press("j");
-      await expect(flagButtons.nth(Math.min(1, (await flagButtons.count()) - 1))).toHaveAttribute("aria-current", "true");
-      expect(await form.locator("input").evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toEqual(values);
-      await expect(page.getByTestId("save-button")).toBeDisabled();
-      await expect(page.getByTestId("approve-button")).toBeEnabled();
-    }
+    // The fixture passes every rule (it is in review only because its supplier is "always review"), so there are no
+    // flags to walk with j/k here; ReviewScreen.test.tsx covers j/k. Validate ran on what is shown, so the empty list
+    // may say that every rule passed.
+    const flagsEmpty = page.getByTestId("flags-empty");
+    await expect(flagsEmpty).toHaveText("No flags: every validation rule passed.");
+
+    // Esc closes an open select (Radix) and nothing more: the screen's own Esc ("back to the inbox") stays out of it.
+    const kind = form.getByRole("combobox", { name: "Kind" });
+    await kind.click();
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("listbox")).toBeHidden();
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
 
     // A correction: only the changed path is sent, the API marks it Corrected, approve waits until it is saved.
     const dueDate = form.getByLabel("Due date", { exact: true });
     await dueDate.fill("2026-12-15");
     await expect(page.getByTestId("approve-button")).toBeDisabled();
+    // Unsaved: the first Esc leaves the input, the second would leave the screen and asks first.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("alertdialog", { name: "Discard your corrections?" })).toBeVisible();
+    await page.getByRole("button", { name: "Keep editing" }).click();
+    await expect(page.getByRole("alertdialog")).toBeHidden();
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
+    await expect(dueDate).toHaveValue("2026-12-15");
     const patch = page.waitForRequest((request) => request.method() === "PATCH" && request.url().endsWith("/fields"));
     await page.getByTestId("save-button").click();
     expect((await patch).postDataJSON()).toEqual({ corrections: [{ path: "dueDate", value: "2026-12-15", reason: null }] });
@@ -219,9 +227,8 @@ test.describe("customer portal review flow", () => {
     await expect(form.locator('[data-field="dueDate"]')).toHaveAttribute("data-field-status", "Corrected");
     await expect(form.locator('[data-field="dueDate"]')).toContainText("Corrected");
     await expect(page.getByTestId("approve-button")).toBeEnabled();
-    // The API does not re-validate a correction, so an empty flag list no longer claims that every rule passed.
-    const flagsEmpty = page.getByTestId("flags-empty");
-    if ((await flagsEmpty.count()) > 0) await expect(flagsEmpty).toHaveText("Corrections not re-validated: reprocess from Validate to re-check.");
+    // The API does not re-validate a correction, so the empty flag list no longer claims that every rule passed.
+    await expect(flagsEmpty).toHaveText("Corrections not re-validated: reprocess from Validate to re-check.");
 
     // Timeline tab lists the pipeline's events and the correction.
     await page.getByRole("tab", { name: "Timeline" }).click();

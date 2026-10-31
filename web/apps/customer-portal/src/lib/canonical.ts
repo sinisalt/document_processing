@@ -105,6 +105,11 @@ export interface CanonicalInvoice {
 
 export const invoiceKinds = ["Invoice", "CreditNote", "Proforma"] as const;
 export const paymentMeans = ["BankTransfer", "DirectDebit", "Card", "Cash", "Other"] as const;
+/**
+ * `DocProc.Domain.Common.UnitOfMeasure`, in its order. `PATCH /fields` takes only these names for `lines[i].unit` (the
+ * printed spellings such as "kg" or "Stk" are the extractor's business, kept in `unitRaw`), so the grid offers a select.
+ */
+export const unitsOfMeasure = ["Other", "Kilogram", "Gram", "Litre", "Millilitre", "Piece", "Box", "Case", "Crate", "Pallet", "Hour"] as const;
 
 /** How a field is edited and which JSON shape `PATCH /fields` expects for it (docs/05 "shorthands"). */
 export type FieldKind = "string" | "identifier" | "date" | "money" | "number" | "enum" | "text";
@@ -195,11 +200,11 @@ export function headerSections(canonical: CanonicalInvoice | null | undefined): 
 }
 
 /** The editable columns of the line-item grid, in order. */
-export const lineColumns: ReadonlyArray<{ name: string; kind: FieldKind }> = [
+export const lineColumns: ReadonlyArray<{ name: string; kind: FieldKind; options?: readonly string[] }> = [
   { name: "supplierSku", kind: "string" },
   { name: "description", kind: "string" },
   { name: "quantity", kind: "number" },
-  { name: "unit", kind: "string" },
+  { name: "unit", kind: "enum", options: unitsOfMeasure },
   { name: "unitPrice", kind: "money" },
   { name: "discountPercent", kind: "number" },
   { name: "discountAmount", kind: "money" },
@@ -213,7 +218,7 @@ export function lineSpecs(canonical: CanonicalInvoice | null | undefined): Field
   (canonical?.lines ?? []).forEach((_, i) => {
     for (const column of lineColumns) {
       const path = `lines[${i}].${column.name}`;
-      specs.push({ path, kind: column.kind, fieldPath: path });
+      specs.push({ path, kind: column.kind, fieldPath: path, ...(column.options ? { options: column.options } : {}) });
     }
   });
   return specs;

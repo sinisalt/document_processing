@@ -268,7 +268,7 @@ export function ChannelsTab() {
         columns={columns}
         data={channels.data ?? EMPTY}
         getRowId={(row) => row.id}
-        isLoading={channels.isPending}
+        isLoading={channels.isPending} query={channels}
         toolbar={<CreateChannelDialog />}
         caption={t("channels.caption")}
         emptyTitle={t("channels.empty")}

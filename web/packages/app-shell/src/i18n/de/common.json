@@ -2,7 +2,8 @@
   "app": {
     "name": "DocProc",
     "loading": "Wird geladen…",
-    "skipToContent": "Zum Inhalt springen"
+    "skipToContent": "Zum Inhalt springen",
+    "notifications": "Benachrichtigungen"
   },
   "nav": {
     "main": "Hauptnavigation",
@@ -112,6 +113,8 @@
     "clearSort": "Sortierung aufheben",
     "empty": "Noch nichts vorhanden",
     "emptyDescription": "Für diese Ansicht gibt es nichts anzuzeigen.",
+    "loadFailed": "Diese Liste konnte nicht geladen werden",
+    "refreshFailed": "Die Liste konnte nicht aktualisiert werden und ist eventuell veraltet.",
     "loading": "Zeilen werden geladen…",
     "loadMore": "Mehr laden",
     "rowCount": "{{count}} Zeile",

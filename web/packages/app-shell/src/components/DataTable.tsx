@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   columnVisibilityFeature,
@@ -19,7 +19,7 @@ import {
   type SortingState,
   type TableOptions,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, RotateCcw, Settings2 } from "lucide-react";
 import {
   Button,
   DropdownMenu,
@@ -39,6 +39,20 @@ import {
   cn,
 } from "@docproc/ui";
 import { EmptyState } from "./EmptyState";
+import { ApiError, errorMessage } from "../api/ApiError";
+
+/** What `DataTable` needs of the query behind its rows: a `useQuery` result and a `useCursorList` result both fit. */
+export interface DataTableQueryState {
+  isError: boolean;
+  error: unknown;
+  refetch: () => unknown;
+}
+
+/** What a failed list request reports, for the table's error state: the problem detail, else its message. */
+export function loadErrorDescription(error: unknown): string | undefined {
+  if (error instanceof ApiError) return error.problem?.detail ?? error.message;
+  return error ? errorMessage(error) : undefined;
+}
 
 /**
  * The feature set every grid of the apps shares (TanStack Table v9 registers features explicitly): client-side
@@ -88,6 +102,11 @@ export interface DataTableProps<TData extends RowData> {
   emptyDescription?: ReactNode;
   emptyAction?: ReactNode;
   /**
+   * The query the rows come from. When it failed, the table says so (with Retry) instead of showing its empty state:
+   * "nothing here" must never stand in for "the list did not load".
+   */
+  query?: DataTableQueryState;
+  /**
    * Makes rows expandable: a leading chevron column toggles a full-width panel under the row with this content.
    * Expanded rows are kept by row id across refetches and re-sorts (pass `getRowId`).
    */
@@ -123,6 +142,7 @@ export function DataTable<TData extends RowData>({
   emptyTitle,
   emptyDescription,
   emptyAction,
+  query,
   renderSubRow,
   getRowCanExpand,
   rowAttributes,
@@ -188,7 +208,16 @@ export function DataTable<TData extends RowData>({
   const headerGroups = table.getHeaderGroups();
   const rows = table.getRowModel().rows;
   const visibleColumnCount = table.getVisibleLeafColumns().length || 1;
-  const showEmpty = !isLoading && rows.length === 0;
+  const failed = query?.isError === true;
+  const showError = failed && !isLoading && rows.length === 0;
+  const showEmpty = !failed && !isLoading && rows.length === 0;
+  const sortHintId = useId();
+  const retry = query ? (
+    <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
+      <RotateCcw aria-hidden />
+      {t("errors.tryAgain")}
+    </Button>
+  ) : null;
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -225,6 +254,13 @@ export function DataTable<TData extends RowData>({
         </div>
       )}
 
+      {failed && rows.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 px-3 py-2 text-sm" data-testid="table-refresh-error">
+          <AlertTriangle className="size-4 text-destructive" aria-hidden />
+          <span className="flex-1">{t("table.refreshFailed")}</span>
+          {retry}
+        </div>
+      )}
       <div className="overflow-hidden rounded-lg border">
         <Table>
           {caption && <TableCaption className={showCaption ? undefined : "sr-only"}>{caption}</TableCaption>}
@@ -236,6 +272,8 @@ export function DataTable<TData extends RowData>({
                   const sorted = header.column.getIsSorted();
                   const ariaSort = sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : canSort ? "none" : undefined;
                   const label = flexRender(header.column.columnDef.header, header.getContext());
+                  const nextOrder = canSort ? header.column.getNextSortingOrder() : false;
+                  const sortHint = nextOrder === "asc" ? t("table.sortAscending") : nextOrder === "desc" ? t("table.sortDescending") : t("table.clearSort");
                   return (
                     <TableHead key={header.id} colSpan={header.colSpan} aria-sort={ariaSort}>
                       {header.isPlaceholder ? null : canSort ? (
@@ -246,16 +284,14 @@ export function DataTable<TData extends RowData>({
                           className="-ml-3 h-8 data-[sorted=true]:text-foreground"
                           data-sorted={sorted !== false}
                           onClick={header.column.getToggleSortingHandler()}
-                          // Name what the click does: numeric and date columns sort descending first.
-                          aria-label={
-                            header.column.getNextSortingOrder() === "asc"
-                              ? t("table.sortAscending")
-                              : header.column.getNextSortingOrder() === "desc"
-                                ? t("table.sortDescending")
-                                : t("table.clearSort")
-                          }
+                          // The column's text stays the name of the button and the header cell; what the click does is
+                          // the description (numeric and date columns sort descending first); the state is aria-sort.
+                          aria-describedby={`${sortHintId}-${header.id}`}
                         >
                           {label}
+                          <span id={`${sortHintId}-${header.id}`} hidden>
+                            {sortHint}
+                          </span>
                           {sorted === "asc" ? <ArrowUp aria-hidden /> : sorted === "desc" ? <ArrowDown aria-hidden /> : <ArrowUpDown aria-hidden className="opacity-50" />}
                         </Button>
                       ) : (
@@ -278,6 +314,13 @@ export function DataTable<TData extends RowData>({
                   ))}
                 </TableRow>
               ))}
+            {showError && (
+              <TableRow>
+                <TableCell colSpan={visibleColumnCount} className="p-0">
+                  <EmptyState icon={AlertTriangle} title={t("table.loadFailed")} description={loadErrorDescription(query?.error)} action={retry} className="border-0" />
+                </TableCell>
+              </TableRow>
+            )}
             {showEmpty && (
               <TableRow>
                 <TableCell colSpan={visibleColumnCount} className="p-0">

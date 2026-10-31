@@ -2,10 +2,13 @@ import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
+import { RotateCcw } from "lucide-react";
+import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
 import { ConfirmDialog, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import { canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, reprocessStages, type DocumentStatus, type ReprocessStage } from "@/lib/documents";
 import type { DocumentEvent } from "@/lib/timeline";
+
+const NO_EVENTS: readonly DocumentEvent[] = [];
 
 interface ActionDialogProps {
   documentId: string;
@@ -47,7 +50,10 @@ export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange,
     queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/events", { params: { path: { id: documentId } } })),
     enabled: open && events === undefined,
   });
-  const timeline = events ?? loaded.data;
+  // A timeline that did not load still leaves what the current status proves (Normalize at least), with the API's 409
+  // as the safety net, instead of a dialog stuck on "Loading the timeline".
+  const timelineFailed = events === undefined && loaded.isError;
+  const timeline = events ?? loaded.data ?? (timelineFailed ? NO_EVENTS : undefined);
   const furthest = timeline ? furthestPipelineStatus(timeline, status) : null;
   const [picked, setPicked] = useState<ReprocessStage | null>(null);
   const stage: ReprocessStage | null = furthest === null ? null : picked !== null && canReprocessFrom(picked, furthest) ? picked : defaultReprocessStage(furthest);
@@ -88,6 +94,15 @@ export function ReprocessDialog({ documentId, documentLabel, open, onOpenChange,
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">{t("document.fromStageHint")}</p>
+        {timelineFailed && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive" data-testid="reprocess-timeline-failed">
+            <span className="flex-1">{t("document.fromStageTimelineFailed")}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loaded.refetch()} disabled={loaded.isFetching}>
+              <RotateCcw aria-hidden />
+              {t("common:errors.tryAgain")}
+            </Button>
+          </div>
+        )}
         {furthest !== null && !canReprocessFrom("Validate", furthest) && (
           <p className="text-xs text-muted-foreground" data-testid="reprocess-reached">
             {t("document.fromStageReached", { status: t(`common:documentStatus.${furthest}`, { defaultValue: furthest }) })}

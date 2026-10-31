@@ -33,7 +33,7 @@ export { LoadingScreen } from "./layout/LoadingScreen";
 export * from "./layout/nav";
 
 // components
-export { DataTable, dataTableFeatures, createDataTableColumnHelper, type DataTableProps, type DataTableColumns, type DataTableFeatures } from "./components/DataTable";
+export { DataTable, dataTableFeatures, createDataTableColumnHelper, loadErrorDescription, type DataTableProps, type DataTableColumns, type DataTableFeatures, type DataTableQueryState } from "./components/DataTable";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/ConfirmDialog";
 export { EmptyState, type EmptyStateProps } from "./components/EmptyState";
 export { PageHeader, type PageHeaderProps } from "./components/PageHeader";
@@ -44,6 +44,7 @@ export { FieldStatusBadge, ConfidenceBadge, SourceBadge, type ConfidenceBadgePro
 export * from "./lib/format";
 export * from "./lib/fieldPath";
 export * from "./lib/fieldValue";
+export * from "./lib/reprocess";
 
 // i18n, config, providers
 export { zodIssueMessage, installZodErrorMap } from "./i18n/zodErrors";

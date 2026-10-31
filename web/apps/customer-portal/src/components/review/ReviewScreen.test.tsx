@@ -20,7 +20,14 @@ const client = {
 };
 
 vi.mock("@docproc/app-shell", async (importOriginal) => ({ ...(await importOriginal<typeof import("@docproc/app-shell")>()), useApi: () => ({ client }) }));
-vi.mock("@tanstack/react-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("@tanstack/react-router")>()), useNavigate: () => vi.fn() }));
+const navigate = vi.hoisted(() => vi.fn());
+// No router here: navigation is a spy, and the unsaved-changes blocker (tested with a real router in
+// ReviewScreen.guard.test.tsx) stays idle.
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  useNavigate: () => navigate,
+  useBlocker: () => ({ status: "idle" }),
+}));
 const toast = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", async (importOriginal) => ({ ...(await importOriginal<typeof import("sonner")>()), toast }));
 
@@ -120,6 +127,9 @@ function press(key: string) {
 beforeAll(async () => {
   await i18n.changeLanguage("en");
   Element.prototype.scrollIntoView = vi.fn();
+  // Radix Select uses pointer capture, which jsdom lacks.
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.releasePointerCapture ??= () => {};
   window.matchMedia ??= ((query: string) => ({ matches: false, media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false })) as typeof window.matchMedia;
   globalThis.ResizeObserver ??= class {
     observe() {}
@@ -131,6 +141,7 @@ beforeAll(async () => {
 beforeEach(() => {
   routes.clear();
   client.GET.mockClear();
+  navigate.mockClear();
   Object.values(toast).forEach((fn) => fn.mockClear());
   vi.mocked(Element.prototype.scrollIntoView).mockClear();
 });
@@ -243,5 +254,124 @@ describe("approve shortcut hint", () => {
     expect(screen.getByTestId("approve-shortcut")).toHaveTextContent("⌘↵");
     expect(screen.getByTestId("approve-button")).toHaveAttribute("aria-keyshortcuts", "Meta+Enter");
     platform.mockRestore();
+  });
+});
+
+describe("review screen Esc and Ctrl+Enter", () => {
+  it("goes back to the inbox on Esc outside inputs", () => {
+    renderScreen(documentOf());
+    fireEvent.keyDown(window.document.body, { key: "Escape" });
+    expect(navigate).toHaveBeenCalledWith({ to: "/documents" });
+  });
+
+  it("leaves an Esc that a popover handled to the popover", () => {
+    renderScreen(documentOf());
+    // Radix's DismissableLayer listens on the document in the capture phase and marks the Esc it uses.
+    const radix = (event: KeyboardEvent) => event.preventDefault();
+    window.document.addEventListener("keydown", radix, { capture: true });
+    try {
+      fireEvent.keyDown(window.document.body, { key: "Escape" });
+    } finally {
+      window.document.removeEventListener("keydown", radix, { capture: true });
+    }
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not leave while a Select listbox or a menu is open", () => {
+    renderScreen(documentOf());
+    for (const role of ["listbox", "menu"]) {
+      const layer = window.document.createElement("div");
+      layer.setAttribute("role", role);
+      const option = window.document.createElement("div");
+      option.setAttribute("role", role === "listbox" ? "option" : "menuitem");
+      option.tabIndex = -1;
+      layer.append(option);
+      window.document.body.append(layer);
+      fireEvent.keyDown(option, { key: "Escape" });
+      layer.remove();
+    }
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not stack the Approve confirmation on the Reject dialog", async () => {
+    renderScreen(documentOf());
+    fireEvent.click(screen.getByTestId("reject-button"));
+    const reason = await screen.findByLabelText("Reason");
+    fireEvent.keyDown(reason, { key: "Enter", ctrlKey: true });
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.queryByText("Approve this document?")).not.toBeInTheDocument();
+  });
+
+  it("opens the Approve confirmation with Ctrl+Enter when no dialog is open", async () => {
+    renderScreen(documentOf());
+    fireEvent.keyDown(window.document.body, { key: "Enter", ctrlKey: true });
+    expect(await screen.findByText("Approve this document?")).toBeInTheDocument();
+  });
+});
+
+describe("review screen unsaved corrections", () => {
+  it("treats an amount retyped in another format as unchanged", async () => {
+    renderScreen(documentOf());
+    const saveButton = screen.getByTestId("save-button");
+    fireEvent.change(input("totalGross"), { target: { value: "303,450" } });
+    await waitFor(() => expect(input("totalGross")).toHaveValue("303,450"));
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByTestId("approve-button")).toBeEnabled();
+
+    fireEvent.change(input("totalGross"), { target: { value: "303,46" } });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    // Approve, Reject and Reprocess all wait for the save.
+    expect(screen.getByTestId("approve-button")).toBeDisabled();
+    expect(screen.getByTestId("reject-button")).toBeDisabled();
+    expect(screen.getByTestId("reprocess-button")).toBeDisabled();
+  });
+});
+
+describe("review screen page follow", () => {
+  it("turns to the page of a field focused in the form", async () => {
+    const onPage2 = { ...canonical, totalGross: { ...canonical.totalGross!, source: { method: "Llm" as const, page: 2, bBox: { x0: 700, y0: 900, x1: 900, y1: 930 } } } };
+    renderScreen(documentOf({ canonical: onPage2 as unknown as DocumentDetail["canonical"], pageCount: 2 }));
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    fireEvent.focus(input("totalGross"));
+    expect(await screen.findByText("Page 2 of 2")).toBeInTheDocument();
+    // Hovering does not turn the page (a pointer crossing the form would flip through pages).
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    fireEvent.mouseEnter(input("totalGross"));
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+  });
+});
+
+describe("review screen timeline freshness", () => {
+  it("reads the timeline again on mount even when a cached one is fresh", async () => {
+    routes.set("/api/v1/documents/{id}/events", () => ({ status: 200, data: [event(1, "document.stage_completed", "Extracted", "Validated"), event(2, "document.review_requested", "Validated", "NeedsReview")] }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    const document = documentOf({ flags: [], blockingFlagCount: 0, warningFlagCount: 0 });
+    // What the screen saw before a reprocess: the timeline ends in document.reprocessed.
+    queryClient.setQueryData(["documents", "detail", document.id, "events"], [event(1, "document.stage_completed", "Extracted", "Validated"), event(2, "document.reprocessed", "NeedsReview", "Extracted")]);
+    renderScreen(document, queryClient);
+    await waitFor(() => expect(client.GET).toHaveBeenCalledWith("/api/v1/documents/{id}/events", expect.anything()));
+    await waitFor(() => expect(screen.getByTestId("flags-empty")).toHaveTextContent("No flags: every validation rule passed."));
+  });
+});
+
+describe("review screen reprocess", () => {
+  it("offers only the stages a document that failed early reached, and defaults to the latest", async () => {
+    routes.set("/api/v1/documents/{id}/events", () => ({ status: 200, data: [event(1, "document.received", null, "Received"), event(2, "document.stage_failed", "Received", "Failed")] }));
+    renderScreen(documentOf({ status: "Failed", flags: [], canonical: null }));
+    fireEvent.click(screen.getByTestId("reprocess-button"));
+    const dialog = await screen.findByRole("alertdialog");
+    const trigger = within(dialog).getByRole("combobox");
+    await waitFor(() => expect(trigger).toHaveTextContent("Normalize"));
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const listbox = await screen.findByRole("listbox");
+    const options = within(listbox)
+      .getAllByRole("option")
+      .map((option) => [option.textContent, option.getAttribute("aria-disabled") === "true"]);
+    expect(options).toEqual([
+      ["Normalize", false],
+      ["Classify", true],
+      ["Extract", true],
+      ["Validate", true],
+    ]);
   });
 });

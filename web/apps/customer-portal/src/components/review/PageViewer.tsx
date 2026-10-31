@@ -18,6 +18,8 @@ export interface PageViewerProps {
   onSelect: (path: string) => void;
   page: number;
   onPageChange: (page: number) => void;
+  /** The field's label for the overlay boxes (their tooltip and accessible name). */
+  fieldLabel?: (path: string) => string;
 }
 
 /** Fetches a binary through the authenticated client and keeps an object URL for it while mounted. */
@@ -39,7 +41,7 @@ function useObjectUrl(blob: Blob | undefined): string | null {
  * The left half of the review screen: the rendered page (`GET /documents/{id}/pages/{n}.png`, fetched with the bearer
  * token, so an `<img src>` cannot be used directly), zoom, page navigation and the field highlight overlay on top.
  */
-export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHover, onSelect, page, onPageChange }: PageViewerProps) {
+export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHover, onSelect, page, onPageChange, fieldLabel }: PageViewerProps) {
   const { t } = useTranslation();
   const { client } = useApi();
   const [zoomIndex, setZoomIndex] = useState(2);
@@ -49,7 +51,9 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
   const zoom = ZOOM_STEPS[zoomIndex] ?? 1;
 
   const image = useQuery({
-    queryKey: [...queryKeys.documents.detail(documentId), "page", page] as const,
+    // Outside the `documents` prefix (docs/05): saving or deciding invalidates `documents.all`, and a rendered page
+    // never changes, so it must not be downloaded again.
+    queryKey: queryKeys.documentPages.page(documentId, page),
     queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/pages/{n}.png", { params: { path: { id: documentId, n: page } }, parseAs: "blob" })),
     enabled: pageCount > 0 && page >= 1 && page <= pageCount,
     staleTime: Infinity,
@@ -129,7 +133,7 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
         {imageUrl && (
           <div className="relative mx-auto w-fit" style={{ width: `${zoom * 100}%`, maxWidth: zoom <= 1 ? "48rem" : undefined }}>
             <img ref={imageRef} src={imageUrl} alt={t("review.viewer.pageAlt", { page })} className="block h-auto w-full select-none shadow-sm" draggable={false} />
-            <FieldHighlightOverlay rendered={rendered} boxes={pageBoxes} words={words} showWords={showWords} highlightedPath={highlightedPath} onHover={onHover} onSelect={onSelect} />
+            <FieldHighlightOverlay rendered={rendered} boxes={pageBoxes} words={words} showWords={showWords} highlightedPath={highlightedPath} onHover={onHover} onSelect={onSelect} labelOf={fieldLabel} />
           </div>
         )}
       </div>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { setByPath } from "@docproc/app-shell";
 import { allSpecs, fieldDomId, formName, pathOfFormName, toFormValues, type CanonicalInvoice } from "./canonical";
-import { diffCorrections, parseAmount, toCorrectionValue } from "./corrections";
+import { diffCorrections, parseAmount, sameValue, toCorrectionValue } from "./corrections";
 
 const canonical: CanonicalInvoice = {
   kind: { value: "Invoice", status: "Extracted", confidence: 1 },
@@ -93,5 +93,33 @@ describe("value helpers", () => {
     expect(pathOfFormName("lines.2.quantity")).toBe("lines[2].quantity");
     expect(formName("supplier.address.city")).toBe("supplier.address.city");
     expect(fieldDomId("lines[2].quantity")).toBe("field-lines_2__quantity");
+  });
+});
+
+describe("unchanged values", () => {
+  it("sends nothing for an amount retyped in another format", () => {
+    const withLine: CanonicalInvoice = {
+      ...canonical,
+      lines: [{ lineNumber: 1, quantity: { value: 2.4, status: "Extracted" }, lineNet: { value: { amount: 58.8, currency: "EUR" }, status: "Extracted" } }],
+    };
+    const specs = allSpecs(withLine);
+    const initial = toFormValues(withLine, specs);
+    let current = setByPath(initial, "lines[0].lineNet", "58,80");
+    current = setByPath(current, "lines[0].quantity", "2.40");
+    current = setByPath(current, "totalGross", " 437.990 ");
+    expect(diffCorrections(specs, initial, current)).toEqual([]);
+
+    // A real change is still one.
+    current = setByPath(current, "lines[0].lineNet", "58,90");
+    expect(diffCorrections(specs, initial, current)).toEqual([{ path: "lines[0].lineNet", value: 58.9, reason: null }]);
+  });
+
+  it("compares amounts as numbers and everything else as text", () => {
+    expect(sameValue("money", "58.8", "58,80")).toBe(true);
+    expect(sameValue("number", "1234.5", "1.234,50")).toBe(true);
+    expect(sameValue("money", "58.8", "")).toBe(false);
+    expect(sameValue("money", "", "")).toBe(true);
+    expect(sameValue("money", "abc", "abc ")).toBe(false);
+    expect(sameValue("string", "2.40", "2.4")).toBe(false);
   });
 });

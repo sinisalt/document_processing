@@ -28,6 +28,7 @@ import {
   FormLabel,
   FormMessage,
   Input,
+  Label,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
@@ -149,9 +150,9 @@ function CreateApiKeyDialog() {
                         return (
                           <li key={scope} className="flex items-center gap-2">
                             <Checkbox id={id} checked={checked} onCheckedChange={(next) => field.onChange(next === true ? [...field.value, scope] : field.value.filter((s) => s !== scope))} />
-                            <label htmlFor={id} className="text-sm">
+                            <Label htmlFor={id} className="font-normal">
                               {t(`apiKeys.scope.${scope}`)}
-                            </label>
+                            </Label>
                           </li>
                         );
                       })}
@@ -239,7 +240,7 @@ export function ApiKeysTab() {
         columns={columns}
         data={keys.data ?? EMPTY}
         getRowId={(row) => row.id}
-        isLoading={keys.isPending}
+        isLoading={keys.isPending} query={keys}
         toolbar={<CreateApiKeyDialog />}
         caption={t("apiKeys.caption")}
         emptyTitle={t("apiKeys.empty")}

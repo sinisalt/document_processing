@@ -45,15 +45,31 @@ function normalize(text: unknown): string {
 }
 
 /**
- * Only what the reviewer changed, as corrections: a spec whose current text differs from its initial text yields one
- * `{ path, value }`; untouched fields are never sent, so the API keeps their provenance byte for byte.
+ * Whether two texts of a field mean the same value: amounts compare as numbers ("58,80" is the 58.8 on screen), the
+ * rest as trimmed text. A correction to the same value is not one: the API would still mark the field Corrected by a
+ * human with confidence 1 and move the extraction (and its page box) into the history.
+ */
+export function sameValue(kind: FieldKind, before: string, after: string): boolean {
+  if (before === after) return true;
+  if (kind === "money" || kind === "number") {
+    const a = parseAmount(before);
+    const b = parseAmount(after);
+    return a !== null && b !== null && !Number.isNaN(a) && !Number.isNaN(b) && a === b;
+  }
+  return false;
+}
+
+/**
+ * Only what the reviewer changed, as corrections: a spec whose current value differs from its initial value yields one
+ * `{ path, value }`; untouched fields (and fields retyped to the same value) are never sent, so the API keeps their
+ * provenance byte for byte.
  */
 export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, current: unknown, reason?: string | null): FieldCorrection[] {
   const corrections: FieldCorrection[] = [];
   for (const spec of specs) {
     const before = normalize(getByPath(initial, spec.path));
     const after = normalize(getByPath(current, spec.path));
-    if (before === after) continue;
+    if (sameValue(spec.kind, before, after)) continue;
     corrections.push({ path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null });
   }
   return corrections;

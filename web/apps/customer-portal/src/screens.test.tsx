@@ -11,7 +11,7 @@ import { i18n } from "@/i18n";
  */
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
-  createFileRoute: () => (options: Record<string, unknown>) => ({ options, fullPath: "/", useSearch: () => ({}), useParams: () => ({}) }),
+  createFileRoute: () => (options: Record<string, unknown>) => ({ options, fullPath: "/", useSearch: () => search.current, useParams: () => ({}) }),
   useNavigate: () => vi.fn(),
   Link: ({ children, to }: { children?: ReactNode; to?: string }) => <a href={to}>{children}</a>,
 }));
@@ -24,6 +24,7 @@ const client = vi.hoisted(() => ({
   DELETE: vi.fn(),
 }));
 const auth = vi.hoisted(() => ({ user: null as AuthUser | null }));
+const search = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 
 vi.mock("@docproc/app-shell", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@docproc/app-shell")>();
@@ -37,6 +38,7 @@ vi.mock("@docproc/app-shell", async (importOriginal) => {
 const reviewRoute = await import("@/routes/review");
 const suppliersRoute = await import("@/routes/suppliers");
 const inboxRoute = await import("@/routes/documents.index");
+const dashboardRoute = await import("@/routes/index");
 
 function userOf(role: string, scope: AuthUser["scope"], tenantId: string | null = scope === "tenant" ? "tenant-b" : null): AuthUser {
   return { subject: role, name: role, displayName: role, email: null, roles: [role], permissions: [], tenantId, scope, authMethod: "dev" };
@@ -68,6 +70,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   client.GET.mockClear();
+  search.current = {};
 });
 
 afterEach(cleanup);
@@ -119,5 +122,65 @@ describe("platform scope", () => {
     await renderRoute(inboxRoute);
     expect(requested()).toContain("/api/v1/suppliers");
     expect(screen.getByLabelText("Supplier")).toBeInTheDocument();
+  });
+});
+
+describe("tenant-only actions", () => {
+  it("offers no Upload in platform scope, where POST /ingestions answers 400", async () => {
+    auth.user = userOf("SuperAdmin", "platform");
+    await renderRoute(inboxRoute);
+    expect(screen.getByRole("heading", { level: 1, name: "Inbox" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
+  });
+
+  it("offers Upload in tenant scope", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    await renderRoute(inboxRoute);
+    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("gives a platform SuperAdmin's dashboard no Settings, Suppliers or Upload link", async () => {
+    auth.user = userOf("SuperAdmin", "platform");
+    await renderRoute(dashboardRoute);
+    const links = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+    expect(links).not.toContain("/settings");
+    expect(links).not.toContain("/suppliers");
+    expect(screen.queryByText("Upload")).not.toBeInTheDocument();
+  });
+
+  it("keeps Settings on a tenant admin's dashboard", async () => {
+    auth.user = userOf("TenantAdmin", "tenant");
+    await renderRoute(dashboardRoute);
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toContain("/settings");
+  });
+});
+
+describe("list errors", () => {
+  it("shows a failed inbox request as an error, not as 'nothing waits for a review'", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    // The mock is typed by its success answers; a failure is what openapi-fetch returns for a problem.
+    client.GET.mockImplementation((async (path: string) =>
+      path === "/api/v1/documents"
+        ? { data: undefined, error: { title: "Boom", status: 500, detail: "The database is down." }, response: new Response(null, { status: 500 }) }
+        : { data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200 }) }) as never);
+    try {
+      await renderRoute(inboxRoute);
+      expect(await screen.findByText("This list could not be loaded")).toBeInTheDocument();
+      expect(screen.getByText("The database is down.")).toBeInTheDocument();
+      expect(screen.queryByText("No documents")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    } finally {
+      client.GET.mockReset();
+      client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
+    }
+  });
+
+  it("does not send a date range that ends before it starts", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    search.current = { tab: "all", from: "2026-12-01", to: "2026-01-01" };
+    await renderRoute(inboxRoute);
+    expect(requested()).not.toContain("/api/v1/documents");
+    expect(screen.getAllByText("The end date is before the start date.").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Issued to")).toHaveAttribute("aria-invalid", "true");
   });
 });

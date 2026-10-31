@@ -255,7 +255,7 @@ export function ChannelsTab({ canEdit }: { canEdit: boolean }) {
           </Dialog>
         </div>
       )}
-      <DataTable columns={columns} data={channels.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={channels.isPending} caption={t("settings.channels.caption")} emptyTitle={t("settings.channels.empty")} emptyDescription={t("settings.channels.emptyDescription")} />
+      <DataTable columns={columns} data={channels.data ?? EMPTY_ARRAY} getRowId={(row) => row.id} isLoading={channels.isPending} query={channels} caption={t("settings.channels.caption")} emptyTitle={t("settings.channels.empty")} emptyDescription={t("settings.channels.emptyDescription")} />
     </div>
   );
 }

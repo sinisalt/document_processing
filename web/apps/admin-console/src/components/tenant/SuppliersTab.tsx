@@ -230,7 +230,7 @@ export function SuppliersTab() {
   const q = search.trim() === "" ? undefined : search.trim();
 
   const suppliers = useCursorList<Supplier>({
-    queryKey: [...queryKeys.suppliers.list({ q }), "pages"],
+    queryKey: queryKeys.suppliers.pages({ q }),
     queryFn: async (cursor) => unwrap(await client.GET("/api/v1/suppliers", { params: { query: { q, limit: PAGE_SIZE, cursor: cursor ?? undefined } } })),
   });
 
@@ -272,7 +272,7 @@ export function SuppliersTab() {
         columns={columns}
         data={suppliers.items}
         getRowId={(row) => row.id}
-        isLoading={suppliers.isLoading}
+        isLoading={suppliers.isLoading} query={suppliers}
         toolbar={
           <>
             <div className="relative">

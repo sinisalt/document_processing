@@ -138,7 +138,7 @@ function SuppliersScreen() {
         columns={columns}
         data={list.items.length ? list.items : EMPTY_ARRAY}
         getRowId={(row) => row.id}
-        isLoading={list.isLoading}
+        isLoading={list.isLoading} query={list}
         caption={t("suppliers.caption")}
         onRowClick={(row) => setEditing(row)}
         emptyTitle={t("suppliers.emptyTitle")}
