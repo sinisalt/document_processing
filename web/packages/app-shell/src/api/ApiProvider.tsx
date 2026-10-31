@@ -86,6 +86,18 @@ declare module "@tanstack/react-query" {
   }
 }
 
+/** The title `TenantResolutionMiddleware` answers a non-SuperAdmin's `X-Tenant-Id` with (403). */
+export const TENANT_OVERRIDE_REFUSED_TITLE = "Tenant override not allowed";
+
+async function isOverrideRefusal(response: Response): Promise<boolean> {
+  try {
+    const problem: unknown = await response.clone().json();
+    return !!problem && typeof problem === "object" && (problem as { title?: unknown }).title === TENANT_OVERRIDE_REFUSED_TITLE;
+  } catch {
+    return false;
+  }
+}
+
 export interface ApiProviderProps {
   /** API origin; empty for same origin (the Vite dev proxy forwards `/api`). */
   baseUrl?: string;
@@ -103,6 +115,8 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
 
   const tenantRef = useRef<string | null>(tenantId);
   tenantRef.current = tenantId;
+  const setTenantRef = useRef(switcher?.setTenantId);
+  setTenantRef.current = switcher?.setTenantId;
   const signOutRef = useRef(session.signOut);
   signOutRef.current = session.signOut;
 
@@ -123,6 +137,15 @@ export function ApiProvider({ baseUrl = "", children }: ApiProviderProps) {
         if (override) request.headers.set("X-Tenant-Id", override);
         else request.headers.delete("X-Tenant-Id");
         return request;
+      },
+      async onResponse({ request, response }) {
+        // The API refuses X-Tenant-Id from anyone but a SuperAdmin. Should an override still reach such a user (a role
+        // revoked mid-session), drop it, so the shell's next requests (and `/me`) go out without it instead of the
+        // user staying locked out with no switcher to clear it.
+        if (response.status === 403 && request.headers.has("X-Tenant-Id") && (await isOverrideRefusal(response))) {
+          setTenantRef.current?.(null);
+        }
+        return response;
       },
     };
     created.use(tenantOverride);
