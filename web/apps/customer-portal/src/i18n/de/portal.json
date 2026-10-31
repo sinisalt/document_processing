@@ -282,6 +282,8 @@
       "title_one": "{{count}} Hinweis",
       "title_other": "{{count}} Hinweise",
       "hint": "Klicken Sie auf einen Hinweis oder drücken Sie j / k, um zum Feld zu springen.",
+      "hintTouch": "Tippen Sie auf einen Hinweis, um zum Feld zu springen.",
+      "reviewReason": "Wartet auf Prüfung: {{reason}}.",
       "none": "Keine Hinweise: alle Prüfregeln sind erfüllt.",
       "resolved": "Erledigt",
       "notValidated": "Noch nicht validiert: Hinweise erscheinen, sobald das Dokument den Schritt „Validieren“ durchlaufen hat.",
@@ -414,8 +416,8 @@
         "alwaysReview": "Immer prüfen",
         "threshold": "Schwelle"
       },
-      "yes": "ja",
-      "no": "nein"
+      "yes": "Ja",
+      "no": "Nein"
     },
     "original": {
       "fileName": "Datei",
@@ -435,7 +437,7 @@
     "columns": {
       "reason": "Grund",
       "status": "Aufgabenstatus",
-      "slaDue": "Fällig",
+      "slaDue": "Prüfen bis",
       "actions": "Aktionen",
       "task": "Aufgabe"
     },

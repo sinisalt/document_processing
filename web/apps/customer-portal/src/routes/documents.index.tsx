@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { AlertTriangle, OctagonAlert, Search, X } from "lucide-react";
 import type { components } from "@docproc/api-client";
-import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsList, TabsTrigger, useIsMobile } from "@docproc/ui";
+import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger, useIsMobile } from "@docproc/ui";
 import {
   DataTable,
   LocalizedDateInput,
@@ -99,6 +99,8 @@ function InboxPage() {
         }),
         helper.accessor("status", {
           header: t("inbox.columns.status"),
+          // The badges and amounts sit on the right edge; the header goes with them.
+          meta: { align: "end" },
           cell: ({ row }) => (
             <div className="flex flex-col items-end gap-1">
               <StatusBadge status={row.original.status} />
@@ -175,21 +177,23 @@ function InboxPage() {
         emptyDescription={rangeInvalid ? t("inbox.filters.rangeInvalid") : hasFilters ? t("inbox.emptyFiltered") : t(`inbox.empty.${tab}`)}
         toolbar={
           <form
-            // A phone stacks the filters two to a row at full width; from sm up they share one row.
-            className="grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:flex-wrap"
+            // A phone stacks the filters two to a row at full width; from sm up they share one row, the search box taking
+            // the room that is left, so the row fits "Clear filters" (and the Columns button beside it) without wrapping.
+            className="grid w-full grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap"
             role="search"
             onSubmit={(event) => {
               event.preventDefault();
               setSearch({ q: draftQ.trim() || undefined });
             }}
           >
-            <div className="col-span-2 flex flex-col gap-1">
+            {/* At least 15rem, growing into the free room: "Number, supplier, file name" fits beside the icon (w-56 cut it). */}
+            <div className="col-span-2 flex flex-col gap-1 sm:max-w-80 sm:min-w-60 sm:flex-1">
               <Label htmlFor="inbox-q" className="text-xs text-muted-foreground">
                 {t("inbox.filters.search")}
               </Label>
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input id="inbox-q" value={draftQ} onChange={(event) => setDraftQ(event.target.value)} placeholder={t("inbox.filters.searchPlaceholder")} className="w-full pl-8 sm:w-56" />
+                <Input id="inbox-q" value={draftQ} onChange={(event) => setDraftQ(event.target.value)} placeholder={t("inbox.filters.searchPlaceholder")} className="w-full pl-8" />
               </div>
             </div>
             <div className="flex flex-col gap-1">
@@ -259,17 +263,26 @@ function InboxPage() {
               {t("inbox.filters.apply")}
             </Button>
             {hasFilters && (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setDraftQ("");
-                  setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined });
-                }}
-              >
-                <X aria-hidden />
-                {t("inbox.filters.clear")}
-              </Button>
+              // From sm up an icon button with a tooltip, so it stays on the row of filters instead of wrapping onto
+              // a row of its own; a phone has the room for its text beside Apply.
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="sm:w-9 sm:px-0"
+                    data-testid="inbox-clear-filters"
+                    onClick={() => {
+                      setDraftQ("");
+                      setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined });
+                    }}
+                  >
+                    <X aria-hidden />
+                    <span className="sm:sr-only">{t("inbox.filters.clear")}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-sm:hidden">{t("inbox.filters.clear")}</TooltipContent>
+              </Tooltip>
             )}
           </form>
         }

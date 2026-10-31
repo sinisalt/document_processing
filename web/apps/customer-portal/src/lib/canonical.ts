@@ -291,16 +291,20 @@ export function rawValueOf(canonical: unknown, spec: FieldSpec): unknown {
   return getByPath(field.value, rest);
 }
 
-/** The text the form shows for a raw canonical value. */
-export function toEditable(kind: FieldKind, raw: unknown): string {
+/**
+ * The text the form shows for a raw canonical value. Numbers are written in the UI language as the invoice prints
+ * them: an amount with (at least) two decimals, "9,60" in German and "9.60" in English rather than JavaScript's "9.6";
+ * a quantity or percentage with the decimals it has. Never grouped: "1.234" would read back as 1.234 in English.
+ */
+export function toEditable(kind: FieldKind, raw: unknown, locale = "en"): string {
   if (raw === null || raw === undefined) return "";
   switch (kind) {
     case "identifier":
       return typeof raw === "object" ? String((raw as DocumentIdentifier).verbatim ?? "") : String(raw);
     case "money":
-      return typeof raw === "object" ? numberToText((raw as Money).amount) : numberToText(raw);
+      return numberToText(typeof raw === "object" ? (raw as Money).amount : raw, locale, 2);
     case "number":
-      return numberToText(raw);
+      return numberToText(raw, locale, 0);
     case "date":
       return String(raw).slice(0, 10);
     default:
@@ -308,10 +312,11 @@ export function toEditable(kind: FieldKind, raw: unknown): string {
   }
 }
 
-function numberToText(value: unknown): string {
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
-  if (typeof value === "string") return value;
-  return "";
+function numberToText(value: unknown, locale: string, minimumFractionDigits: number): string {
+  // The generated client types a double as `number | string`; a string that is not a number is shown as it is.
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(n)) return typeof value === "string" ? value : "";
+  return new Intl.NumberFormat(locale, { useGrouping: false, minimumFractionDigits, maximumFractionDigits: 10 }).format(n);
 }
 
 /** react-hook-form addresses nested values with dots only: `lines[2].quantity` → `lines.2.quantity`. */
@@ -331,11 +336,11 @@ export function fieldDomId(path: string): string {
   return `field-${path.replace(/[^\w-]/g, "_")}`;
 }
 
-/** The form's initial values: a nested object with the editable text of every spec. */
-export function toFormValues(canonical: CanonicalInvoice | null | undefined, specs: FieldSpec[]): Record<string, unknown> {
+/** The form's initial values: a nested object with the editable text of every spec, numbers in the UI language. */
+export function toFormValues(canonical: CanonicalInvoice | null | undefined, specs: FieldSpec[], locale = "en"): Record<string, unknown> {
   let values: Record<string, unknown> = {};
   for (const spec of specs) {
-    values = setByPath(values, spec.path, toEditable(spec.kind, rawValueOf(canonical, spec)));
+    values = setByPath(values, spec.path, toEditable(spec.kind, rawValueOf(canonical, spec), locale));
   }
   return values;
 }

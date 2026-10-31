@@ -13,10 +13,12 @@ import {
   sortFn_text,
   tableFeatures,
   useTable,
+  type CellData,
   type ExpandedState,
   type OnChangeFn,
   type RowData,
   type SortingState,
+  type TableFeatures,
   type TableOptions,
 } from "@tanstack/react-table";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, RotateCcw, Settings2 } from "lucide-react";
@@ -40,6 +42,15 @@ import {
 } from "@docproc/ui";
 import { EmptyState } from "./EmptyState";
 import { ApiError, errorMessage } from "../api/ApiError";
+
+/** Per-column options of the shared grid (`helper.accessor("status", { meta: { align: "end" } })`). */
+declare module "@tanstack/react-table" {
+  // The type parameters must repeat those of the declaration this merges into, used or not.
+  interface ColumnMeta<TFeatures extends TableFeatures, TData extends RowData, TValue extends CellData = CellData> {
+    /** "end": the header sits on the right edge, over a column whose cells align their content there. */
+    align?: "start" | "end";
+  }
+}
 
 /** What `DataTable` needs of the query behind its rows: a `useQuery` result and a `useCursorList` result both fit. */
 export interface DataTableQueryState {
@@ -276,14 +287,16 @@ export function DataTable<TData extends RowData>({
                   const label = flexRender(header.column.columnDef.header, header.getContext());
                   const nextOrder = canSort ? header.column.getNextSortingOrder() : false;
                   const sortHint = nextOrder === "asc" ? t("table.sortAscending") : nextOrder === "desc" ? t("table.sortDescending") : t("table.clearSort");
+                  const alignEnd = header.column.columnDef.meta?.align === "end";
                   return (
-                    <TableHead key={header.id} colSpan={header.colSpan} aria-sort={ariaSort}>
+                    <TableHead key={header.id} colSpan={header.colSpan} aria-sort={ariaSort} className={alignEnd ? "text-right" : undefined}>
                       {header.isPlaceholder ? null : canSort ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="-ml-3 h-8 data-[sorted=true]:text-foreground"
+                          // The negative margin lines the label up with the cells' text, on the side the column aligns to.
+                          className={cn(alignEnd ? "-mr-3" : "-ml-3", "h-8 data-[sorted=true]:text-foreground")}
                           data-sorted={sorted !== false}
                           onClick={header.column.getToggleSortingHandler()}
                           // The column's text stays the name of the button and the header cell; what the click does is

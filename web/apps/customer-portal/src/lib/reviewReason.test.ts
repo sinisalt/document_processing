@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { i18n } from "@/i18n";
-import { reviewReasonCodes, reviewReasonLabels } from "./reviewReason";
+import { reviewReasonCodes, reviewReasonLabels, reviewRequestReason } from "./reviewReason";
 
 describe("review task reasons", () => {
   afterEach(async () => {
@@ -27,5 +27,18 @@ describe("review task reasons", () => {
 
   it("keeps a code it has no name for", () => {
     expect(reviewReasonLabels("SOMETHING_NEW", i18n.t)).toEqual(["SOMETHING_NEW"]);
+  });
+
+  it("reads the reason of the last review request from the timeline", () => {
+    const events = [
+      { eventType: "document.stage_completed", details: { alwaysReview: true } },
+      { eventType: "document.review_requested", details: { reason: "LOW_CONFIDENCE" } },
+      { eventType: "document.reprocessed", details: null },
+      { eventType: "document.review_requested", details: { reason: "ALWAYS_REVIEW" } },
+    ];
+    expect(reviewRequestReason(events)).toBe("ALWAYS_REVIEW");
+    expect(reviewRequestReason(events.slice(0, 1))).toBeUndefined();
+    expect(reviewRequestReason([{ eventType: "document.review_requested", details: { reason: " " } }])).toBeUndefined();
+    expect(reviewRequestReason(undefined)).toBeUndefined();
   });
 });

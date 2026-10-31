@@ -130,12 +130,16 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
         <Table className="[&_td]:px-1.5 [&_th]:px-1.5">
           <TableCaption className="sr-only">{t("review.lines.caption")}</TableCaption>
           <TableHeader>
+            {/*
+              "#" and "Check" span both header rows and sit at the bottom; pb-1.5 puts their text on the line of the
+              second row's labels, which are centred in h-8 (32 px - 20 px line) / 2 = 6 px.
+            */}
             <TableRow>
-              <TableHead rowSpan={2} className="w-8 align-bottom">
+              <TableHead rowSpan={2} className="w-8 pb-1.5 align-bottom">
                 {t("fields.line.lineNumber")}
               </TableHead>
               <TableHead colSpan={valueColumns.length}>{description ? headerOf(description) : null}</TableHead>
-              <TableHead rowSpan={2} className="w-12 align-bottom whitespace-nowrap">
+              <TableHead rowSpan={2} className="w-12 pb-1.5 align-bottom whitespace-nowrap">
                 {t("review.lines.check")}
               </TableHead>
             </TableRow>
@@ -153,7 +157,8 @@ export function LineItemGrid({ canonical, disabled, threshold, onHighlight, flag
             const rowClass = cn(
               result?.status === "mismatch" && "bg-destructive/5",
               flaggedLines?.has(index) && "bg-amber-500/5",
-              low && "[&>td:first-child]:border-l-2 [&>td:first-child]:border-l-destructive",
+              // Amber like the confidence badge: a low confidence is a warning to check, not a failure.
+      low && "[&>td:first-child]:border-l-2 [&>td:first-child]:border-l-amber-500",
             );
             return (
               <TableBody key={index} data-line={index} data-arithmetic={result?.status} className="border-b last:border-b-0 [&_tr]:border-b-0">

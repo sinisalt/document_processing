@@ -89,10 +89,14 @@ export const sourceMethodVariant: Readonly<Record<SourceMethod, BadgeVariant>> =
   Human: "default",
 };
 
-/** Three bands: at or above 0.95 is plainly fine, between threshold and 0.95 is "look", below the threshold is "fix". */
+/**
+ * Three bands: at or above 0.95 is plainly fine, between threshold and 0.95 is "look", below the threshold is "check":
+ * amber, because a low confidence raises a warning flag (LOW_CONFIDENCE), not a blocking one, and only a failure or a
+ * blocking problem reads red.
+ */
 export function confidenceVariant(confidence: number | null | undefined, threshold = DEFAULT_CONFIDENCE_THRESHOLD): BadgeVariant {
   if (typeof confidence !== "number") return "outline";
-  if (confidence < threshold) return "destructive";
+  if (confidence < threshold) return "warning";
   if (confidence < 0.95) return "outline";
   return "secondary";
 }

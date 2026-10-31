@@ -7,6 +7,11 @@ import { fieldDomId, formName, type FieldSpec } from "@/lib/canonical";
 /** Why a field is highlighted: the pointer is over it, or it has the keyboard focus. */
 export type HighlightReason = "hover" | "focus";
 
+/**
+ * Called with the field's `fieldPath` and why, or with null and the reason that ended: `(null, "hover")` when the
+ * pointer leaves, `(null, "focus")` when the focus leaves. The two are kept apart, so a pointer crossing another field
+ * does not take the highlight from the field being edited.
+ */
 export type HighlightHandler = (fieldPath: string | null, reason?: HighlightReason) => void;
 
 export interface FieldInputProps {
@@ -43,6 +48,8 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
     onMouseEnter: () => onHighlight?.(spec.fieldPath, "hover"),
     onMouseLeave: () => onHighlight?.(null, "hover"),
     onFocus: () => onHighlight?.(spec.fieldPath, "focus"),
+    // Capture phase: register() and the Controllers put their own onBlur on the control, which would replace this one.
+    onBlurCapture: () => onHighlight?.(null, "focus"),
   };
   const common = {
     id,
@@ -54,7 +61,7 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
     "data-low-confidence": low || undefined,
     // Read-only (a viewer, a decided document): the values are what the screen is for, so they keep full contrast
     // instead of the 50 % opacity of a disabled control.
-    className: cn(compact && "h-8 text-sm", low && "border-destructive/60", disabled && "disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100", className),
+    className: cn(compact && "h-8 text-sm", low && "border-amber-500/70 dark:border-amber-400/60", disabled && "disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100", className),
     ...hover,
   };
 

@@ -97,6 +97,15 @@ describe("DataTable", () => {
     expect(button).toHaveAccessibleDescription("Sort descending");
   });
 
+  it("puts the header of an end-aligned column on the right edge", () => {
+    const aligned: DataTableColumns<Row> = helper.columns([helper.accessor("name", { header: "Name" }), helper.accessor("size", { header: "Size", sortFn: "basic", meta: { align: "end" } })]);
+    render(<DataTable columns={aligned} data={rows} getRowId={(row) => row.id} />);
+    expect(screen.getByRole("columnheader", { name: "Size" })).toHaveClass("text-right");
+    expect(screen.getByRole("button", { name: "Size" })).toHaveClass("-mr-3");
+    expect(screen.getByRole("columnheader", { name: "Name" })).not.toHaveClass("text-right");
+    expect(screen.getByRole("button", { name: "Name" })).toHaveClass("-ml-3");
+  });
+
   it("shows a failed request as an error with Retry, not as the empty state", () => {
     const refetch = vi.fn();
     const error = new ApiError(500, { title: "Boom", status: 500, detail: "The database is down." }, "/api/v1/documents");

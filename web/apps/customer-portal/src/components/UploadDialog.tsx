@@ -151,7 +151,7 @@ export function UploadDialog({ disabled = false }: { disabled?: boolean }) {
             ))}
           </ul>
         )}
-        <DialogFooter className="sm:justify-between">
+        <DialogFooter className="sm:items-center sm:justify-between">
           <span className="text-xs text-muted-foreground" aria-live="polite">
             {files.length > 0 ? t("upload.summary", { count: files.length, size: formatBytes(totalBytes) }) : ""}
           </span>

@@ -42,8 +42,9 @@ describe("confidenceVariant", () => {
   it("bands confidences", () => {
     expect(confidenceVariant(0.99)).toBe("secondary");
     expect(confidenceVariant(0.9)).toBe("outline");
-    expect(confidenceVariant(0.5)).toBe("destructive");
+    // Below the threshold is a warning (LOW_CONFIDENCE is not blocking), never the red of a failure.
+    expect(confidenceVariant(0.5)).toBe("warning");
     expect(confidenceVariant(null)).toBe("outline");
-    expect(confidenceVariant(0.9, 0.95)).toBe("destructive");
+    expect(confidenceVariant(0.9, 0.95)).toBe("warning");
   });
 });

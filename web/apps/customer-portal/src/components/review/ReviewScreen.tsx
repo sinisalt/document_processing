@@ -19,6 +19,7 @@ import { allSpecs, fieldDomId, formName, toFormValues, type CanonicalInvoice } f
 import { diffCorrections } from "@/lib/corrections";
 import { collectProvenanceBoxes } from "@/lib/overlay";
 import { useDocumentEvents, type DocumentDetail, type DocumentFlag } from "@/lib/queries";
+import { reviewReasonLabels, reviewRequestReason } from "@/lib/reviewReason";
 import { validationState } from "@/lib/validation";
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -59,7 +60,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const hasCanonical = (document.type === "Invoice" || document.type === "CreditNote") && !!document.canonical;
   const canonical = useMemo(() => (hasCanonical ? (document.canonical as CanonicalInvoice) : null), [document.canonical, hasCanonical]);
   const specs = useMemo(() => allSpecs(canonical), [canonical]);
-  const initial = useMemo(() => toFormValues(canonical, specs), [canonical, specs]);
+  const initial = useMemo(() => toFormValues(canonical, specs, locale), [canonical, specs, locale]);
   const boxes = useMemo(() => collectProvenanceBoxes(canonical), [canonical]);
   const flags = useMemo(() => sortFlags(document.flags), [document.flags]);
   const flaggedLines = useMemo(() => new Set(flags.map((f) => /^lines\[(\d+)\]/.exec(f.field ?? "")?.[1]).filter((v): v is string => !!v).map(Number)), [flags]);
@@ -72,6 +73,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   // can predate the Validate run that produced this version.
   const events = useDocumentEvents(document.id, flags.length === 0, { refetchOnMount: "always" });
   const validation = validationState(document.status, events.data);
+  const reviewReason = reviewRequestReason(events.data);
 
   const editable = canReview && isCorrectable(document.status) && hasCanonical;
   const settled = !isCorrectable(document.status) && !isInFlight(document.status);
@@ -87,7 +89,12 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   // Leaving with unsaved corrections asks first: the back button, Esc, the sidebar, browser Back, and closing the tab.
   const leave = useBlocker({ shouldBlockFn: blockAlways, enableBeforeUnload: hasChanges, disabled: !hasChanges, withResolver: true });
 
-  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
+  // What the pointer is over (a field in the form, a box on the page) wins while it is there; otherwise the field being
+  // edited (focused, or picked from a flag or a box) stays highlighted. One shared value let a pointer leaving any
+  // field clear the highlight of the focused one.
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
+  const highlightedPath = hoveredPath ?? focusedPath;
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState("fields");
   const [approveOpen, setApproveOpen] = useState(false);
@@ -98,8 +105,12 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   /** Hover and focus in the form highlight the field's box; focus also turns to its page, so the box is in sight. */
   const highlightField = useCallback(
     (path: string | null, reason?: HighlightReason) => {
-      setHighlightedPath(path);
-      if (reason !== "focus" || path === null) return;
+      if (reason !== "focus") {
+        setHoveredPath(path);
+        return;
+      }
+      setFocusedPath(path);
+      if (path === null) return;
       const box = boxes.find((b) => b.path === path);
       if (box) setPage(box.page);
     },
@@ -112,7 +123,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
       const spec = specs.find((s) => s.path === path) ?? specs.find((s) => s.fieldPath === path) ?? specs.find((s) => s.path.startsWith(`${path}.`) || s.path.startsWith(`${path}[`));
       const box = boxes.find((b) => b.path === path) ?? (spec ? boxes.find((b) => b.path === spec.fieldPath) : undefined);
       if (box) setPage(box.page);
-      setHighlightedPath(spec?.fieldPath ?? path);
+      setFocusedPath(spec?.fieldPath ?? path);
       setTab("fields");
       const target = spec ? window.document.getElementById(fieldDomId(spec.path)) : null;
       if (target) {
@@ -208,7 +219,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
 
   return (
     <FormProvider {...form}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4" data-testid="review-screen" data-status={document.status}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4" data-testid="review-screen" data-status={document.status} data-highlighted={highlightedPath ?? undefined}>
         <PageHeader
           // The shell keeps its actions on one line; here they wrap so a phone shows all of them.
           className="[&>div:last-child]:min-w-0 [&>div:last-child]:shrink [&>div:last-child]:flex-wrap"
@@ -277,7 +288,8 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
         <section aria-labelledby="flags-heading" className="rounded-lg border p-3">
           <h2 id="flags-heading" className="mb-2 text-sm font-semibold">
             {t("review.flags.heading", { count: flags.length })}
-            <span className="ml-2 text-xs font-normal text-muted-foreground">{t("review.flags.hint")}</span>
+            {/* Only with something to jump to; a phone has no j / k. */}
+            {flags.length > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">{stacked ? t("review.flags.hintTouch") : t("review.flags.hint")}</span>}
           </h2>
           <FlagsList
             flags={flags}
@@ -288,6 +300,12 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
             validation={validation}
             locatedOnPage={pageCount > 0 ? locatedOnPage : undefined}
           />
+          {/* Without an open flag, "Needs review" next to "every rule passed" needs its reason (a supplier always reviewed). */}
+          {flags.length === 0 && document.status === "NeedsReview" && reviewReason && (
+            <p className="mt-1 text-sm" data-testid="review-reason">
+              {t("review.flags.reviewReason", { reason: reviewReasonLabels(reviewReason, t).join(", ") })}
+            </p>
+          )}
         </section>
 
         {/*
@@ -298,7 +316,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
         <div className={cn("shrink-0 overflow-hidden rounded-lg border", stacked ? (pageCount > 0 ? "h-[max(160vh,48rem)]" : "h-[max(120vh,40rem)]") : "h-[max(80vh,32rem)]")} data-testid="review-panels-frame">
           <ResizablePanelGroup key={stacked ? "vertical" : "horizontal"} orientation={stacked ? "vertical" : "horizontal"} data-testid="review-panels">
             <ResizablePanel defaultSize={stacked ? (pageCount > 0 ? "40%" : "25%") : pageCount > 0 ? "45%" : "30%"} minSize={stacked ? "15%" : "20%"} data-testid="viewer-panel">
-              <PageViewer documentId={document.id} pageCount={pageCount} boxes={boxes} highlightedPath={highlightedPath} onHover={setHighlightedPath} onSelect={focusField} page={page} onPageChange={setPage} fieldLabel={overlayLabel} />
+              <PageViewer documentId={document.id} pageCount={pageCount} boxes={boxes} highlightedPath={highlightedPath} onHover={setHoveredPath} onSelect={focusField} page={page} onPageChange={setPage} fieldLabel={overlayLabel} />
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={stacked ? "60%" : pageCount > 0 ? "55%" : "70%"} minSize="30%">
