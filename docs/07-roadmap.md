@@ -5,46 +5,9 @@ measurement needed for the next decision (which model, whether profiles pay off)
 before the decision is made. Durations assume one to two backend developers and one
 front-end developer; adjust to the team.
 
-## Phase 0 – Foundations (1–2 weeks) – in progress
+## Phase 0 – Foundations (1–2 weeks) – done except Bicep, images and the decisions
 
-Done so far (see the README for how to build and test):
-
-- Solution skeleton with central package management, analyzers as errors, CI workflow.
-- `DocProc.Domain`: canonical model with field provenance, flag catalogue, document state machine,
-  text-layer types and the stage-7 validation rules, all unit-tested.
-- `DocProc.Llm`: provider interface, gateway with config resolution, spend cap, usage and cost
-  recording, request hashing, replay provider, extraction contracts and the portable JSON schemas
-  (generated, checked against both vendors' rules, snapshotted under `schemas/`).
-- `DocProc.Llm.Anthropic`: Messages API adapter (native PDF, cached prefix, structured output,
-  effort mapping, error normalisation); request building and error mapping are unit-tested, the
-  live call is not yet exercised.
-- `DocProc.Application`: the interfaces infrastructure implements and the pipeline messages.
-- `DocProc.Infrastructure`: EF Core model for tenancy, channels, suppliers and the global
-  registry, extractor profiles, ingestion, documents (canonical JSON plus denormalised columns,
-  flags, events, review tasks, corrections) and LLM configuration/usage; the `InitialCreate`
-  migration with temporal tables and the row-level security policy; tenant query filters and
-  the SESSION_CONTEXT interceptor. Model checks run without a database; the migration, RLS and
-  temporal behaviour are exercised against the SQL Server 2025 container in CI.
-- `DocProc.Api` / `DocProc.Worker`: hosts with health, readiness, OpenAPI and a Scalar API
-  reference; no business endpoints yet. `DocProc.ServiceDefaults` wires OpenTelemetry, health
-  checks, service discovery and HTTP resilience into both.
-- `DocProc.AppHost`: Aspire orchestration with SQL Server 2025, Azurite, the Service Bus emulator
-  (queue per stage), Keycloak with a seeded realm (platform roles, two tenants), Lowkey Vault and
-  GreenMail; model-level tests pin names, images, waits and the realm contents.
-
-- Authentication: JWT bearer against the configured authority (Keycloak locally), the five roles
-  as authorization policies, tenant resolution from the `tenant_id` claim with the SuperAdmin
-  `X-Tenant-Id` override, secure-by-default fallback policy, `/api/v1/me`; in-process tests mint
-  tokens with a test key.
-
-- API keys for machine clients: `dpk_` keys hashed at rest with ingest/read scopes, a composite
-  authentication scheme that picks API key or bearer per request, scope-aware Ingest and Read
-  policies, tenant-admin endpoints to create/list/revoke, suspended tenants refused; endpoint
-  tests run against in-memory SQLite.
-
-Still open in Phase 0: the generated TypeScript client, Bicep, and the three decisions below.
-Tenant status is checked for API keys; for OIDC users it lands with the first tenant endpoints.
-
+Scope:
 
 - Solution skeleton per `01-architecture-and-stack.md`; Aspire app host with the SQL Server
   2025 container, Service Bus emulator and Azurite; EF Core migrations; CI with build, tests
@@ -58,7 +21,48 @@ Tenant status is checked for API keys; for OIDC users it lands with the first te
 - Decisions to close: Entra External ID vs another OIDC provider for customer users, Azure
   SQL tier (serverless for dev/test, provisioned for production), Container Apps vs AKS.
 
-## Phase 1 – Ingest → LLM extract → review (3–5 weeks)
+Done (see the README for how to build and test):
+
+- Solution skeleton with central package management, analyzers as errors, CI workflow (build and
+  .NET tests; a `web` job with typecheck, vitest, build and the OpenAPI drift check).
+- `DocProc.Domain`: canonical model with field provenance, flag catalogue, document state machine,
+  text-layer types and the stage-7 validation rules, all unit-tested.
+- `DocProc.Llm`: provider interface, gateway with config resolution, spend cap, usage and cost
+  recording, request hashing, replay provider, extraction contracts and the portable JSON schemas
+  (generated, checked against both vendors' rules, snapshotted under `schemas/`).
+- `DocProc.Llm.Anthropic`: Messages API adapter (native PDF, cached prefix, structured output,
+  effort mapping, error normalisation); request building and error mapping are unit-tested, the
+  live call is not yet exercised.
+- `DocProc.Infrastructure`: EF Core model for tenancy, channels, suppliers and the global
+  registry, extractor profiles, ingestion, documents (canonical JSON plus denormalised columns,
+  flags, events, review tasks, corrections) and LLM configuration/usage; migrations with temporal
+  tables and the row-level security policy; tenant query filters and the SESSION_CONTEXT
+  interceptor. Model checks run without a database; the migrations, RLS and temporal behaviour
+  are exercised against the SQL Server 2025 container in CI.
+- `DocProc.Api` / `DocProc.Worker`: hosts with health, readiness, OpenAPI and a Scalar API
+  reference; the `/api/v1` endpoints are listed under Phase 1. `DocProc.ServiceDefaults` wires
+  OpenTelemetry, health checks, service discovery and HTTP resilience into both.
+- `DocProc.AppHost`: Aspire orchestration with SQL Server 2025, Azurite, the Service Bus emulator
+  (queue per stage), Keycloak with a seeded realm (platform roles, two tenants), Lowkey Vault and
+  GreenMail; model-level tests pin names, images, waits and the realm contents.
+- Authentication: JWT bearer against the configured authority (Keycloak locally), the five roles
+  as authorization policies, tenant resolution from the `tenant_id` claim with the SuperAdmin
+  `X-Tenant-Id` override, secure-by-default fallback policy, `/api/v1/me`; in-process tests mint
+  tokens with a test key. Suspended tenants are refused for OIDC users (`TenantStatusCache`) and
+  API keys alike.
+- API keys for machine clients: `dpk_` keys hashed at rest with ingest/read scopes, a composite
+  authentication scheme that picks API key or bearer per request, scope-aware Ingest and Read
+  policies, tenant-admin endpoints to create/list/revoke.
+- Dependency-free development mode (docs/09 "Running without Docker"): SQLite, self-signed dev
+  tokens for the realm's users, a seed and a demo data set with replayed LLM answers.
+- The generated TypeScript client: `web/packages/api-client` (openapi-typescript + openapi-fetch)
+  from the committed `openapi/v1.json`, regenerated by `web/scripts/export-openapi.sh` and checked
+  for drift in CI.
+
+Still open in Phase 0: Bicep for the Azure dev environment, container images in CI, and the three
+decisions above.
+
+## Phase 1 – Ingest → LLM extract → review (3–5 weeks) – in progress
 
 - Channels: API upload and watched folder first (simplest to test), then one M365 mailbox via
   Graph notifications; `.eml` retained; attachment unpacking; duplicate detection by hash.
@@ -70,7 +74,40 @@ Tenant status is checked for API keys; for OIDC users it lands with the first te
 - Admin console: tenants, channels, document timeline, failed jobs, LLM usage.
 - Exit criterion: a pilot restaurant's mailbox processed end-to-end; gold set started.
 
-## Phase 2 – Structured e-invoices and splitting (2–3 weeks)
+Done:
+
+- `DocProc.Pipeline` (docs/03 "Implementation"): the runner over the in-process queue, the
+  handlers of stages 1–7 and 9, retries with backoff, the failure policy, concurrency tokens and
+  the durable duplicate-ownership index; both hosts compose it with one call.
+- Intake: API upload (`POST /api/v1/ingestions`, multipart, idempotency key), zip archives with
+  depth, entry-count and size limits, small-image and `.ics` filtering, duplicate detection by
+  SHA-256 per tenant.
+- Normalisation: PdfPig text layer and PDFtoImage page renders (`DocProc.Infrastructure/Pdf`),
+  embedded e-invoice detection inside PDFs.
+- Classification: multilingual keyword rules, then the LLM classifier below the threshold.
+  Extraction through the gateway with structured output, provenance from the text layer, stage-7
+  validation and flags, `AutoApproved` or `NeedsReview` with an open review task.
+- `DocProc.Llm.OpenAi`: OpenAI, Azure OpenAI and OpenAI-compatible adapter, registered next to
+  the Anthropic one; request building, error mapping, timeouts and the effort fallback are
+  unit-tested, live calls are not exercised.
+- `/api/v1`: ingestions; documents (list, detail, page images, original, text layer, timeline,
+  approve, reject, reprocess, field corrections); review tasks (list, claim, release); tenants
+  (create, update, suspend, activate); suppliers and their activity; channels with secrets;
+  members; tenant settings; API keys; LLM policy, providers and usage (tenant and platform).
+- Customer portal (`web/apps/customer-portal`): dashboard, documents inbox with upload, review
+  screen (page images, fields, line items, corrections, approve/reject, keyboard shortcuts),
+  review queue, suppliers, settings (general, members, channels, API keys, AI providers). Admin
+  console (`web/apps/admin-console`): dashboard, tenants (overview, settings, members, channels,
+  API keys, suppliers, LLM), documents with the timeline, review queue, LLM providers and usage. Both share `@docproc/ui`
+  and `@docproc/app-shell`, with vitest component tests.
+- `web/e2e`: Playwright against the dev-mode API (sign-in to both apps, the portal review flow,
+  the admin console's tenant and supplier flows).
+
+Still open in Phase 1: the watched-folder and M365 mailbox channels (`.eml` retention), Tesseract
+OCR (image-only pages carry `UNREADABLE_PAGES` and always go to review), the Service Bus transport,
+highlights of field provenance on the page images, and the exit criterion (pilot mailbox, gold set).
+
+## Phase 2 – Structured e-invoices and splitting (2–3 weeks) – in progress
 
 - Factur-X/ZUGFeRD/XRechnung (CII) and UBL parsers to the canonical model; detection in
   stage 2; these never touch OCR or the LLM.
@@ -81,6 +118,22 @@ Tenant status is checked for API keys; for OIDC users it lands with the first te
 - Webhooks and exports (JSON, CSV, UBL).
 - **BYOK**: tenant provider configs, Key Vault flow, credential validation, per-stage model
   selection, portal settings screen; tenant policy for platform-key fallback.
+
+Done:
+
+- `DocProc.Extraction.EInvoice`: UBL 2.1 (invoices, credit notes, PEPPOL BIS 3, XRechnung) and
+  CII D16B (Factur-X / ZUGFeRD, XRechnung) to the canonical model, detected in stage 2 and never
+  sent to OCR or the LLM.
+- Splitting: the heuristic splitter, the LLM splitter for uncertain or long files, and the
+  `MULTI_DOCUMENT_SPLIT` flag.
+- BYOK: tenant and platform provider configurations, per-stage models, the tenant LLM policy with
+  platform-key fallback, keys stored by secret reference (the file-backed store that stands in
+  for Key Vault locally), the portal's AI providers tab and the admin console's LLM screens.
+
+Still open in Phase 2: the manual split tool, purchase-order and delivery-note extraction (a
+delivery note is classified but ends in review with `UNSUPPORTED_TYPE`) with reference matching
+and the three-way match view, webhook delivery (stage 9 writes the outbox row; nothing sends it)
+and exports, the Key Vault secret store, and credential validation of a new key.
 
 ## Phase 3 – Measurement and cost controls (2 weeks, overlaps Phase 2)
 

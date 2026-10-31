@@ -204,7 +204,7 @@ still in the state the failed stage starts from, and otherwise only records the
 
 **Stages.** `IIngestionHandler` (`IngestHandler`) implements stage 1 and the unpacking half of
 stage 2: item kinds from extension and content type, zip archives expanded one level (nested
-archives beyond depth 2 are ignored; a corrupt or truncated archive is ignored with the reason
+archives beyond `Pipeline:MaxArchiveDepth`, default 2, are ignored; a corrupt or truncated archive is ignored with the reason
 `unreadable zip archive: <reader message>`; entries over `Pipeline:MaxArchiveEntryBytes` are
 skipped, and the copy itself stops at that limit, so a header that under-declares the entry size
 does not get around it; an entry that inflates past 1 MiB and more than
@@ -221,8 +221,8 @@ already owns a document for the bytes (disposition `Accepted`) or, when none doe
 strictly earlier candidate (older `CreatedAt`, or the same instant and the smaller v7 id), so two
 ingestions of the same bytes processed at the same time agree on the one that owns the document, an
 older item is never the duplicate of a newer one that is still undecided, and an existing document
-is never created a second time, images under 20 KB and `.ics` files ignored with a reason, one
-`Received` document per remaining candidate, which becomes `Accepted`. The handler commits in two
+is never created a second time, images under `Pipeline:MinimumImageBytes` (default 20 KiB) and `.ics` files
+ignored with a reason, one `Received` document per remaining candidate, which becomes `Accepted`. The handler commits in two
 units of work: the files unpacked from archives are inserted first, as candidates (their `CreatedAt`
 is the unpacking time; the ingestion's version token bumps with them, so a twin message on another
 node drops out before it inserts a second set), and only then are the dispositions decided and the

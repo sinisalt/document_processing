@@ -15,7 +15,7 @@ export default defineConfig({
     tanstackRouter({ target: "react", autoCodeSplitting: true, routesDirectory: "./src/routes", generatedRouteTree: "./src/routeTree.gen.ts" }),
     react(),
     tailwindcss(),
-    // `@/` is this app's src, except inside @docproc/ui where it is that package's src (see packages/ui/vite.ts).
+    // `@/` is this app's src, except inside @docproc/ui where it is that package's src (see packages/ui/vite-plugin.ts).
     docprocAlias(srcDir),
   ],
   server: {

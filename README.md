@@ -20,8 +20,15 @@ with human review where the data could not be read, for restaurant customers.
 
 ## Building and testing
 
-Requirements: the .NET 10 SDK (`global.json` pins the feature band). Docker is only needed for
-the integration tests, which skip themselves when it is absent.
+Requirements:
+
+- the .NET 10 SDK (`global.json` pins the feature band);
+- a TrueType font for the PDF fixture tests: macOS and Windows ship Arial, on Debian/Ubuntu run
+  `sudo apt-get install -y fonts-dejavu-core` (without it every PDF fixture test fails, docs/09
+  "PDF fixtures");
+- Node 22 and pnpm 10 (`corepack enable` picks the version `web/package.json` pins) for the web
+  workspace, see "Web apps and end-to-end tests" below;
+- Docker only for the integration tests, which skip themselves when no Docker daemon answers.
 
 ```bash
 dotnet build DocProc.slnx
@@ -58,8 +65,9 @@ Produce an idempotent SQL script for a DBA or a release pipeline:
 dotnet ef migrations script --idempotent --project src/DocProc.Infrastructure --startup-project src/DocProc.Infrastructure --output artifacts/docproc.sql
 ```
 
-The hosts apply pending migrations on start-up when `ConnectionStrings:DocProc` is configured
-and `Persistence:MigrateOnStartup` is true (the default outside production).
+The API applies pending migrations on start-up when `ConnectionStrings:DocProc` is configured
+and `Persistence:MigrateOnStartup` is true (its default outside production). The worker only
+connects: it migrates only when `Persistence:MigrateOnStartup=true` is set for it explicitly.
 
 ### Running everything locally
 
@@ -121,7 +129,41 @@ curl -s http://localhost:5100/api/v1/me -H "Authorization: Bearer $TOKEN" | jq
 `GET /dev/users` lists the six users. Both endpoints exist only while dev auth is enabled, and
 the host refuses to start with either setting in Production. The AppHost switches both off
 (SQL Server and Keycloak) for the full stack. Details and limits: docs/09 "Running without
-Docker".
+Docker"; every setting the hosts read: docs/09 "Settings reference".
+
+#### Web apps and end-to-end tests
+
+The customer portal and the admin console (`web/apps`) are Vite dev servers in front of that API:
+they proxy `/api` and `/dev` to `VITE_API_PROXY` (default `http://localhost:5100`, the API's launch
+profile) and sign in through `/dev/token` on their `/sign-in` page. The AppHost does not start them.
+From `web/`:
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+```bash
+pnpm dev:portal   # customer portal on http://localhost:5173
+pnpm dev:admin    # admin console on http://localhost:5174
+```
+
+The ports are fixed (`--strictPort`) because the Keycloak realm's redirect URIs name them. To run
+against an API on another port, or to run a second copy, start Vite yourself, for example
+`cd apps/customer-portal && VITE_API_PROXY=http://127.0.0.1:5300 pnpm exec vite --port 5400 --strictPort`.
+`pnpm typecheck`, `pnpm test` (vitest) and `pnpm build` are what CI runs.
+
+The Playwright suite in `web/e2e` drives both apps against the dev-mode API. Every test skips with
+the reason unless `E2E_API_URL` is set and the servers answer, so run the API and both dev servers
+first, then:
+
+```bash
+cd web/e2e && pnpm exec playwright install chromium   # once
+E2E_API_URL=http://127.0.0.1:5100 E2E_PORTAL_URL=http://127.0.0.1:5173 E2E_ADMIN_URL=http://127.0.0.1:5174 pnpm e2e
+```
+
+`PLAYWRIGHT_CHROMIUM_PATH` points Playwright at an installed Chromium instead of its download. The
+tests create their own tenants and uploads, so they can run repeatedly against one database; delete
+`src/DocProc.Api/data/` to start from the seed again.
 
 ### Authentication
 
@@ -131,10 +173,10 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 | Role | Scope | Policies satisfied |
 |---|---|---|
-| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, Review, Read |
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, Review, Ingest, Read |
 | Operator | platform | Platform, Review, Read |
-| TenantAdmin | own tenant | TenantAdmin, Review, Read |
-| Reviewer | own tenant | Review, Read |
+| TenantAdmin | own tenant | TenantAdmin, Review, Ingest, Read |
+| Reviewer | own tenant | Review, Ingest, Read |
 | Viewer | own tenant | Read |
 | API key (`ingest`, `read`) | own tenant | Ingest and/or Read |
 
@@ -158,22 +200,33 @@ curl -s -X POST http://localhost:8080/realms/docproc/protocol/openid-connect/tok
 src/
   DocProc.Domain/             canonical model, flags, state machine, validation rules (no dependencies)
   DocProc.Application/        pipeline contracts and the interfaces infrastructure implements
-  DocProc.Infrastructure/     EF Core model, migrations, tenancy (query filters + SQL Server RLS); blob/mail/PDF/OCR to come
-  DocProc.Llm/                provider-neutral LLM gateway, prompt bundles, portable JSON schemas, replay provider
+  DocProc.Infrastructure/     EF Core model, migrations, tenancy (query filters + SQL Server RLS), SQLite dev mode,
+                              blob stores, PDF processing, keyword classifier, heuristic splitter, secret store
+  DocProc.Llm/                provider-neutral LLM gateway, prompt bundles, portable JSON schemas, replay provider,
+                              the LLM classifier, splitter and invoice extractor
   DocProc.Llm.Anthropic/      Anthropic API and Claude on Foundry adapter
-  DocProc.Llm.OpenAi/         OpenAI / Azure OpenAI adapter (capabilities only until Phase 1)
-  DocProc.Extraction.Profiles/ deterministic extractor-profile engine (Phase 4)
-  DocProc.Extraction.EInvoice/ Factur-X / UBL parsers (Phase 2)
-  DocProc.Api/                ASP.NET Core host (OpenAPI + Scalar reference, health, readiness)
+  DocProc.Llm.OpenAi/         OpenAI, Azure OpenAI and OpenAI-compatible adapter
+  DocProc.Extraction.Profiles/ deterministic extractor-profile engine (Phase 4, empty so far)
+  DocProc.Extraction.EInvoice/ UBL 2.1 and CII (Factur-X / ZUGFeRD / XRechnung) parsers to the canonical model
+  DocProc.Pipeline/           pipeline runner, in-process queue, the handlers of stages 1-7 and 9, demo data
+  DocProc.Api/                ASP.NET Core host: /api/v1 endpoints, auth, dev mode, OpenAPI + Scalar
   DocProc.Worker/             pipeline worker host
   DocProc.ServiceDefaults/    OpenTelemetry, health checks, service discovery, HTTP resilience
   DocProc.AppHost/            Aspire local orchestration and the seeded Keycloak realm
 tests/
   DocProc.Domain.Tests/       validation rules, state machine, value types
-  DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, Anthropic adapter
-  DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): auth, roles, tenant scope, API keys
+  DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, both adapters, LLM stages
+  DocProc.EInvoice.Tests/     UBL / CII / XRechnung mapping, detection, resource limits
+  DocProc.Pipeline.Tests/     stage handlers, runner, retries, duplicate handling, demo data and its replay fixtures
+  DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): endpoints, auth, roles, tenant
+                              scope, API keys, dev mode; the documentation checks under Docs/
+  DocProc.Worker.Tests/       the worker host as Program.cs composes it
   DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers
-  DocProc.Integration.Tests/  model/snapshot checks; Testcontainers (SQL Server 2025) for migrations, RLS and temporal tables, skipped without Docker
+  DocProc.Integration.Tests/  PDF, classifier and splitter fixtures; Testcontainers (SQL Server 2025, Azurite) for
+                              migrations, RLS, temporal tables and the Azure blob store, skipped without Docker
+web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
+                              api-client (generated from the OpenAPI document), e2e (Playwright)
+fixtures/                     demo documents and their LLM replay fixtures (docs/09 "Demo data")
 schemas/                      committed JSON schemas sent to providers
 docs/                         plan and design
 ```

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// End-to-end runs against the API in dependency-free dev mode (SQLite + dev tokens; see README "Run without Docker")
-// and the two Vite dev servers. Screenshots land in web/e2e/screenshots and are referenced from docs/10-screenshots.md.
+// End-to-end runs against the API in dependency-free dev mode (SQLite + dev tokens) and the two Vite dev servers; how to
+// start them: README "Running without Docker" and "Web apps and end-to-end tests". Every test skips without E2E_API_URL.
 const apiUrl = process.env.E2E_API_URL ?? "http://127.0.0.1:5100";
 const portalUrl = process.env.E2E_PORTAL_URL ?? "http://127.0.0.1:5173";
 const adminUrl = process.env.E2E_ADMIN_URL ?? "http://127.0.0.1:5174";

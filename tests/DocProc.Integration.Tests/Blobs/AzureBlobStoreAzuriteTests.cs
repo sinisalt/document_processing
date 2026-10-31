@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Azure.Storage.Blobs;
 using DocProc.Application.Abstractions;
 using DocProc.Infrastructure.Blobs;
 using Testcontainers.Azurite;
@@ -12,6 +11,10 @@ namespace DocProc.Integration.Tests.Blobs;
 /// </summary>
 public sealed class AzureBlobStoreAzuriteTests : IAsyncLifetime
 {
+    internal const string AzuriteImage = "mcr.microsoft.com/azure-storage/azurite:3.35.0";
+
+    internal const string SkipApiVersionCheck = "--skipApiVersionCheck";
+
     private static readonly Guid Tenant = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
     private AzuriteContainer? _container;
@@ -24,13 +27,23 @@ public sealed class AzureBlobStoreAzuriteTests : IAsyncLifetime
             return;
         }
 
-        _container = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:3.35.0").Build();
+        _container = NewAzurite().Build();
         await _container.StartAsync(TestContext.Current.CancellationToken);
 
-        var client = new BlobServiceClient(_container.GetConnectionString());
+        // The production construction path: the connection string the AppHost injects, through AzureBlobClients.
+        var client = AzureBlobClients.Create(new BlobStoreOptions { ConnectionString = _container.GetConnectionString() });
         _store = new AzureBlobStore(client, TimeProvider.System, TimeSpan.FromMinutes(15));
         await _store.EnsureContainersAsync(TestContext.Current.CancellationToken);
     }
+
+    /// <summary>
+    /// Azurite started the way the AppHost starts it (Aspire passes <c>--skipApiVersionCheck</c> too). Every Azurite
+    /// release trails the Blob SDK's default service version: Azure.Storage.Blobs 12.30 sends <c>x-ms-version</c>
+    /// 2026-10-06, Azurite 3.35.0 accepts up to 2025-11-05, and without the switch every request, the first container
+    /// creation included, fails with 400 "The API version … is not supported by Azurite".
+    /// </summary>
+    internal static AzuriteBuilder NewAzurite() =>
+        new AzuriteBuilder(AzuriteImage).WithCommand(SkipApiVersionCheck);
 
     public async ValueTask DisposeAsync()
     {

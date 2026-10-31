@@ -84,14 +84,9 @@ jobs:
       - name: Build the API for the OpenAPI export
         run: dotnet build ../src/DocProc.Api/DocProc.Api.csproj --configuration Release
 
+      # On failure the script prints the API's log itself.
       - name: Regenerate the API client from the built API
-        run: |
-          if ! ./scripts/export-openapi.sh; then
-            echo '::group::API log'
-            cat /tmp/docproc-openapi-export.log || true
-            echo '::endgroup::'
-            exit 1
-          fi
+        run: ./scripts/export-openapi.sh
 
       - name: Check for OpenAPI drift
         run: |
