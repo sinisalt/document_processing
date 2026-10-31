@@ -29,6 +29,8 @@ public sealed class TenantEndpointGuardTests : IAsyncDisposable
     [InlineData("127.0.0.1")]
     [InlineData("127.255.255.254")]
     [InlineData("169.254.169.254")]
+    [InlineData("168.63.129.16")] // Azure's platform virtual IP (DNS, health probes, WireServer), reachable from every VNet
+    [InlineData("::ffff:168.63.129.16")]
     [InlineData("172.16.0.1")]
     [InlineData("172.31.255.255")]
     [InlineData("192.0.0.170")]
@@ -62,6 +64,9 @@ public sealed class TenantEndpointGuardTests : IAsyncDisposable
     [InlineData("172.15.255.255")]
     [InlineData("172.32.0.1")]
     [InlineData("162.159.140.245")]
+    [InlineData("168.63.129.15")]
+    [InlineData("168.63.129.17")]
+    [InlineData("168.63.128.16")]
     [InlineData("::ffff:1.1.1.1")]
     [InlineData("2606:4700:4700::1111")]
     [InlineData("2002:0101:0101::1")] // 6to4 of a public address
@@ -79,6 +84,8 @@ public sealed class TenantEndpointGuardTests : IAsyncDisposable
     [InlineData("https://0x7f000001/", false)]
     [InlineData("https://0x7f.1/", false)]
     [InlineData("https://127.1/", false)]
+    [InlineData("https://168.63.129.16/", false)]
+    [InlineData("https://[::ffff:a83f:8110]/", false)]
     [InlineData("https://[::ffff:7f00:1]/", false)]
     [InlineData("https://LOCALHOST./", false)]
     [InlineData("https://ollama.local/", false)]

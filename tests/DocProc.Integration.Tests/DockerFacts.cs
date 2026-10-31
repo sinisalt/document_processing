@@ -18,7 +18,13 @@ namespace DocProc.Integration.Tests;
 /// </remarks>
 internal static class DockerFacts
 {
-    private static readonly TimeSpan PingTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// What discovery and the ping each get, in seconds. A constant, so a test that bounds its own wait for discovery
+    /// by it does not run this type's initializer, and its wait, first.
+    /// </summary>
+    internal const int TimeoutSeconds = 5;
+
+    private static readonly TimeSpan PingTimeout = TimeSpan.FromSeconds(TimeoutSeconds);
 
     public static bool IsAvailable { get; } = Detect(() => TestcontainersSettings.OS.DockerEndpointAuthConfig, PingTimeout);
 

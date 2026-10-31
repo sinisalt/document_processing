@@ -122,7 +122,9 @@ the document's failure reason. A tenant-chosen endpoint is therefore restricted
 - **At creation** (`POST /llm-providers`): `https` only, no user info in the URL, and the host
   must be a public name or address. Refused with 400 on `endpoint`: loopback, private
   (RFC 1918, CGNAT 100.64/10, IPv6 ULA fc00::/7), link-local (169.254/16 with the cloud
-  metadata address, fe80::/10), unspecified, multicast, documentation and other reserved ranges,
+  metadata address, fe80::/10), Azure's platform virtual IP `168.63.129.16` (public address
+  space, but the platform's DNS, health probes and WireServer, reachable from inside every VNet
+  the Container Apps environment runs in), unspecified, multicast, documentation and other reserved ranges,
   for IPv4 and IPv6 alike, including IPv4-mapped/-compatible IPv6, NAT64, 6to4 and Teredo
   forms and decimal, octal or hexadecimal spellings (`2130706433`, `0177.0.0.1`, `0x7f.1`,
   `127.1`); `localhost`, `*.localhost`, `*.local`, `*.internal`, `*.localdomain`, `*.home.arpa`

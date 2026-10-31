@@ -2,6 +2,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
+using DocProc.Infrastructure.Pdf;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Support;
@@ -25,6 +26,7 @@ internal sealed class NormalizeHandler(
     IPdfProcessor pdf,
     IEInvoiceParser eInvoices,
     IOptions<PipelineOptions> options,
+    IOptions<PdfProcessingOptions> pdfOptions,
     ILogger<NormalizeHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     private static readonly string[] OwnedFlags = [FlagCodes.UnreadablePages];
@@ -117,7 +119,8 @@ internal sealed class NormalizeHandler(
             embedded = null;
         }
 
-        var hasText = part ? textLayer.WordCount > 0 : info.HasTextLayer;
+        // A part is held to the rule stage 2 applies to the whole file, on its own pages only.
+        var hasText = part ? pdfOptions.Value.HasTextLayer(textLayer) : info.HasTextLayer;
         document.PageCount = part ? pageEnd - pageStart + 1 : info.PageCount;
         document.PageStart = pageStart;
         document.PageEnd = pageEnd;

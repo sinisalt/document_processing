@@ -76,10 +76,12 @@ delivery note. Splitting runs before classification:
 3. Each resulting page range becomes a `Document`. Single-document files skip the LLM step.
    A part of a split keeps only its own page images and text layer, not the original PDF (which
    holds every range), so classification and extraction read the part and never the whole file.
-   Stage 2 sets `UNREADABLE_PAGES` (no text layer) only when no page of the file carries text, so
-   each part is decided again from its own sliced text layer: a part without a single word gets the
-   blocking flag and a part with text drops it, even in a mixed scan. A reprocess of a part from
-   Normalize reaches the same answer.
+   Stage 2 sets `UNREADABLE_PAGES` (no text layer) only when no page of the file carries text,
+   where a page carries text when it has more than `DocumentProcessing:Pdf:TextLayerMinimumWordsPerPage`
+   words (default 5), so a page number or a scanner footer such as `Scan 1/2` does not count. Each
+   part is decided again from its own sliced text layer by the same rule: a part none of whose pages
+   has more than that many words gets the blocking flag and a part with text drops it, even in a
+   mixed scan. A reprocess of a part from Normalize reaches the same answer.
    A part reprocessed from Normalize is normalised to its own range again and is not split a
    second time, so its siblings are never created twice.
 
@@ -219,6 +221,11 @@ archive's own size (or 1 MiB), else the archive stops with `the rest was not: th
 past R times its B bytes`, and everything an ingestion unpacks, every level together, to at most
 the ratio times the archive bytes the client uploaded (or 1 MiB), else the ingestion's budget below
 runs out with `the ingestion's limit of N unpacked bytes (R times the archive bytes uploaded) is
+reached`; when the 1 MiB floor is the larger of the two, the reason names the floor instead
+(`the archive inflates past the 1 MiB floor (1048576 bytes; R times its B bytes is less)`,
+`the ingestion's limit of 1048576 unpacked bytes (the 1 MiB floor; R times the B archive bytes
+uploaded is less) is reached`); an archive with more than `Pipeline:MaxArchiveEntries` (default
+200) files stops after that many with `the rest was not: the archive's limit of N unpacked files is
 reached`;
 and one ingestion has a budget across all its archives, nested ones included, of
 `Pipeline:MaxUnpackedBytesPerIngestion` (default 256 MiB) inflated bytes and

@@ -30,7 +30,7 @@ public sealed class PdfPigPdfProcessor(IOptions<PdfProcessingOptions> options) :
         for (var number = 1; number <= document.NumberOfPages; number++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (PdfTextLayerExtractor.CountWords(document.GetPage(number)) > _options.TextLayerMinimumWordsPerPage)
+            if (_options.CountsAsText(PdfTextLayerExtractor.CountWords(document.GetPage(number))))
             {
                 hasTextLayer = true;
                 break;
