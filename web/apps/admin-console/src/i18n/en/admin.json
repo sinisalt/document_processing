@@ -79,7 +79,8 @@
     "retry": "Retry",
     "retryAria": "Retry document {{document}}",
     "inspect": "Inspect",
-    "actions": "Actions"
+    "actions": "Actions",
+    "byStatusAllTenants": "Across all tenants."
   },
   "tenants": {
     "title": "Tenants",
@@ -94,7 +95,7 @@
     "slug": "Slug",
     "slugHint": "Lowercase letters, digits and single dashes; used in URLs and mailbox addresses.",
     "legalName": "Legal name",
-    "vatId": "VAT id",
+    "vatId": "VAT ID",
     "currency": "Currency",
     "country": "Country",
     "timeZone": "Time zone",
@@ -129,7 +130,7 @@
     "identityDescription": "What the tenant is called and where it operates.",
     "edit": "Edit",
     "editTitle": "Edit tenant",
-    "editDescription": "Name, legal name, VAT id and the aliases the matcher recognises as this tenant.",
+    "editDescription": "Name, legal name, VAT ID and the aliases the matcher recognises as this tenant.",
     "save": "Save",
     "saved": "Tenant {{name}} saved.",
     "saveFailed": "The tenant could not be saved.",
@@ -227,7 +228,7 @@
     "created": "Supplier {{name}} created.",
     "createFailed": "The supplier could not be created.",
     "name": "Name",
-    "vatId": "VAT id",
+    "vatId": "VAT ID",
     "taxId": "Tax id",
     "currency": "Currency",
     "emailDomains": "E-mail domains",
@@ -327,13 +328,14 @@
     "receivedAt": "Received",
     "updatedAt": "Updated",
     "search": "Search number or supplier",
-    "flag": "Flag code",
+    "flag": "Flag",
     "from": "Issued from",
     "to": "Issued until",
     "clearFilters": "Clear filters",
     "caption": "Documents",
     "empty": "No documents",
-    "emptyDescription": "No document matches these filters."
+    "emptyDescription": "No document matches these filters.",
+    "allFlags": "All flags"
   },
   "document": {
     "fromStageLoading": "Loading the timeline…",
@@ -347,7 +349,6 @@
     "summary": "Summary",
     "failureReason": "Failure reason",
     "flagsCount": "Flags",
-    "flagsSummary": "{{blocking}} blocking · {{warning}} warning",
     "approvedBy": "Approved by",
     "ingestion": "Source",
     "schemaVersion": "Canonical schema",
@@ -401,7 +402,8 @@
     "approveTitle": "Approve {{document}}?",
     "approveDescription": "The document is published as approved. Blocking flags are overridden by this decision.",
     "approveComment": "Comment (optional)",
-    "approved": "{{document}} approved."
+    "approved": "{{document}} approved.",
+    "sourceFrom": "from {{from}}"
   },
   "timeline": {
     "title": "Timeline",
@@ -426,6 +428,19 @@
       "rejected": "Rejected",
       "corrected": "Corrected",
       "reprocessed": "Reprocessed"
+    },
+    "rawJson": "Raw JSON",
+    "detailKey": {
+      "stage": "Stage",
+      "fromStage": "From stage",
+      "attempt": "Attempt",
+      "error": "Error",
+      "retry": "Retry scheduled",
+      "reason": "Reason",
+      "message": "Message",
+      "code": "Code",
+      "eventType": "Published event",
+      "outboxMessageId": "Outbox message"
     }
   },
   "review": {
@@ -521,7 +536,6 @@
     "policyNone": "None",
     "policyFallback": "Fall back to the platform key",
     "policyFallbackHint": "When the tenant's configuration is disabled or over its cap.",
-    "platformKeyAllowed": "platform key allowed",
     "platformKeyForbidden": "platform key forbidden for this tenant",
     "policyOverrides": "Per-stage overrides",
     "policyOverrideFor": "Configuration for {{stage}}",
@@ -581,5 +595,12 @@
     "DATE_IMPLAUSIBLE": "Implausible date",
     "INVALID_VALUE": "Invalid value",
     "UNSUPPORTED_TYPE": "Unsupported document type"
+  },
+  "failure": {
+    "EncryptedPdf": "Password-protected PDF",
+    "CorruptPdf": "Unreadable PDF",
+    "UnreadablePage": "Unreadable page",
+    "UnsupportedPlatform": "Processor unavailable on this platform",
+    "TooLarge": "File too large"
   }
 }

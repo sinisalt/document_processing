@@ -25,6 +25,7 @@ import {
   type DataTableColumns,
 } from "@docproc/app-shell";
 import { documentStatuses, documentTypes, shortId, type DocumentStatus, type DocumentType } from "@/lib/documents";
+import { flagCodes } from "@/lib/review";
 import { LoadMore } from "@/components/LoadMore";
 
 type DocumentSummary = components["schemas"]["DocumentSummary"];
@@ -104,7 +105,8 @@ function DocumentsPage() {
         helper.accessor((row) => row.tenantName ?? row.tenantId, {
           id: "tenant",
           header: t("documents.tenant"),
-          cell: (info) => (info.row.original.tenantName ? <span className="block min-w-28 whitespace-normal">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{shortId(info.row.original.tenantId)}</span>),
+          // On one line: a wrapped tenant name doubled every row's height.
+          cell: (info) => (info.row.original.tenantName ? <span className="whitespace-nowrap">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{shortId(info.row.original.tenantId)}</span>),
         }),
         helper.accessor("status", { header: t("documents.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
         helper.accessor("type", { header: t("documents.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
@@ -134,6 +136,13 @@ function DocumentsPage() {
     [t, i18n.language],
   );
 
+  // Sorted by what the user reads; a code from the URL that the list does not know still shows (as itself).
+  const flagOptions = useMemo(() => {
+    const codes: string[] = [...flagCodes];
+    if (search.flag && !codes.includes(search.flag)) codes.push(search.flag);
+    return codes.map((code) => ({ code, label: t(`flagCodes.${code}`, { defaultValue: code }) })).sort((a, b) => a.label.localeCompare(b.label, i18n.language));
+  }, [search.flag, t, i18n.language]);
+
   return (
     <>
       <PageHeader title={t("documents.title")} description={tenantName ? t("documents.descriptionTenant", { tenant: tenantName }) : t("documents.descriptionPlatform")} />
@@ -152,7 +161,7 @@ function DocumentsPage() {
           <>
             {canSwitch && switcher && (
               <Select value={tenantId ?? PLATFORM} onValueChange={(value) => switcher.setTenantId(value === PLATFORM ? null : value)}>
-                <SelectTrigger className="w-52" aria-label={t("documents.tenantFilter")}>
+                <SelectTrigger size="sm" className="w-52" aria-label={t("documents.tenantFilter")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -166,7 +175,7 @@ function DocumentsPage() {
               </Select>
             )}
             <Select value={search.status ?? ALL} onValueChange={(value) => set({ status: value === ALL ? undefined : (value as DocumentStatus) })}>
-              <SelectTrigger className="w-44" aria-label={t("documents.status")}>
+              <SelectTrigger size="sm" className="w-44" aria-label={t("documents.status")}>
                 <SelectValue placeholder={t("documents.status")} />
               </SelectTrigger>
               <SelectContent>
@@ -179,7 +188,7 @@ function DocumentsPage() {
               </SelectContent>
             </Select>
             <Select value={search.type ?? ALL} onValueChange={(value) => set({ type: value === ALL ? undefined : (value as DocumentType) })}>
-              <SelectTrigger className="w-44" aria-label={t("documents.type")}>
+              <SelectTrigger size="sm" className="w-44" aria-label={t("documents.type")}>
                 <SelectValue placeholder={t("documents.type")} />
               </SelectTrigger>
               <SelectContent>
@@ -196,26 +205,34 @@ function DocumentsPage() {
                 {t("documents.search")}
               </Label>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="w-72 pl-8" />
+              <Input id="document-search" type="search" defaultValue={search.q ?? ""} onChange={(event) => set({ q: event.target.value || undefined })} placeholder={t("documents.search")} className="h-8 w-72 pl-8" />
             </div>
-            <div>
-              <Label htmlFor="document-flag" className="sr-only">
-                {t("documents.flag")}
-              </Label>
-              <Input id="document-flag" defaultValue={search.flag ?? ""} onChange={(event) => set({ flag: event.target.value || undefined })} placeholder={t("documents.flag")} className="w-40 font-mono text-xs uppercase" />
-            </div>
+            {/* The flags by their translated names, not a free-text box for raw codes. */}
+            <Select value={search.flag ?? ALL} onValueChange={(value) => set({ flag: value === ALL ? undefined : value })}>
+              <SelectTrigger size="sm" className="w-56" aria-label={t("documents.flag")}>
+                <SelectValue placeholder={t("documents.flag")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>{t("documents.allFlags")}</SelectItem>
+                {flagOptions.map((option) => (
+                  <SelectItem key={option.code} value={option.code}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="flex items-center gap-1">
               <Label htmlFor="document-from" className="sr-only">
                 {t("documents.from")}
               </Label>
-              <Input id="document-from" type="date" value={search.from ?? ""} onChange={(event) => set({ from: event.target.value || undefined })} className="w-38" aria-label={t("documents.from")} />
+              <Input id="document-from" type="date" value={search.from ?? ""} onChange={(event) => set({ from: event.target.value || undefined })} className="h-8 w-38" aria-label={t("documents.from")} />
               <span aria-hidden className="text-muted-foreground">
                 –
               </span>
               <Label htmlFor="document-to" className="sr-only">
                 {t("documents.to")}
               </Label>
-              <Input id="document-to" type="date" value={search.to ?? ""} onChange={(event) => set({ to: event.target.value || undefined })} className="w-38" aria-label={t("documents.to")} />
+              <Input id="document-to" type="date" value={search.to ?? ""} onChange={(event) => set({ to: event.target.value || undefined })} className="h-8 w-38" aria-label={t("documents.to")} />
             </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={() => void navigate({ search: {}, replace: true })}>

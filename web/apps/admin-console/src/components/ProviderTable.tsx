@@ -6,6 +6,7 @@ import type { components } from "@docproc/api-client";
 import { Badge, Button } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, unwrap, useApi, type DataTableColumns, type DataTableQueryState } from "@docproc/app-shell";
 import { formatUsd } from "@/lib/usage";
+import { EmptyCell } from "./EmptyCell";
 
 export type LlmProvider = components["schemas"]["LlmProviderResponse"];
 
@@ -78,9 +79,9 @@ export function ProviderTable({ providers, isLoading, query, scope, queryKey, ca
             </ul>
           ),
         }),
-        helper.accessor("endpoint", { header: t("llm.endpoint"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
-        helper.accessor("keyLast4", { header: t("llm.key"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{`••••${info.getValue()}`}</span> : "—") }),
-        helper.accessor("monthlySpendCapUsd", { header: t("llm.spendCap"), cell: (info) => <span className="tabular-nums">{info.getValue() == null ? "—" : formatUsd(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("endpoint", { header: t("llm.endpoint"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : <EmptyCell />) }),
+        helper.accessor("keyLast4", { header: t("llm.key"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{`••••${info.getValue()}`}</span> : <EmptyCell />) }),
+        helper.accessor("monthlySpendCapUsd", { header: t("llm.spendCap"), cell: (info) => (info.getValue() == null ? <EmptyCell /> : <span className="tabular-nums">{formatUsd(info.getValue(), i18n.language)}</span>) }),
         helper.accessor("lastError", { header: t("llm.lastError"), cell: (info) => {
             // Only an actual error is red; "no error" is the muted dash every other empty cell shows.
             const error = info.getValue();
@@ -89,7 +90,7 @@ export function ProviderTable({ providers, isLoading, query, scope, queryKey, ca
                 {error}
               </span>
             ) : (
-              <span className="text-muted-foreground">—</span>
+              <EmptyCell />
             );
           },
         }),

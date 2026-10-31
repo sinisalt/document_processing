@@ -120,10 +120,10 @@ function DevUserCards({ signIn }: { signIn: (username: string) => Promise<void> 
         {users.data?.map((user) => {
           const busy = pending === user.username;
           return (
-            <li key={user.username}>
+            <li key={user.username} className="flex">
               <button
                 type="button"
-                className="group w-full rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait"
+                className="group h-full w-full rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait"
                 onClick={() => void pick(user)}
                 disabled={pending !== null}
                 aria-label={t("auth.signInAs", { name: user.displayName })}
@@ -147,7 +147,7 @@ function DevUserCards({ signIn }: { signIn: (username: string) => Promise<void> 
                     ))}
                     <Badge variant="outline" className="gap-1">
                       {user.tenantId ? <Building2 className="size-3" aria-hidden /> : <Globe className="size-3" aria-hidden />}
-                      {user.tenantId ? t("auth.tenant", { id: user.tenantId.slice(0, 8) }) : t("auth.platformScope")}
+                      {user.tenantId ? (user.tenantName ?? t("auth.tenant", { id: user.tenantId.slice(0, 8) })) : t("auth.platformScope")}
                     </Badge>
                   </CardContent>
                 </Card>

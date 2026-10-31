@@ -19,6 +19,7 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useSidebar,
 } from "@docproc/ui";
 import { useAuth } from "../auth/useAuth";
 import { TenantSwitcher } from "../api/TenantSwitcher";
@@ -44,6 +45,20 @@ export interface AppLayoutProps {
 type LinkProps = ComponentProps<typeof Link>;
 
 /**
+ * On a phone the sidebar is a sheet over the page: it repeats the user menu (account, language, theme, sign out) at
+ * its foot, so the sheet is not only nav. On a desktop the header's menu is always in view and this renders nothing.
+ */
+function MobileUserFooter() {
+  const { isMobile } = useSidebar();
+  if (!isMobile) return null;
+  return (
+    <SidebarFooter className="border-t">
+      <UserMenu placement="sidebar" />
+    </SidebarFooter>
+  );
+}
+
+/**
  * The frame of both apps: shadcn sidebar with the app's nav (filtered by policy), a header with the user menu, and the
  * routed content. Nav links are plain strings; the apps register their typed route tree, so the `to` is widened here.
  */
@@ -62,7 +77,7 @@ export function AppLayout({ nav, appName, logo, headerStart, headerEnd, showTena
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded focus:bg-background focus:px-3 focus:py-2">
         {t("app.skipToContent")}
       </a>
-      <Sidebar collapsible="icon" mobileTitle={t("nav.sidebar")} mobileDescription={t("nav.sidebarDescription")}>
+      <Sidebar collapsible="icon" mobileTitle={t("nav.sidebar")} mobileDescription={t("nav.sidebarDescription")} mobileCloseLabel={t("nav.closeSidebar")}>
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -105,6 +120,7 @@ export function AppLayout({ nav, appName, logo, headerStart, headerEnd, showTena
           </nav>
         </SidebarContent>
         {sidebarFooter && <SidebarFooter>{sidebarFooter}</SidebarFooter>}
+        <MobileUserFooter />
         <SidebarRail aria-label={t("nav.toggleSidebar")} title={t("nav.toggleSidebar")} />
       </Sidebar>
       {/* min-w-0: a flex item otherwise grows to its content, so a wide table or the review grid pushed the page off-screen. */}

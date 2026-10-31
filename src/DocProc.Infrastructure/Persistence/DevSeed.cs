@@ -17,6 +17,16 @@ public static class DevSeed
     public static readonly Guid TenantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     public static readonly Guid TenantB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
+    /// <summary>The names the seed gives tenant A and B; the dev sign-in page shows them on the user cards.</summary>
+    public const string TenantAName = "Gasthaus zur Post GmbH";
+
+    /// <inheritdoc cref="TenantAName"/>
+    public const string TenantBName = "Pizzeria Napoli d.o.o.";
+
+    /// <summary>The seeded name of <paramref name="tenantId"/>, or null for platform scope and unknown tenants.</summary>
+    public static string? TenantNameOf(Guid? tenantId) =>
+        tenantId == TenantA ? TenantAName : tenantId == TenantB ? TenantBName : null;
+
     public static readonly Guid TenantAUploadChannel = Guid.Parse("aaaaaaaa-0001-4000-8000-000000000001");
     public static readonly Guid TenantBUploadChannel = Guid.Parse("bbbbbbbb-0001-4000-8000-000000000001");
 
@@ -64,7 +74,7 @@ public static class DevSeed
         inserted += await AddMissingAsync(db.Tenants, t => t.Id == TenantA, () => new Tenant
         {
             Id = TenantA,
-            Name = "Gasthaus zur Post GmbH",
+            Name = TenantAName,
             Slug = "tenant-a",
             LegalName = "Gasthaus zur Post GmbH",
             VatId = "DE123456789",
@@ -80,7 +90,7 @@ public static class DevSeed
         inserted += await AddMissingAsync(db.Tenants, t => t.Id == TenantB, () => new Tenant
         {
             Id = TenantB,
-            Name = "Pizzeria Napoli d.o.o.",
+            Name = TenantBName,
             Slug = "tenant-b",
             LegalName = "Pizzeria Napoli d.o.o.",
             VatId = "HR12345678901",

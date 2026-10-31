@@ -9,7 +9,8 @@
     "main": "Hauptnavigation",
     "toggleSidebar": "Seitenleiste umschalten",
     "sidebar": "Navigation",
-    "sidebarDescription": "Die Seiten der Anwendung."
+    "sidebarDescription": "Die Seiten der Anwendung.",
+    "closeSidebar": "Navigation schließen"
   },
   "auth": {
     "signIn": "Anmelden",

@@ -45,10 +45,10 @@ describe("PageThumbnails", () => {
     expect(retryPageImage(2, new ApiError(503, undefined, "/x"))).toBe(false);
   });
 
-  it("shows the unavailable icon for a missing page after one request", async () => {
+  it("says in words that a missing page is unavailable, after one request", async () => {
     shell.handlers.set("GET /api/v1/documents/{id}/pages/{n}.png", () => ({ status: 404, body: { title: "Not found", status: 404 } }));
     renderScreen(<PageThumbnails documentId={ID} pageCount={1} />);
-    expect(await screen.findByLabelText("Page image not available")).toBeInTheDocument();
+    expect(await screen.findByText("Page image not available")).toBeVisible();
     expect(shell.calls).toHaveLength(1);
   });
 });

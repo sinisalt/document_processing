@@ -15,8 +15,8 @@ export function KeyValue({ items, columns = 2, className }: { items: KeyValueIte
       {items.map((item, index) => (
         <div key={index} className="min-w-0">
           <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{item.label}</dt>
-          {/* Monospace only for an actual value: the empty dash in a small mono face reads as a different, shorter dash. */}
-          <dd className={cn("mt-0.5 break-words", item.mono && item.value != null && item.value !== "—" && "font-mono text-xs")}>{item.value ?? "—"}</dd>
+          {/* Monospace only for an actual value (an empty dash in mono reads as a different dash), at the text size of the other values so the rows share a baseline. */}
+          <dd className={cn("mt-0.5 break-words", item.mono && item.value != null && item.value !== "—" && "font-mono")}>{item.value ?? "—"}</dd>
         </div>
       ))}
     </dl>

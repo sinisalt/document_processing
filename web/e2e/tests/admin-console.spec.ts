@@ -35,7 +35,7 @@ test.describe("admin console", () => {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
     await expect(dialog.getByLabel("Slug")).toHaveValue(`e2e-bistro-${suffix}`);
     await dialog.getByLabel("Legal name").fill(`${name} GmbH`);
-    await dialog.getByLabel("VAT id").fill("DE999999999");
+    await dialog.getByLabel("VAT ID").fill("DE999999999");
     await dialog.getByLabel("Currency").fill("EUR");
     await dialog.getByLabel("Country").fill("AT");
     await dialog.getByLabel("Time zone").fill("Europe/Vienna");

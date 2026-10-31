@@ -65,7 +65,8 @@ function TenantDetailPage() {
             <Skeleton className="h-8 w-48" />
           )
         }
-        description={tenant.data ? `${tenant.data.legalName} · ${tenant.data.slug}` : undefined}
+        // The legal name only when it differs from the title ("Gasthaus zur Post GmbH · Gasthaus zur Post GmbH" said nothing).
+        description={tenant.data ? [tenant.data.legalName !== tenant.data.name ? tenant.data.legalName : null, tenant.data.slug, tenant.data.countryCode].filter(Boolean).join(" · ") : undefined}
         actions={
           <Button variant="ghost" size="sm" asChild>
             <Link to="/tenants">

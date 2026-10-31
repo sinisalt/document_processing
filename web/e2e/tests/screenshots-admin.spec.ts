@@ -26,7 +26,7 @@ const CORRUPT_PDF = Buffer.from("%PDF-1.7\n%corrupt screenshot fixture: truncate
 
 // Tenant B's invoice in review: the e2e fixture under a fixed number, its supplier marked "always review".
 const FIXTURE_NUMBER = "2026/4471";
-const REVIEW_NUMBER = "SHOT-B-2026-0042";
+const REVIEW_NUMBER = "GH-2026-10-0042";
 const REVIEW_SUPPLIER = { name: "Getränke Huber GmbH & Co. KG", vatId: "DE276543210" };
 
 type Theme = "light" | "dark";

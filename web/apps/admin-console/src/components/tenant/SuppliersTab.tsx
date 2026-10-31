@@ -280,7 +280,7 @@ export function SuppliersTab() {
                 {t("suppliers.search")}
               </Label>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input id="supplier-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("suppliers.search")} className="w-64 pl-8" />
+              <Input id="supplier-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("suppliers.search")} className="h-8 w-64 pl-8" />
             </div>
             <CreateSupplierDialog />
           </>

@@ -35,6 +35,8 @@ import {
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
 import { JsonBlock } from "../KeyValue";
+import { EmptyCell } from "../EmptyCell";
+import { RowCount } from "../LoadMore";
 
 type Channel = components["schemas"]["ChannelResponse"];
 
@@ -233,7 +235,7 @@ export function ChannelsTab() {
           ),
         }),
         helper.accessor("hasSecret", { header: t("channels.hasSecret"), cell: (info) => (info.getValue() ? t("yes") : t("no")) }),
-        helper.accessor("lastPolledAt", { header: t("channels.lastPolledAt"), sortFn: "datetime", cell: (info) => <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("lastPolledAt", { header: t("channels.lastPolledAt"), sortFn: "datetime", cell: (info) => (info.getValue() ? <span className="whitespace-nowrap">{formatDateTime(info.getValue(), i18n.language)}</span> : <EmptyCell />) }),
         helper.accessor("lastError", { header: t("channels.lastError"), cell: (info) => {
             // Only an actual error is red; "no error" is the muted dash every other empty cell shows.
             const error = info.getValue();
@@ -242,7 +244,7 @@ export function ChannelsTab() {
                 {error}
               </span>
             ) : (
-              <span className="text-muted-foreground">—</span>
+              <EmptyCell />
             );
           },
         }),
@@ -281,6 +283,7 @@ export function ChannelsTab() {
         getRowId={(row) => row.id}
         isLoading={channels.isPending} query={channels}
         toolbar={<CreateChannelDialog />}
+        footer={<RowCount count={channels.data?.length} />}
         caption={t("channels.caption")}
         emptyTitle={t("channels.empty")}
         emptyDescription={t("channels.emptyDescription")}

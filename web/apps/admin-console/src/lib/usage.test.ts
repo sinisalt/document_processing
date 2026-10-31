@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisLabel, daysBetween, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
+import { axisLabel, daysBetween, fillDays, formatUsd, isoDate, lastDaysRange, monthRange, niceTicks, sumBuckets, tokensOf, usageRows, type LlmUsageBucket } from "./usage";
 
 function bucket(key: string, overrides: Partial<LlmUsageBucket> = {}): LlmUsageBucket {
   return { key, calls: 10, errors: 1, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50, cacheWriteTokens: 25, reasoningTokens: 5, estimatedCostUsd: 0.5, ...overrides };
@@ -73,12 +73,29 @@ describe("aggregation", () => {
 });
 
 describe("formatting", () => {
-  it("formatUsd shows four decimals under a dollar and two above", () => {
-    expect(formatUsd(0.01234, "en")).toBe("$0.0123");
+  it("formatUsd gives every amount the same two decimals, so a column does not mix precisions", () => {
+    // The usage table showed $0.2074 next to $0.098, the dashboard $1.78 next to $0.2646.
+    expect(formatUsd(0.2074, "en")).toBe("$0.21");
+    expect(formatUsd(0.098, "en")).toBe("$0.10");
+    expect(formatUsd(0.2646, "de")).toBe("0,26\u00a0$");
     expect(formatUsd(12.5, "en")).toBe("$12.50");
     expect(formatUsd(0, "en")).toBe("$0.00");
     expect(formatUsd("3.25", "en")).toBe("$3.25");
     expect(formatUsd(null, "en")).toBe("—");
+  });
+
+  it("formatUsd says a tiny non-zero amount is below a cent instead of rounding it to zero", () => {
+    expect(formatUsd(0.0012, "en")).toBe("< $0.01");
+    expect(formatUsd(0.0012, "en", 4)).toBe("$0.0012");
+  });
+
+  it("niceTicks steps by 1, 2 or 5 times a power of ten and covers the maximum", () => {
+    // The chart's axis read $0.055 / $0.165 for a maximum of $0.22.
+    expect(niceTicks(0.22)).toEqual([0, 0.1, 0.2, 0.3]);
+    expect(niceTicks(0.18)).toEqual([0, 0.05, 0.1, 0.15, 0.2]);
+    expect(niceTicks(1.78)).toEqual([0, 0.5, 1, 1.5, 2]);
+    expect(niceTicks(0.004)).toEqual([0, 0.01]);
+    expect(niceTicks(0)).toEqual([0, 0.01]);
   });
 });
 

@@ -222,7 +222,9 @@ export function DataTable<TData extends RowData>({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {(toolbar || enableColumnVisibility) && (
-        <div className="flex flex-wrap items-center gap-2">
+        // items-start: when the filters wrap onto a second row, Columns stays level with the first one instead of
+        // floating halfway between the two.
+        <div className="flex flex-wrap items-start gap-2">
           <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
           {enableColumnVisibility && (
             <DropdownMenu>

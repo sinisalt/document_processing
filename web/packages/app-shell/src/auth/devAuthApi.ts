@@ -15,6 +15,8 @@ export interface DevUser {
   subject: string;
   roles: string[];
   tenantId: string | null;
+  /** The seeded name of the user's tenant (sign-in cards show it); null in platform scope. */
+  tenantName?: string | null;
 }
 
 export interface DevTokenResponse {

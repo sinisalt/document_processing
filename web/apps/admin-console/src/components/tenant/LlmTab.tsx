@@ -59,7 +59,8 @@ function PolicyForm({ policy, providers }: { policy: Policy; providers: LlmProvi
           <Label htmlFor="policy-fallback">{t("llm.policyFallback")}</Label>
           <p className="text-xs text-muted-foreground">
             {t("llm.policyFallbackHint")}{" "}
-            {policy.allowPlatformKeyAtAll ? <Badge variant="outline">{t("llm.platformKeyAllowed")}</Badge> : <Badge variant="destructive">{t("llm.platformKeyForbidden")}</Badge>}
+            {/* The switch shows an allowed fallback; only the platform's veto, which also disables it, needs saying. */}
+            {!policy.allowPlatformKeyAtAll && <Badge variant="destructive">{t("llm.platformKeyForbidden")}</Badge>}
           </p>
         </div>
         <Switch id="policy-fallback" checked={fallback} onCheckedChange={setFallback} disabled={!policy.allowPlatformKeyAtAll} />

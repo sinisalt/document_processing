@@ -64,7 +64,11 @@ function PageThumbnail({ documentId, page, className }: { documentId: string; pa
         {blob.isPending ? (
           <Skeleton className="size-full" />
         ) : blob.isError || !url ? (
-          <FileQuestion className="size-6 text-muted-foreground" aria-label={t("document.pageUnavailable")} />
+          // Said in words, not only in the icon's label: a grey box with a question mark explained nothing.
+          <div className="flex flex-col items-center gap-2 p-2 text-center text-xs text-muted-foreground">
+            <FileQuestion className="size-6" aria-hidden />
+            <span>{t("document.pageUnavailable")}</span>
+          </div>
         ) : (
           <img src={url} alt={t("document.pageAlt", { page })} className="size-full object-contain" />
         )}
