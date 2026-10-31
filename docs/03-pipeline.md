@@ -51,6 +51,10 @@ Output: `Ingestion` + `IngestionItem` rows, blobs stored, SHA-256 computed. Exac
   recorded reason.
 - Detect **embedded structured data first**: Factur-X / ZUGFeRD (XML attached inside a PDF/A-3),
   XRechnung / UBL / CII XML attachments, Peppol envelopes. These skip OCR and the LLM entirely.
+  The structured data is a fast path, not a gate: an attachment the e-invoice parser does not
+  recognise (ZUGFeRD 1.0, a broken file) is not kept, and one it recognises but cannot parse is
+  skipped by classification, matching and extraction, so such a PDF is read from its pages. Only
+  a bare XML file, which has no pages, fails on XML that does not parse.
 - Convert everything else to a canonical pair: a PDF plus one PNG per page at 200 dpi (for
   classification, LLM vision input and the review UI), plus a **positioned text layer**
   (words with bounding boxes) from the PDF text if present, otherwise from OCR.
@@ -70,6 +74,11 @@ delivery note. Splitting runs before classification:
    renders to thumbnails (long edge 768 px) and attaches at most the first 40 pages; the text of
    every page is always sent, and the model is told when thumbnails were left out.
 3. Each resulting page range becomes a `Document`. Single-document files skip the LLM step.
+   A part of a split keeps only its own page images and text layer, not the original PDF (which
+   holds every range), so classification and extraction read the part and never the whole file.
+   What stage 2 found about the pages (no text layer: `UNREADABLE_PAGES`) goes with every part.
+   A part reprocessed from Normalize is normalised to its own range again and is not split a
+   second time, so its siblings are never created twice.
 
 ## Stage 4 – Classify
 
@@ -187,7 +196,11 @@ handlers (or a handler and a reviewer) that loaded the same row and both write i
 each other. The second writer's `SaveChanges` fails with `DbUpdateConcurrencyException`; a stage
 handler treats that as `Skipped` (an Information log line, no failure, no retry, nothing enqueued),
 `IngestHandler` drops its attempt the same way, and `FailureRecorder` drops its record because the
-other writer's outcome stands.
+other writer's outcome stands. The token only catches a writer that commits between the recorder's
+load and its save; a twin that already advanced the document earlier is caught by the recorder's
+own status check: it moves a document to `Failed` (and raises the flag) only while the document is
+still in the state the failed stage starts from, and otherwise only records the
+`document.stage_failed` event.
 
 **Stages.** `IIngestionHandler` (`IngestHandler`) implements stage 1 and the unpacking half of
 stage 2: item kinds from extension and content type, zip archives expanded one level (nested
@@ -249,9 +262,12 @@ and replaces them on every run; `Split`, `Classify` and `Extract` also own
 run clears it.
 
 **Failure policy.** A `DocumentProcessingException` (encrypted or corrupt PDF, too large) or a
-`StageFailedException` (unsupported format, XML that is not an e-invoice or does not parse, no
-extraction path) is about the document: `Failed(reason)` with a `document.stage_failed` event and no
-retry. A retryable
+`StageFailedException` (unsupported format, XML that is not an e-invoice or does not parse and no
+pages to fall back on, no extraction path) is about the document: `Failed(reason)` with a
+`document.stage_failed` event and no retry. So is an `LlmException` for a request the provider
+refused (`ContentRefused`) or rejected (`InvalidRequest`, which includes a replay store miss): the
+same request would get the same answer, so it is sent once and the document ends `Failed` without
+the provider flag. A retryable
 `LlmException` (rate limit, transient) is re-enqueued with exponential backoff
 (`Pipeline:RetryBaseDelay`, default 5 s, doubled per attempt, capped by `Pipeline:MaxRetryDelay`)
 up to `Pipeline:MaxAttempts` (default 5); the last attempt ends `Failed` with the

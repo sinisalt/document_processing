@@ -25,9 +25,9 @@ public sealed record DemoDataLocation(string Root);
 /// <see cref="DemoData"/>. On every start-up it then resumes the demo work an earlier process left behind, because
 /// the in-process queue is not durable: a demo ingestion still <see cref="IngestionStatus.Received"/> gets its
 /// <see cref="ProcessIngestion"/> again, a demo document stuck in a pipeline state gets the <see cref="ProcessDocument"/>
-/// of the stage that continues it (<see cref="DemoData.ResumeStage"/>); the handlers drop a message whose work is done,
-/// so a twin is harmless. Finally every fixture file of <see cref="DemoDataLocation"/> that is new is ingested for the
-/// tenant whose slug names its folder, through the same <see cref="UploadIntake"/> the API upload uses (raw blob,
+/// of the stage that continues it (<see cref="DemoData.ResumeStage"/>), and a settled one without an outbox row gets its
+/// publish message again; the handlers drop a message whose work is done, so a twin is harmless. Finally every
+/// fixture file of <see cref="DemoDataLocation"/> that is new is ingested for the tenant whose slug names its folder, through the same <see cref="UploadIntake"/> the API upload uses (raw blob,
 /// ingestion with one candidate item, <see cref="ProcessIngestion"/> after the commit). A file counts as present when
 /// the tenant already has an ingestion with that source file name, so a restart, or a second host on the same
 /// database, adds nothing.
@@ -37,6 +37,7 @@ public sealed class DemoDataHostedService(
     IBlobStore blobs,
     IPipelineQueue queue,
     LlmReplayOptions replay,
+    ILlmCredentialStore credentials,
     PromptCatalogue prompts,
     PriceTable prices,
     DemoDataLocation location,
@@ -60,6 +61,9 @@ public sealed class DemoDataHostedService(
         DocumentStatus.Received, DocumentStatus.Normalized, DocumentStatus.Split, DocumentStatus.Classified,
         DocumentStatus.Matched, DocumentStatus.Extracted, DocumentStatus.Validated,
     ];
+
+    /// <summary>The settled states; the publish stage writes their outbox row (<see cref="DocumentStateMachine.IsSettled"/>).</summary>
+    private static readonly DocumentStatus[] SettledStatuses = [DocumentStatus.AutoApproved, DocumentStatus.Approved, DocumentStatus.Rejected];
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -166,6 +170,22 @@ public sealed class DemoDataHostedService(
 
         if (config.Kind != LlmProviderKind.Replay)
         {
+            // Resolved the way the gateway resolves it, so a configuration whose key is missing is reported now
+            // instead of through the first document that ends Failed.
+            try
+            {
+                await credentials.GetAsync(config.ToDomain(), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is LlmException or ArgumentException)
+            {
+                logger.LogWarning(
+                    "LLM platform configuration {ConfigId} ({Kind}) is active but has no usable key, so its LLM calls will fail and those documents end Failed: {Reason}",
+                    config.Id,
+                    config.Kind,
+                    ex.Message);
+                return;
+            }
+
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation("LLM platform configuration in use: {ConfigId} ({Kind}).", config.Id, config.Kind);
@@ -216,6 +236,20 @@ public sealed class DemoDataHostedService(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // A settled document whose publish message died with the process has no outbox row, so no webhook would ever
+        // tell anyone; the publish stage is idempotent, so queuing it again for every such document is safe.
+        var unpublished = await db.Documents.AsNoTracking()
+            .Where(d => d.TenantId == tenant.Id
+                        && SettledStatuses.Contains(d.Status)
+                        && !db.OutboxMessages.Any(m => m.DocumentId == d.Id)
+                        && d.IngestionItem != null
+                        && d.IngestionItem.Ingestion != null
+                        && d.IngestionItem.Ingestion.SourceFileName != null
+                        && names.Contains(d.IngestionItem.Ingestion.SourceFileName))
+            .Select(d => new { d.Id, d.Status, File = d.IngestionItem!.FileName })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         foreach (var ingestion in ingestions)
         {
             await queue.EnqueueAsync(new ProcessIngestion(tenant.Id, ingestion.Id), cancellationToken).ConfigureAwait(false);
@@ -239,6 +273,16 @@ public sealed class DemoDataHostedService(
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation("Resumed demo document {DocumentId} ({File}) of tenant {Slug}: {Status}, queued for stage {Stage}.", document.Id, document.File, tenant.Slug, document.Status, stage);
+            }
+        }
+
+        foreach (var document in unpublished.OrderBy(d => d.File, StringComparer.Ordinal).ThenBy(d => d.Id))
+        {
+            await queue.EnqueueAsync(new ProcessDocument(tenant.Id, document.Id, PipelineStage.Publish), cancellationToken).ConfigureAwait(false);
+            resumed++;
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Resumed demo document {DocumentId} ({File}) of tenant {Slug}: {Status} without an outbox row, queued for stage {Stage}.", document.Id, document.File, tenant.Slug, document.Status, PipelineStage.Publish);
             }
         }
 

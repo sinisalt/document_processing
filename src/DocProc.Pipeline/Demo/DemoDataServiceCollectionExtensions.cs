@@ -1,7 +1,7 @@
 using DocProc.Application.Abstractions;
 using DocProc.Infrastructure.Persistence;
-using Microsoft.Extensions.Configuration;
 using DocProc.Llm.Providers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;

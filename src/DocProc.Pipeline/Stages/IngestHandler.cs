@@ -4,6 +4,7 @@ using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Pipeline.Intake;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -494,7 +495,7 @@ internal sealed class IngestHandler(
                 TenantId = ingestion.TenantId,
                 IngestionId = ingestion.Id,
                 ParentItemId = archiveItem.Id,
-                FileName = entry.Name,
+                FileName = UploadIntake.FitFileName(entry.Name),
                 MimeType = mimeType,
                 SizeBytes = content.Length,
                 Sha256 = stored.Sha256,

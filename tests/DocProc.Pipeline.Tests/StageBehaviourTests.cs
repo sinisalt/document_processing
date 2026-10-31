@@ -2,6 +2,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
+using DocProc.Llm;
 using DocProc.Pipeline.Tests.Pdf;
 using Microsoft.EntityFrameworkCore;
 
@@ -128,6 +129,101 @@ public class StageBehaviourTests
         var task = await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().SingleAsync(t => t.DocumentId == document.Id));
         task.Reason.ShouldContain(FlagCodes.UnreadablePages);
         (await host.EventsAsync(document.Id)).ShouldContain(e => e.EventType == DocumentEventTypes.StageCompleted && e.ToStatus == DocumentStatus.Normalized && e.DetailsJson!.Contains("\"hasTextLayer\":false"));
+        host.Llm.Remaining.ShouldBe(0);
+    }
+
+    /// <summary>ZUGFeRD 1.0: a known attachment name and a readable root, but no flavour the e-invoice parser supports.</summary>
+    private const string Zugferd1 =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rsm:CrossIndustryDocument xmlns:rsm=\"urn:ferd:CrossIndustryDocument:invoice:1p0\">" +
+        "<rsm:HeaderExchangedDocument><ID>RE-2026-0042</ID></rsm:HeaderExchangedDocument></rsm:CrossIndustryDocument>";
+
+    /// <summary>A UBL invoice cut off mid-element: detected as UBL, but it does not parse.</summary>
+    private const string TruncatedUbl =
+        "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\" xmlns:cbc=\"urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2\">" +
+        "<cbc:CustomizationID>urn:x</cbc:Customiz";
+
+    [Theory]
+    [InlineData("ZUGFeRD-invoice.xml", Zugferd1, false)]
+    [InlineData("factur-x.xml", TruncatedUbl, true)]
+    public async Task A_pdf_whose_embedded_e_invoice_cannot_be_read_is_classified_and_extracted_from_its_pages(string fileName, string xml, bool detectable)
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings =>
+        {
+            settings["DocumentProcessing:Classifier:ConfidenceThreshold"] = "0.99";
+            settings["DocumentProcessing:Splitter:ConfidenceThreshold"] = "0";
+        });
+        await host.AddReplayProviderAsync();
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+        var pdf = TestPdfs.GermanInvoiceWithAttachment(fileName, System.Text.Encoding.UTF8.GetBytes(xml));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.pdf", PdfMime, pdf)]);
+
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.FailureReason.ShouldBeNull();
+        document.Status.ShouldNotBe(DocumentStatus.Failed);
+        document.PageCount.ShouldBe(2);
+        document.Type.ShouldBe(DocumentType.Invoice);
+        document.TypeSource.ShouldBe(TypeSource.Llm);
+        document.ExtractionMethod.ShouldBe(ExtractionMethod.Llm);
+        document.DocumentNumber.ShouldBe(TestPdfs.InvoiceNumber);
+
+        // Stage 2 keeps only XML the parser recognises; one it recognises but cannot parse is skipped by stage 4.
+        var events = await host.EventsAsync(document.Id);
+        if (detectable)
+        {
+            document.EmbeddedXmlBlob.ShouldNotBeNull();
+            events.Single(e => e.ToStatus == DocumentStatus.Classified).DetailsJson.ShouldNotBeNull().ShouldContain("could not be parsed");
+        }
+        else
+        {
+            document.EmbeddedXmlBlob.ShouldBeNull();
+            events.Single(e => e.ToStatus == DocumentStatus.Normalized).DetailsJson.ShouldNotBeNull().ShouldContain($"\"embeddedXmlIgnored\":\"{fileName}\"");
+        }
+
+        host.Llm.Remaining.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_document_reclassified_into_a_type_without_extraction_loses_the_old_invoice_data()
+    {
+        await using var host = await PipelineTestHost.StartAsync(settings =>
+        {
+            settings["DocumentProcessing:Classifier:ConfidenceThreshold"] = "0.99";
+            settings["DocumentProcessing:Splitter:ConfidenceThreshold"] = "0";
+        });
+        await host.AddReplayProviderAsync();
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice, usage: new LlmUsage(6_000, 800));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+        var invoice = await host.SingleDocumentAsync(ingestion.Id);
+        invoice.TotalGross.ShouldBe(1487.50m);
+
+        // A reviewer reprocesses from Classify, and this time the model says delivery note.
+        host.Llm.Enqueue("""{ "documentType": "DeliveryNote", "confidence": 0.95, "language": "de", "supplierNameHint": null }""");
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == invoice.Id);
+            row.Status = DocumentStatus.Split;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, invoice.Id, PipelineStage.Classify), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+
+        var note = await host.DocumentAsync(invoice.Id);
+        note.Type.ShouldBe(DocumentType.DeliveryNote);
+        note.Flags.ShouldContain(f => f.Code == FlagCodes.UnsupportedType && f.ResolvedAt == null);
+        note.CanonicalJson.ShouldBeNull();
+        note.CanonicalSchemaVersion.ShouldBeNull();
+        note.DocumentNumber.ShouldBeNull();
+        note.DocumentNumberNormalized.ShouldBeNull();
+        note.IssueDate.ShouldBeNull();
+        note.Currency.ShouldBeNull();
+        note.TotalGross.ShouldBeNull();
+        note.ExtractionMethod.ShouldBeNull();
+        note.Costs.LlmInputTokens.ShouldBe(6_000, "what was spent stays spent");
         host.Llm.Remaining.ShouldBe(0);
     }
 }
