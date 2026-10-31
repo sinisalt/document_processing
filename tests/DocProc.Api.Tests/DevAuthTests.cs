@@ -71,6 +71,20 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
         names["superadmin"].ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Dev_users_name_their_seeded_tenant()
+    {
+        // The sign-in page shows the tenant's name on each card instead of a GUID prefix.
+        using var client = factory.CreateClient();
+        using var users = JsonDocument.Parse(await client.GetStringAsync(UsersUri, Ct));
+        string? TenantNameOf(string username) =>
+            users.RootElement.EnumerateArray().Single(u => u.GetProperty("username").GetString() == username).GetProperty("tenantName").GetString();
+
+        TenantNameOf("tenant-a-admin").ShouldBe(DevSeed.TenantAName);
+        TenantNameOf("tenant-b-viewer").ShouldBe(DevSeed.TenantBName);
+        TenantNameOf("superadmin").ShouldBeNull();
+    }
+
     private static (string Username, string Email, string FirstName, string LastName, string Roles, Guid? TenantId) RealmUser(
         string username, string email, string firstName, string lastName, IEnumerable<string> roles, Guid? tenantId) =>
         (username, email, firstName, lastName, string.Join(",", roles.Order(StringComparer.Ordinal)), tenantId);

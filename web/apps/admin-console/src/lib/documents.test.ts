@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalRows, formatCanonicalValue, pageCountLabel } from "./documents";
+import { canonicalRows, documentLabel, formatCanonicalValue, pageCountLabel, shortId } from "./documents";
 
 describe("pageCountLabel", () => {
   it("marks a full page with more behind it and otherwise counts exactly", () => {
@@ -48,5 +48,25 @@ describe("canonicalRows", () => {
     expect(rows[3]!.field).toBeNull();
     expect(canonicalRows(null)).toEqual([]);
     expect(canonicalRows("x")).toEqual([]);
+  });
+});
+
+describe("shortId and documentLabel", () => {
+  // Two demo documents received in the same minute: UUIDv7 ids share their leading (time) digits.
+  const first = "01a19012-f527-7d68-b5c6-2288526d662c";
+  const second = "01a19012-11ab-766e-a116-e305e890879e";
+
+  it("tells documents of the same minute apart by the random tail, not the time prefix", () => {
+    expect(shortId(first)).toBe("526d662c");
+    expect(shortId(second)).toBe("e890879e");
+    expect(shortId(first)).not.toBe(shortId(second));
+    expect(shortId("abc")).toBe("abc");
+  });
+
+  it("prefers the document number and falls back to the short id", () => {
+    expect(documentLabel({ id: first, documentNumber: "RE-2026-55318" })).toBe("RE-2026-55318");
+    expect(documentLabel({ id: first, documentNumber: null })).toBe("526d662c");
+    expect(documentLabel({ id: first, documentNumber: "  " })).toBe("526d662c");
+    expect(documentLabel({ id: first })).toBe("526d662c");
   });
 });

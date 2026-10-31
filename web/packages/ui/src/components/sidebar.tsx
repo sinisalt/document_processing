@@ -157,6 +157,7 @@ function Sidebar({
   collapsible = "offcanvas",
   mobileTitle = "Sidebar",
   mobileDescription = "Displays the mobile sidebar.",
+  mobileCloseLabel = "Close",
   className,
   children,
   ...props
@@ -167,6 +168,8 @@ function Sidebar({
   /** Screen-reader title and description of the mobile sheet; pass translated strings. */
   mobileTitle?: string
   mobileDescription?: string
+  /** The accessible name of the phone sheet's close button. */
+  mobileCloseLabel?: string
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
@@ -192,7 +195,9 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          // The sheet keeps its close button: on a phone it is the visible way out besides the scrim.
+          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground"
+          closeLabel={mobileCloseLabel}
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,

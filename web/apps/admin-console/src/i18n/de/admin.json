@@ -51,7 +51,7 @@
     "needsReview": "Nur für Prüfer sichtbar.",
     "platformOnlyTitle": "Diese Konsole ist für Plattform-Betreiber",
     "platformOnlyDescription": "Sie sind angemeldet als {{roles}}. Die Admin-Konsole betreibt die Plattform: Mandanten, KI-Anbieter und die Dokumente aller Mandanten. Die Arbeit Ihres Mandanten findet im Kundenportal statt; hier sehen Sie nur, was Ihre Rolle lesen darf.",
-    "failedDocumentsDescriptionReadOnly": "Dokumente, die die Pipeline aufgegeben hat. Untersuchen öffnet die Zeitleiste eines Dokuments.",
+    "failedDocumentsDescriptionReadOnly": "Dokumente, bei denen die Pipeline aufgegeben hat. „Ansehen“ öffnet den Zeitverlauf eines Dokuments.",
     "title": "Dashboard",
     "description": "Die Plattform auf einen Blick.",
     "welcome": "Willkommen, {{name}}",
@@ -72,14 +72,15 @@
     "spendByTenantDescription": "Geschätzte Kosten von {{from}} bis {{to}}, Top fünf.",
     "noSpend": "Diesen Monat wurden keine KI-Aufrufe erfasst.",
     "failedDocuments": "Fehlgeschlagene Dokumente",
-    "failedDocumentsDescription": "Dokumente, bei denen die Pipeline aufgegeben hat. „Erneut“ schickt ein Dokument ab einer gewählten Stufe noch einmal durch die Pipeline; „Prüfen“ öffnet den Zeitverlauf.",
+    "failedDocumentsDescription": "Dokumente, bei denen die Pipeline aufgegeben hat. „Erneut verarbeiten“ schickt ein Dokument ab einer gewählten Stufe noch einmal durch die Pipeline; „Ansehen“ öffnet den Zeitverlauf.",
     "noFailed": "Nichts fehlgeschlagen",
     "noFailedDescription": "Jedes Dokument im Blick ist durch die Pipeline gekommen.",
     "allFailed": "Alle fehlgeschlagenen Dokumente",
-    "retry": "Erneut",
+    "retry": "Erneut verarbeiten",
     "retryAria": "Dokument {{document}} erneut verarbeiten",
-    "inspect": "Prüfen",
-    "actions": "Aktionen"
+    "inspect": "Ansehen",
+    "actions": "Aktionen",
+    "byStatusAllTenants": "Über alle Mandanten."
   },
   "tenants": {
     "title": "Mandanten",
@@ -249,7 +250,7 @@
     "title": "Prüfrichtlinie und Aufbewahrung",
     "description": "Wann ein Dokument ohne Mensch freigegeben werden darf und wie lange Dokumente aufbewahrt werden.",
     "threshold": "Konfidenzschwelle für automatische Freigabe",
-    "thresholdHint": "0 bis 1. Felder darunter lösen LOW_CONFIDENCE aus und verhindern die automatische Freigabe.",
+    "thresholdHint": "0 bis 1. Ein Feld, das mit geringerer Sicherheit gelesen wurde, wird als unsicher markiert und verhindert die automatische Freigabe.",
     "retention": "Aufbewahrung (Jahre)",
     "retentionHint": "Wie lange Dokumente und ihre Originale aufbewahrt werden.",
     "shareProfiles": "Extraktionsprofile teilen",
@@ -327,13 +328,14 @@
     "receivedAt": "Eingegangen",
     "updatedAt": "Geändert",
     "search": "Nummer oder Lieferant suchen",
-    "flag": "Hinweis-Code",
+    "flag": "Hinweis",
     "from": "Belegdatum ab",
     "to": "Belegdatum bis",
     "clearFilters": "Filter zurücksetzen",
     "caption": "Dokumente",
     "empty": "Keine Dokumente",
-    "emptyDescription": "Kein Dokument passt zu diesen Filtern."
+    "emptyDescription": "Kein Dokument passt zu diesen Filtern.",
+    "allFlags": "Alle Hinweise"
   },
   "document": {
     "fromStageLoading": "Zeitleiste wird geladen…",
@@ -347,7 +349,6 @@
     "summary": "Zusammenfassung",
     "failureReason": "Fehlergrund",
     "flagsCount": "Hinweise",
-    "flagsSummary": "{{blocking}} blockierend · {{warning}} Warnungen",
     "approvedBy": "Freigegeben von",
     "ingestion": "Quelle",
     "schemaVersion": "Kanonisches Schema",
@@ -401,7 +402,8 @@
     "approveTitle": "{{document}} freigeben?",
     "approveDescription": "Das Dokument wird als freigegeben veröffentlicht. Blockierende Hinweise werden durch diese Entscheidung übergangen.",
     "approveComment": "Kommentar (optional)",
-    "approved": "{{document}} freigegeben."
+    "approved": "{{document}} freigegeben.",
+    "sourceFrom": "von {{from}}"
   },
   "timeline": {
     "title": "Zeitverlauf",
@@ -426,6 +428,19 @@
       "rejected": "Abgelehnt",
       "corrected": "Korrigiert",
       "reprocessed": "Erneut verarbeitet"
+    },
+    "rawJson": "Rohdaten (JSON)",
+    "detailKey": {
+      "stage": "Stufe",
+      "fromStage": "Ab Stufe",
+      "attempt": "Versuch",
+      "error": "Fehler",
+      "retry": "Wiederholung geplant",
+      "reason": "Grund",
+      "message": "Meldung",
+      "code": "Code",
+      "eventType": "Veröffentlichtes Ereignis",
+      "outboxMessageId": "Outbox-Nachricht"
     }
   },
   "review": {
@@ -439,6 +454,10 @@
     "description": "Offene Prüfaufgaben aller Mandanten, älteste zuerst. Übernehmen Sie eine Aufgabe, bevor Sie das Dokument bearbeiten.",
     "document": "Dokument",
     "reason": "Grund",
+    "reasons": {
+      "ALWAYS_REVIEW": "Lieferant wird immer geprüft",
+      "MANUAL_REVIEW": "Prüfung erforderlich"
+    },
     "status": "Aufgabe",
     "openAndInProgress": "Offen und in Arbeit",
     "assignedTo": "Zugewiesen an",
@@ -521,7 +540,6 @@
     "policyNone": "Keine",
     "policyFallback": "Auf den Plattformschlüssel zurückfallen",
     "policyFallbackHint": "Wenn die Konfiguration des Mandanten deaktiviert oder über dem Limit ist.",
-    "platformKeyAllowed": "Plattformschlüssel erlaubt",
     "platformKeyForbidden": "Plattformschlüssel für diesen Mandanten verboten",
     "policyOverrides": "Überschreibungen je Stufe",
     "policyOverrideFor": "Konfiguration für {{stage}}",
@@ -552,10 +570,41 @@
     "cacheReadTokens": "Cache-Lesungen",
     "cost": "Geschätzte Kosten",
     "share": "Anteil",
-    "total": "Gesamt: {{calls}} Aufrufe · {{errors}} Fehler · {{cost}}",
+    "total": "Gesamt: {{calls}} · {{errors}} · {{cost}}",
+    "totalCalls_one": "{{value}} Aufruf",
+    "totalCalls_other": "{{value}} Aufrufe",
+    "totalErrors_one": "{{value}} Fehler",
+    "totalErrors_other": "{{value}} Fehler",
     "chartLabel": "Geschätzte Kosten je Gruppe",
     "tableCaption": "LLM-Verbrauch je Gruppe",
     "empty": "Kein Verbrauch",
     "emptyDescription": "In diesem Fenster wurde kein KI-Aufruf erfasst."
+  },
+  "flagCodes": {
+    "UNREADABLE_PAGES": "Unlesbare Seiten",
+    "TYPE_UNKNOWN": "Dokumentart unbekannt",
+    "SUPPLIER_UNMATCHED": "Lieferant nicht zugeordnet",
+    "CUSTOMER_MISMATCH": "Empfänger stimmt nicht",
+    "MISSING_REQUIRED": "Pflichtfeld fehlt",
+    "TOTALS_MISMATCH": "Summen gehen nicht auf",
+    "TAX_MISMATCH": "Steuer geht nicht auf",
+    "LINE_ARITHMETIC": "Position geht nicht auf",
+    "LOW_CONFIDENCE": "Geringe Sicherheit",
+    "DUPLICATE_SUSPECTED": "Mögliches Duplikat",
+    "PROFILE_FALLBACK": "Profil nicht verwendet",
+    "LLM_PROVIDER_UNAVAILABLE": "KI-Anbieter nicht verfügbar",
+    "MULTI_DOCUMENT_SPLIT": "Aus einer Sammeldatei getrennt",
+    "CURRENCY_INFERRED": "Währung abgeleitet",
+    "PO_UNMATCHED": "Bestellung nicht zugeordnet",
+    "DATE_IMPLAUSIBLE": "Unplausibles Datum",
+    "INVALID_VALUE": "Ungültiger Wert",
+    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt"
+  },
+  "failure": {
+    "EncryptedPdf": "Passwortgeschützte PDF",
+    "CorruptPdf": "PDF nicht lesbar",
+    "UnreadablePage": "Seite nicht lesbar",
+    "UnsupportedPlatform": "Verarbeitung auf dieser Plattform nicht möglich",
+    "TooLarge": "Datei zu groß"
   }
 }

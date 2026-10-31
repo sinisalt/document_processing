@@ -28,10 +28,11 @@ import {
   useAuth,
   type DataTableColumns,
 } from "@docproc/app-shell";
-import { canDecide, canReprocess, canonicalRows, flagSeverityVariant, type CanonicalRow } from "@/lib/documents";
+import { canDecide, canReprocess, canonicalRows, documentLabel, flagSeverityVariant, type CanonicalRow } from "@/lib/documents";
 import { formatUsd } from "@/lib/usage";
 import { KeyValue } from "@/components/KeyValue";
 import { TimelineTable } from "@/components/TimelineTable";
+import { parseFailureReason } from "@/lib/failure";
 import { PageThumbnails } from "@/components/PageThumbnails";
 import { ApproveDialog, RejectDialog, ReprocessDialog } from "@/components/DocumentActions";
 
@@ -74,7 +75,7 @@ function DocumentDetailPage() {
       flagHelper.columns([
         flagHelper.accessor("severity", { header: t("document.flagSeverity"), cell: (info) => <Badge variant={flagSeverityVariant[info.getValue()]}>{t(`flagSeverity.${info.getValue()}`, { defaultValue: info.getValue() })}</Badge> }),
         flagHelper.accessor("code", { header: t("document.flagCode"), cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span> }),
-        flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
+        flagHelper.accessor("field", { header: t("document.flagField"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
         // The message in the UI language from the flag's code and parameters; the API's English text for an unknown
         // code or a flag stored without parameters. Paths stay paths here: they are the field column's vocabulary.
         // Accessed as the displayed sentence, so sorting follows what the user reads, not the hidden English text.
@@ -116,7 +117,8 @@ function DocumentDetailPage() {
   }
 
   const doc = document.data;
-  const label = doc?.documentNumber ?? documentId.slice(0, 8);
+  const label = documentLabel({ id: documentId, documentNumber: doc?.documentNumber });
+  const failure = doc?.failureReason ? parseFailureReason(doc.failureReason) : null;
 
   return (
     <>
@@ -160,9 +162,13 @@ function DocumentDetailPage() {
         }
       />
 
-      {doc?.failureReason && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-          <span className="font-medium">{t("document.failureReason")}:</span> {doc.failureReason}
+      {failure && (
+        // The code as a translated label on the first line, the processor's own message under it.
+        <div role="alert" className="grid gap-0.5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+          <p>
+            <span className="font-medium">{t("document.failureReason")}:</span> {failure.code ? t(`failure.${failure.code}`) : failure.message}
+          </p>
+          {failure.code && failure.message && <p className="text-muted-foreground">{failure.message}</p>}
         </div>
       )}
 
@@ -182,11 +188,23 @@ function DocumentDetailPage() {
                   { label: t("documents.type"), value: `${t(`documentType.${doc.type}`, { defaultValue: doc.type })}${doc.typeConfidence != null ? ` (${formatPercent(doc.typeConfidence, i18n.language)})` : ""}` },
                   { label: t("documents.method"), value: doc.extractionMethod ? t(`common:sourceMethod.${doc.extractionMethod}`, { defaultValue: doc.extractionMethod }) : "—" },
                   { label: t("documents.pages"), value: String(doc.pageCount) },
-                  { label: t("document.flagsCount"), value: t("document.flagsSummary", { blocking: Number(doc.blockingFlagCount), warning: Number(doc.warningFlagCount) }) },
+                  // Each count pluralised on its own ("0 warnings", "1 warning"): one key with two named numbers never picks a plural.
+                  { label: t("document.flagsCount"), value: `${t("documents.blocking", { count: Number(doc.blockingFlagCount) })} · ${t("documents.warnings", { count: Number(doc.warningFlagCount) })}` },
                   { label: t("documents.receivedAt"), value: formatDateTime(doc.createdAt, i18n.language) },
                   { label: t("documents.updatedAt"), value: formatDateTime(doc.updatedAt, i18n.language) },
                   { label: t("document.approvedBy"), value: doc.approvedBy ? `${doc.approvedBy} · ${formatDateTime(doc.approvedAt, i18n.language)}` : "—" },
-                  { label: t("document.ingestion"), value: doc.ingestion ? `${doc.ingestion.fileName}${doc.ingestion.sourceFrom ? ` · ${doc.ingestion.sourceFrom}` : ""}` : "—" },
+                  {
+                    label: t("document.ingestion"),
+                    // File name and sender on their own lines: "tenant-b-admin" broke at its dash when they shared one.
+                    value: doc.ingestion ? (
+                      <span className="flex flex-col">
+                        <span className="break-all">{doc.ingestion.fileName}</span>
+                        {doc.ingestion.sourceFrom && <span className="text-xs text-muted-foreground">{t("document.sourceFrom", { from: doc.ingestion.sourceFrom })}</span>}
+                      </span>
+                    ) : (
+                      "—"
+                    ),
+                  },
                   { label: t("document.schemaVersion"), value: doc.canonicalSchemaVersion != null ? String(doc.canonicalSchemaVersion) : "—", mono: true },
                 ]}
               />
@@ -205,7 +223,7 @@ function DocumentDetailPage() {
               <KeyValue
                 columns={1}
                 items={[
-                  { label: t("document.estimatedCost"), value: doc.costs.estimatedUsd == null ? "—" : formatUsd(doc.costs.estimatedUsd, i18n.language) },
+                  { label: t("document.estimatedCost"), value: doc.costs.estimatedUsd == null ? "—" : formatUsd(doc.costs.estimatedUsd, i18n.language, 4) },
                   { label: t("document.llmModel"), value: doc.costs.llmModel ? `${doc.costs.llmProvider ?? ""} ${doc.costs.llmModel}`.trim() : "—" },
                   { label: t("document.keyOwner"), value: doc.costs.keyOwner ? t(`keyOwner.${doc.costs.keyOwner}`, { defaultValue: doc.costs.keyOwner }) : "—" },
                   { label: t("document.tokens"), value: t("document.tokensSummary", { input: formatNumber(doc.costs.llmInputTokens, i18n.language), output: formatNumber(doc.costs.llmOutputTokens, i18n.language), cache: formatNumber(doc.costs.llmCacheReadTokens, i18n.language) }) },

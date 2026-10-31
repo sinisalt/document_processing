@@ -32,6 +32,7 @@ import {
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
+import { RowCount } from "@/components/LoadMore";
 
 type ApiKey = components["schemas"]["ApiKeySummary"];
 type CreatedApiKey = components["schemas"]["CreatedApiKey"];
@@ -242,6 +243,7 @@ export function ApiKeysTab() {
         getRowId={(row) => row.id}
         isLoading={keys.isPending} query={keys}
         toolbar={<CreateApiKeyDialog />}
+        footer={<RowCount count={keys.data?.length} />}
         caption={t("apiKeys.caption")}
         emptyTitle={t("apiKeys.empty")}
         emptyDescription={t("apiKeys.emptyDescription")}

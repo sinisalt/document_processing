@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@docproc/ui";
 import { ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, isApiError, queryKeys, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
+import { RowCount } from "@/components/LoadMore";
 import { translated } from "@/lib/validation";
 
 type Member = components["schemas"]["MemberResponse"];
@@ -250,6 +251,7 @@ export function MembersTab() {
         getRowId={(row) => row.userId}
         isLoading={members.isPending} query={members}
         toolbar={<AddMemberDialog />}
+        footer={<RowCount count={members.data?.length} />}
         caption={t("members.caption")}
         emptyTitle={t("members.empty")}
         emptyDescription={t("members.emptyDescription")}

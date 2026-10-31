@@ -5,10 +5,10 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Building2, ClipboardList, Coins, Info, RotateCcw } from "lucide-react";
 import type { components } from "@docproc/api-client";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from "@docproc/ui";
-import { DataTable, Policies, StatusBadge, createDataTableColumnHelper, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
-import { documentStatuses, pageCountLabel } from "@/lib/documents";
+import { DataTable, Policies, Roles, StatusBadge, createDataTableColumnHelper, formatDate, formatDateTime, formatNumber, queryKeys, unwrap, useApi, useAuth, useTenantSwitcherOptional, type DataTableColumns } from "@docproc/app-shell";
+import { documentLabel, documentStatuses, pageCountLabel } from "@/lib/documents";
 import { formatUsd, monthRange, usageRows } from "@/lib/usage";
-import { statValue } from "@/lib/dashboard";
+import { byStatusScope, statValue } from "@/lib/dashboard";
 import { ReprocessDialog } from "@/components/DocumentActions";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
@@ -46,7 +46,7 @@ function StatCard({ title, value, hint, icon: Icon, to }: { title: string; value
 
 function DashboardPage() {
   const { t, i18n } = useTranslation("admin");
-  const { user, hasPolicy } = useAuth();
+  const { user, hasPolicy, hasRole } = useAuth();
   const { client } = useApi();
   const switcher = useTenantSwitcherOptional();
   const tenantId = switcher?.tenantId ?? null;
@@ -95,6 +95,14 @@ function DashboardPage() {
   const spendRows = useMemo(() => (spend.data ? usageRows(spend.data, tenantName).slice(0, 5) : []), [spend.data, tenantName]);
   const selectedTenant = tenantId ? tenantName(tenantId) ?? tenantId : null;
   // Platform roles see every tenant unless one is picked; anyone else is pinned to their own tenant by the API.
+  // The header's tenant switcher exists for SuperAdmins only (TenantSwitcher); an Operator must not be sent looking for it.
+  const scope = byStatusScope({ selectedTenant, isPlatform, canSwitchTenant: switcher !== null && hasRole(Roles.SuperAdmin) });
+  const byStatusDescription = {
+    tenant: t("dashboard.byStatusTenant", { tenant: selectedTenant }),
+    platformSwitchable: t("dashboard.byStatusPlatform"),
+    platform: t("dashboard.byStatusAllTenants"),
+    ownTenant: t("dashboard.byStatusOwnTenant"),
+  }[scope];
   const scopeHint = selectedTenant ? t("dashboard.inTenant", { tenant: selectedTenant }) : isPlatform ? t("dashboard.acrossTenants") : t("dashboard.ownTenant");
 
   const failedColumns = useMemo<DataTableColumns<DocumentSummary>>(
@@ -103,8 +111,13 @@ function DashboardPage() {
         helper.accessor("documentNumber", {
           header: t("documents.number"),
           cell: (info) => (
-            <Link to="/documents/$documentId" params={{ documentId: info.row.original.id }} className="font-medium underline-offset-4 hover:underline">
-              {info.getValue() ?? info.row.original.id.slice(0, 8)}
+            <Link
+              to="/documents/$documentId"
+              params={{ documentId: info.row.original.id }}
+              // The short-id fallback in monospace, as in the documents list and the review queue.
+              className={info.row.original.documentNumber ? "font-medium underline-offset-4 hover:underline" : "font-mono text-xs underline-offset-4 hover:underline"}
+            >
+              {documentLabel(info.row.original)}
             </Link>
           ),
         }),
@@ -182,7 +195,7 @@ function DashboardPage() {
           <StatCard
             title={t("dashboard.spend")}
             value={spend.data ? formatUsd(spend.data.total.estimatedCostUsd, i18n.language) : spend.isError ? "—" : <Skeleton className="h-9 w-24" />}
-            hint={spend.data ? t("dashboard.spendHint", { calls: formatNumber(spend.data.total.calls, i18n.language), from: spend.data.from }) : undefined}
+            hint={spend.data ? t("dashboard.spendHint", { calls: formatNumber(spend.data.total.calls, i18n.language), from: formatDate(spend.data.from, i18n.language) }) : undefined}
             icon={Coins}
             to="/llm"
           />
@@ -191,20 +204,24 @@ function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      {/* Without spend to show (operators, tenant roles) the status grid takes the whole row: the AI-spend tile above already says why. */}
+      <div className={isPlatformAdmin ? "grid gap-4 lg:grid-cols-3" : "grid gap-4"}>
+        <Card className={isPlatformAdmin ? "lg:col-span-2" : undefined}>
           <CardHeader>
             <CardTitle>{t("dashboard.byStatus")}</CardTitle>
-            <CardDescription>{selectedTenant ? t("dashboard.byStatusTenant", { tenant: selectedTenant }) : isPlatform ? t("dashboard.byStatusPlatform") : t("dashboard.byStatusOwnTenant")}</CardDescription>
+            <CardDescription>{byStatusDescription}</CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" aria-label={t("dashboard.byStatus")}>
+            {/* Tiles at least 12rem wide, so the longest German status ("Automatisch freigegeben") fits on one line. */}
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]" aria-label={t("dashboard.byStatus")}>
               {documentStatuses.map((status, index) => {
                 const result = byStatus[index]!;
                 return (
-                  <li key={status}>
-                    <Link to="/documents" search={{ status }} className="flex flex-col gap-1 rounded-md border p-3 transition-colors hover:bg-accent/40" data-status={status}>
-                      <StatusBadge status={status} className="w-fit max-w-full truncate" />
+                  <li key={status} className="flex">
+                    {/* h-full: the bordered box, not only the grid cell, stretches to the row's height. */}
+                    <Link to="/documents" search={{ status }} className="flex h-full w-full flex-col gap-1 rounded-md border p-3 transition-colors hover:bg-accent/40" data-status={status}>
+                      {/* On a phone the two columns are narrow: there the badge wraps instead of clipping at both ends. */}
+                      <StatusBadge status={status} className="h-auto w-fit max-w-full whitespace-normal text-left sm:whitespace-nowrap" />
                       <span className="text-2xl font-semibold tabular-nums">{statValue(result, true, (data) => pageCountLabel(data.items.length, data.nextCursor, PAGE), <Skeleton className="h-8 w-10" />)}</span>
                     </Link>
                   </li>
@@ -215,15 +232,14 @@ function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        {isPlatformAdmin && (
+          <Card>
           <CardHeader>
             <CardTitle>{t("dashboard.spendByTenant")}</CardTitle>
-            <CardDescription>{t("dashboard.spendByTenantDescription", { from: month.from, to: month.to })}</CardDescription>
+            <CardDescription>{t("dashboard.spendByTenantDescription", { from: formatDate(month.from, i18n.language), to: formatDate(month.to, i18n.language) })}</CardDescription>
           </CardHeader>
           <CardContent>
-            {!isPlatformAdmin ? (
-              <p className="text-sm text-muted-foreground">{t("dashboard.spendNeedsPlatformAdmin")}</p>
-            ) : spend.isPending ? (
+            {spend.isPending ? (
               <Skeleton className="h-24 w-full" />
             ) : spendRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("dashboard.noSpend")}</p>
@@ -241,7 +257,8 @@ function DashboardPage() {
               </ol>
             )}
           </CardContent>
-        </Card>
+          </Card>
+        )}
       </div>
 
       <Card>
@@ -272,7 +289,7 @@ function DashboardPage() {
       </Card>
 
       {retrying && (
-        <ReprocessDialog documentId={retrying.id} documentLabel={retrying.documentNumber ?? retrying.id.slice(0, 8)} status={retrying.status} open onOpenChange={(open) => !open && setRetrying(null)} />
+        <ReprocessDialog documentId={retrying.id} documentLabel={documentLabel(retrying)} status={retrying.status} open onOpenChange={(open) => !open && setRetrying(null)} />
       )}
     </>
   );

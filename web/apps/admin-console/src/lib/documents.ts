@@ -41,6 +41,21 @@ export function canDecide(status: DocumentStatus): boolean {
 }
 
 /**
+ * A short handle for an id the screens show when nothing better exists (a document without a number, a tenant
+ * without a name): its last eight hex digits. The ids are UUIDv7, whose leading digits are the creation time, so the
+ * first eight were the same for every document received in the same minute (two untitled rows both read `01a19012`).
+ */
+export function shortId(id: string): string {
+  const hex = id.replace(/-/g, "");
+  return hex.length > 8 ? hex.slice(-8) : hex;
+}
+
+/** What a document is called in labels, toasts and dialog titles: its number, else its short id. */
+export function documentLabel(document: { id: string; documentNumber?: string | null }): string {
+  return document.documentNumber?.trim() || shortId(document.id);
+}
+
+/**
  * The count a status card can honestly show from one page: the page size when the page was full and more follow
  * (`200+`), else the exact number of items.
  */

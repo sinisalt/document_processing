@@ -58,7 +58,7 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))} className="grid gap-6" noValidate>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid items-start gap-4 sm:grid-cols-2">
           <FormField
             control={form.control}
             name="autoApproveConfidenceThreshold"

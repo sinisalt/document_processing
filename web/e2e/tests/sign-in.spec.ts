@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { adminUrl, apiUrl, portalUrl } from "../playwright.config";
-import { devUser, reachable, type DevUser } from "./support/dev-api";
+import { devUser, reachable, signIn, type DevUser } from "./support/dev-api";
 
 /**
  * Smoke: the development sign-in page of each app lists GET /dev/users, one click signs in through POST /dev/token, and
@@ -9,13 +9,10 @@ import { devUser, reachable, type DevUser } from "./support/dev-api";
  */
 
 async function signInAs(page: Page, appUrl: string, user: DevUser) {
-  await page.goto(`${appUrl}/sign-in`);
-  await page.getByRole("button", { name: `Sign in as ${user.displayName}` }).click();
+  await signIn(page, user.username, "/", appUrl);
   // The shell redirects to the dashboard once /me answered; the header (role=banner) names the user.
-  const banner = page.getByRole("banner");
-  await expect(banner.getByRole("button", { name: `Account menu for ${user.displayName}` })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Dashboard");
-  return banner;
+  return page.getByRole("banner");
 }
 
 test.describe("dev sign-in", () => {

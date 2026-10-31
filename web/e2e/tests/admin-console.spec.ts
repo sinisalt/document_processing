@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { adminUrl, apiUrl } from "../playwright.config";
+import { reachable, signIn } from "./support/dev-api";
 
 /**
  * Admin console against the real API in dev mode (README "Running without Docker"): a SuperAdmin creates a tenant
@@ -9,21 +10,8 @@ import { adminUrl, apiUrl } from "../playwright.config";
 
 const TENANT_A_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
-async function reachable(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    return response.status < 500;
-  } catch {
-    return false;
-  }
-}
-
 async function signInAsSuperAdmin(page: Page) {
-  const users = (await (await fetch(`${apiUrl}/dev/users`)).json()) as { username: string; displayName: string }[];
-  const superadmin = users.find((u) => u.username === "superadmin");
-  if (!superadmin) throw new Error("Dev user 'superadmin' is not in GET /dev/users");
-  await page.goto(`${adminUrl}/sign-in`);
-  await page.getByRole("button", { name: `Sign in as ${superadmin.displayName}` }).click();
+  await signIn(page, "superadmin", "/", adminUrl);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Dashboard");
 }
 
@@ -47,7 +35,7 @@ test.describe("admin console", () => {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
     await expect(dialog.getByLabel("Slug")).toHaveValue(`e2e-bistro-${suffix}`);
     await dialog.getByLabel("Legal name").fill(`${name} GmbH`);
-    await dialog.getByLabel("VAT id").fill("DE999999999");
+    await dialog.getByLabel("VAT ID").fill("DE999999999");
     await dialog.getByLabel("Currency").fill("EUR");
     await dialog.getByLabel("Country").fill("AT");
     await dialog.getByLabel("Time zone").fill("Europe/Vienna");

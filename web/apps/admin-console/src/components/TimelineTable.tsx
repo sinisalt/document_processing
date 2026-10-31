@@ -1,8 +1,10 @@
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Badge, cn } from "@docproc/ui";
 import { DataTable, StatusBadge, createDataTableColumnHelper, formatDateTime, type DataTableColumns, type DataTableQueryState } from "@docproc/app-shell";
 import { detailRows, eventKind, eventStage, failureKinds, humanKinds, summarizeEvent, type DocumentEvent } from "@/lib/timeline";
+import { describeFailure } from "@/lib/failure";
 import { JsonBlock } from "./KeyValue";
 
 export interface TimelineTableProps {
@@ -18,21 +20,47 @@ function hasDetails(event: DocumentEvent): boolean {
   return event.details !== null && event.details !== undefined;
 }
 
-/** The expanded panel: the details JSON as a key/value list next to the raw document. */
+/** A failure reason with its `DocumentProcessingFailure` code translated (`CorruptPdf` → "Unreadable PDF"). */
+export function failureText(reason: string, t: TFunction<"admin">): string {
+  return describeFailure(reason, (code) => t(`failure.${code}`, { defaultValue: code }));
+}
+
+/** The keys the pipeline writes into `details` (FailureRecorder, PublishHandler, the review and reprocess events). */
+const KNOWN_DETAIL_KEYS = new Set(["stage", "fromStage", "attempt", "error", "retry", "reason", "message", "code", "eventType", "outboxMessageId"]);
+
+/**
+ * The expanded panel: the details as labelled rows in the UI language (stage names, yes/no, the failure reason with
+ * its code translated), with the raw JSON one click away for whoever needs the exact document.
+ */
 function EventDetails({ event }: { event: DocumentEvent }) {
   const { t } = useTranslation("admin");
   const rows = detailRows(event.details);
+  const value = (path: string, raw: string, kind: string) => {
+    if (kind === "boolean") return raw === "true" ? t("yes") : t("no");
+    if ((path === "stage" || path === "fromStage") && kind === "string") return t(`stages.${raw}`, { defaultValue: raw });
+    if (path === "error" && kind === "string") return failureText(raw, t);
+    if (path === "reason" && kind === "string") return t(`flagCodes.${raw}`, { defaultValue: raw });
+    return raw;
+  };
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm" aria-label={t("timeline.details")}>
-        {rows.map((row) => (
-          <Fragment key={row.path}>
-            <dt className="font-mono text-xs text-muted-foreground">{row.path}</dt>
-            <dd className={cn("min-w-0 whitespace-normal break-words", row.kind !== "string" && "font-mono text-xs")}>{row.value}</dd>
-          </Fragment>
-        ))}
+    <div className="flex flex-col gap-3">
+      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm" aria-label={t("timeline.details")}>
+        {rows.map((row) => {
+          const known = KNOWN_DETAIL_KEYS.has(row.path);
+          return (
+            <Fragment key={row.path}>
+              <dt className={cn("text-muted-foreground", !known && "font-mono text-xs")}>{known ? t(`timeline.detailKey.${row.path}`) : row.path}</dt>
+              <dd className={cn("min-w-0 whitespace-normal break-words", row.kind === "number" ? "tabular-nums" : row.kind !== "string" && row.kind !== "boolean" && "font-mono text-xs")}>{value(row.path, row.value, row.kind)}</dd>
+            </Fragment>
+          );
+        })}
       </dl>
-      <JsonBlock value={event.details} />
+      <details className="group text-sm">
+        <summary className="w-fit cursor-pointer text-muted-foreground hover:text-foreground">{t("timeline.rawJson")}</summary>
+        <div className="mt-2">
+          <JsonBlock value={event.details} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -66,7 +94,7 @@ export function TimelineTable({ events, isLoading = false, query }: TimelineTabl
             );
           },
         }),
-        helper.accessor((event) => eventStage(event) ?? "", { id: "stage", header: t("timeline.stage"), cell: (info) => info.getValue() || "—" }),
+        helper.accessor((event) => eventStage(event) ?? "", { id: "stage", header: t("timeline.stage"), cell: (info) => (info.getValue() ? t(`stages.${info.getValue()}`, { defaultValue: info.getValue() }) : "—") }),
         helper.accessor((event) => event.toStatus ?? event.fromStatus ?? "", {
           id: "transition",
           header: t("timeline.transition"),
@@ -85,12 +113,15 @@ export function TimelineTable({ events, isLoading = false, query }: TimelineTabl
           },
         }),
         helper.accessor((event) => event.actor ?? "", { id: "actor", header: t("timeline.actor"), cell: (info) => <span className="whitespace-nowrap">{info.getValue() || "—"}</span> }),
-        helper.accessor((event) => summarizeEvent(event) ?? "", {
+        helper.accessor((event) => {
+          const summary = summarizeEvent(event) ?? "";
+          return failureKinds.includes(eventKind(event.eventType)) ? failureText(summary, t) : summary;
+        }, {
           id: "summary",
           header: t("timeline.summary"),
           enableSorting: false,
           cell: (info) => (
-            <span className="block max-w-md truncate" title={info.getValue() || undefined}>
+            <span className="block max-w-sm truncate" title={info.getValue() || undefined}>
               {info.getValue() || "—"}
             </span>
           ),

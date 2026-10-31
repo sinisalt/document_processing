@@ -9,7 +9,8 @@
     "main": "Main navigation",
     "toggleSidebar": "Toggle sidebar",
     "sidebar": "Navigation",
-    "sidebarDescription": "The app's pages."
+    "sidebarDescription": "The app's pages.",
+    "closeSidebar": "Close navigation"
   },
   "auth": {
     "signIn": "Sign in",

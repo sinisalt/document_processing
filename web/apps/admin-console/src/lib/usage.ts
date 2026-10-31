@@ -131,12 +131,46 @@ export function fillDays(buckets: readonly LlmUsageBucket[], from: string, to: s
   return daysBetween(from, to).map((day) => byKey.get(day) ?? emptyBucket(day));
 }
 
-/** `0.01234` → `$0.0123`; small LLM amounts need more than two decimals to be readable. */
-export function formatUsd(value: Numeric, locale?: string): string {
+/**
+ * US dollars with a fixed number of decimals (two by default), so every figure in a column, a list or an axis has the
+ * same precision: `$1.78` next to `$0.26`, never `$0.2646`. A non-zero amount that would round to zero reads
+ * `< $0.01` instead of a misleading `$0.00`. One amount on its own (a document's cost) may ask for more decimals.
+ */
+export function formatUsd(value: Numeric, locale?: string, fractionDigits = 2): string {
   const n = toNumber(value);
   if (n === null) return formatMoney(null, "USD", locale);
-  const digits = Math.abs(n) > 0 && Math.abs(n) < 1 ? 4 : 2;
-  return new Intl.NumberFormat(locale ?? undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: digits }).format(n);
+  const format = (amount: number) => new Intl.NumberFormat(locale ?? undefined, { style: "currency", currency: "USD", minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(amount);
+  const smallest = 10 ** -fractionDigits;
+  if (n !== 0 && Math.abs(n) < smallest / 2) return `< ${format(smallest)}`;
+  return format(n);
+}
+
+/**
+ * Round y-axis ticks from 0 to at least `max`: steps of 1, 2 or 5 times a power of ten, never finer than a cent, so
+ * a two-decimal label shows each tick exactly (`$0.05 · $0.10 · $0.15`, not `$0.055 · $0.165`).
+ */
+export function niceTicks(max: number, count = 4): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0, 0.01];
+  const raw = max / count;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const step = Math.max(0.01, [1, 2, 5, 10].map((m) => m * power).find((candidate) => candidate >= raw * (1 - 1e-9)) ?? 10 * power);
+  const ticks: number[] = [];
+  // Rounded to cents, so floating-point steps (0.1 + 0.2) do not leak into the labels.
+  for (let i = 0; ; i++) {
+    const tick = Math.round(i * step * 100) / 100;
+    ticks.push(tick);
+    if (tick >= max) break;
+  }
+  return ticks;
+}
+
+/**
+ * An x-axis label of the usage chart: whole while the bars leave room for it (a handful of tenants), cut with an
+ * ellipsis only as they crowd (thirty days).
+ */
+export function axisLabel(value: string, barCount: number): string {
+  const max = barCount <= 4 ? 32 : barCount <= 8 ? 20 : 14;
+  return value.length > max ? `${value.slice(0, max - 2).trimEnd()}…` : value;
 }
 
 /** `1234567` → `1.2M` style token counts for tight table cells. */

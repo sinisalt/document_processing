@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import { DataTable, createDataTableColumnHelper, formatDate, formatNumber, formatPercent, unwrap, useApi, type DataTableColumns } from "@docproc/app-shell";
 import type { ApiClient } from "@docproc/api-client";
-import { fillDays, formatTokens, formatUsd, lastDaysRange, usageRows, type LlmUsageResponse, type UsageGrouping, type UsageRow } from "@/lib/usage";
+import { fillDays, formatTokens, formatUsd, monthRange, usageRows, type LlmUsageResponse, type UsageGrouping, type UsageRow } from "@/lib/usage";
 import { UsageChart } from "./UsageChart";
 
 export interface UsageQuery {
@@ -48,7 +48,8 @@ const EMPTY: UsageRow[] = [];
 export function UsageExplorer({ source, title, description }: { source: UsageSource; title?: string; description?: string }) {
   const { t, i18n } = useTranslation("admin");
   const { client } = useApi();
-  const [range, setRange] = useState(() => lastDaysRange(30));
+  // The current month, the window the dashboard's "AI spend this month" uses, so both start from the same figures.
+  const [range, setRange] = useState(() => monthRange());
   const [groupBy, setGroupBy] = useState<UsageGrouping>(source.defaultGrouping);
   const query: UsageQuery = { from: range.from, to: range.to, groupBy };
   const validRange = range.from !== "" && range.to !== "" && range.from <= range.to;
@@ -147,8 +148,9 @@ export function UsageExplorer({ source, title, description }: { source: UsageSou
             total ? (
               <span className="tabular-nums" aria-live="polite">
                 {t("usage.total", {
-                  calls: formatNumber(total.calls, i18n.language),
-                  errors: formatNumber(total.errors, i18n.language),
+                  // Each count picks its own plural ("1 error", not "1 errors") and keeps the locale's digit grouping.
+                  calls: t("usage.totalCalls", { count: Number(total.calls), value: formatNumber(total.calls, i18n.language) }),
+                  errors: t("usage.totalErrors", { count: Number(total.errors), value: formatNumber(total.errors, i18n.language) }),
                   cost: formatUsd(total.estimatedCostUsd, i18n.language),
                 })}
               </span>

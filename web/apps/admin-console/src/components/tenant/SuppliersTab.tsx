@@ -246,7 +246,7 @@ export function SuppliersTab() {
     () =>
       helper.columns([
         helper.accessor("name", { header: t("suppliers.name"), cell: (info) => <span className="font-medium">{info.getValue()}</span> }),
-        helper.accessor("vatId", { header: t("suppliers.vatId"), cell: (info) => <span className="font-mono text-xs">{info.getValue() ?? "—"}</span> }),
+        helper.accessor("vatId", { header: t("suppliers.vatId"), cell: (info) => (info.getValue() ? <span className="font-mono text-xs">{info.getValue()}</span> : "—") }),
         helper.accessor("defaultCurrency", { header: t("suppliers.currency"), cell: (info) => info.getValue() ?? "—" }),
         helper.accessor("emailDomains", { header: t("suppliers.emailDomains"), enableSorting: false, cell: (info) => (info.getValue().length ? info.getValue().join(", ") : "—") }),
         helper.accessor("aliases", { header: t("suppliers.aliases"), enableSorting: false, cell: (info) => (info.getValue().length ? info.getValue().join(", ") : "—") }),
@@ -280,7 +280,7 @@ export function SuppliersTab() {
                 {t("suppliers.search")}
               </Label>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input id="supplier-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("suppliers.search")} className="w-64 pl-8" />
+              <Input id="supplier-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("suppliers.search")} className="h-8 w-64 pl-8" />
             </div>
             <CreateSupplierDialog />
           </>

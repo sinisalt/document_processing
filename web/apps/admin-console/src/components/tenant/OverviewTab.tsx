@@ -7,8 +7,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import type { components } from "@docproc/api-client";
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input } from "@docproc/ui";
-import { ConfirmDialog, Policies, TenantStatusBadge, formatDateTime, isApiError, queryKeys, unwrap, useApi, useAuth } from "@docproc/app-shell";
+import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input } from "@docproc/ui";
+import { ConfirmDialog, Policies, formatDateTime, isApiError, queryKeys, unwrap, useApi, useAuth } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
 import { KeyValue } from "../KeyValue";
 
@@ -164,23 +164,28 @@ export function OverviewTab({ tenant }: { tenant: Tenant }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {t("tenant.identity")}
-          <TenantStatusBadge status={tenant.status} />
-        </CardTitle>
+        {/* The status badge sits in the page title already; the card does not repeat it. */}
+        <CardTitle>{t("tenant.identity")}</CardTitle>
         <CardDescription>{t("tenant.identityDescription")}</CardDescription>
         {canManage && (
-          <div className="flex flex-wrap gap-2 pt-2">
+          // In the card's action slot, right of the title: not a solid red button on top of the data. Suspending is
+          // outlined in the destructive colour; the confirm dialog carries the solid red button.
+          <CardAction className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               <Pencil aria-hidden />
               {t("tenant.edit")}
             </Button>
             {tenant.status !== "Closed" && (
-              <Button variant={suspended ? "default" : "destructive"} size="sm" onClick={() => setConfirming(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={suspended ? undefined : "border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-destructive/50"}
+                onClick={() => setConfirming(true)}
+              >
                 {suspended ? t("tenant.activate") : t("tenant.suspend")}
               </Button>
             )}
-          </div>
+          </CardAction>
         )}
       </CardHeader>
       <CardContent>

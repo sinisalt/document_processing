@@ -23,7 +23,7 @@ import { initials } from "../lib/format";
 import { currentLanguage, supportedLanguages } from "../i18n";
 
 /** Avatar in the header: who is signed in, their roles and scope, language, appearance, sign out. */
-export function UserMenu() {
+export function UserMenu({ placement = "header" }: { placement?: "header" | "sidebar" }) {
   const { t, i18n } = useTranslation("common");
   const { user, signOut } = useAuth();
   const { theme = "system", setTheme } = useTheme();
@@ -33,14 +33,19 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 gap-2 px-2" aria-label={t("userMenu.open", { name: user.displayName })} data-testid="user-menu">
+        <Button
+          variant="ghost"
+          className={placement === "sidebar" ? "h-10 w-full justify-start gap-2 px-2" : "h-9 gap-2 px-2"}
+          aria-label={t("userMenu.open", { name: user.displayName })}
+          data-testid={placement === "sidebar" ? "sidebar-user-menu" : "user-menu"}
+        >
           <Avatar size="sm">
             <AvatarFallback>{initials(user.displayName)}</AvatarFallback>
           </Avatar>
-          <span className="hidden max-w-40 truncate text-sm font-medium sm:inline">{user.displayName}</span>
+          <span className={placement === "sidebar" ? "truncate text-sm font-medium" : "hidden max-w-40 truncate text-sm font-medium sm:inline"}>{user.displayName}</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-64">
+      <DropdownMenuContent align={placement === "sidebar" ? "start" : "end"} side={placement === "sidebar" ? "top" : "bottom"} className="min-w-64">
         <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
           <span className="font-medium">{user.displayName}</span>
           {user.email && <span className="text-xs text-muted-foreground">{user.email}</span>}

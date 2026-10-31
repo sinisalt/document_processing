@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { toast } from "sonner";
 import type { components } from "@docproc/api-client";
-import { Badge, Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
+import { Badge, Button, Checkbox, cn, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import {
   ConfirmDialog,
   DataTable,
@@ -26,7 +26,8 @@ import {
   type DataTableColumns,
 } from "@docproc/app-shell";
 import { LoadMore } from "@/components/LoadMore";
-import { reviewTaskAction } from "@/lib/review";
+import { reviewReasonLabels, reviewTaskAction } from "@/lib/review";
+import { documentLabel, shortId } from "@/lib/documents";
 
 type ReviewTask = components["schemas"]["ReviewTaskDto"];
 type ReviewTaskStatus = components["schemas"]["ReviewTaskStatus"];
@@ -38,6 +39,8 @@ const searchSchema = z.object({
   status: z.enum(reviewTaskStatuses as readonly [ReviewTaskStatus, ...ReviewTaskStatus[]]).optional().catch(undefined),
   mine: z.boolean().optional().catch(undefined),
 });
+
+const HIDDEN_COLUMNS = { documentStatus: false, slaDueAt: false };
 
 export const Route = createFileRoute("/review")({ validateSearch: searchSchema, component: ReviewQueuePage });
 
@@ -69,14 +72,14 @@ function ReviewQueuePage() {
   const claim = useMutation({
     mutationFn: async (task: ReviewTask) => unwrap(await client.POST("/api/v1/review-tasks/{id}:claim", { params: { path: { id: task.id } } })),
     onSuccess: async (updated) => {
-      toast.success(t("review.claimed", { document: updated.document?.documentNumber ?? updated.documentId.slice(0, 8) }));
+      toast.success(t("review.claimed", { document: documentLabel({ id: updated.documentId, documentNumber: updated.document?.documentNumber }) }));
       await queryClient.invalidateQueries({ queryKey: queryKeys.reviewTasks.all });
     },
   });
   const release = useMutation({
     mutationFn: async (task: ReviewTask) => unwrap(await client.POST("/api/v1/review-tasks/{id}:release", { params: { path: { id: task.id } } })),
     onSuccess: async (updated) => {
-      toast.success(t("review.released", { document: updated.document?.documentNumber ?? updated.documentId.slice(0, 8) }));
+      toast.success(t("review.released", { document: documentLabel({ id: updated.documentId, documentNumber: updated.document?.documentNumber }) }));
       await queryClient.invalidateQueries({ queryKey: queryKeys.reviewTasks.all });
     },
   });
@@ -92,7 +95,7 @@ function ReviewQueuePage() {
               helper.accessor((row) => row.tenantName ?? row.tenantId, {
                 id: "tenant",
                 header: t("review.tenant"),
-                cell: (info) => (info.row.original.tenantName ? <span className="whitespace-nowrap">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{info.row.original.tenantId.slice(0, 8)}</span>),
+                cell: (info) => (info.row.original.tenantName ? <span className="block min-w-28 whitespace-normal">{info.row.original.tenantName}</span> : <span className="font-mono text-xs">{shortId(info.row.original.tenantId)}</span>),
               }),
             ]
           : []),
@@ -100,22 +103,34 @@ function ReviewQueuePage() {
           id: "document",
           header: t("review.document"),
           cell: (info) => (
-            <Link to="/documents/$documentId" params={{ documentId: info.row.original.documentId }} className="font-medium underline-offset-4 hover:underline">
-              {info.row.original.document?.documentNumber ?? <span className="font-mono text-xs">{info.row.original.documentId.slice(0, 8)}</span>}
+            <Link to="/documents/$documentId" params={{ documentId: info.row.original.documentId }} className="block max-w-40 font-medium [overflow-wrap:anywhere] whitespace-normal underline-offset-4 hover:underline">
+              {info.row.original.document?.documentNumber ?? <span className="font-mono text-xs">{shortId(info.row.original.documentId)}</span>}
             </Link>
           ),
         }),
-        helper.accessor((row) => row.document?.supplierName ?? "", { id: "supplier", header: t("documents.supplier"), cell: (info) => info.getValue() || "—" }),
+        helper.accessor((row) => row.document?.supplierName ?? "", { id: "supplier", header: t("documents.supplier"), cell: (info) => <span className="block min-w-28 whitespace-normal">{info.getValue() || "—"}</span> }),
         helper.accessor((row) => row.document?.totalGross ?? null, {
           id: "total",
           header: t("documents.total"),
           cell: (info) => <span className="tabular-nums">{formatMoney(info.getValue(), info.row.original.document?.currency, i18n.language)}</span>,
         }),
-        helper.accessor("reason", { header: t("review.reason"), cell: (info) => <Badge variant="outline">{info.getValue()}</Badge> }),
+        helper.accessor((row) => reviewReasonLabels(row.reason, t).map((r) => r.label).join(", "), {
+          id: "reason",
+          header: t("review.reason"),
+          cell: (info) => (
+            <div className="flex flex-wrap gap-1">
+              {reviewReasonLabels(info.row.original.reason, t).map(({ code, label }) => (
+                <Badge key={code} variant="outline" title={code} data-flag-code={code}>
+                  {label}
+                </Badge>
+              ))}
+            </div>
+          ),
+        }),
         helper.accessor("status", { header: t("review.status"), cell: (info) => <ReviewTaskStatusBadge status={info.getValue()} /> }),
         helper.accessor((row) => row.document?.status ?? "", { id: "documentStatus", header: t("documents.status"), cell: (info) => (info.row.original.document ? <StatusBadge status={info.row.original.document.status} /> : "—") }),
-        helper.accessor("assignedTo", { header: t("review.assignedTo"), cell: (info) => (info.getValue() ? <span className={info.getValue() === me ? "font-medium" : undefined}>{info.getValue() === me ? t("review.you") : info.getValue()}</span> : <span className="text-muted-foreground">{t("review.unassigned")}</span>) }),
-        helper.accessor("createdAt", { header: t("review.waiting"), sortFn: "datetime", cell: (info) => <span title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
+        helper.accessor("assignedTo", { header: t("review.assignedTo"), cell: (info) => (info.getValue() ? <span className={cn("block max-w-36 whitespace-normal [overflow-wrap:anywhere]", info.getValue() === me && "font-medium")}>{info.getValue() === me ? t("review.you") : info.getValue()}</span> : <span className="text-muted-foreground">{t("review.unassigned")}</span>) }),
+        helper.accessor("createdAt", { header: t("review.waiting"), sortFn: "datetime", cell: (info) => <span className="block min-w-20 whitespace-normal" title={formatDateTime(info.getValue(), i18n.language)}>{relativeTime(info.getValue(), i18n.language)}</span> }),
         helper.accessor("slaDueAt", { header: t("review.slaDue"), sortFn: "datetime", cell: (info) => (info.getValue() ? <span className={new Date(info.getValue()!) < new Date() ? "text-destructive" : undefined}>{formatDateTime(info.getValue(), i18n.language)}</span> : "—") }),
         // Claim and release are Review-policy actions; without it there is no column to render.
         ...(canReview
@@ -126,7 +141,7 @@ function ReviewQueuePage() {
                 cell: (info) => {
                   const task = info.row.original;
                   const action = reviewTaskAction(task, me, canReleaseOthers);
-                  const label = task.document?.documentNumber ?? task.documentId.slice(0, 8);
+                  const label = documentLabel({ id: task.documentId, documentNumber: task.document?.documentNumber });
                   return (
                     <div className="flex justify-end gap-1">
                       {action === "claim" && (
@@ -175,7 +190,7 @@ function ReviewQueuePage() {
         <ConfirmDialog
           open
           onOpenChange={(open) => !open && setReleasing(null)}
-          title={t("review.releaseOtherTitle", { document: releasing.document?.documentNumber ?? releasing.documentId.slice(0, 8) })}
+          title={t("review.releaseOtherTitle", { document: documentLabel({ id: releasing.documentId, documentNumber: releasing.document?.documentNumber }) })}
           description={t("review.releaseOtherDescription", { assignee: releasing.assignedTo })}
           confirmLabel={t("review.release")}
           destructive
@@ -191,6 +206,10 @@ function ReviewQueuePage() {
         getRowId={(row) => row.id}
         isLoading={tasks.isLoading} query={tasks}
         caption={t("review.caption")}
+        // The document's status repeats what an open task already says (Needs review) and few tasks carry an SLA; both stay
+        // one click away in Columns, so Claim and Open fit beside the queue at 1440 px instead of behind a horizontal scroll.
+        initialColumnVisibility={HIDDEN_COLUMNS}
+        enableColumnVisibility
         emptyTitle={t("review.empty")}
         emptyDescription={t("review.emptyDescription")}
         toolbar={
