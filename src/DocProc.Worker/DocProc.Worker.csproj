@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <Description>Pipeline worker host.</Description>
+    <UserSecretsId>docproc-worker</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
+    <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
+    <ProjectReference Include="../DocProc.Pipeline/DocProc.Pipeline.csproj" />
+    <ProjectReference Include="../DocProc.ServiceDefaults/DocProc.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+</Project>

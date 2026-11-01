@@ -81,6 +81,23 @@ Rules the prompt enforces, mirrored by validation so a prompt regression is caug
   keep deposit and discount lines as separate entries with their type set.
 - Report `unreadableRegions` (page, rough area, reason) so pages with poor scans get flagged.
 
+### Timeouts
+
+Every request carries `LlmOptions.Timeout` (default 3 minutes). Both adapters bound one network
+attempt with it, the Anthropic adapter exactly like the OpenAI-compatible one: the timer is a
+`CancellationTokenSource` created from the host's `TimeProvider` (`TimeProvider.System` by default,
+a `FakeTimeProvider` in the tests, so expiry is driven by the clock rather than waited for) and
+linked to the caller's token. An attempt that expires surfaces as a transient, retryable
+`LlmException` (`RetryAfter` 5 s); the adapters never retry themselves (`MaxRetries = 0`), the
+worker's retry policy does. The SDK client's own timeout (`NetworkTimeout`, 5 minutes) stays the
+hard ceiling on a single attempt whatever the request asks for, and the caller's own cancellation
+passes through unmapped. The credential probe (`ValidateCredentialAsync`) is bounded by the default
+timeout.
+
+The OpenAI-compatible adapter relies on OpenAI's automatic prefix caching and sends no
+`prompt_cache_key`: the `OpenAI` package in use (2.14.0) exposes that field only on the Responses
+API (`CreateResponseOptions.PromptCacheKey`), not on `ChatCompletionOptions`.
+
 ## Provenance without citations
 
 After extraction we locate each returned value in our own positioned text layer (PdfPig words,
@@ -89,6 +106,28 @@ formats), then fuzzy. The match gives page and bounding box for the review UI an
 sanity check: a required value that cannot be found anywhere in the text layer gets
 `LOW_CONFIDENCE`. This works for scans too, which citations do not, and keeps structured
 outputs available on the same request.
+
+Fuzzy matching applies to free text only (party names, descriptions, notes, payment terms).
+Identifier-like values (invoice number, order and delivery note references, VAT and tax ids,
+SKU, GTIN, lot numbers) must match exactly or after normalisation: a document number
+one digit off from the printed one is a different document number, so it is reported as not
+found rather than confidently anchored to the wrong text. The text layer is indexed once per
+document and the fuzzy pass only compares windows anchored on a word within one edit of the
+value's first or last token, so hundreds of lookups per invoice stay in the millisecond range.
+
+Short values are ambiguous on a page ("5", "12", a date printed twice), so the first equal word
+is not good enough. A line item's values are searched in its own row: its description is
+located first, and quantity, unit, prices and line amounts must sit in that description's
+vertical band, never on the row's position number, and two values of one row (a unit price and
+a line net that print the same amount) take different words. A value the row does not print is
+not found, except the tax rate, which invoices often print once for all lines: it is then the
+rate beside a tax label ("zzgl. 7 % MwSt."). Header dates prefer the occurrence beside their
+own label (Rechnungsdatum, Lieferdatum, Fällig…), so an invoice that prints the same date as
+invoice and delivery date boxes each on its own line (`ProvenanceLocator.LocateLine`,
+`LocateHints`).
+
+A region the model reports as unreadable becomes `UNREADABLE_PAGES`: blocking when a required
+header field came back empty (the region may be what hid it), a warning otherwise.
 
 ## Confidence
 

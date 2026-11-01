@@ -1,0 +1,2 @@
+# Development mode (docs/09 "Running without Docker"): the SQLite database and the dev token signing key.
+data/

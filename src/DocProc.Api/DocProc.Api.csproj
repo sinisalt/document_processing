@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>ASP.NET Core API host.</Description>
+    <UserSecretsId>docproc-api</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
+    <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
+    <ProjectReference Include="../DocProc.Pipeline/DocProc.Pipeline.csproj" />
+    <ProjectReference Include="../DocProc.ServiceDefaults/DocProc.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DocProc.Api.Tests" />
+  </ItemGroup>
+</Project>

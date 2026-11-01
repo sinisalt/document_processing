@@ -1,0 +1,22 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Local orchestration: SQL Server 2025, Azurite, Service Bus emulator, Keycloak, Lowkey Vault, GreenMail, API and worker.</Description>
+    <UserSecretsId>docproc-apphost</UserSecretsId>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Api/DocProc.Api.csproj" />
+    <ProjectReference Include="../DocProc.Worker/DocProc.Worker.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.SqlServer" />
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" />
+    <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" />
+    <PackageReference Include="Aspire.Hosting.Keycloak" />
+    <PackageReference Include="Aspire.Hosting.Docker" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="realms/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,4833 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "DocProc.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/version": {
+      "get": {
+        "tags": [
+          "DocProc.Api"
+        ],
+        "summary": "Build version of the running API.",
+        "operationId": "GetVersion",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousTypeOfstringAndstring"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "DocProc.Api"
+        ],
+        "summary": "The caller's identity, roles, tenant scope and satisfied policies.",
+        "operationId": "GetMe",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-usage": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Calls, tokens and estimated cost of the current tenant per day, stage or model (inclusive UTC dates; the last 30 days by default).",
+        "operationId": "GetLlmUsage",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmUsageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys": {
+      "get": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "API keys of the current tenant; secrets are never returned.",
+        "operationId": "ListApiKeys",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeySummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Creates a key for the current tenant. The full key is returned once; store it now.",
+        "operationId": "CreateApiKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Revokes a key. Idempotent; revoked keys stay listed for audit.",
+        "operationId": "RevokeApiKey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/ingestions": {
+      "post": {
+        "tags": [
+          "Ingestions"
+        ],
+        "summary": "Uploads one or more files (multipart/form-data, or a single base64 file as JSON) and queues them for processing. Send Idempotency-Key to make retries safe.",
+        "operationId": "CreateIngestion",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestionJsonUpload"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "files"
+                ],
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "description": "One to 20 files, at most 52428800 bytes each."
+                  },
+                  "channelId": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "description": "An ingestion channel of the tenant; default: the tenant's API-upload channel.",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Ingestions"
+        ],
+        "summary": "Ingestions newest first, cursor-paginated.",
+        "operationId": "ListIngestions",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfIngestionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingestions/{id}": {
+      "get": {
+        "tags": [
+          "Ingestions"
+        ],
+        "summary": "One ingestion with its items and the documents split from them.",
+        "operationId": "GetIngestion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated.",
+        "operationId": "ListDocuments",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "supplierId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "flag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfDocumentSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The review payload: summary, the canonical model with field provenance, flags, costs and origin.",
+        "operationId": "GetDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/pages/{n}.png": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Rendered page image (PNG, 1-based page number) for the viewer; ETag is the content hash.",
+        "operationId": "GetDocumentPage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/original": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The file the document was ingested from. PDFs and images are served inline with their content type; anything else is an attachment of application/octet-stream.",
+        "operationId": "GetDocumentOriginal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/text": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The positioned text layer (words with boxes per page) for the highlight overlay.",
+        "operationId": "GetDocumentText",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/events": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Timeline: state transitions, stage outcomes and human actions, oldest first.",
+        "operationId": "GetDocumentEvents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentEventDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:approve": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Approves a document waiting for review (or validated and not yet routed), closes its review tasks and queues publishing.",
+        "operationId": "ApproveDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ApproveDocumentRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:reject": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Rejects a document with a reason, closes its review tasks and queues publishing of the rejection.",
+        "operationId": "RejectDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:reprocess": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract).",
+        "operationId": "ReprocessDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReprocessDocumentRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/fields": {
+      "patch": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.",
+        "operationId": "CorrectDocumentFields",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectFieldsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/review-tasks": {
+      "get": {
+        "tags": [
+          "Review"
+        ],
+        "summary": "The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary.",
+        "operationId": "ListReviewTasks",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignedTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfReviewTaskDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/review-tasks/{id}:claim": {
+      "post": {
+        "tags": [
+          "Review"
+        ],
+        "summary": "Assigns the task to the caller and marks it InProgress; 409 when another reviewer holds it.",
+        "operationId": "ClaimReviewTask",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTaskDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/review-tasks/{id}:release": {
+      "post": {
+        "tags": [
+          "Review"
+        ],
+        "summary": "Returns the task to the queue. The assignee may release it; a tenant admin may release anyone's.",
+        "operationId": "ReleaseReviewTask",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTaskDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants": {
+      "get": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "Tenants of the platform, by slug, with status and text filters. Operators may list; only SuperAdmins change anything.",
+        "operationId": "ListTenants",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfTenantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "Creates a tenant with its default API-upload and portal-upload channels.",
+        "operationId": "CreateTenant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{id}": {
+      "get": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "One tenant.",
+        "operationId": "GetTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "Changes name, legal name, VAT id, aliases or status of a tenant.",
+        "operationId": "UpdateTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTenantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{id}:suspend": {
+      "post": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "Suspends a tenant: its users and API keys stop working until it is activated again.",
+        "operationId": "SuspendTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{id}:activate": {
+      "post": {
+        "tags": [
+          "Tenants"
+        ],
+        "summary": "Activates a suspended tenant.",
+        "operationId": "ActivateTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Suppliers of the current tenant, by name; q matches the folded name or the exact VAT id.",
+        "operationId": "ListSuppliers",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfSupplierResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Creates a supplier; the folded name used for matching is derived server-side.",
+        "operationId": "CreateSupplier",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{id}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One supplier of the current tenant.",
+        "operationId": "GetSupplier",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Changes a supplier's identifiers, aliases, domains or review setting.",
+        "operationId": "UpdateSupplier",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Deletes a supplier no document references; otherwise 409.",
+        "operationId": "DeleteSupplier",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{id}/activity": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The supplier's twenty most recent documents.",
+        "operationId": "GetSupplierActivity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SupplierActivityItem"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/channels": {
+      "get": {
+        "tags": [
+          "Channels"
+        ],
+        "summary": "Ingestion channels of the current tenant; credentials are never returned.",
+        "operationId": "ListChannels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChannelResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Channels"
+        ],
+        "summary": "Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant; the credential is write-only.",
+        "operationId": "CreateChannel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/{id}": {
+      "patch": {
+        "tags": [
+          "Channels"
+        ],
+        "summary": "Renames, pauses/resumes or reconfigures a channel; secret rotates (value) or clears (empty string) the credential.",
+        "operationId": "UpdateChannel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Channels"
+        ],
+        "summary": "Deletes a channel that has never received anything, and its credential; otherwise 409.",
+        "operationId": "DeleteChannel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/members": {
+      "get": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Members of the current tenant and their roles.",
+        "operationId": "ListMembers",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Adds a user (by identity-provider subject) to the current tenant with a role.",
+        "operationId": "AddMember",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{userId}": {
+      "patch": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Changes a member's role. The last TenantAdmin cannot be demoted.",
+        "operationId": "ChangeMemberRole",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeMemberRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Members"
+        ],
+        "summary": "Removes a member. The last TenantAdmin cannot be removed.",
+        "operationId": "RemoveMember",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Review policy and retention of the current tenant, with its read-only identity.",
+        "operationId": "GetTenantSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Replaces the review policy and retention of the current tenant.",
+        "operationId": "PutTenantSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantSettingsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-policy": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Which provider configuration each stage of the current tenant uses and whether the platform key may stand in.",
+        "operationId": "GetLlmPolicy",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPolicyResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Sets the default configuration, per-stage overrides and platform-key fallback; every id must be one of the tenant's own configurations.",
+        "operationId": "PutLlmPolicy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLlmPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "The tenant's own (BYOK) provider configurations, without credentials.",
+        "operationId": "ListLlmProviders",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LlmProviderResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Adds a BYOK provider: the key goes to the secret store, SQL keeps its reference, last four characters and fingerprint.",
+        "operationId": "CreateLlmProvider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLlmProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers/{id}:disable": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Disables a configuration; stages that resolve to it wait or fall back per the policy.",
+        "operationId": "DisableLlmProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers/{id}:enable": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Re-enables a disabled or invalid configuration.",
+        "operationId": "EnableLlmProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers/{id}": {
+      "delete": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Deletes a configuration the policy does not reference, and its key from the secret store; usage rows keep its id for cost history.",
+        "operationId": "DeleteLlmProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/llm/providers": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "The platform's default provider configurations (per data residency), without credentials.",
+        "operationId": "ListPlatformLlmProviders",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LlmProviderResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Adds a platform provider configuration; the key goes to the secret store under platform scope.",
+        "operationId": "CreatePlatformLlmProvider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLlmProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm/providers/{id}:disable": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Kill switch: no call goes to this platform configuration until it is enabled again.",
+        "operationId": "DisablePlatformLlmProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/llm/providers/{id}:enable": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Re-enables a platform configuration.",
+        "operationId": "EnablePlatformLlmProvider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/llm/usage": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Calls, tokens and estimated cost across tenants per tenant, model or day (inclusive UTC dates; the last 30 days by default).",
+        "operationId": "GetPlatformLlmUsage",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmUsageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddMemberRequest": {
+        "required": [
+          "userId",
+          "email",
+          "displayName",
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "AnonymousTypeOfstringAndstring": {
+        "required": [
+          "name",
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ApiKeySummary": {
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApproveDocumentRequest": {
+        "required": [
+          "comment"
+        ],
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ChangeMemberRoleRequest": {
+        "required": [
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelResponse": {
+        "required": [
+          "id",
+          "name",
+          "type",
+          "status",
+          "config",
+          "hasSecret",
+          "lastPolledAt",
+          "lastError",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "hasSecret": {
+            "type": "boolean"
+          },
+          "lastPolledAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "bool ChannelResponse.HasSecret is all a client learns about the credential; the reference itself stays server-side."
+      },
+      "CorrectFieldsRequest": {
+        "required": [
+          "corrections"
+        ],
+        "type": "object",
+        "properties": {
+          "corrections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldCorrection"
+            }
+          }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateChannelRequest": {
+        "required": [
+          "name",
+          "type",
+          "config",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "secret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.\nstring? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the\nserver generates; the response only ever says whether one exists."
+      },
+      "CreateLlmProviderRequest": {
+        "required": [
+          "kind",
+          "endpoint",
+          "apiVersion",
+          "apiKey",
+          "models",
+          "monthlySpendCapUsd",
+          "dataResidency"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "apiVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "models": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "monthlySpendCapUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "dataResidency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL."
+      },
+      "CreateSupplierRequest": {
+        "required": [
+          "name",
+          "vatId",
+          "taxId",
+          "ibans",
+          "emailDomains",
+          "aliases",
+          "defaultCurrency",
+          "alwaysReview"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ibans": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "emailDomains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "aliases": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultCurrency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "alwaysReview": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "CreateTenantRequest": {
+        "required": [
+          "name",
+          "slug",
+          "legalName",
+          "vatId",
+          "defaultCurrency",
+          "countryCode",
+          "timeZone"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultCurrency": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatedApiKey": {
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "key",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Returned once, on creation: string CreatedApiKey.Key is never retrievable again."
+      },
+      "DocumentCostsDto": {
+        "required": [
+          "llmInputTokens",
+          "llmOutputTokens",
+          "llmCacheReadTokens",
+          "ocrPages",
+          "estimatedUsd",
+          "llmProvider",
+          "llmModel",
+          "keyOwner"
+        ],
+        "type": "object",
+        "properties": {
+          "llmInputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "llmOutputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "llmCacheReadTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ocrPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "estimatedUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "llmProvider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "llmModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "keyOwner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KeyOwner"
+              }
+            ]
+          }
+        }
+      },
+      "DocumentDetail": {
+        "required": [
+          "id",
+          "tenantId",
+          "tenantName",
+          "status",
+          "type",
+          "typeConfidence",
+          "supplierId",
+          "supplierName",
+          "documentNumber",
+          "issueDate",
+          "currency",
+          "totalGross",
+          "extractionMethod",
+          "pageCount",
+          "blockingFlagCount",
+          "warningFlagCount",
+          "createdAt",
+          "updatedAt",
+          "approvedAt",
+          "approvedBy",
+          "failureReason",
+          "canonical",
+          "canonicalSchemaVersion",
+          "flags",
+          "costs",
+          "ingestion",
+          "pageImageUrls"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DocumentType"
+          },
+          "typeConfidence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "supplierName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "documentNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "issueDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "totalGross": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "extractionMethod": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionMethod"
+              }
+            ]
+          },
+          "pageCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "blockingFlagCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "warningFlagCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "approvedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failureReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "canonical": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "canonicalSchemaVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentFlagDto"
+            }
+          },
+          "costs": {
+            "$ref": "#/components/schemas/DocumentCostsDto"
+          },
+          "ingestion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentIngestionRef"
+              }
+            ]
+          },
+          "pageImageUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is."
+      },
+      "DocumentEventDto": {
+        "required": [
+          "id",
+          "eventType",
+          "fromStatus",
+          "toStatus",
+          "actor",
+          "details",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "fromStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentStatus"
+              }
+            ]
+          },
+          "toStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentStatus"
+              }
+            ]
+          },
+          "actor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "details": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DocumentFlagDto": {
+        "required": [
+          "id",
+          "code",
+          "severity",
+          "field",
+          "message",
+          "params",
+          "createdBy",
+          "createdAt",
+          "resolvedAt",
+          "resolvedBy"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/FlagSeverity"
+          },
+          "field": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "createdBy": {
+            "$ref": "#/components/schemas/FlagOrigin"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "resolvedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One flag of a document. `Message` is English for API clients; `Params` holds the same facts as invariant\nstrings (field paths, ISO dates, amounts and ratios with a dot, `reason` naming the message variant) so a UI can\nphrase the flag in its own language from `Code` (docs/02 §5 \"Flag parameters\"). Empty for a flag without\nparameters, and for flags stored before parameters existed: show `Message` then."
+      },
+      "DocumentIngestionRef": {
+        "required": [
+          "ingestionId",
+          "itemId",
+          "fileName",
+          "sourceFrom",
+          "receivedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "ingestionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "sourceFrom": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "Where the document came from: the ingestion and the attachment it was split from."
+      },
+      "DocumentStatus": {
+        "enum": [
+          "Received",
+          "Normalized",
+          "Split",
+          "Classified",
+          "Matched",
+          "Extracted",
+          "Validated",
+          "AutoApproved",
+          "NeedsReview",
+          "Approved",
+          "Rejected",
+          "Failed"
+        ],
+        "description": "Document lifecycle states (docs/03-pipeline.md \"Document state machine\")."
+      },
+      "DocumentSummary": {
+        "required": [
+          "id",
+          "tenantId",
+          "tenantName",
+          "status",
+          "type",
+          "typeConfidence",
+          "supplierId",
+          "supplierName",
+          "documentNumber",
+          "issueDate",
+          "currency",
+          "totalGross",
+          "extractionMethod",
+          "pageCount",
+          "blockingFlagCount",
+          "warningFlagCount",
+          "createdAt",
+          "updatedAt",
+          "approvedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DocumentType"
+          },
+          "typeConfidence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "supplierName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "documentNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "issueDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "currency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "totalGross": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "extractionMethod": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionMethod"
+              }
+            ]
+          },
+          "pageCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "blockingFlagCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "warningFlagCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is."
+      },
+      "DocumentType": {
+        "enum": [
+          "Unknown",
+          "Invoice",
+          "CreditNote",
+          "PurchaseOrder",
+          "DeliveryNote",
+          "Statement",
+          "Reminder",
+          "Other"
+        ]
+      },
+      "ExtractionMethod": {
+        "enum": [
+          "StructuredXml",
+          "Profile",
+          "Llm",
+          "Manual",
+          null
+        ]
+      },
+      "FieldCorrection": {
+        "required": [
+          "path",
+          "value",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it."
+      },
+      "FlagOrigin": {
+        "enum": [
+          "Pipeline",
+          "Human"
+        ]
+      },
+      "FlagSeverity": {
+        "enum": [
+          "Info",
+          "Warning",
+          "Blocking"
+        ]
+      },
+      "HttpValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "IngestionCreated": {
+        "required": [
+          "id",
+          "status",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngestionStatus"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngestionItemCreated"
+            }
+          }
+        }
+      },
+      "IngestionDetail": {
+        "required": [
+          "id",
+          "channelId",
+          "status",
+          "receivedAt",
+          "sourceFrom",
+          "sourceSubject",
+          "sourceFileName",
+          "lastError",
+          "attempts",
+          "updatedAt",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngestionStatus"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceFrom": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceSubject": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceFileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngestionItemDto"
+            }
+          }
+        }
+      },
+      "IngestionDocumentRef": {
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          }
+        }
+      },
+      "IngestionItemCreated": {
+        "required": [
+          "id",
+          "fileName",
+          "sizeBytes",
+          "sha256"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "IngestionItemDto": {
+        "required": [
+          "id",
+          "fileName",
+          "mimeType",
+          "sizeBytes",
+          "sha256",
+          "kind",
+          "disposition",
+          "dispositionReason",
+          "documents"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/ItemDisposition"
+          },
+          "dispositionReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngestionDocumentRef"
+            }
+          }
+        }
+      },
+      "IngestionJsonUpload": {
+        "required": [
+          "fileName",
+          "contentType",
+          "base64",
+          "channelId"
+        ],
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "base64": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        },
+        "description": "JSON alternative to multipart for a single file: integrations that cannot build multipart bodies."
+      },
+      "IngestionStatus": {
+        "enum": [
+          "Received",
+          "Unpacked",
+          "Processed",
+          "Failed"
+        ]
+      },
+      "IngestionSummary": {
+        "required": [
+          "id",
+          "channelId",
+          "status",
+          "receivedAt",
+          "sourceFrom",
+          "sourceFileName",
+          "itemCount",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngestionStatus"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceFrom": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceFileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ItemDisposition": {
+        "enum": [
+          "Candidate",
+          "Ignored",
+          "Unpacked",
+          "Duplicate",
+          "Accepted"
+        ],
+        "description": "What stage 1 decided about an item. ItemDisposition.Candidate is the undecided state the channels store; every other\nvalue is final. Exactly one ItemDisposition.Accepted item per tenant and SHA-256 may exist: the filtered unique index\nIngestionItemOwnership enforces it in the database."
+      },
+      "ItemKind": {
+        "enum": [
+          "Pdf",
+          "Image",
+          "Xml",
+          "Office",
+          "Text",
+          "Archive",
+          "Other"
+        ]
+      },
+      "JsonElement": { },
+      "KeyOwner": {
+        "enum": [
+          "Platform",
+          "Tenant",
+          null
+        ]
+      },
+      "LlmPolicyResponse": {
+        "required": [
+          "defaultConfigId",
+          "stageOverrides",
+          "fallbackToPlatformKey",
+          "allowPlatformKeyAtAll"
+        ],
+        "type": "object",
+        "properties": {
+          "defaultConfigId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "stageOverrides": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "fallbackToPlatformKey": {
+            "type": "boolean"
+          },
+          "allowPlatformKeyAtAll": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LlmProviderResponse": {
+        "required": [
+          "id",
+          "scope",
+          "tenantId",
+          "kind",
+          "endpoint",
+          "apiVersion",
+          "authType",
+          "models",
+          "monthlySpendCapUsd",
+          "dataResidency",
+          "status",
+          "keyLast4",
+          "validatedAt",
+          "lastError",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "apiVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "authType": {
+            "type": "string"
+          },
+          "models": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "monthlySpendCapUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "dataResidency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "keyLast4": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "validatedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A provider configuration without its credential: only the last four characters identify the key (docs/08 \"Key handling\")."
+      },
+      "LlmUsageBucket": {
+        "required": [
+          "key",
+          "calls",
+          "errors",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens",
+          "reasoningTokens",
+          "estimatedCostUsd"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "calls": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errors": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "outputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "cacheReadTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "cacheWriteTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "reasoningTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "estimatedCostUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "Usage of one group (a day, a stage, a model or a tenant) in the requested window."
+      },
+      "LlmUsageResponse": {
+        "required": [
+          "from",
+          "to",
+          "groupBy",
+          "buckets",
+          "total"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "groupBy": {
+            "type": "string"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmUsageBucket"
+            }
+          },
+          "total": {
+            "$ref": "#/components/schemas/LlmUsageBucket"
+          }
+        }
+      },
+      "MeResponse": {
+        "required": [
+          "subject",
+          "name",
+          "email",
+          "roles",
+          "scopes",
+          "authMethod",
+          "tenantId",
+          "scope",
+          "permissions"
+        ],
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authMethod": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Who am I: the identity, roles, resolved tenant scope and the policies this caller satisfies."
+      },
+      "MemberResponse": {
+        "required": [
+          "userId",
+          "email",
+          "displayName",
+          "role",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PageOfDocumentSummary": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
+      "PageOfIngestionSummary": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngestionSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
+      "PageOfReviewTaskDto": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewTaskDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
+      "PageOfSupplierResponse": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
+      "PageOfTenantResponse": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
+      "PatchChannelRequest": {
+        "required": [
+          "name",
+          "status",
+          "config",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "secret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it."
+      },
+      "PatchSupplierRequest": {
+        "required": [
+          "name",
+          "vatId",
+          "taxId",
+          "ibans",
+          "emailDomains",
+          "aliases",
+          "defaultCurrency",
+          "alwaysReview"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ibans": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "emailDomains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "aliases": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultCurrency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "alwaysReview": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list."
+      },
+      "PatchTenantRequest": {
+        "required": [
+          "name",
+          "legalName",
+          "vatId",
+          "nameAliases",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "legalName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nameAliases": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it."
+      },
+      "PutLlmPolicyRequest": {
+        "required": [
+          "defaultConfigId",
+          "stageOverrides",
+          "fallbackToPlatformKey"
+        ],
+        "type": "object",
+        "properties": {
+          "defaultConfigId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "stageOverrides": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "fallbackToPlatformKey": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RejectDocumentRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ReprocessDocumentRequest": {
+        "required": [
+          "fromStage"
+        ],
+        "type": "object",
+        "properties": {
+          "fromStage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Which stage to rerun; the document is reset to the state before it (docs/03 \"any stage can be re-run\")."
+      },
+      "ReviewTaskDto": {
+        "required": [
+          "id",
+          "tenantId",
+          "tenantName",
+          "documentId",
+          "reason",
+          "assignedTo",
+          "status",
+          "createdAt",
+          "slaDueAt",
+          "completedAt",
+          "document"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "assignedTo": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewTaskStatus"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "slaDueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "document": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentSummary"
+              }
+            ]
+          }
+        },
+        "description": "A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary)."
+      },
+      "ReviewTaskStatus": {
+        "enum": [
+          "Open",
+          "InProgress",
+          "Done",
+          "Skipped"
+        ]
+      },
+      "SupplierActivityItem": {
+        "required": [
+          "id",
+          "status",
+          "type",
+          "documentNumber",
+          "issueDate",
+          "totalGross",
+          "currency",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "documentNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "issueDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "totalGross": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "One recent document of a supplier, for the supplier activity view (docs/05 \"Suppliers: ... activity\")."
+      },
+      "SupplierResponse": {
+        "required": [
+          "id",
+          "name",
+          "normalizedName",
+          "vatId",
+          "taxId",
+          "ibans",
+          "emailDomains",
+          "aliases",
+          "defaultCurrency",
+          "alwaysReview",
+          "globalSupplierId",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "normalizedName": {
+            "type": "string"
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ibans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "emailDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultCurrency": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "alwaysReview": {
+            "type": "boolean"
+          },
+          "globalSupplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TenantIdentity": {
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "legalName",
+          "vatId",
+          "defaultCurrency",
+          "countryCode",
+          "timeZone"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultCurrency": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          }
+        },
+        "description": "The read-only identity of the current tenant; platform staff change it through `/tenants/{id}`."
+      },
+      "TenantResponse": {
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "legalName",
+          "vatId",
+          "nameAliases",
+          "status",
+          "defaultCurrency",
+          "countryCode",
+          "timeZone",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "vatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nameAliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "defaultCurrency": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TenantSettingsDto": {
+        "required": [
+          "autoApproveConfidenceThreshold",
+          "alwaysReviewSupplierIds",
+          "retentionYears",
+          "shareExtractorProfiles"
+        ],
+        "type": "object",
+        "properties": {
+          "autoApproveConfidenceThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "alwaysReviewSupplierIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "retentionYears": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "shareExtractorProfiles": {
+            "type": "boolean"
+          }
+        },
+        "description": "Review policy and retention (docs/02 §1 \"settings\"); the body of PUT and the `settings` part of GET."
+      },
+      "TenantSettingsResponse": {
+        "required": [
+          "tenant",
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "tenant": {
+            "$ref": "#/components/schemas/TenantIdentity"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TenantSettingsDto"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "OIDC access token from the configured authority (locally: Keycloak realm 'docproc').",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "Tenant API key (dpk_…) for machine clients; scopes ingest and/or read.",
+        "name": "X-Api-Key",
+        "in": "header"
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": [ ]
+    },
+    {
+      "ApiKey": [ ]
+    }
+  ],
+  "tags": [
+    {
+      "name": "DocProc.Api"
+    },
+    {
+      "name": "LLM"
+    },
+    {
+      "name": "API keys"
+    },
+    {
+      "name": "Ingestions"
+    },
+    {
+      "name": "Documents"
+    },
+    {
+      "name": "Review"
+    },
+    {
+      "name": "Tenants"
+    },
+    {
+      "name": "Suppliers"
+    },
+    {
+      "name": "Channels"
+    },
+    {
+      "name": "Members"
+    },
+    {
+      "name": "Settings"
+    }
+  ]
+}

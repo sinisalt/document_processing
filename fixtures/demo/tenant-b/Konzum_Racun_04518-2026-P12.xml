@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Demo fixture (docs/09 "Demo data"): an XRechnung 3.0 (UBL syntax) invoice from Konzum plus to tenant B, Pizzeria
+     Napoli. Croatian VAT at 25 % and 5 %; the seller VAT id matches the DevSeed supplier row. -->
+<ubl:Invoice xmlns:ubl="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+             xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+             xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0</cbc:CustomizationID>
+  <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+  <cbc:ID>04518-2026-P12</cbc:ID>
+  <cbc:IssueDate>2026-10-28</cbc:IssueDate>
+  <cbc:DueDate>2026-11-12</cbc:DueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:Note>Isporuka za restoran, Ilica 45. Hvala na suradnji.</cbc:Note>
+  <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cbc:BuyerReference>PIZZERIA-NAPOLI-ILICA</cbc:BuyerReference>
+  <cac:OrderReference>
+    <cbc:ID>NAR-2026-0391</cbc:ID>
+  </cac:OrderReference>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">e-racun@konzum.hr</cbc:EndpointID>
+      <cac:PartyName>
+        <cbc:Name>Konzum plus</cbc:Name>
+      </cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>Ulica Marijana Čavića 1a</cbc:StreetName>
+        <cbc:CityName>Zagreb</cbc:CityName>
+        <cbc:PostalZone>10000</cbc:PostalZone>
+        <cac:Country>
+          <cbc:IdentificationCode>HR</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>HR62226620908</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Konzum plus d.o.o.</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>Veleprodaja HoReCa</cbc:Name>
+        <cbc:Telephone>+385 1 6300 400</cbc:Telephone>
+        <cbc:ElectronicMail>e-racun@konzum.hr</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">nabava@pizzeria-napoli.example</cbc:EndpointID>
+      <cac:PartyName>
+        <cbc:Name>Pizzeria Napoli</cbc:Name>
+      </cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>Ilica 45</cbc:StreetName>
+        <cbc:CityName>Zagreb</cbc:CityName>
+        <cbc:PostalZone>10000</cbc:PostalZone>
+        <cac:Country>
+          <cbc:IdentificationCode>HR</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>HR12345678901</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Pizzeria Napoli d.o.o.</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>Marko Horvat</cbc:Name>
+        <cbc:ElectronicMail>nabava@pizzeria-napoli.example</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:Delivery>
+    <cbc:ActualDeliveryDate>2026-10-28</cbc:ActualDeliveryDate>
+  </cac:Delivery>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode>58</cbc:PaymentMeansCode>
+    <cbc:PaymentID>HR00 04518-2026-P12</cbc:PaymentID>
+    <cac:PayeeFinancialAccount>
+      <cbc:ID>HR7224020061100123456</cbc:ID>
+      <cbc:Name>Konzum plus d.o.o.</cbc:Name>
+      <cac:FinancialInstitutionBranch>
+        <cbc:ID>ESBCHR22</cbc:ID>
+      </cac:FinancialInstitutionBranch>
+    </cac:PayeeFinancialAccount>
+  </cac:PaymentMeans>
+  <cac:PaymentTerms>
+    <cbc:Note>Plaćanje u roku od 15 dana.</cbc:Note>
+  </cac:PaymentTerms>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="EUR">58.48</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">219.20</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">54.80</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>25</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">73.60</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">3.68</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>5</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="EUR">292.80</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="EUR">292.80</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="EUR">351.28</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="EUR">351.28</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">12</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">41.40</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Rajčica pelati 2,5 kg</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>110482</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>25</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">3.45</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="KGM">10</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">98.00</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Mozzarella fior di latte</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>230915</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>25</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">9.80</cbc:PriceAmount>
+      <cbc:BaseQuantity unitCode="KGM">1</cbc:BaseQuantity>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>3</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">4</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">73.60</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Brašno pšenično T-550 tip 00, 25 kg</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>301177</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>5</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">18.40</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>4</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">2</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">79.80</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Maslinovo ulje ekstra djevičansko 5 l</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>415520</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>25</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">39.90</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+</ubl:Invoice>

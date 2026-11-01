@@ -1,0 +1,27 @@
+{
+  "header": {
+    "stage": "Classify",
+    "promptVersion": "classify-document@1",
+    "schema": "document_classification@1",
+    "taskTextHash": "83b837cafd25cd6f0d01d4a6bf411b23bf7122188731d653f68c37746584312b",
+    "model": "claude-haiku-5-5",
+    "recordedAt": "2026-10-30T12:00:00+00:00"
+  },
+  "model": "claude-haiku-5-5",
+  "stopReason": "end_turn",
+  "providerRequestId": "replay-demo-classify-l-2026-0457",
+  "latencyMs": 850,
+  "usage": {
+    "inputTokens": 1630,
+    "outputTokens": 38,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0
+  },
+  "json": {
+    "documentType": "DeliveryNote",
+    "confidence": 0.91,
+    "language": "de",
+    "supplierNameHint": "Bio-Hof M\u00FCller"
+  }
+}

@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.swp
+TestResults/
+coverage*/
+*.coverage
+*.trx
+artifacts/
+
+# IDE
+.idea/
+.vscode/
+*.DotSettings.user
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pfx
+appsettings.*.local.json
+.env
+.env.*
+
+# Harness-managed agent worktrees
+.claude/worktrees/
+
+# Local development state (SQLite database, dev signing key, file-system blobs, secrets)
+data/

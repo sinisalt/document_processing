@@ -52,7 +52,7 @@ orchestration and the dashboard, not as a production dependency.
 | Email | Microsoft Graph change notifications + delta queries for M365 mailboxes (`Mail.Read` application permission, mailbox per customer, subscriptions renewed every ~7 days); **MailKit 5 (MIT)** IMAP IDLE for other providers | Plus-addressing (`invoices+acme@…`) is on by default in Exchange Online but some supplier systems strip the `+`; dedicated shared mailboxes per customer are licence-free in M365 and unambiguous. |
 | PDF | **PdfPig** (Apache-2.0) for words with positions; **PDFtoImage** (MIT, PDFium + SkiaSharp) for rasterising pages | iText is AGPL (source-disclosure for SaaS or paid licence). Docnet is stale. |
 | OCR | `IOcrProvider`: **TesseractOCR** NuGet (Apache-2.0, Tesseract 5.5) first; **Azure AI Document Intelligence** `prebuilt-layout` (~$10 / 1 000 pages, positioned words + tables) as the premium provider for poor scans | AWS Textract and Google Document AI are equivalent alternatives behind the same interface. |
-| E-invoice XML | **ZUGFeRD-csharp** (Apache-2.0) for Factur-X/ZUGFeRD/XRechnung CII; UBL 2.1 via generated classes from the OASIS XSDs (no maintained OSS .NET UBL library found) | ZUGFeRD-csharp is deprecated from Dec 2026 with a commercial successor (FactoorSharp). Pin the last Apache version, wrap it behind an interface, decide later whether to pay or maintain a fork. |
+| E-invoice XML | **Hand-written `System.Xml.Linq` mappers (UBL 2.1, CII D16B) in `DocProc.Extraction.EInvoice`**: local-name navigation over the EN 16931 core elements, no third-party e-invoice library | ZUGFeRD-csharp is deprecated from Dec 2026 with a commercial successor (FactoorSharp), and no maintained OSS .NET UBL library exists; the ~30 EN 16931 elements the canonical model needs are cheaper to map by hand than to wrap a library around. XML is read through one secured reader (DTDs prohibited, no resolver, size and nesting limits). |
 | LLM | **Provider-neutral gateway** over `Microsoft.Extensions.AI`, with adapters for the **Anthropic C# SDK** (`Anthropic`, `Anthropic.Foundry` for Claude on Microsoft Foundry) and the **OpenAI / Azure OpenAI SDKs** (any OpenAI-compatible endpoint); **BYOK** per tenant with keys in Key Vault | Design in `08-llm-providers-and-byok.md`; Anthropic-specific defaults and costs in `06-llm-integration.md`. |
 | Identity | **Microsoft Entra External ID** (customer portal users) and Entra ID (platform staff) via OIDC; ASP.NET Core authorization policies; per-tenant API keys hashed at rest | Managed identities for service-to-service access (SQL, Blob, Service Bus, Key Vault): no connection-string secrets in production. |
 | Observability | OpenTelemetry (traces, metrics, logs) exported to Azure Monitor / Application Insights; Aspire dashboard locally; per-document cost and token metrics as first-class data | |
@@ -67,13 +67,14 @@ document_processing/
 ├── docs/                          this plan, ADRs, API notes
 ├── src/
 │   ├── DocProc.Domain/            canonical model, flags, state machine, validation rules (no deps)
-│   ├── DocProc.Application/       use cases, pipeline stage handlers, interfaces (IBlobStore, IOcrProvider, IDocumentExtractor, IMailSource)
+│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain only
 │   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Key Vault, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI
-│   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, schema portability tests
+│   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, portable schema, and the LLM stage implementations (classifier, splitter, invoice extractor); references Application
 │   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter
 │   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
 │   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
+│   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Domain, Application, Llm, Llm.Anthropic, Llm.OpenAi, Infrastructure and Extraction.EInvoice, and composes them into both hosts
 │   ├── DocProc.Api/               ASP.NET Core host
 │   ├── DocProc.Worker/            Wolverine host
 │   └── DocProc.AppHost/           Aspire local orchestration
@@ -88,6 +89,15 @@ document_processing/
 │   └── apps/customer-portal/
 └── deploy/                        docker-compose, Helm/ACA manifests, GitHub Actions
 ```
+
+Dependency direction: `Domain ← Application ← Llm ← {Infrastructure, Llm.Anthropic, Llm.OpenAi} ← Pipeline ← {Api, Worker}`,
+with `Extraction.*` beside Llm (Domain and Application only) and also referenced by Pipeline. Infrastructure
+references Llm because it implements the gateway's ports (`EfLlmPolicyStore`, `ConfigurationLlmCredentialStore`,
+`EfLlmUsageRecorder`).
+`DocProc.Application` holds only contracts and pure domain services, so every implementation project
+(including `DocProc.Llm`) can reference it without a cycle; code that needs an implementation type
+(for example `LlmException` to choose between retry and `LLM_PROVIDER_UNAVAILABLE`) lives in
+`DocProc.Pipeline`, never in Application.
 
 ## Multi-tenancy and data protection
 

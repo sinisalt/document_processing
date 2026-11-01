@@ -1,0 +1,27 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DocProc.Api/DocProc.Api.csproj" />
+    <Project Path="src/DocProc.AppHost/DocProc.AppHost.csproj" />
+    <Project Path="src/DocProc.Application/DocProc.Application.csproj" />
+    <Project Path="src/DocProc.Domain/DocProc.Domain.csproj" />
+    <Project Path="src/DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
+    <Project Path="src/DocProc.Extraction.Profiles/DocProc.Extraction.Profiles.csproj" />
+    <Project Path="src/DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
+    <Project Path="src/DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
+    <Project Path="src/DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />
+    <Project Path="src/DocProc.Llm/DocProc.Llm.csproj" />
+    <Project Path="src/DocProc.Pipeline/DocProc.Pipeline.csproj" />
+    <Project Path="src/DocProc.ServiceDefaults/DocProc.ServiceDefaults.csproj" />
+    <Project Path="src/DocProc.Worker/DocProc.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DocProc.Api.Tests/DocProc.Api.Tests.csproj" />
+    <Project Path="tests/DocProc.AppHost.Tests/DocProc.AppHost.Tests.csproj" />
+    <Project Path="tests/DocProc.Domain.Tests/DocProc.Domain.Tests.csproj" />
+    <Project Path="tests/DocProc.EInvoice.Tests/DocProc.EInvoice.Tests.csproj" />
+    <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />
+    <Project Path="tests/DocProc.Llm.Tests/DocProc.Llm.Tests.csproj" />
+    <Project Path="tests/DocProc.Pipeline.Tests/DocProc.Pipeline.Tests.csproj" />
+    <Project Path="tests/DocProc.Worker.Tests/DocProc.Worker.Tests.csproj" />
+  </Folder>
+</Solution>

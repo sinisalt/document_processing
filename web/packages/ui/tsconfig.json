@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+    "types": ["vitest/globals"],
+    "noEmit": true
+  },
+  "include": ["src", "vite-plugin.ts", "vite.config.ts"]
+}

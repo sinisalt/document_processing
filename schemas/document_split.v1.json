@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "startPage": {
+            "type": "integer"
+          },
+          "endPage": {
+            "type": "integer"
+          },
+          "documentType": {
+            "enum": [
+              "Invoice",
+              "CreditNote",
+              "PurchaseOrder",
+              "DeliveryNote",
+              "Statement",
+              "Reminder",
+              "Other",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "startPage",
+          "endPage",
+          "documentType",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "documents"
+  ],
+  "additionalProperties": false
+}

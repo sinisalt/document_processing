@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install fonts for the PDF test fixtures
+        run: sudo apt-get install -y fonts-dejavu-core
+
+      - name: Restore
+        run: dotnet restore DocProc.slnx
+
+      - name: Build
+        run: dotnet build DocProc.slnx --configuration Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test DocProc.slnx --configuration Release --no-build
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/**'
+          if-no-files-found: ignore
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Unit tests
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm -r --filter './apps/**' build
+
+      # OpenAPI drift check: web/packages/api-client/openapi/v1.json and src/schema.d.ts are committed and regenerated
+      # by web/scripts/export-openapi.sh from the running API. The script needs dotnet (set up here), pnpm (above) and
+      # curl (present on the runner). The API is built first so the script's `dotnet run` only starts it.
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build the API for the OpenAPI export
+        run: dotnet build ../src/DocProc.Api/DocProc.Api.csproj --configuration Release
+
+      # On failure the script prints the API's log itself.
+      - name: Regenerate the API client from the built API
+        run: ./scripts/export-openapi.sh
+
+      - name: Check for OpenAPI drift
+        run: |
+          if [ -n "$(git status --porcelain -- packages/api-client)" ]; then
+            echo '::error::web/packages/api-client is out of date with the API: run web/scripts/export-openapi.sh and commit the result.'
+            git status --porcelain -- packages/api-client
+            git --no-pager diff -- packages/api-client
+            exit 1
+          fi
+          echo 'web/packages/api-client matches the API.'

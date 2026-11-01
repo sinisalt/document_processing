@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Canonical document model, flags, state machine and validation rules. No dependencies.</Description>
+  </PropertyGroup>
+</Project>

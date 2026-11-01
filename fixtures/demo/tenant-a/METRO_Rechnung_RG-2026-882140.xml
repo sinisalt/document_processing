@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Demo fixture (docs/09 "Demo data"): a clean PEPPOL BIS 3 invoice from METRO to tenant A. The seller VAT id matches
+     the DevSeed supplier row, every sum adds up, so the default policy auto-approves it. -->
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0</cbc:CustomizationID>
+  <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+  <cbc:ID>RG-2026-882140</cbc:ID>
+  <cbc:IssueDate>2026-10-26</cbc:IssueDate>
+  <cbc:DueDate>2026-11-09</cbc:DueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:Note>Abholung im METRO Großmarkt Rosenheim, Kundenkarte 0815-4471.</cbc:Note>
+  <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cbc:BuyerReference>KUECHE-ROSENHEIM</cbc:BuyerReference>
+  <cac:OrderReference>
+    <cbc:ID>B-2026-1044</cbc:ID>
+  </cac:OrderReference>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">e-rechnung@metro.de</cbc:EndpointID>
+      <cac:PartyName>
+        <cbc:Name>METRO Deutschland</cbc:Name>
+      </cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>Metro-Straße 1</cbc:StreetName>
+        <cbc:CityName>Düsseldorf</cbc:CityName>
+        <cbc:PostalZone>40235</cbc:PostalZone>
+        <cac:Country>
+          <cbc:IdentificationCode>DE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>DE811177936</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>METRO Deutschland GmbH</cbc:RegistrationName>
+        <cbc:CompanyID schemeID="0002">HRB 77234</cbc:CompanyID>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:Name>Debitorenbuchhaltung</cbc:Name>
+        <cbc:Telephone>+49 211 6886-0</cbc:Telephone>
+        <cbc:ElectronicMail>e-rechnung@metro.de</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="EM">einkauf@gasthaus-zur-post.example</cbc:EndpointID>
+      <cac:PartyName>
+        <cbc:Name>Gasthaus zur Post</cbc:Name>
+      </cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>Hauptstraße 12</cbc:StreetName>
+        <cbc:CityName>Rosenheim</cbc:CityName>
+        <cbc:PostalZone>83022</cbc:PostalZone>
+        <cac:Country>
+          <cbc:IdentificationCode>DE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>DE123456789</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Gasthaus zur Post GmbH</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:Delivery>
+    <cbc:ActualDeliveryDate>2026-10-26</cbc:ActualDeliveryDate>
+  </cac:Delivery>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode>59</cbc:PaymentMeansCode>
+    <cbc:PaymentID>RG-2026-882140</cbc:PaymentID>
+    <cac:PaymentMandate>
+      <cbc:ID>METRO-SEPA-0815-4471</cbc:ID>
+      <cac:PayerFinancialAccount>
+        <cbc:ID>DE42711500000020123456</cbc:ID>
+      </cac:PayerFinancialAccount>
+    </cac:PaymentMandate>
+  </cac:PaymentMeans>
+  <cac:PaymentTerms>
+    <cbc:Note>Der Betrag wird am Fälligkeitstag per SEPA-Lastschrift eingezogen.</cbc:Note>
+  </cac:PaymentTerms>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="EUR">24.98</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">203.44</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">14.24</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>7</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">56.50</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">10.74</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="EUR">259.94</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="EUR">259.94</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="EUR">284.92</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="EUR">284.92</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="KGM">6.4</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">140.16</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Description>Rinderhüfte am Stück, frisch, Herkunft Deutschland</cbc:Description>
+      <cbc:Name>Rinderhüfte frisch</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>214587</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:StandardItemIdentification>
+        <cbc:ID schemeID="0160">4337182004568</cbc:ID>
+      </cac:StandardItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>7</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">21.90</cbc:PriceAmount>
+      <cbc:BaseQuantity unitCode="KGM">1</cbc:BaseQuantity>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">2</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">37.00</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Kartoffeln festkochend 25 kg Sack</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>100233</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>7</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">18.50</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>3</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">12</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">26.28</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Schlagsahne 30 % 1 l</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>310877</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:StandardItemIdentification>
+        <cbc:ID schemeID="0160">4311501440216</cbc:ID>
+      </cac:StandardItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>7</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">2.19</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>4</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">1</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">24.90</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Handspülmittel Profi 10 l Kanister</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>552019</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">24.90</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>5</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">2</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">31.60</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>Servietten 3-lagig 40 x 40 cm, 1000 Stück</cbc:Name>
+      <cac:SellersItemIdentification>
+        <cbc:ID>618440</cbc:ID>
+      </cac:SellersItemIdentification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>19</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">15.80</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+</Invoice>

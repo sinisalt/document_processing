@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>OpenAI, Azure OpenAI and OpenAI-compatible adapter for the LLM gateway.</Description>
+    <!--
+      OPENAI001: ChatCompletionOptions.ReasoningEffortLevel, ChatMessageContentPart.CreateFilePart and OpenAIChatModelFactory are
+      marked experimental in OpenAI 2.14.0 although the wire features are GA. The suppression is project-wide on purpose: the
+      three call sites sit in different files and a per-site pragma is against repository conventions, so the trade-off is that
+      a future experimental API would be accepted silently. Re-check the three APIs whenever the OpenAI package is bumped.
+    -->
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="Azure.Identity" />
+  </ItemGroup>
+</Project>

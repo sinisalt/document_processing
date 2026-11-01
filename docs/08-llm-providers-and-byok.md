@@ -112,6 +112,41 @@ Resolution order for a call: tenant stage override → tenant default → platfo
 that stage. A tenant without any config simply uses the platform's keys and is billed by the
 platform; a BYOK tenant uses their own, and the platform never incurs the cost.
 
+### Endpoint restrictions
+
+The worker sends a tenant's key and document content to the configuration's `endpoint` from
+inside the platform network, and the provider's status and error come back to the tenant as
+the document's failure reason. A tenant-chosen endpoint is therefore restricted
+(`TenantEndpointGuard`), or BYOK would let a tenant admin probe and POST to internal services:
+
+- **At creation** (`POST /llm-providers`): `https` only, no user info in the URL, and the host
+  must be a public name or address. Refused with 400 on `endpoint`: loopback, private
+  (RFC 1918, CGNAT 100.64/10, IPv6 ULA fc00::/7), link-local (169.254/16 with the cloud
+  metadata address, fe80::/10), Azure's platform virtual IP `168.63.129.16` (public address
+  space, but the platform's DNS, health probes and WireServer, reachable from inside every VNet
+  the Container Apps environment runs in), unspecified, multicast, documentation and other reserved ranges,
+  for IPv4 and IPv6 alike, including IPv4-mapped/-compatible IPv6, NAT64, 6to4 and Teredo
+  forms and decimal, octal or hexadecimal spellings (`2130706433`, `0177.0.0.1`, `0x7f.1`,
+  `127.1`); `localhost`, `*.localhost`, `*.local`, `*.internal`, `*.localdomain`, `*.home.arpa`
+  and single-label names (which resolve through the platform's search domains). The creation
+  check does not resolve DNS.
+- **At connect time**: tenant-scope configurations talk through one `HttpClient` whose
+  `SocketsHttpHandler.ConnectCallback` resolves the host, refuses the connection when any of
+  its addresses is blocked, and connects to the addresses it checked rather than resolving
+  again, so a name that later resolves to an internal address (DNS rebinding) is still refused.
+  The client sends https only, uses no proxy (a proxy would connect after the check) and does
+  not follow redirects. A row created before the check existed is refused when the adapter
+  builds its client.
+- A refusal sends nothing to the host and fails with `Unavailable` (the tenant's documents
+  wait with `LLM_PROVIDER_UNAVAILABLE`, no retry loop) and one fixed message that names neither
+  the resolved address nor anything a host said, so the guard is no oracle for the internal
+  network.
+
+**Platform configurations** (`POST /llm/providers`, SuperAdmin only) are not restricted: they
+may use plain `http` and private or loopback addresses for self-hosted models (vLLM, Ollama)
+inside the platform network, and use the SDKs' default transport. Point them only at hosts
+the platform operates.
+
 ## Key handling
 
 1. A tenant admin enters the key (or selects "use my Azure resource with managed identity /
