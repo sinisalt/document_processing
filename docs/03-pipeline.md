@@ -191,7 +191,14 @@ stops is lost, which the idempotent handlers and a re-process from the API toler
 `Pipeline:RunInProcess` (default: true outside Production; the worker defaults to true everywhere)
 decides whether `PipelineRunnerHostedService` consumes the queue in that process. With it off, only
 the queue is registered so the API can still enqueue; the Service Bus transport that makes this
-durable in Azure is a later block. The runner processes `Pipeline:MaxParallelism` messages at a
+durable in Azure is a later block. **Known effect until then:** in the Production topology the API
+runs no runner, so the publish nudge of an approve or reject goes to a queue nothing reads, and
+every human decision is published by the worker's publish sweeper (docs/11 §13.5) at least
+`Pipeline:PublishSweepGrace` after it, with the sweeper's warning in the log and
+`recoveredBy: "publish-sweeper"` in the timeline. Nothing is lost (before P0 these publishes were
+lost without a trace), but there "recovered" is the normal case, not a sign of a crash; the signal
+means a lost message only where the deciding host runs a runner (Development, compose, the
+AppHost). Auto-approvals are nudged in the worker and publish at once. The runner processes `Pipeline:MaxParallelism` messages at a
 time (default 2), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
 to the message's tenant before any query runs. Messages with the same key (the document id, or the
 ingestion id for stage 1) are serialised through a keyed single-flight gate (`KeyedWorkGate`), so

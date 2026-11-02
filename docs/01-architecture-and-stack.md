@@ -104,8 +104,10 @@ references Llm because it implements the gateway's ports (`EfLlmPolicyStore`, `C
 
 - Tenant id on every row; EF Core global query filters as the first layer; **SQL Server
   row-level security** (a security policy keyed on `SESSION_CONTEXT('TenantId')`, set by the
-  data layer per request) as the second layer so a missed filter cannot leak data; integration
-  tests that assert cross-tenant reads fail.
+  data layer per request) as the second layer so a missed filter cannot leak data; it covers the
+  history tables of the temporal tables too (SQL Server does not carry a table's predicates over to
+  its history) and blocks updates that move a row to another tenant; integration tests that assert
+  cross-tenant reads and writes fail.
 - Azure SQL: Transparent Data Encryption on by default, Always Encrypted or customer-managed
   keys only if a customer contract requires it; temporal tables on `Document` and
   `ExtractorProfile` give the audit history for free.

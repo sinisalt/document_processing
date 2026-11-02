@@ -80,6 +80,42 @@ public sealed class ExtractionOutcomeTests
         (document, method, flags.Count, cost).ShouldBe((outcome.Document, ExtractionMethod.Profile, 0, DocumentCost.Free));
     }
 
+    /// <summary>
+    /// The tree is the truth (docs/11 §9.2 merges extract steps into it): an edit in place, or a copy with another
+    /// tree, is what gets stored and read back, never the cached invoice the tree was built from.
+    /// </summary>
+    [Fact]
+    public void An_edited_tree_is_what_gets_stored_and_read()
+    {
+        var invoice = Fixtures.Parse(Fixtures.PeppolInvoice);
+        var original = JsonSerializer.Serialize(invoice, CanonicalJson.Options);
+
+        var edited = ExtractedDocument.FromInvoice(invoice);
+        edited.Root["x_costCentre"] = new JsonObject { ["value"] = "K-4711", ["confidence"] = 1.0 };
+        JsonNode.Parse(edited.ToJson())!["x_costCentre"]!["value"]!.GetValue<string>().ShouldBe("K-4711");
+        edited.ToInvoice().ShouldNotBeSameAs(invoice, "the source invoice does not hold the edit");
+        edited.ToInvoice().Extra!["x_costCentre"].GetProperty("value").GetString().ShouldBe("K-4711");
+        edited.ToInvoice().ShouldBeSameAs(edited.ToInvoice(), "read once while the tree stays as it is");
+
+        var source = ExtractedDocument.FromInvoice(invoice);
+        var merged = source.Root.DeepClone().AsObject();
+        merged["notes"] = JsonSerializer.SerializeToNode(FieldValue.Extracted("merged", new FieldSource(SourceMethod.Llm), 0.9), CanonicalJson.Options);
+        var copy = source with { Root = merged };
+        JsonNode.Parse(copy.ToJson())!["notes"]!["value"]!.GetValue<string>().ShouldBe("merged");
+        copy.ToInvoice().Notes.Value.ShouldBe("merged");
+
+        // The source keeps its own tree and its byte-for-byte fast path, and so does an unchanged copy.
+        source.ToJson().ShouldBe(original);
+        source.ToInvoice().ShouldBeSameAs(invoice);
+        (source with { DefinitionVersion = 2 }).ToJson().ShouldBe(original);
+
+        // A tree read as an invoice and edited afterwards is read again.
+        var tree = ExtractedDocument.FromInvoice(invoice) with { Root = JsonNode.Parse(original)!.AsObject() };
+        tree.ToInvoice().Notes.Value.ShouldBe(invoice.Notes.Value);
+        tree.Root["notes"] = JsonSerializer.SerializeToNode(FieldValue.Extracted("later", new FieldSource(SourceMethod.Llm), 0.9), CanonicalJson.Options);
+        tree.ToInvoice().Notes.Value.ShouldBe("later");
+    }
+
     [Theory]
     [MemberData(nameof(AllFixtures))]
     public void The_rule_seam_raises_the_validators_flags_on_real_e_invoices(string fixture)

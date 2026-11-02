@@ -179,6 +179,91 @@ public sealed class PublishSweeperTests
         await Should.ThrowAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
     }
 
+    /// <summary>
+    /// A settlement without a row (decided before the decision wrote it): the row's concurrency token guards only an
+    /// update and the index is not unique, so two publishers that both found no row claim the document instead.
+    /// </summary>
+    [Fact]
+    public async Task Two_publishers_that_both_found_no_row_cannot_both_insert_one()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var now = host.Clock.GetUtcNow();
+        var rowless = await SettleAsync(host, PipelineTestHost.TenantA, DocumentStatus.Approved, now, decisionRow: false);
+        var factory = host.Services.GetRequiredService<ISystemDbContextFactory>();
+
+        await using var first = factory.CreatePlatformScoped();
+        await using var second = factory.CreatePlatformScoped();
+        var mine = await first.Documents.SingleAsync(d => d.Id == rowless, TestContext.Current.CancellationToken);
+        var theirs = await second.Documents.SingleAsync(d => d.Id == rowless, TestContext.Current.CancellationToken);
+        DocumentOutbox.AddMissing(first, mine, now).FannedOutAt = now;
+        DocumentOutbox.AddMissing(second, theirs, now).FannedOutAt = now;
+
+        await first.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+        (await OutboxAsync(host, rowless)).ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Publishing_a_settlement_without_a_row_claims_the_document_and_leaves_the_settlement_alone()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var settledAt = host.Clock.GetUtcNow();
+        var rowless = await SettleAsync(host, TenantB, DocumentStatus.Rejected, settledAt, decisionRow: false);
+        var before = await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == rowless));
+
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(TenantB, rowless, PipelineStage.Publish), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+
+        var after = await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == rowless));
+        after.Version.ShouldBe(before.Version + 1, "the insert of the missing row claimed the document");
+        after.UpdatedAt.ShouldBe(before.UpdatedAt, "the settlement the row belongs to did not move");
+        after.Status.ShouldBe(DocumentStatus.Rejected);
+        var row = (await OutboxAsync(host, rowless)).ShouldHaveSingleItem();
+        row.FannedOutAt.ShouldNotBeNull();
+        DocumentOutbox.IsOfSettlement(row.EventType, row.CreatedAt, after.Status, after.ApprovedAt, after.UpdatedAt).ShouldBeTrue();
+
+        // A second nudge finds the handed-on row and changes nothing.
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(TenantB, rowless, PipelineStage.Publish), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == rowless))).Version.ShouldBe(after.Version);
+        (await OutboxAsync(host, rowless)).Count.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The wall clock can step back (NTP) between two readings. An auto-approval reads it once for the decision and its
+    /// row, so the row still belongs to the settlement: one row, handed on, and no second row from the publish stage.
+    /// </summary>
+    [Fact]
+    public async Task An_auto_approval_stamps_its_decision_and_its_row_with_one_reading_of_the_clock()
+    {
+        var clock = new SteppingBackClock(PipelineTestHost.Now);
+        await using var host = await PipelineTestHost.StartAsync(services: s => s.AddSingleton<TimeProvider>(clock));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.xml", XmlMime, PipelineTestHost.Fixture("peppol-bis3-invoice.xml"))]);
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.Status.ShouldBe(DocumentStatus.AutoApproved);
+        clock.Readings.ShouldBeGreaterThan(10, "the clock moved backwards on every reading");
+        var row = (await OutboxAsync(host, document.Id)).ShouldHaveSingleItem();
+        row.CreatedAt.ShouldBe(document.ApprovedAt!.Value);
+        row.FannedOutAt.ShouldNotBeNull();
+        var decision = (await host.EventsAsync(document.Id)).Single(e => e.EventType == DocumentEventTypes.AutoApproved);
+        decision.At.ShouldBe(document.ApprovedAt!.Value);
+        (await host.EventsAsync(document.Id))
+            .Count(e => e.EventType == DocumentEventTypes.StageCompleted && e.DetailsJson is not null && Details(e).TryGetProperty("stage", out var stage) && stage.GetString() == nameof(PipelineStage.Publish))
+            .ShouldBe(1, "published once, from the decision's own row");
+    }
+
+    /// <summary>A wall clock that steps back by a millisecond on every reading.</summary>
+    private sealed class SteppingBackClock(DateTimeOffset start) : TimeProvider
+    {
+        private long _readings;
+
+        public long Readings => Interlocked.Read(ref _readings);
+
+        public override DateTimeOffset GetUtcNow() => start - TimeSpan.FromMilliseconds(Interlocked.Increment(ref _readings));
+    }
+
     [Fact]
     public async Task A_publish_message_for_a_document_that_is_no_longer_settled_is_dropped()
     {

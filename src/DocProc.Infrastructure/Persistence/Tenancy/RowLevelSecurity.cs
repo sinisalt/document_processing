@@ -16,9 +16,20 @@ namespace DocProc.Infrastructure.Persistence.Tenancy;
 /// Every migration builds its policy from a frozen table list of its own (<see cref="InitialProtectedTables"/>,
 /// <see cref="PipelineProtectedTables"/>, <see cref="PlatformRowTablesV1"/>): the SQL is generated when the migration
 /// runs, so a list that later grew would make an old migration reference a table that does not exist yet on a fresh
-/// database. A migration that adds a tenant-scoped table declares a new frozen list, points
-/// <see cref="ProtectedTables"/> or <see cref="PlatformRowTables"/> at it, and re-creates the policy with
-/// <see cref="DropSql"/> followed by <see cref="CreateSql(IReadOnlyList{ValueTuple{string, string}}, IReadOnlyList{ValueTuple{string, string}})"/>.
+/// database. A migration that adds a tenant-scoped table declares a new frozen list and a new frozen
+/// <see cref="PolicyDefinition"/> that uses it (a temporal table's history table included), points
+/// <see cref="CurrentPolicy"/> at it, and re-creates the policy with <see cref="DropSql"/> followed by
+/// <see cref="CreateSql(PolicyDefinition)"/>.
+/// </para>
+/// <para>
+/// Since <c>TenantPolicyHistoryAndMoves</c> (<see cref="PolicyV3"/>) the policy also covers the history tables of the
+/// temporal tables, which SQL Server does not protect with the current table's predicates (a tenant session would
+/// read every tenant's history through <c>FOR SYSTEM_TIME</c> or the history table itself), and it blocks updates
+/// that move a strict-table row to another tenant. History tables get a filter predicate only: the system writes
+/// them, and no session can. The policy is schema-bound: a plain column ADD or DROP on a temporal table passes (SQL
+/// Server carries it to the history table), but turning system versioning off is refused while the policy names the
+/// table, so a migration that needs that drops the policy first and re-creates it after (as before the history
+/// predicates; <c>TenantIsolationTests</c> holds both).
 /// </para>
 /// </summary>
 public static class RowLevelSecurity
@@ -67,11 +78,41 @@ public static class RowLevelSecurity
         ("ExtractorProfiles", "TenantId"),
     ];
 
+    /// <summary>
+    /// The history tables of strict temporal tables (<c>TenantPolicyHistoryAndMoves</c>), filtered with the strict
+    /// predicate. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> StrictHistoryTablesV1 =
+    [
+        ("DocumentsHistory", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The history tables of temporal tables with platform rows (<c>TenantPolicyHistoryAndMoves</c>), filtered with the
+    /// platform-row read predicate. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> PlatformRowHistoryTablesV1 =
+    [
+        ("ExtractorProfilesHistory", "TenantId"),
+    ];
+
+    /// <summary>The policy of the <c>P0PersistenceSeams</c> migration. Frozen.</summary>
+    public static readonly PolicyDefinition PolicyV2 = new(PipelineProtectedTables, PlatformRowTablesV1, [], [], BlockStrictUpdates: false);
+
+    /// <summary>
+    /// The policy of the <c>TenantPolicyHistoryAndMoves</c> migration: <see cref="PolicyV2"/>, plus the history tables
+    /// and an after-update block on every strict table. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV3 = new(PipelineProtectedTables, PlatformRowTablesV1, StrictHistoryTablesV1, PlatformRowHistoryTablesV1, BlockStrictUpdates: true);
+
+    /// <summary>The policy the latest migration creates.</summary>
+    public static PolicyDefinition CurrentPolicy => PolicyV3;
+
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
-    public static IReadOnlyList<(string Table, string Column)> ProtectedTables => PipelineProtectedTables;
+    public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;
 
     /// <summary>Every table with platform rows (nullable TenantId) the current policy covers.</summary>
-    public static IReadOnlyList<(string Table, string Column)> PlatformRowTables => PlatformRowTablesV1;
+    public static IReadOnlyList<(string Table, string Column)> PlatformRowTables => CurrentPolicy.PlatformRowTables;
 
     /// <summary>The policy exactly as the <c>InitialCreate</c> migration creates it (<see cref="InitialProtectedTables"/>).</summary>
     public static string CreateSql() => CreateSql(InitialProtectedTables);
@@ -81,20 +122,29 @@ public static class RowLevelSecurity
 
     /// <summary>
     /// The policy over <paramref name="tables"/> (strict filter and insert block) and <paramref name="platformRowTables"/>
-    /// (platform rows readable by everyone, writable only in platform scope). CREATE FUNCTION and CREATE SECURITY
-    /// POLICY are issued through EXEC so they run as their own batch: EF's idempotent script wraps every operation in
-    /// an IF ... BEGIN/END block, where a bare CREATE FUNCTION is invalid. The read function is created only when a
-    /// platform-row table is listed, so the SQL of the earlier migrations is unchanged.
+    /// (platform rows readable by everyone, writable only in platform scope), as the <c>P0PersistenceSeams</c> migration
+    /// creates it.
     /// </summary>
-    public static string CreateSql(IReadOnlyList<(string Table, string Column)> tables, IReadOnlyList<(string Table, string Column)> platformRowTables)
+    public static string CreateSql(IReadOnlyList<(string Table, string Column)> tables, IReadOnlyList<(string Table, string Column)> platformRowTables) =>
+        CreateSql(new PolicyDefinition(tables, platformRowTables, [], [], BlockStrictUpdates: false));
+
+    /// <summary>
+    /// The policy <paramref name="policy"/> describes: strict tables get the strict filter and insert block (and an
+    /// update block when <see cref="PolicyDefinition.BlockStrictUpdates"/>), platform-row tables the read filter and
+    /// the strict blocks, history tables a filter only. CREATE FUNCTION and CREATE SECURITY POLICY are issued through
+    /// EXEC so they run as their own batch: EF's idempotent script wraps every operation in an IF ... BEGIN/END block,
+    /// where a bare CREATE FUNCTION is invalid. The read function is created only when a platform-row table is listed,
+    /// so the SQL of the earlier migrations is unchanged.
+    /// </summary>
+    public static string CreateSql(PolicyDefinition policy)
     {
-        ArgumentNullException.ThrowIfNull(tables);
-        ArgumentNullException.ThrowIfNull(platformRowTables);
-        var strict = tables.Select(t =>
-            string.Format(
-                CultureInfo.InvariantCulture,
-                "    ADD FILTER PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}],\n    ADD BLOCK PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}] AFTER INSERT",
-                Schema, PredicateFunction, t.Table, t.Column));
+        ArgumentNullException.ThrowIfNull(policy);
+        var tables = policy.StrictTables;
+        var platformRowTables = policy.PlatformRowTables;
+        var strictFormat = policy.BlockStrictUpdates
+            ? "    ADD FILTER PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}],\n    ADD BLOCK PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}] AFTER INSERT,\n    ADD BLOCK PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}] AFTER UPDATE"
+            : "    ADD FILTER PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}],\n    ADD BLOCK PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}] AFTER INSERT";
+        var strict = tables.Select(t => string.Format(CultureInfo.InvariantCulture, strictFormat, Schema, PredicateFunction, t.Table, t.Column));
         var platform = platformRowTables.Select(t =>
             string.Format(
                 CultureInfo.InvariantCulture,
@@ -104,7 +154,10 @@ public static class RowLevelSecurity
                 + "    ADD BLOCK PREDICATE [{0}].[{2}]([{4}]) ON [dbo].[{3}] BEFORE UPDATE,\n"
                 + "    ADD BLOCK PREDICATE [{0}].[{2}]([{4}]) ON [dbo].[{3}] BEFORE DELETE",
                 Schema, PlatformReadFunction, PredicateFunction, t.Table, t.Column));
-        var predicates = string.Join(",\n", strict.Concat(platform));
+        var history = policy.StrictHistoryTables.Select(t => (Function: PredicateFunction, t.Table, t.Column))
+            .Concat(policy.PlatformRowHistoryTables.Select(t => (Function: PlatformReadFunction, t.Table, t.Column)))
+            .Select(t => string.Format(CultureInfo.InvariantCulture, "    ADD FILTER PREDICATE [{0}].[{1}]([{3}]) ON [dbo].[{2}]", Schema, t.Function, t.Table, t.Column));
+        var predicates = string.Join(",\n", strict.Concat(platform).Concat(history));
 
         var function = $"""
             CREATE FUNCTION [{Schema}].[{PredicateFunction}](@TenantId uniqueidentifier)
@@ -127,18 +180,18 @@ public static class RowLevelSecurity
                OR CAST(SESSION_CONTEXT(N'{TenantSessionContextInterceptor.ScopeKey}') AS nvarchar(16)) = N'{TenantSessionContextInterceptor.PlatformScopeValue}'
             """;
 
-        var policy = $"""
+        var create = $"""
             CREATE SECURITY POLICY [{Schema}].[{PolicyName}]
             {predicates}
             WITH (STATE = ON, SCHEMABINDING = ON)
             """;
 
-        var createRead = platformRowTables.Count == 0 ? string.Empty : $"EXEC(N'{Escape(readFunction)}');\n";
+        var createRead = platformRowTables.Count == 0 && policy.PlatformRowHistoryTables.Count == 0 ? string.Empty : $"EXEC(N'{Escape(readFunction)}');\n";
         return $"""
             IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'{Schema}')
                 EXEC(N'CREATE SCHEMA [{Schema}]');
             EXEC(N'{Escape(function)}');
-            {createRead}EXEC(N'{Escape(policy)}');
+            {createRead}EXEC(N'{Escape(create)}');
             """;
     }
 
@@ -146,13 +199,22 @@ public static class RowLevelSecurity
     /// Runs a data statement of a migration with the predicates open (platform scope), then closes them again. Neither
     /// migration path (the release script run with sqlcmd, <c>MigrationHostedService</c> with an anonymous tenant
     /// context) sets a tenant, so a backfill over a protected table would otherwise see no rows.
+    /// <para>
+    /// The statement runs through EXEC, so SQL Server compiles it only when it runs. EF's idempotent script puts a whole
+    /// migration into one batch, and SQL Server compiles a batch before running any of it: a statement that names a
+    /// column an earlier ALTER TABLE of the same migration adds fails with error 207 (invalid column name), and so does
+    /// one whose columns a migration that already ran has renamed or dropped, although its IF skips it.
+    /// </para>
     /// </summary>
-    public static string InPlatformScope(string statement) =>
-        $"""
-        EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = N'{TenantSessionContextInterceptor.PlatformScopeValue}', @read_only = 0;
-        {statement}
-        EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = NULL, @read_only = 0;
-        """;
+    public static string InPlatformScope(string statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+        return $"""
+            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = N'{TenantSessionContextInterceptor.PlatformScopeValue}', @read_only = 0;
+            EXEC(N'{Escape(statement)}');
+            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = NULL, @read_only = 0;
+            """;
+    }
 
     private static string Escape(string sql) => sql.Replace("'", "''", StringComparison.Ordinal);
 
@@ -163,3 +225,19 @@ public static class RowLevelSecurity
         DROP SCHEMA IF EXISTS [{Schema}];
         """;
 }
+
+/// <summary>
+/// What one version of the tenant policy covers (<see cref="RowLevelSecurity.CreateSql(PolicyDefinition)"/>). Every
+/// migration that re-creates the policy names a frozen definition of its own.
+/// </summary>
+/// <param name="StrictTables">Tables with a non-null tenant column: strict filter, insert block.</param>
+/// <param name="PlatformRowTables">Tables with platform rows (nullable tenant): read filter, strict blocks on every write.</param>
+/// <param name="StrictHistoryTables">History tables of strict temporal tables: strict filter.</param>
+/// <param name="PlatformRowHistoryTables">History tables of platform-row temporal tables: read filter.</param>
+/// <param name="BlockStrictUpdates">Whether strict tables also get an after-update block, so a row cannot be moved to another tenant.</param>
+public sealed record PolicyDefinition(
+    IReadOnlyList<(string Table, string Column)> StrictTables,
+    IReadOnlyList<(string Table, string Column)> PlatformRowTables,
+    IReadOnlyList<(string Table, string Column)> StrictHistoryTables,
+    IReadOnlyList<(string Table, string Column)> PlatformRowHistoryTables,
+    bool BlockStrictUpdates);

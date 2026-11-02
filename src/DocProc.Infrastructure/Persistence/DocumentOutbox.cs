@@ -66,6 +66,21 @@ public static class DocumentOutbox
     }
 
     /// <summary>
+    /// Adds the row of a settlement whose decision did not write one (a decision from before the outbox was written in
+    /// the decision transaction), and claims the document for it: the document's <see cref="IVersioned.Version"/> is
+    /// marked modified, so the save also updates the document under its concurrency token. The row's own token
+    /// (<see cref="OutboxMessage.FannedOutAt"/>) guards only an update of an existing row, and nothing in the index
+    /// keeps two publishers that both found no row from both inserting one; with the claim, only the first commits and
+    /// the second gets a <see cref="Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException"/>, its row unsaved.
+    /// </summary>
+    public static OutboxMessage AddMissing(DocProcDbContext db, Document document, DateTimeOffset at)
+    {
+        var row = Add(db, document, at);
+        db.Entry(document).Property(d => d.Version).IsModified = true;
+        return row;
+    }
+
+    /// <summary>
     /// Settled documents whose current settlement has no handed-on outbox row: the row is missing (an auto-approval or
     /// decision from before the outbox was written in the decision transaction) or was never handed on (the publish
     /// message was lost). Only settlements between <paramref name="settledSince"/> and <paramref name="settledBefore"/>

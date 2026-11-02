@@ -15,8 +15,9 @@ namespace DocProc.Pipeline.Stages;
 /// queues this stage is only a nudge: the stage hands the current settlement's row on by setting
 /// <see cref="OutboxMessage.FannedOutAt"/> and records the publish in the timeline. With no destinations yet (P3)
 /// handing on is the publish itself. A settlement without a row (one decided before the decision wrote it) gets one
-/// here, as before. Idempotent per settlement: a row already handed on means the message is dropped, and two
-/// publishers racing for the same row are told apart by its concurrency token. A message from the
+/// here, as before. Idempotent per settlement: a row already handed on means the message is dropped, two publishers
+/// racing for the same row are told apart by its concurrency token, and two that both found no row by the document's
+/// (<see cref="DocumentOutbox.AddMissing"/>); the loser's save fails and its message is dropped. A message from the
 /// <see cref="Runner.PublishSweeperHostedService"/> says so in the timeline (<c>recoveredBy</c>).
 /// </summary>
 internal sealed class PublishHandler(
@@ -50,7 +51,7 @@ internal sealed class PublishHandler(
         }
 
         var now = Timeline.Now;
-        var outbox = current.FirstOrDefault() ?? DocumentOutbox.Add(Db, document, now);
+        var outbox = current.FirstOrDefault() ?? DocumentOutbox.AddMissing(Db, document, now);
         outbox.FannedOutAt = now;
         var recoveredBy = string.Equals(message.Origin, PipelineMessageOrigins.PublishSweeper, StringComparison.Ordinal) ? message.Origin : null;
         if (recoveredBy is not null)

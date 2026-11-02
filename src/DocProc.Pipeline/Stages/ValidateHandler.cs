@@ -97,12 +97,16 @@ internal sealed class ValidateHandler(
 
         if (eligible)
         {
-            document.ApprovedAt = Timeline.Now;
+            // One reading of the clock for the decision and its row: a row belongs to the settlement it was written at
+            // or after (DocumentOutbox.IsOfSettlement), and a wall clock stepped back between two readings would leave
+            // the decision's own row outside it.
+            var now = Timeline.Now;
+            document.ApprovedAt = now;
             document.ApprovedBy = ApprovedBy;
-            Timeline.Transition(document, DocumentStatus.AutoApproved, new { by = ApprovedBy }, DocumentEventTypes.AutoApproved);
+            Timeline.Transition(document, DocumentStatus.AutoApproved, new { by = ApprovedBy }, DocumentEventTypes.AutoApproved, now);
             // The outbox row commits with the decision (docs/11 §13.5); the publish message below is only a nudge,
             // and the publish sweeper finds the row if the message is lost.
-            DocumentOutbox.Add(Db, document, Timeline.Now);
+            DocumentOutbox.Add(Db, document, now);
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), cancellationToken).ConfigureAwait(false);
             return StageOutcome.Stopped;

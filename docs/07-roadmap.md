@@ -184,7 +184,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       by `DocumentRoleColumns`, replacing the Extract stage's and the corrections endpoint's copies;
     - `FieldValue.Correct(…, source)`, `FieldCorrection.op` and `.source`, `Correction.Op` and `Correction.SourceJson`;
     - `Ingestion.SourceSender` and `Ingestion.SubmittedBy`, back-filled for uploads (`SourceFrom` still written);
-    - the platform-row RLS predicate (`rls.fn_tenant_or_platform_read`) over `ExtractorProfiles`;
+    - the platform-row RLS predicate (`rls.fn_tenant_or_platform_read`) over `ExtractorProfiles` and its history table;
     - `TenantEndpointGuard` in `src/DocProc.Infrastructure/Http`.
   - Done, pipeline seams:
     - the outbox row written inside the approve, reject and auto-approval transactions (`DocumentOutbox`), the
@@ -214,8 +214,28 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
   - Fixed on the way: approve, reject and reprocess open a transaction, which SQL Server's retrying execution strategy
     refuses unless it runs it; they answered 500 in the compose stack and under the AppHost (the SQLite tests passed).
     They now run under the strategy (`DecisionExecutionStrategyTests`).
+  - Fixed after the P0 review:
+    - row-level security over the temporal history tables (`DocumentsHistory`, `ExtractorProfilesHistory`), which a
+      tenant session could read across tenants through `FOR SYSTEM_TIME`, and an after-update block on every strict
+      table, so a tenant cannot move its own row to another tenant (migration `TenantPolicyHistoryAndMoves`);
+    - the idempotent release script (README "Database") compiles and reruns on an existing database: every migration
+      data statement runs through `EXEC` in platform scope (`IdempotentScriptTests` runs it twice, and the compose
+      path once, on a database of the earlier build). The same fix makes `CorrectionValuesAsText` copy the correction
+      values in platform scope; before, both paths copied nothing behind the tenant policy and the values were lost;
+    - a settlement without an outbox row (decided before P0) can no longer get two rows from two publishers: the
+      publish stage claims the document with the insert (`DocumentOutbox.AddMissing`);
+    - auto-approval stamps the decision, the transition and its outbox row with one reading of the clock;
+    - `ExtractedDocument.Root` is the truth: an edited tree is what the Extract stage stores;
+    - documented: in the Production topology the API runs no runner, so every human decision is published by the
+      worker's sweeper after the grace period and logged as recovered, until the Service Bus transport lands
+      (docs/03 "Queue modes", docs/11 §13.5).
   - Left for P1: the meta-schema file `schemas/document-type-definition.v1.json` (shape checks are the strict reader and
-    `DefinitionChecker` until then), the `ext` bags, the compiler, and the price-list templates.
+    `DefinitionChecker` until then), the `ext` bags, the compiler, and the price-list templates; with the catalogue
+    tables, the per-tenant Adopted type rows and the `DocumentTypeVersionId` back-fill (P0's seed is the embedded std
+    templates read through `IEffectiveConfigResolver`); the columns `Documents.DocumentTypeVersionId`,
+    `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
+    `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
+    (docs/11 §21 step 1).
 - **P1 to P6** – not started.
 
 ## Risks and open questions

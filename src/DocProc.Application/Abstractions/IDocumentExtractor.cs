@@ -52,11 +52,23 @@ public sealed record ExtractionOutcome(ExtractedDocument Document, ExtractionMet
 /// What an extraction path found (docs/11 §9.1): the canonical <see cref="FieldValue{T}"/> tree as a
 /// <see cref="JsonObject"/>, and the definition it was extracted against. Until types are data (P1) no definition
 /// exists, so <see cref="DefinitionId"/> and <see cref="DefinitionVersion"/> are null and the tree is a coded type's.
+/// <para>
+/// <see cref="Root"/> is the truth: a step that edits the tree in place, or makes a copy with another tree
+/// (<c>with { Root = merged }</c>, the extract-chain merge of docs/11 §9.2), stores and reads back its edit. The
+/// invoice the tree was built from, or last read as, is only a cache, used while the tree still holds what it held
+/// when the cache was taken.
+/// </para>
 /// </summary>
 public sealed record ExtractedDocument(JsonObject Root, Guid? DefinitionId = null, int? DefinitionVersion = null)
 {
-    // The invoice the tree was serialised from, so the compatibility reading hands back the very instance.
+    // The invoice the tree reads as, and a copy of the tree as it was when that invoice was taken: the cache holds only
+    // while Root still equals the copy. A record copy (with) carries both, and a new Root never equals the copy unless
+    // it holds the same values.
     private Invoice? _invoice;
+    private JsonNode? _invoiceTree;
+
+    // Whether _invoice is the source the tree was serialised from (FromInvoice), so ToJson may write it instead of the tree.
+    private bool _fromInvoice;
 
     /// <summary>An invoice's tree, in the canonical JSON conventions (<see cref="CanonicalJson.Options"/>).</summary>
     public static ExtractedDocument FromInvoice(Invoice invoice)
@@ -64,19 +76,36 @@ public sealed record ExtractedDocument(JsonObject Root, Guid? DefinitionId = nul
         ArgumentNullException.ThrowIfNull(invoice);
         var root = JsonSerializer.SerializeToNode(invoice, CanonicalJson.Options) as JsonObject
                    ?? throw new JsonException("The invoice did not serialise to a JSON object.");
-        return new ExtractedDocument(root) { _invoice = invoice };
+        return new ExtractedDocument(root) { _invoice = invoice, _invoiceTree = root.DeepClone(), _fromInvoice = true };
     }
 
     /// <summary>
-    /// The tree as the canonical column stores it. A tree built from an invoice is written from the invoice itself, so
-    /// the stored bytes are exactly the ones the column held before the tree existed: writing the node tree escapes some
-    /// characters the serialiser writes plainly (the <c>+</c> of a time-zone offset).
+    /// The tree as the canonical column stores it. An unchanged tree built from an invoice is written from the invoice
+    /// itself, so the stored bytes are exactly the ones the column held before the tree existed: writing the node tree
+    /// escapes some characters the serialiser writes plainly (the <c>+</c> of a time-zone offset). A changed tree is
+    /// written as it is.
     /// </summary>
-    public string ToJson() => _invoice is not null ? JsonSerializer.Serialize(_invoice, CanonicalJson.Options) : Root.ToJsonString(CanonicalJson.Options);
+    public string ToJson() =>
+        _fromInvoice && CachedInvoice() is { } invoice
+            ? JsonSerializer.Serialize(invoice, CanonicalJson.Options)
+            : Root.ToJsonString(CanonicalJson.Options);
 
-    /// <summary>The tree read as an invoice (the source instance when the tree was built from one).</summary>
-    public Invoice ToInvoice() =>
-        _invoice ??= Root.Deserialize<Invoice>(CanonicalJson.Options) ?? throw new JsonException("The extracted tree was JSON null.");
+    /// <summary>The tree read as an invoice (the source instance while a tree built from one is unchanged).</summary>
+    public Invoice ToInvoice()
+    {
+        if (CachedInvoice() is { } cached)
+        {
+            return cached;
+        }
+
+        var invoice = Root.Deserialize<Invoice>(CanonicalJson.Options) ?? throw new JsonException("The extracted tree was JSON null.");
+        _invoice = invoice;
+        _invoiceTree = Root.DeepClone();
+        _fromInvoice = false;
+        return invoice;
+    }
+
+    private Invoice? CachedInvoice() => _invoice is not null && JsonNode.DeepEquals(Root, _invoiceTree) ? _invoice : null;
 }
 
 public sealed record DocumentCost(int LlmInputTokens, int LlmOutputTokens, int OcrPages, decimal? Usd, string? LlmProvider, string? LlmModel, KeyOwner? KeyOwner)

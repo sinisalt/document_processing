@@ -231,6 +231,154 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         (await count.ExecuteScalarAsync(ct)).ShouldBe(1);
     }
 
+    /// <summary>
+    /// SQL Server does not apply a table's predicates to its history table: without predicates of their own, a tenant
+    /// session read every tenant's history through <c>FOR SYSTEM_TIME</c> or the history table itself.
+    /// </summary>
+    [Fact]
+    public async Task History_tables_show_only_the_sessions_own_and_platform_rows()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        var platformRow = NewProfile(tenantId: null, "platform");
+        var privateA = NewProfile(TenantA, "private-a");
+        var privateB = NewProfile(TenantB, "private-b");
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            platform.ExtractorProfiles.AddRange(platformRow, privateA, privateB);
+            await platform.SaveChangesAsync(ct);
+
+            // Every row changes once, so every table has history of both tenants.
+            foreach (var document in await platform.Documents.ToListAsync(ct))
+            {
+                document.Status = DocumentStatus.Normalized;
+            }
+
+            foreach (var profile in await platform.ExtractorProfiles.ToListAsync(ct))
+            {
+                profile.Attempts = 1;
+            }
+
+            await platform.SaveChangesAsync(ct);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentsHistory").SingleAsync(ct)).ShouldBe(2);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.ExtractorProfilesHistory").SingleAsync(ct)).ShouldBe(3);
+        }
+
+        await using var asA = NewContext(TenantContext.ForTenant(TenantA));
+        (await asA.Database.SqlQuery<string>($"SELECT DocumentNumber AS [Value] FROM dbo.DocumentsHistory").ToListAsync(ct)).ShouldBe(["A-1"]);
+        (await asA.Database.SqlQuery<string>($"SELECT DocumentNumber AS [Value] FROM dbo.Documents FOR SYSTEM_TIME ALL").ToListAsync(ct)).ShouldBe(["A-1", "A-1"]);
+        (await asA.Documents.TemporalAll().IgnoreQueryFilters().Select(d => d.DocumentNumber).ToListAsync(ct)).ShouldBe(["A-1", "A-1"]);
+        (await asA.Database.SqlQuery<string>($"SELECT DocumentType AS [Value] FROM dbo.ExtractorProfilesHistory").ToListAsync(ct))
+            .ShouldBe(["platform", "private-a"], ignoreOrder: true);
+        (await asA.Database.SqlQuery<string>($"SELECT DocumentType AS [Value] FROM dbo.ExtractorProfiles FOR SYSTEM_TIME ALL").ToListAsync(ct))
+            .ShouldBe(["platform", "platform", "private-a", "private-a"], ignoreOrder: true);
+
+        // No session context: the platform rows' history only.
+        await using var raw = new SqlConnection(_connectionString);
+        await raw.OpenAsync(ct);
+        await using (var documents = new SqlCommand("SELECT COUNT(*) FROM dbo.Documents FOR SYSTEM_TIME ALL", raw))
+        {
+            (await documents.ExecuteScalarAsync(ct)).ShouldBe(0);
+        }
+
+        await using var profiles = new SqlCommand("SELECT COUNT(*) FROM dbo.ExtractorProfilesHistory", raw);
+        (await profiles.ExecuteScalarAsync(ct)).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The history predicates are schema-bound like every other, and must not make a later migration's column change to
+    /// a temporal table harder than the table's own predicate already does: each step of a plain ADD and of the
+    /// versioning-off form (both tables altered, then versioning back on) succeeds or fails alike under the P0 policy
+    /// and under the one with the history predicates. Under both, a plain ADD or DROP COLUMN on the current table passes
+    /// (SQL Server carries it to the history table), while turning versioning off is refused (error 3729, the table is
+    /// referenced by the schema-bound policy): a migration that needs it drops the policy first and re-creates it after.
+    /// </summary>
+    [Fact]
+    public async Task The_history_predicates_add_no_restriction_on_column_changes_to_a_temporal_table()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        string[] steps =
+        [
+            "ALTER TABLE [Documents] ADD [Probe{0}A] int NULL",
+            "ALTER TABLE [Documents] SET (SYSTEM_VERSIONING = OFF)",
+            "ALTER TABLE [Documents] ADD [Probe{0}B] nvarchar(10) NULL",
+            "ALTER TABLE [DocumentsHistory] ADD [Probe{0}B] nvarchar(10) NULL",
+            "ALTER TABLE [Documents] DROP COLUMN [Probe{0}A]",
+            "ALTER TABLE [DocumentsHistory] DROP COLUMN [Probe{0}A]",
+            "ALTER TABLE [Documents] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [dbo].[DocumentsHistory]))",
+        ];
+
+        async Task<List<string>> RunAsync(PolicyDefinition policy, string tag)
+        {
+            await using var platform = NewContext(TenantContext.Platform());
+            await platform.Database.ExecuteSqlRawAsync(RowLevelSecurity.DropSql(), ct);
+            await platform.Database.ExecuteSqlRawAsync(RowLevelSecurity.CreateSql(policy), ct);
+            var outcomes = new List<string>();
+            foreach (var step in steps)
+            {
+                try
+                {
+                    await platform.Database.ExecuteSqlRawAsync(string.Format(System.Globalization.CultureInfo.InvariantCulture, step, tag), ct);
+                    outcomes.Add($"ok: {step}");
+                }
+                catch (SqlException exception)
+                {
+                    outcomes.Add($"{exception.Number}: {step}");
+                }
+            }
+
+            // Back to a versioned table for the next run, whatever failed.
+            await platform.Database.ExecuteSqlRawAsync("IF OBJECTPROPERTY(OBJECT_ID(N'dbo.Documents'), N'TableTemporalType') <> 2 ALTER TABLE [Documents] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [dbo].[DocumentsHistory]))", ct);
+            return outcomes;
+        }
+
+        var before = await RunAsync(RowLevelSecurity.PolicyV2, "V2");
+        var after = await RunAsync(RowLevelSecurity.PolicyV3, "V3");
+        after.ShouldBe(before);
+        before[0].ShouldStartWith("ok", customMessage: "a plain ADD needs no policy re-creation");
+        before[4].ShouldStartWith("ok", customMessage: "nor does a plain DROP COLUMN");
+        before[1].ShouldStartWith("3729:", customMessage: "versioning off needs the policy dropped first, with or without the history predicates");
+
+        await using var check = NewContext(TenantContext.Platform());
+        (await check.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentsHistory')").SingleAsync(ct)).ShouldBe(1);
+    }
+
+    /// <summary>A tenant session cannot hand one of its own rows of a strict table to another tenant, with EF or raw SQL.</summary>
+    [Fact]
+    public async Task A_tenant_cannot_move_its_own_row_to_another_tenant()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            await Should.ThrowAsync<SqlException>(() => asA.Database.ExecuteSqlAsync($"UPDATE dbo.IngestionChannels SET TenantId = {TenantB} WHERE Name = N'api'", ct));
+            var document = await asA.Documents.SingleAsync(ct);
+            document.TenantId = TenantB;
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        // Changes that keep the tenant still go through.
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            (await asA.Database.ExecuteSqlAsync($"UPDATE dbo.IngestionChannels SET Name = N'api-a' WHERE Name = N'api'", ct)).ShouldBe(1);
+            var document = await asA.Documents.SingleAsync(ct);
+            document.Status = DocumentStatus.Normalized;
+            await asA.SaveChangesAsync(ct);
+        }
+
+        await using var asB = NewContext(TenantContext.ForTenant(TenantB));
+        (await asB.IngestionChannels.IgnoreQueryFilters().Select(c => c.Name).ToListAsync(ct)).ShouldBe(["api"]);
+        (await asB.Documents.IgnoreQueryFilters().Select(d => d.DocumentNumber).ToListAsync(ct)).ShouldBe(["B-1"]);
+
+        // Platform scope may still move a row (an operator's correction).
+        await using var platform = NewContext(TenantContext.Platform());
+        (await platform.Database.ExecuteSqlAsync($"UPDATE dbo.IngestionChannels SET TenantId = {TenantB} WHERE Name = N'api-a'", ct)).ShouldBe(1);
+    }
+
     private static ExtractorProfile NewProfile(Guid? tenantId, string documentType) => new()
     {
         Id = Guid.CreateVersion7(),
