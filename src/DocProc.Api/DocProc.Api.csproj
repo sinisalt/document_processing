@@ -2,6 +2,9 @@
   <PropertyGroup>
     <Description>ASP.NET Core API host.</Description>
     <UserSecretsId>docproc-api</UserSecretsId>
+    <!-- Microsoft.Data.SqlClient refuses to open a connection in invariant globalization mode ("Globalization Invariant
+         Mode is not supported"), so a process that talks to SQL Server needs ICU (Directory.Build.props sets invariant mode for the rest). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />

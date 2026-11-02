@@ -199,4 +199,28 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         (await viewer.GetAsync(SuppliersUri, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await viewer.DeleteAsync(SupplierUri(created.Id), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
+
+    /// <summary>The profile's foreign key is NO ACTION (SQL Server allows one cascade path per table), so the endpoint refuses first.</summary>
+    [Fact]
+    public async Task Delete_refuses_a_supplier_an_extractor_profile_belongs_to()
+    {
+        using var admin = TenantAdminClient();
+        var created = (await (await admin.PostAsJsonAsync(SuppliersUri, NewSupplier("With a profile"), Ct)).Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        var now = factory.Clock.GetUtcNow();
+        factory.Run(db => db.ExtractorProfiles.Add(new DocProc.Infrastructure.Persistence.Entities.ExtractorProfile
+        {
+            Id = Guid.CreateVersion7(),
+            SupplierId = created.Id,
+            TenantId = ApiFactory.TenantA,
+            DocumentType = "Invoice",
+            CreatedAt = now,
+            UpdatedAt = now,
+        }));
+
+        var response = await admin.DeleteAsync(SupplierUri(created.Id), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("Extractor profiles reference this supplier");
+        factory.Query(db => db.Suppliers.Any(s => s.Id == created.Id)).ShouldBeTrue();
+    }
 }

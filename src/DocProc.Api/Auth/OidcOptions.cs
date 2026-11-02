@@ -11,6 +11,16 @@ public sealed class OidcOptions
     /// <summary>Issuer URL, e.g. <c>http://localhost:8080/realms/docproc</c>. Empty disables metadata discovery (tests supply keys directly).</summary>
     public string? Authority { get; set; }
 
+    /// <summary>
+    /// Optional back-channel URL of the discovery document, for when the API cannot reach the issuer URL the browser
+    /// uses: under docker compose the tokens say <c>http://localhost:8080/realms/docproc</c>, which inside the API's
+    /// container is the container itself, so the API reads the metadata (and through it the signing keys) from
+    /// <c>http://keycloak:8080/realms/docproc/.well-known/openid-configuration</c> instead. The issuer tokens are
+    /// validated against stays <see cref="Authority"/>. Unset: <c>{Authority}/.well-known/openid-configuration</c>.
+    /// Needs <see cref="Authority"/>; <see cref="RequireHttpsMetadata"/> applies to it as well.
+    /// </summary>
+    public string? MetadataAddress { get; set; }
+
     /// <summary>Expected <c>aud</c>; the Keycloak realm adds it through the audience mapper on the <c>docproc</c> scope.</summary>
     public string Audience { get; set; } = "docproc-api";
 

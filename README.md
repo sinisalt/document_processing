@@ -95,8 +95,58 @@ What comes up (resource name → what the hosts read it as):
 
 Stateful containers keep named volumes (`docproc-*`) and survive restarts of the app host. The SQL
 password is an Aspire parameter; set it once with `dotnet user-secrets set Parameters:sql-password
-<value> --project src/DocProc.AppHost` or let Aspire generate it. `aspire publish` can emit a
-docker-compose file from the same definition for people who prefer compose.
+<value> --project src/DocProc.AppHost` or let Aspire generate it. For the same stack without the
+.NET SDK, including both web apps, use Docker Compose (next section).
+
+The Keycloak realm is imported on the first start only. If your `docproc-keycloak-data` volume is
+older than the realm's `basic`, `profile` and `email` client scopes, the apps' sign-in fails with
+`invalid_scope`: delete the volume (`docker volume rm docproc-keycloak-data`) and start again.
+
+#### With Docker Compose
+
+`docker-compose.yml` at the repository root starts the same services as the app host, plus the
+customer portal and the admin console as production builds behind nginx. From a clean clone it
+needs only Docker (Docker Desktop, OrbStack or Docker Engine with the compose plugin):
+
+```bash
+docker compose up --build        # or: docker compose up --build -d
+```
+
+The first build takes a few minutes (restore, publish, two `vite build`s); SQL Server and the
+Service Bus emulator then need about half a minute. With `-d`, `docker compose ps` shows every
+service healthy (the worker has no health check, and `servicebus-ready` and `llm-setup` are
+one-shot helpers that exit 0).
+
+| URL | What |
+|---|---|
+| http://localhost:5173 | customer portal; sign in as `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` or `tenant-b-viewer` |
+| http://localhost:5174 | admin console; sign in as `superadmin` or `operator` |
+| http://localhost:5100/scalar | API reference (Scalar); `/health/ready`, `/openapi/v1.json` |
+| http://localhost:8080 | Keycloak (realm `docproc`; admin console `admin` / `admin`) |
+| http://localhost:8085 | GreenMail API; SMTP `localhost:3025`, IMAP `localhost:3143` |
+
+Every password is the user name. The API applies the migrations, seeds the realm's two tenants
+(suppliers, upload channels, members) and ingests the demo documents of `fixtures/demo`, so the
+portal has something to show; `DOCPROC_DEMO_DOCUMENTS=false` skips the documents. Published ports
+are bound to `127.0.0.1`. The passwords in the file (SQL `sa`, Keycloak admin) are local defaults
+for a developer machine, not secrets; override them in `.env` (see `.env.example`) before the first
+start, since SQL Server keeps the password it was created with.
+
+**LLM keys.** Without a key the stack still processes e-invoice XML (UBL, CII, XRechnung) end to
+end, and the demo PDFs are answered from their replay fixtures; any other PDF ends `Failed` until a
+provider is configured. To use a real provider, copy `.env.example` to `.env` (git-ignored) and set
+`ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` together with `OPENAI_MODEL`, then `docker compose up -d`.
+The one-shot `llm-setup` service turns them into active platform configurations through the admin
+API (`docker compose logs llm-setup` says what it did), or add a provider in the admin console under
+AI providers. Details: docs/09 "With Docker Compose".
+
+**Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
+volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
+
+**Apple Silicon.** SQL Server and the Service Bus emulator are amd64-only images, pinned to
+`linux/amd64` in the compose file: enable "Use Rosetta for x86_64/amd64 emulation" in Docker
+Desktop (or Rosetta in OrbStack) and give Docker at least 8 GB. Everything else, including the
+images built from this repository, runs natively.
 
 Run the API on its own (the Development profile creates a SQLite database and signs its own
 tokens, see "Running without Docker" below; with no `Persistence:Provider` and no connection string
@@ -227,7 +277,8 @@ tests/
   DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): endpoints, auth, roles, tenant
                               scope, API keys, dev mode; the documentation checks under Docs/
   DocProc.Worker.Tests/       the worker host as Program.cs composes it
-  DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers
+  DocProc.AppHost.Tests/      app-model checks (resources, waits, images, realm) without starting containers, and
+                              docker-compose.yml and the Service Bus emulator config held to the app model
   DocProc.Integration.Tests/  PDF, classifier and splitter fixtures; Testcontainers (SQL Server 2025, Azurite) for
                               migrations, RLS, temporal tables and the Azure blob store, skipped without Docker
 web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
@@ -235,4 +286,6 @@ web/                          pnpm workspace: apps/customer-portal, apps/admin-c
 fixtures/                     demo documents and their LLM replay fixtures (docs/09 "Demo data")
 schemas/                      committed JSON schemas sent to providers
 docs/                         plan and design
+docker/                       what docker-compose.yml mounts: the Service Bus emulator's entities, the llm-setup script
+docker-compose.yml            the whole stack with Docker Compose (images: src/Dockerfile, web/Dockerfile; .env.example)
 ```

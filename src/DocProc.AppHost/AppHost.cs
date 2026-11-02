@@ -54,7 +54,7 @@ var mail = builder.AddContainer("mail", "greenmail/standalone", "2.1.15")
     .WithEndpoint(port: 3025, targetPort: 3025, name: "smtp", scheme: "tcp")
     .WithEndpoint(port: 3143, targetPort: 3143, name: "imap", scheme: "tcp")
     .WithHttpEndpoint(port: 8085, targetPort: 8080, name: "api")
-    .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local,invoices@tenant-b.local")
+    .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local:invoices,invoices@tenant-b.local:invoices")
     .WithLifetime(ContainerLifetime.Persistent);
 
 // The file-backed ISecretStore stands in for Key Vault until the Key Vault store is wired. The API writes BYOK keys

@@ -1,0 +1,41 @@
+# nginx in front of one web app's static build (web/Dockerfile). The apps call the API on their own origin under
+# /api (VITE_API_BASE_URL empty), so /api is proxied to ${API_UPSTREAM}; every other path that is not a file is a
+# client-side route and gets index.html. Rendered by the nginx image's envsubst at start-up: only variables set in
+# the environment are replaced, nginx's own ($host, $uri, ...) stay as they are.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Docker's embedded DNS, re-resolved every 10 s: a recreated api container gets a new address, and a proxy_pass
+    # with a fixed host name would keep the old one until nginx restarts.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $api_upstream ${API_UPSTREAM};
+
+    # POST /api/v1/ingestions takes up to 20 files of 50 MiB (IngestionLimits.MaxRequestBodyBytes).
+    client_max_body_size 1024m;
+
+    location /api/ {
+        # A variable without a URI part passes the request URI unchanged.
+        proxy_pass $api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Hashed bundles from vite build never change under the same name.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}

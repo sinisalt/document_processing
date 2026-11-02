@@ -28,6 +28,13 @@ public static class AuthenticationSetup
                 $"{DevAuthOptions.SectionName}:Enabled is true but the environment is Production. The development token issuer signs tokens for anyone who asks and must never run in production; set {DevAuthOptions.SectionName}:Enabled=false and configure {OidcOptions.SectionName}.");
         }
 
+        if (!dev.Enabled && !string.IsNullOrWhiteSpace(oidc.MetadataAddress)
+            && (string.IsNullOrWhiteSpace(oidc.Authority) || !IsHttpUrl(oidc.MetadataAddress)))
+        {
+            throw new InvalidOperationException(
+                $"{OidcOptions.SectionName}:MetadataAddress must be an absolute http(s) URL, and it needs {OidcOptions.SectionName}:Authority, the issuer the tokens carry: the metadata address only says where the API fetches the discovery document, not which issuer it trusts.");
+        }
+
         services.AddSingleton(oidc);
         services.AddSingleton(dev);
         services.AddTenantContext();
@@ -49,6 +56,13 @@ public static class AuthenticationSetup
                 if (!dev.Enabled && !string.IsNullOrWhiteSpace(oidc.Authority))
                 {
                     options.Authority = oidc.Authority;
+
+                    // The issuer stays the public Authority; only the discovery document (and through it the signing
+                    // keys) comes from the back channel, e.g. http://keycloak:8080 inside docker compose (docs/09).
+                    if (!string.IsNullOrWhiteSpace(oidc.MetadataAddress))
+                    {
+                        options.MetadataAddress = oidc.MetadataAddress;
+                    }
                 }
 
                 options.Audience = oidc.Audience;
@@ -87,4 +101,7 @@ public static class AuthenticationSetup
         services.AddScoped<TenantResolutionMiddleware>();
         return services;
     }
+
+    private static bool IsHttpUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

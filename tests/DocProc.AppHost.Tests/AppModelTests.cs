@@ -140,4 +140,36 @@ public class AppModelTests
             .ToList();
         tenants.Count.ShouldBe(2);
     }
+
+    /// <summary>
+    /// A realm import that lists <c>clientScopes</c> gets none of Keycloak's built-in scopes. Every scope a client names
+    /// must therefore be declared in the file, or the apps' sign-in (<c>scope=openid profile email</c>) fails with
+    /// <c>invalid_scope</c>, and the claims the API reads (<c>sub</c>, <c>preferred_username</c>, <c>email</c>) need a mapper.
+    /// </summary>
+    [Fact]
+    public void Keycloak_realm_declares_every_client_scope_its_clients_use_and_the_claims_the_api_reads()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "realms", "docproc-realm.json")));
+        var realm = doc.RootElement;
+        var scopes = realm.GetProperty("clientScopes").EnumerateArray().ToDictionary(s => s.GetProperty("name").GetString()!, StringComparer.Ordinal);
+
+        foreach (var client in realm.GetProperty("clients").EnumerateArray().Where(c => c.TryGetProperty("defaultClientScopes", out _)))
+        {
+            var named = client.GetProperty("defaultClientScopes").EnumerateArray().Select(s => s.GetString()!).ToList();
+            named.Where(s => !scopes.ContainsKey(s)).ShouldBeEmpty($"{client.GetProperty("clientId").GetString()} names client scopes the realm does not declare");
+            named.ShouldContain("profile");
+            named.ShouldContain("email");
+        }
+
+        var mappers = scopes.Values.SelectMany(s => s.GetProperty("protocolMappers").EnumerateArray()).ToList();
+        mappers.Select(m => m.GetProperty("protocolMapper").GetString()).ShouldContain("oidc-sub-mapper");
+        var claims = mappers
+            .Where(m => m.TryGetProperty("config", out var config) && config.TryGetProperty("claim.name", out _))
+            .Select(m => m.GetProperty("config").GetProperty("claim.name").GetString())
+            .ToList();
+        foreach (var claim in new[] { "preferred_username", "email", "tenant_id", "roles" })
+        {
+            claims.ShouldContain(claim);
+        }
+    }
 }

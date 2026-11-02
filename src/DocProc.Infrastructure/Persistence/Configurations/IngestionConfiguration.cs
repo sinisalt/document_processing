@@ -30,7 +30,7 @@ internal sealed class IngestionConfiguration : IEntityTypeConfiguration<Ingestio
         b.HasIndex(i => new { i.TenantId, i.ReceivedAt }).IsDescending(false, true);
         b.HasIndex(i => new { i.TenantId, i.SourceMessageId });
         b.HasOne(i => i.Tenant).WithMany().HasForeignKey(i => i.TenantId);
-        b.HasOne(i => i.Channel).WithMany().HasForeignKey(i => i.ChannelId);
+        b.HasOne(i => i.Channel).WithMany().HasForeignKey(i => i.ChannelId).OnDelete(DeleteBehavior.NoAction);
     }
 }
 

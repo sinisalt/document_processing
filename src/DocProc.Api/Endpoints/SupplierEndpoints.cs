@@ -284,6 +284,12 @@ public static class SupplierEndpoints
                 return Conflict("Supplier in use", "Documents reference this supplier; it cannot be deleted.");
             }
 
+            // The database refuses it as well (NO ACTION: SQL Server allows only one cascade path per table).
+            if (await db.ExtractorProfiles.IgnoreQueryFilters().AnyAsync(p => p.SupplierId == id, ct))
+            {
+                return Conflict("Supplier in use", "Extractor profiles reference this supplier; it cannot be deleted.");
+            }
+
             var current = await CurrentTenantAsync(db, ct);
             if (current is not null && current.Settings.AlwaysReviewSupplierIds.Remove(id))
             {

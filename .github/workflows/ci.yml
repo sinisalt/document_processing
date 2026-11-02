@@ -43,6 +43,27 @@ jobs:
           path: '**/TestResults/**'
           if-no-files-found: ignore
 
+  # docker-compose.yml and the images it builds (README "With Docker Compose"). Cheap on purpose: the file is validated
+  # and the four images are built, but the stack is not started; tests/DocProc.AppHost.Tests hold the file's
+  # services, settings, ports and the Service Bus emulator config to the AppHost.
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate docker-compose.yml
+        run: docker compose config -q
+
+      - name: Validate docker-compose.yml with every .env.example setting
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          rm .env
+
+      - name: Build the API, worker, portal and admin images
+        run: docker compose build api worker portal admin
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20

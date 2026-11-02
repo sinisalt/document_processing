@@ -20,7 +20,7 @@ by configuration.
 | Watched folder | SMB/SFTP/blob container | A bind-mounted local folder or an Azurite container. | Identical code path. | n/a |
 | LLM providers | Anthropic API, Claude on Microsoft Foundry, Azure OpenAI, OpenAI | Real APIs over the internet (no emulator). The gateway has a **replay provider** that serves recorded responses keyed by request hash, used by all CI tests. For offline smoke tests, the OpenAI-compatible adapter can point at **Ollama / LM Studio** on the Mac. | Replay is exact for regression; live calls are opt-in (`LLM_LIVE=1`) and cost cents. | The eval harness runs live in batch mode on demand, never in the default test run. |
 | Identity | Entra External ID / Entra ID | **Keycloak** container (arm64) as a local OIDC provider with seeded realms for superadmin, operator and two tenants; the API only knows OIDC authority + audience. Alternatively the test auth handler for unit tests. | Same OIDC flows; Entra-specific claims mapping is configuration. | Entra External ID dev tenant (free up to 50 000 monthly active users) used by the Azure dev environment. |
-| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts the API, the worker and all containers above with one `dotnet run`; `docker compose` file generated from it for people who prefer that. The two React apps run as Vite dev servers next to it (README "Web apps and end-to-end tests"); the AppHost does not start them yet. | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
+| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts the API, the worker and all containers above with one `dotnet run`; the two React apps run as Vite dev servers next to it (README "Web apps and end-to-end tests"). **`docker-compose.yml`** starts the same set plus both apps as production builds behind nginx, without the .NET SDK ("With Docker Compose" below). | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
 | Observability | Azure Monitor / Application Insights | Aspire dashboard (traces, logs, metrics via OpenTelemetry). | Same instrumentation, different exporter. | n/a |
 
 ## What the AppHost actually starts
@@ -31,6 +31,11 @@ The Keycloak realm is imported from `src/DocProc.AppHost/realms/docproc-realm.js
 roles `SuperAdmin`, `Operator`, `TenantAdmin`, `Reviewer`, `Viewer`, clients `docproc-api`
 (bearer-only audience), `docproc-portal` and `docproc-admin` (public, PKCE), a `tenant_id`
 claim from a user attribute, and six users across the platform and two tenants (see README).
+The realm declares the client scopes `basic` (`sub`), `profile` and `email` itself: an import that
+lists `clientScopes` gets none of Keycloak's built-in ones, and without them the apps' sign-in
+(`scope=openid profile email`) fails with `invalid_scope` and tokens carry no `sub`. Keycloak imports
+the realm on its first start only, so a `docproc-keycloak-data` volume from before keeps the old
+realm until it is deleted.
 Lowkey Vault (`vault`, HTTPS 8443) runs and both hosts get `KeyVault__Endpoint`, but no
 Key Vault `ISecretStore` reads it yet: BYOK keys go to the file-backed store, and the AppHost
 gives the API and the worker the same absolute `Secrets__Path`
@@ -39,6 +44,116 @@ read. Mail flows use GreenMail (`mail`).
 Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
 assert the resource set, images, waits, the shared secret-store path and realm contents, so a
 rename is caught before anyone runs the stack.
+
+## With Docker Compose
+
+`docker-compose.yml` at the repository root is the same stack for people without the .NET SDK, or
+who want the two web apps as they ship: `docker compose up --build` (`-d` for the background) from a
+clean clone; README "With Docker Compose" has the URLs, users, LLM keys and reset. The project name
+is `docproc` (`name:` in the file), so volumes and the network are `docproc_*`; `-p <name>` runs a
+second copy, though the fixed host ports below allow only one at a time. Nothing is external: the
+default network and four named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`)
+belong to the project, and `down -v` removes them.
+
+| Service | Image | Mirrors | Notes |
+|---|---|---|---|
+| `sqlserver` | `mcr.microsoft.com/mssql/server:2025-latest`, `linux/amd64` | `sql` | `sa` password `DOCPROC_SQL_PASSWORD` (local default in the file); healthy once `sqlcmd` answers |
+| `azurite` | `mcr.microsoft.com/azure-storage/azurite` (the AppHost's tag) | `storage` | `--skipApiVersionCheck`; the API creates `raw`, `derived`, `exports` (`Blobs:CreateContainersOnStartup`) |
+| `servicebus` | `mcr.microsoft.com/azure-messaging/servicebus-emulator` (the AppHost's tag), `linux/amd64` | `messaging` | entities from `docker/servicebus/Config.json`; stores them in `sqlserver`. The image has no shell, so the one-shot `servicebus-ready` polls its `:5300/health` and the API waits for that |
+| `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:8080`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
+| `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
+| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet |
+| `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
+| `worker` | `src/Dockerfile`, target `worker` | `worker` | waits for the API's health check; no HTTP endpoint, so no health check of its own |
+| `llm-setup` | `node:22-bookworm-slim` running `docker/llm-setup.mjs` | (none) | one-shot: LLM keys of `.env` to platform configurations, below |
+| `portal`, `admin` | `web/Dockerfile` (`APP=customer-portal` / `admin-console`) | (Vite dev servers) | nginx on `:5173` / `:5174`, `/api` proxied to `api:8080`, SPA fallback to `index.html` |
+
+**Configuration.** The hosts get the keys the AppHost sets (`ConnectionStrings__DocProc`,
+`ConnectionStrings__blobs`, `ConnectionStrings__messaging`, `Persistence__Provider=SqlServer`,
+`Persistence__MigrateOnStartup` for the API, `Authentication__Dev__Enabled=false`,
+`Authentication__Oidc__*`, `Secrets__Path`, `KeyVault__Endpoint`, `Mail__ImapHost`/`Port`;
+`ComposeParityTests` in `tests/DocProc.AppHost.Tests` fails when the AppHost gives a host a key the
+compose file does not) and run in the Development environment like under the AppHost, which loads
+`appsettings.Development.json` and lets the development seed run. On top of that the API gets
+`Persistence__SeedDevData=true` (the realm's tenants must exist, or every tenant user gets 404
+"Unknown tenant"), `Persistence__SeedDemoDocuments` (`DOCPROC_DEMO_DOCUMENTS`, default true; the
+image carries `fixtures/demo` and its replay fixtures), `Pipeline__RunInProcess=true` and
+`Blobs__CreateContainersOnStartup=true`. Both hosts mount the `secrets` volume at `/data/secrets`
+(created owner-only for the image's non-root user), so a BYOK key the API stores is one the worker
+reads.
+
+**Where documents are processed.** No host reads `ConnectionStrings:messaging` yet: the Service
+Bus transport is a later block (docs/03 "Implementation"), and until then the queue is in memory.
+The API therefore runs the pipeline itself, and the process that accepts an upload processes it;
+the worker starts, connects and runs an idle in-process runner, exactly as under the AppHost. The
+emulator still comes up with every entity the AppHost declares (`ComposeParityTests`
+holds `docker/servicebus/Config.json` to the app model), so
+the transport can be switched on without touching the compose file.
+
+**OIDC issuer and back channel.** The browser signs in at `http://localhost:8080/realms/docproc`,
+which is the `iss` of every token, but inside the API's container `localhost:8080` is the container
+itself. Keycloak is told its public URL (`KC_HOSTNAME`), so the issuer never depends on who asks,
+and answers other containers with back-channel URLs on the host name they used
+(`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`). The API keeps `Authentication:Oidc:Authority` at the public
+URL and reads the discovery document from `Authentication:Oidc:MetadataAddress`
+(`http://keycloak:8080/realms/docproc/.well-known/openid-configuration`), whose `jwks_uri` then
+points at `http://keycloak:8080/...` too ("Settings reference"). The host ports are fixed for the
+same reason: the realm's redirect URIs name 5173 and 5174, and the apps' `.env.production` and
+`KC_HOSTNAME` name 8080 (`ComposeParityTests` checks all three against the compose file).
+
+**LLM keys.** Outside the development mode the platform provider is a platform configuration in the
+database, managed through `/api/v1/llm/providers` (admin console, "AI providers"); the newest active
+one serves every tenant without its own, and its key is resolved from the secret store, then
+`Llm:Secrets:<secretRef>`, then `LLM_SECRET_<SECRET_REF>` (docs/08). The seed adds the Anthropic
+configuration `llm-platform-eu` disabled, and the demo data adds an active Replay configuration for
+the demo PDFs. The compose file passes `.env`'s `ANTHROPIC_API_KEY` to both hosts as
+`LLM_SECRET_LLM_PLATFORM_EU`; the one-shot `llm-setup` (after the API is healthy; the admin console
+waits for it) signs in as `superadmin` and enables that configuration when the key is set, and with
+`OPENAI_API_KEY` and `OPENAI_MODEL` creates an OpenAI platform configuration with that model for every
+stage (the key goes to the shared secret store; a new key replaces the previous one it created).
+With both, the one configured last is in use; switch in the admin console. It never fails the stack:
+read `docker compose logs llm-setup`. Without any key, e-invoice XML needs no LLM, the demo PDFs
+replay, and other PDFs end `Failed`.
+
+**Images.** `src/Dockerfile` restores once for the target architecture (cache mount), publishes the
+API and the worker in Release, and runs them on `mcr.microsoft.com/dotnet/aspnet` as the image's
+non-root `app` user (the worker needs the ASP.NET runtime: `DocProc.ServiceDefaults` references it);
+`curl` is added for the health check. `web/Dockerfile` runs `pnpm install --frozen-lockfile` for one
+app and its workspace packages and `pnpm build` (typecheck and `vite build` with `.env.production`),
+and serves `dist` from `nginx:alpine` with `web/nginx.conf.template`, which re-resolves `api` through
+Docker's DNS so a recreated API container is found again. `.dockerignore` keeps `bin`, `obj`,
+`node_modules`, `dist`, `data`, tests, docs and `.git` out of the build context. CI's `compose` job
+runs `docker compose config -q` and builds all four images.
+
+**Building behind a TLS-inspecting proxy.** If restores or `pnpm install` fail with certificate
+errors because a corporate proxy re-signs TLS, pass its CA bundle (PEM) as the build secret
+`extra_ca_certs`; both Dockerfiles trust it for the build only and do nothing without it. For
+example, in a `docker-compose.override.yml`, which compose merges automatically and Git ignores:
+
+```yaml
+services:
+  api: { build: { secrets: [extra_ca_certs] } }
+  worker: { build: { secrets: [extra_ca_certs] } }
+  portal: { build: { secrets: [extra_ca_certs] } }
+  admin: { build: { secrets: [extra_ca_certs] } }
+secrets:
+  extra_ca_certs:
+    file: /path/to/corporate-ca.pem
+```
+
+Recent compose versions build through `buildx bake`, which asks for permission to read that file;
+run `BUILDX_BAKE_ENTITLEMENTS_FS=0 docker compose up --build` to allow it.
+
+**Globalization.** `Directory.Build.props` turns on invariant globalization, but
+Microsoft.Data.SqlClient refuses to open a connection in that mode ("Globalization Invariant Mode is
+not supported"), so `DocProc.Api`, `DocProc.Worker` and `DocProc.Integration.Tests` set
+`InvariantGlobalization=false` and run with ICU (the `aspnet` image and macOS ship it). Before that,
+no SQL Server connection could open, under the AppHost or the integration tests. The same run found
+three SQL Server-only schema errors (error 1785, multiple cascade paths): the foreign keys
+`Ingestions.ChannelId`, `Documents.SupplierId` and `ExtractorProfiles.SupplierId` are `NO ACTION`
+now (SQLite accepted the cascades), and the API refuses to delete a channel, supplier or the
+supplier of an extractor profile that something still references, with 409, before the database
+would.
 
 ## Running without Docker
 
@@ -193,6 +308,7 @@ this section does not name.
 | `Authentication:Dev:SigningKeyPath` | unset (a key per process) | PEM file of the dev signing key, created on first start. |
 | `Authentication:Dev:TokenLifetime` | `08:00:00` | Lifetime of a dev token (`DevTokenIssuer`). |
 | `Authentication:Oidc:Authority` | unset | Issuer URL; empty disables metadata discovery (the tests supply keys). Ignored while dev auth is on. |
+| `Authentication:Oidc:MetadataAddress` | unset (`{Authority}/.well-known/openid-configuration`) | Back-channel URL of the discovery document, for a host that cannot reach the issuer URL the browser uses: docker compose sets `http://keycloak:8080/realms/docproc/.well-known/openid-configuration` while `Authority` stays `http://localhost:8080/realms/docproc`, the `iss` of every token. Only where the metadata and keys are read changes, never which issuer is trusted; needs `Authority` and an absolute http(s) URL, or the host refuses to start. `RequireHttpsMetadata` applies to it. |
 | `Authentication:Oidc:Audience` | `docproc-api` | Expected `aud`. |
 | `Authentication:Oidc:RequireHttpsMetadata` | true | False only for the local Keycloak over plain HTTP. |
 | `Authentication:Oidc:RoleClaimType` | `roles` | Claim the roles are read from (also for `/api/v1/me`). |
@@ -289,6 +405,8 @@ Models and providers are not settings: the gateway resolves them per tenant and 
   native dependencies (PDFium, Tesseract, SkiaSharp) are present for both; CI builds and
   tests the amd64 image so a missing native never reaches Azure unnoticed.
 - Allocate at least 8 GB to Docker; SQL Server under emulation is memory-hungry.
+- `docker-compose.yml` pins `sqlserver` and `servicebus` to `platform: linux/amd64`, so they run under Rosetta;
+  the images built from `src/Dockerfile` and `web/Dockerfile` are built for the host's own architecture.
 
 ## Test pyramid
 
@@ -329,7 +447,10 @@ when the committed `web/packages/api-client/openapi/v1.json` or `src/schema.d.ts
 what the API serves: after changing an endpoint, run the script and commit the result. The script
 starts the API on port 5199 (`OPENAPI_EXPORT_PORT` moves it) and removes the document's `servers`
 entry, which the API fills from that port, so the committed file is the same from any port
-(`web/scripts/strip-openapi-servers.mjs`, tested in `packages/api-client/src/openapi.test.ts`).
+(`web/scripts/strip-openapi-servers.mjs`, tested in `packages/api-client/src/openapi.test.ts`). The same script lists
+`components.schemas` in ordinal order: ASP.NET sorts them with the culture-sensitive comparer, and the API runs with
+ICU ("With Docker Compose", "Globalization"), where the order differs from invariant mode's, so without it the export
+would depend on the machine.
 
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 

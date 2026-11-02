@@ -262,7 +262,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         column: x => x.ChannelId,
                         principalTable: "IngestionChannels",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.NoAction);
                     table.ForeignKey(
                         name: "FK_Ingestions_Tenants_TenantId",
                         column: x => x.TenantId,
@@ -343,7 +343,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         column: x => x.SupplierId,
                         principalTable: "Suppliers",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        onDelete: ReferentialAction.NoAction);
                 })
                 .Annotation("SqlServer:IsTemporal", true)
                 .Annotation("SqlServer:TemporalHistoryTableName", "ExtractorProfilesHistory")
@@ -462,7 +462,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         column: x => x.SupplierId,
                         principalTable: "Suppliers",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        onDelete: ReferentialAction.NoAction);
                 })
                 .Annotation("SqlServer:IsTemporal", true)
                 .Annotation("SqlServer:TemporalHistoryTableName", "DocumentsHistory")

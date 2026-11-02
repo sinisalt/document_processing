@@ -44,6 +44,6 @@ internal sealed class ExtractorProfileConfiguration : IEntityTypeConfiguration<E
         b.HasIndex(p => new { p.GlobalSupplierId, p.Status });
         b.HasIndex(p => new { p.SupplierId, p.Status });
         b.HasOne(p => p.GlobalSupplier).WithMany(g => g.Profiles).HasForeignKey(p => p.GlobalSupplierId).OnDelete(DeleteBehavior.SetNull);
-        b.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.NoAction);
     }
 }

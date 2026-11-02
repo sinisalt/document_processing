@@ -1406,7 +1406,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.OwnsOne("DocProc.Infrastructure.Persistence.Entities.DocumentCosts", "Costs", b1 =>
                         {
@@ -1484,7 +1484,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("GlobalSupplier");
 
@@ -1496,7 +1496,7 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.IngestionChannel", "Channel")
                         .WithMany()
                         .HasForeignKey("ChannelId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", "Tenant")

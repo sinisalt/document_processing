@@ -35,3 +35,7 @@ appsettings.*.local.json
 
 # Local development state (SQLite database, dev signing key, file-system blobs, secrets)
 data/
+
+# Docker Compose: local secrets and overrides (docs/09 "With Docker Compose"); .env.example is the template
+!.env.example
+docker-compose.override.yml
