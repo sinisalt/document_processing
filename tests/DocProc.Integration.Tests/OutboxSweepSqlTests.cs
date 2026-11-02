@@ -16,6 +16,7 @@ namespace DocProc.Integration.Tests;
 /// finds, across tenants and behind row-level security, exactly the settlements that were never handed on; and a
 /// tenant session can claim its own row and cannot see another tenant's.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class OutboxSweepSqlTests : IAsyncLifetime
 {
     private const string MigrationBeforeOutbox = "20261102175238_P0PersistenceSeams";

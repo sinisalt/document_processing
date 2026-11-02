@@ -4,7 +4,6 @@ using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Testcontainers.MsSql;
 
 namespace DocProc.Integration.Tests;
 
@@ -12,14 +11,15 @@ namespace DocProc.Integration.Tests;
 /// Applies the migrations to SQL Server 2025 and proves both tenancy layers (docs/01 "Multi-tenancy"): the EF query
 /// filter, and row-level security that holds even for raw SQL that bypasses EF.
 /// </summary>
-public sealed class TenantIsolationTests : IAsyncLifetime
+[Collection(SqlServerCollection.Name)]
+public sealed class TenantIsolationTests(SqlServerFixture sqlServer) : IClassFixture<SqlServerFixture>, IAsyncLifetime
 {
     private static readonly Guid TenantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid TenantB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
-    private MsSqlContainer? _container;
     private string _connectionString = string.Empty;
 
+    // The container is shared by the class; each test migrates and seeds a database of its own.
     public async ValueTask InitializeAsync()
     {
         if (!DockerFacts.IsAvailable)
@@ -27,22 +27,14 @@ public sealed class TenantIsolationTests : IAsyncLifetime
             return;
         }
 
-        _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
-        await _container.StartAsync(TestContext.Current.CancellationToken);
-        _connectionString = _container.GetConnectionString();
+        _connectionString = sqlServer.NewDatabaseConnectionString();
 
         await using var context = NewContext(TenantContext.Platform());
         await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
         await Seed(context);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (_container is not null)
-        {
-            await _container.DisposeAsync();
-        }
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task Ef_query_filter_shows_only_the_current_tenant()

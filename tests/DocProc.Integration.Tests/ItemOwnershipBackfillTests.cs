@@ -14,6 +14,7 @@ namespace DocProc.Integration.Tests;
 /// migration opens platform scope for its data statements itself; without that the UPDATE silently touches no rows.
 /// The shape of those statements is checked without a database by <see cref="ItemOwnershipBackfillSqlTests"/>.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
 {
     private const string MigrationBeforeOwnership = "20261030183519_AddConcurrencyTokens";

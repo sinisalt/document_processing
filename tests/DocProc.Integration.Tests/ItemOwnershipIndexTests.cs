@@ -12,6 +12,7 @@ namespace DocProc.Integration.Tests;
 /// The migrations on SQL Server 2025 create the filtered unique index behind duplicate ownership (docs/03
 /// "Implementation"), and it rejects exactly the second <c>Accepted</c> item per tenant and SHA-256.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed partial class ItemOwnershipIndexTests : IAsyncLifetime
 {
     private static readonly Guid TenantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");

@@ -16,6 +16,7 @@ namespace DocProc.Integration.Tests;
 /// behind the row-level security policy, old corrections get the <c>set</c> operation, and tenant settings written
 /// before the feature flags existed still load, with every flag off.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class P0SeamsMigrationTests : IAsyncLifetime
 {
     private const string MigrationBeforeSeams = "20261102152408_CorrectionValuesAsText";

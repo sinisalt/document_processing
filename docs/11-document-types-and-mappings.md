@@ -2043,7 +2043,7 @@ Each schema change comes with the phase of section 23 that first uses it (correc
   - std template leaf paths equal `Invoice.EnumerateAllFields()`;
   - `SchemaSnapshotTests` keeps `invoice_extraction.v1.json` byte-identical, and new snapshots cover each compiled template schema and `document-type-definition.v1.json`;
   - every replay fixture still matches by request hash;
-  - the existing Domain validation tests run unchanged through `InvoiceRuleAdapter`;
+  - the existing Domain validation tests (`InvoiceValidatorTests`) stay as they are, and `DocumentRuleTests` proves that `InvoiceRuleAdapter` with the std invoice rule list raises the same flags as `InvoiceValidator.Default`;
   - the review and corrections tests with invoice fixtures, and the e2e screenshot specs, pass with the generated form (the gate for removing the hand-written form).
 - **Round trip**: a property unknown to the records survives deserialise, serialise and reprocess.
 - **Patcher**: set, append, remove and move on generic types; source recorded; inline validation flags.

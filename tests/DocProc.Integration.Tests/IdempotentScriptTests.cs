@@ -25,6 +25,7 @@ namespace DocProc.Integration.Tests;
 /// Either way the data survives and every back-fill reaches the rows. The script must also build a database from
 /// nothing, twice.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class IdempotentScriptTests : IAsyncLifetime
 {
     private const string MigrationBeforeCorrectionFix = "20261031024444_AddFlagParams";
