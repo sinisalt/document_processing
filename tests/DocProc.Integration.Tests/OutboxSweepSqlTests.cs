@@ -34,8 +34,7 @@ public sealed class OutboxSweepSqlTests : IAsyncLifetime
             return;
         }
 
-        _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
-        await _container.StartAsync(TestContext.Current.CancellationToken);
+        _container = await SqlServerContainers.StartAsync(TestContext.Current.CancellationToken);
         _connectionString = _container.GetConnectionString();
     }
 

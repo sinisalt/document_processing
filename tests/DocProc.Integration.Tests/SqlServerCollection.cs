@@ -1,3 +1,4 @@
+using DotNet.Testcontainers.Containers;
 using Microsoft.Data.SqlClient;
 using Testcontainers.MsSql;
 
@@ -30,8 +31,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
             return;
         }
 
-        _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
-        await _container.StartAsync(TestContext.Current.CancellationToken);
+        _container = await SqlServerContainers.StartAsync(TestContext.Current.CancellationToken);
     }
 
     public async ValueTask DisposeAsync()
@@ -51,4 +51,33 @@ public sealed class SqlServerFixture : IAsyncLifetime
         {
             InitialCatalog = $"test_{Guid.NewGuid():N}",
         }.ConnectionString;
+}
+
+/// <summary>Starts the SQL Server 2025 containers of the integration tests.</summary>
+public static class SqlServerContainers
+{
+    private const int Attempts = 3;
+
+    /// <summary>
+    /// Builds and starts a SQL Server 2025 container, trying again with a new container when one exits during
+    /// start-up. SQL Server on Linux occasionally dies before it accepts connections ("This program has encountered a
+    /// fatal error", Reason 0x00000002, with a stack in sqlpal.dll and lsasrv.dll), before any test code has run. The
+    /// next container starts normally. A container that does start but then fails a test is not retried.
+    /// </summary>
+    public static async Task<MsSqlContainer> StartAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
+            try
+            {
+                await container.StartAsync(cancellationToken);
+                return container;
+            }
+            catch (ContainerNotRunningException) when (attempt < Attempts && !cancellationToken.IsCancellationRequested)
+            {
+                await container.DisposeAsync();
+            }
+        }
+    }
 }
