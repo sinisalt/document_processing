@@ -12,17 +12,20 @@ using Microsoft.Extensions.Logging;
 namespace DocProc.Pipeline.Stages;
 
 /// <summary>
-/// Stage 7 (docs/03 "Validate and enrich") and the hand-over to stage 8 or 9: runs <see cref="InvoiceValidator.Default"/>
-/// with the tenant's identity and confidence threshold, adds <c>DUPLICATE_SUSPECTED</c> when the same supplier
-/// already sent the same number, persists the flags and decides: no blocking flag, nothing below threshold and no
-/// always-review rule means <c>AutoApproved</c> and a publish message; everything else means <c>NeedsReview</c> with
-/// a review task. A document without canonical data (unsupported type) always goes to review.
+/// Stage 7 (docs/03 "Validate and enrich") and the hand-over to stage 8 or 9: runs the type's rule list
+/// (<see cref="StandardRuleSets"/>; for invoices the coded rules of <see cref="InvoiceValidator.Default"/> through
+/// <see cref="InvoiceRuleAdapter"/>) with the tenant's identity and confidence threshold, adds
+/// <c>DUPLICATE_SUSPECTED</c> when the same supplier already sent the same number, persists the flags and decides: no
+/// blocking flag, nothing below threshold and no always-review rule means <c>AutoApproved</c>, with its outbox row in
+/// the same save and a publish message as a nudge; everything else means <c>NeedsReview</c> with a review task. A
+/// document without canonical data (unsupported type) always goes to review.
 /// </summary>
 internal sealed class ValidateHandler(
     DocProcDbContext db,
     DocumentTimeline timeline,
     DocumentFlagWriter flags,
     IPipelineQueue queue,
+    DocumentValidator validator,
     ILogger<ValidateHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     public const string ApprovedBy = DocumentTimeline.Actor;
@@ -46,14 +49,14 @@ internal sealed class ValidateHandler(
 
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
-        if (document.CanonicalJson is { } json && document.Type is DocumentType.Invoice or DocumentType.CreditNote)
+        if (document.CanonicalJson is { } json && StandardRuleSets.ForLegacyType(document.Type) is { } rules)
         {
-            var invoice = CanonicalDocumentSerializer.DeserializeInvoice(json);
+            var view = DocumentView.FromJson(document.Type, json);
             var context = new ValidationContext(
                 Today(tenant),
                 ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
                 new Domain.Validation.TenantContext(tenant.LegalName, tenant.VatId, tenant.DefaultCurrency, tenant.NameAliases));
-            result = InvoiceValidator.Default.Validate(invoice, context);
+            result = validator.Validate(view, rules, context);
             raised.AddRange(result.Flags);
 
             if (await IsDuplicateAsync(document, cancellationToken).ConfigureAwait(false))
@@ -88,6 +91,9 @@ internal sealed class ValidateHandler(
             document.ApprovedAt = Timeline.Now;
             document.ApprovedBy = ApprovedBy;
             Timeline.Transition(document, DocumentStatus.AutoApproved, new { by = ApprovedBy }, DocumentEventTypes.AutoApproved);
+            // The outbox row commits with the decision (docs/11 §13.5); the publish message below is only a nudge,
+            // and the publish sweeper finds the row if the message is lost.
+            DocumentOutbox.Add(Db, document, Timeline.Now);
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), cancellationToken).ConfigureAwait(false);
             return StageOutcome.Stopped;

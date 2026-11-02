@@ -186,9 +186,19 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `Ingestion.SourceSender` and `Ingestion.SubmittedBy`, back-filled for uploads (`SourceFrom` still written);
     - the platform-row RLS predicate (`rls.fn_tenant_or_platform_read`) over `ExtractorProfiles`;
     - `TenantEndpointGuard` in `src/DocProc.Infrastructure/Http`.
-  - Open: the `IFieldSchemaResolver` seam, the outbox inside the approve and reject transactions with the
-    `PublishSweeper`, the seeded std templates with the parity test and `IEffectiveConfigResolver`, `IDocumentRule`
-    with `InvoiceRuleAdapter`, the `ExtractionOutcome` compatibility constructor, and `mock-erp` in compose and AppHost.
+  - Done, pipeline seams:
+    - the outbox row written inside the approve, reject and auto-approval transactions (`DocumentOutbox`), the
+      publish stage handing it on (`OutboxMessages.FannedOutAt`, back-filled for existing rows), and
+      `PublishSweeperHostedService`, which queues the publish stage for every tenant's settlements whose publish
+      message was lost; the timeline's publish entry then carries `recoveredBy: "publish-sweeper"`;
+    - the `IFieldSchemaResolver` seam in `CanonicalPatcher` (`ReflectionFieldSchemaResolver`, today's reflection walk),
+      proved identical against the previous patcher over every path of the coded records;
+    - `IDocumentRule`, `RuleRegistry`, `DocumentValidator` and `InvoiceRuleAdapter` wrapping the eight coded invoice
+      rules; the validate stage runs the invoice rule list (`StandardRuleSets`) and raises identical flags;
+    - `ExtractionOutcome(ExtractedDocument, …)` with the compatibility constructor taking an `Invoice`; the Extract
+      stage stores the tree, byte for byte the JSON it stored before.
+  - Open: the seeded std templates with the parity test and `IEffectiveConfigResolver`, and `mock-erp` in compose and
+    AppHost.
 - **P1 to P6** – not started.
 
 ## Risks and open questions

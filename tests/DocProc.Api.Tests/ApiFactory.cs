@@ -67,6 +67,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Authentication:Oidc:Audience", Audience);
         builder.UseSetting("Blobs:RootPath", BlobRoot);
         builder.UseSetting("Secrets:Path", SecretRoot);
+        // The publish sweeper's own loop is off: it would wake whenever a test moves the fake clock and queue publish
+        // messages for seeded settled documents. Tests that need a sweep run one (PublishSweeperHostedService.SweepOnceAsync).
+        builder.UseSetting("Pipeline:PublishSweepInterval", "00:00:00");
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>

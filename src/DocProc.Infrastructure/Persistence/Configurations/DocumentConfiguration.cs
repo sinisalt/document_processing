@@ -109,6 +109,7 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
         b.ToTable("OutboxMessages");
         b.Property(m => m.EventType).HasMaxLength(64);
         b.Property(m => m.PayloadJson).HasColumnType("json");
+        b.Property(m => m.FannedOutAt).IsConcurrencyToken();
         // The delivery job scans undelivered rows oldest first; the document index serves the timeline and idempotent publishing.
         b.HasIndex(m => new { m.DeliveredAt, m.CreatedAt });
         b.HasIndex(m => new { m.DocumentId, m.EventType });

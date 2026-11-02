@@ -1119,6 +1119,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<DateTimeOffset?>("FannedOutAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("PayloadJson")
                         .IsRequired()
                         .HasColumnType("json");

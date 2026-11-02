@@ -297,6 +297,10 @@ again; "in the outbox" is the publish stage's own rule (a row of the settlement'
 settlement), so a row left by an earlier settlement, such as a rejection before a reprocess, does not count;
 otherwise `Failed`, `NeedsReview` and the settled states are left alone, as is a document persisted `Validated` (which
 the pipeline never does; it is logged). Every handler drops a message whose work is already done, so a twin is harmless.
+For every tenant, not only the demo ones, the publish sweeper (`Pipeline:PublishSweep*` below) covers the rest: approve,
+reject and auto-approval write the outbox row with the decision, so a publish message lost after that commit leaves a
+row the publish stage never handed on, and the first sweep after the restart that finds the decision older than the grace
+period (a few minutes with the defaults) queues the publish stage for it; its timeline entry then says `recoveredBy: "publish-sweeper"` (docs/11 §13.5).
 `DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table
 above and that a second start-up seeds nothing; `DemoDataHostTests` (`tests/DocProc.Pipeline.Tests/Demo`) interrupts
 a start-up with the delivery note mid-pipeline and six ingestions queued, restarts, and asserts that all seven
@@ -398,6 +402,10 @@ this section does not name.
 | `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. Not negative. |
 | `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. At least 1. |
 | `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. Not negative. |
+| `Pipeline:PublishSweepInterval` | `00:01:00` | How often the publish sweeper (`PublishSweeperHostedService`, next to the runner) looks for settled documents whose publish message was lost (docs/11 §13.5); the first sweep runs one interval after start. `00:00:00` turns it off. Not negative. |
+| `Pipeline:PublishSweepGrace` | `00:02:00` | How long a settlement may wait for its normal publish message before the sweeper queues one. Not negative. |
+| `Pipeline:PublishSweepLookback` | `7.00:00:00` | How far back the sweeper looks; older settlements are left alone. Longer than the grace. |
+| `Pipeline:PublishSweepBatchSize` | 200 | Most settlements one sweep queues. At least 1. |
 | `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`). At least 1 and at most `DocumentProcessing:Pdf:MaximumRenderDpi`: a higher value would fail every PDF render, so the host refuses to start with it. |
 | `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. Between 0 and 1. |
 | `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). Not negative. |

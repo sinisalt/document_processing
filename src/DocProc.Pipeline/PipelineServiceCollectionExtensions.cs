@@ -1,5 +1,6 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
+using DocProc.Domain.Validation;
 using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure;
 using DocProc.Infrastructure.Blobs;
@@ -39,7 +40,8 @@ public static class PipelineServiceCollectionExtensions
     }
 
     /// <summary>
-    /// The queue, the runner (<see cref="PipelineRunnerHostedService"/>), every stage handler and the structured
+    /// The queue, the runner (<see cref="PipelineRunnerHostedService"/>), the publish sweeper
+    /// (<see cref="PublishSweeperHostedService"/>), every stage handler, the rule validator and the structured
     /// e-invoice extractor, with <see cref="PipelineOptions"/> bound from <c>Pipeline:*</c> and validated at start-up
     /// (<see cref="PipelineOptionsValidator"/>). Expects persistence, blobs,
     /// document processing, e-invoice parsing and the LLM services to be registered by the host; see
@@ -56,8 +58,12 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddDocProcPipelineQueue();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PipelineRunnerHostedService>());
+        // Next to the runner: the publish messages it queues go to the queue this host's runner reads.
+        services.TryAddSingleton<PublishSweeperHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PublishSweeperHostedService>(sp => sp.GetRequiredService<PublishSweeperHostedService>()));
 
         services.TryAddSingleton<PipelineBlobs>();
+        services.TryAddSingleton(DocumentValidator.Default);
         services.TryAddScoped<DocumentTimeline>();
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();

@@ -64,6 +64,27 @@ public sealed class PipelineOptions
     /// <summary>How long the runner waits for in-flight messages when the host stops.</summary>
     public TimeSpan ShutdownGracePeriod { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How often the publish sweeper looks for settled documents that were never published (docs/11 §13.5). The
+    /// first sweep runs one interval after start. Zero turns the sweeper off.
+    /// </summary>
+    public TimeSpan PublishSweepInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long a settlement may wait for its publish message before the sweeper takes it on: long enough for a busy
+    /// queue to reach it, so the sweeper does not race the normal nudge.
+    /// </summary>
+    public TimeSpan PublishSweepGrace { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// How far back the sweeper looks. Settlements older than this are left alone, so a first start on an old database
+    /// does not publish years of history at once.
+    /// </summary>
+    public TimeSpan PublishSweepLookback { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>The most settlements one sweep queues; the rest wait for the next sweep.</summary>
+    public int PublishSweepBatchSize { get; set; } = 200;
+
     /// <summary>Exponential backoff for the attempt that just failed: base × 2^(attempt − 1), capped at <see cref="MaxRetryDelay"/>.</summary>
     public TimeSpan BackoffAfter(int failedAttempt)
     {

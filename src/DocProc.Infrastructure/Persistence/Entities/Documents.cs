@@ -215,8 +215,8 @@ public sealed class Correction : ITenantScoped
 
 /// <summary>
 /// Outbox row of docs/05 "Events out" and docs/03 stage 9: one row per published document event, written in the
-/// same transaction as the state change so a delivery job can send webhooks later and mark <see cref="DeliveredAt"/>.
-/// <see cref="PayloadJson"/> is the serialised <c>DocumentEventMessage</c>.
+/// same transaction as the decision that settles the document (approve, reject, auto-approval; docs/11 §13.5), so a
+/// lost queue message can never lose the event. <see cref="PayloadJson"/> is the serialised <c>DocumentEventMessage</c>.
 /// </summary>
 public sealed class OutboxMessage : ITenantScoped
 {
@@ -226,7 +226,17 @@ public sealed class OutboxMessage : ITenantScoped
     public required string EventType { get; set; }
     public required string PayloadJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Deprecated (docs/11 §6.2): never set; deliveries will track their own state.</summary>
     public DateTimeOffset? DeliveredAt { get; set; }
+
+    /// <summary>
+    /// When the publish stage handed the row on (stage 9; in P0 there are no destinations yet, so this is the publish
+    /// itself). Null means the decision committed but the publish has not run: the publish message was lost or is still
+    /// queued, and <c>PublishSweeper</c> picks the row up. A concurrency token, so two publishers cannot both claim it.
+    /// Rows written before the column existed were published when they were written and carry their CreatedAt.
+    /// </summary>
+    public DateTimeOffset? FannedOutAt { get; set; }
 
     public Document? Document { get; set; }
 }

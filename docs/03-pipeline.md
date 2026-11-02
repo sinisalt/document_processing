@@ -302,7 +302,10 @@ event marked `retry: true`, so the job inspector shows the attempts.
 and extraction by image only and always end in review: until OCR lands nothing but the LLM has read
 those pages, so an image-only invoice is never auto-approved), extractor profiles
 (`ExtractorProfileId` stays null and the profile path has no implementation), Office and text
-items (`Failed: unsupported format`), the Service Bus transport, webhook delivery (stage 9 writes
-the `OutboxMessage` row; nothing reads it yet), exports and the learning loop. The LLM credential
+items (`Failed: unsupported format`), the Service Bus transport, webhook delivery (the decision
+that settles a document, approve, reject or auto-approval, writes the `OutboxMessage` row in its
+own transaction and stage 9 hands it on by setting `FannedOutAt`; a settlement whose publish
+message was lost is queued again by `PublishSweeperHostedService`, docs/11 §13.5; nothing reads the
+rows yet), exports and the learning loop. The LLM credential
 store reads `Llm:Secrets:<secretRef>` from configuration or `LLM_SECRET_<SECRET_REF>` from the
 environment; the Key Vault store replaces it in Azure.

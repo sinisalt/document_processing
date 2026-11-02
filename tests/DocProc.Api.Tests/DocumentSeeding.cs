@@ -39,6 +39,12 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
 
     public IReadOnlyList<ProcessDocument> Documents => _messages.OfType<ProcessDocument>().ToList();
 
+    /// <summary>
+    /// When set and true for a message, enqueuing it throws instead of recording it: the process dying (or the
+    /// queue failing) between a committed decision and its publish message.
+    /// </summary>
+    public Func<ProcessDocument, bool>? Crash { get; set; }
+
     public Task EnqueueAsync(ProcessIngestion message, CancellationToken cancellationToken)
     {
         _messages.Enqueue(message);
@@ -47,6 +53,11 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
 
     public Task EnqueueAsync(ProcessDocument message, CancellationToken cancellationToken)
     {
+        if (Crash?.Invoke(message) == true)
+        {
+            throw new InvalidOperationException($"Simulated crash before {message.Stage} of document {message.DocumentId} was queued.");
+        }
+
         _messages.Enqueue(message);
         return Task.CompletedTask;
     }

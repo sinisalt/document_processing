@@ -3,6 +3,7 @@ using System.Security.Claims;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Documents;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
@@ -368,6 +369,9 @@ public static class DocumentEndpoints
         document.Version++;
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
+        // The outbox row commits with the decision (docs/11 §13.5): if the process dies before the publish message
+        // below is queued, the publish sweeper finds the row and publishes it.
+        DocumentOutbox.Add(db, document, now);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
@@ -423,6 +427,7 @@ public static class DocumentEndpoints
         document.Version++;
         await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
+        DocumentOutbox.Add(db, document, now);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
@@ -512,6 +517,7 @@ public static class DocumentEndpoints
         Guid id,
         CorrectFieldsRequest request,
         [FromServices] DocProcDbContext db,
+        [FromServices] IFieldSchemaResolver schemas,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
@@ -536,8 +542,8 @@ public static class DocumentEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document not correctable", detail: detail);
         }
 
-        var rootType = CanonicalPatcher.RootTypeFor(document.Type);
-        if (rootType is null || string.IsNullOrWhiteSpace(document.CanonicalJson))
+        var schema = schemas.RootFor(document.Type);
+        if (schema is null || string.IsNullOrWhiteSpace(document.CanonicalJson))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Nothing to correct", detail: $"Document {document.Id} ({document.Type}, {document.Status}) has no canonical data yet.");
         }
@@ -549,7 +555,7 @@ public static class DocumentEndpoints
         CanonicalPatchResult patched;
         try
         {
-            patched = CanonicalPatcher.Apply(rootType, document.CanonicalJson, request.Corrections, actor, now, tenantCurrency);
+            patched = CanonicalPatcher.Apply(schema, document.CanonicalJson, request.Corrections, actor, now, tenantCurrency);
         }
         catch (CanonicalPatchException ex)
         {

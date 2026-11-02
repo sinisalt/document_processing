@@ -7,7 +7,8 @@ namespace DocProc.Pipeline;
 /// <summary>
 /// Fails host start-up on a <c>Pipeline</c> section the runner or the stages could not work with, instead of failing
 /// every document later: a render resolution above <c>DocumentProcessing:Pdf:MaximumRenderDpi</c> (every PDF render
-/// would throw), no worker or no attempt at all, limits of zero or less, a threshold outside 0 to 1, negative delays.
+/// would throw), no worker or no attempt at all, limits of zero or less, a threshold outside 0 to 1, negative delays,
+/// and a publish sweep look-back that does not reach past its grace period.
 /// </summary>
 internal sealed class PipelineOptionsValidator(IOptions<PdfProcessingOptions> pdf) : IValidateOptions<PipelineOptions>
 {
@@ -37,6 +38,13 @@ internal sealed class PipelineOptionsValidator(IOptions<PdfProcessingOptions> pd
         NotNegative(nameof(PipelineOptions.RetryBaseDelay), options.RetryBaseDelay);
         NotNegative(nameof(PipelineOptions.MaxRetryDelay), options.MaxRetryDelay);
         NotNegative(nameof(PipelineOptions.ShutdownGracePeriod), options.ShutdownGracePeriod);
+        NotNegative(nameof(PipelineOptions.PublishSweepInterval), options.PublishSweepInterval);
+        NotNegative(nameof(PipelineOptions.PublishSweepGrace), options.PublishSweepGrace);
+        AtLeast(nameof(PipelineOptions.PublishSweepBatchSize), options.PublishSweepBatchSize, 1);
+        if (options.PublishSweepLookback <= options.PublishSweepGrace)
+        {
+            failures.Add($"{PipelineOptions.SectionName}:{nameof(PipelineOptions.PublishSweepLookback)} is {options.PublishSweepLookback}; it must be longer than {nameof(PipelineOptions.PublishSweepGrace)} ({options.PublishSweepGrace}), or the sweeper never finds anything.");
+        }
 
         var maximumDpi = pdf.Value.MaximumRenderDpi;
         if (options.RenderDpi < 1)

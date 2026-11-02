@@ -74,7 +74,7 @@ internal sealed class ExtractHandler(
                 : $"every extraction path gave up: {string.Join(", ", tried)}");
         }
 
-        Apply(document, outcome.Invoice);
+        Apply(document, outcome.Document);
         document.ExtractionMethod = outcome.Method;
         AddCost(document.Costs, outcome.Cost);
         flags.Replace(document, OwnedFlags, outcome.Flags);
@@ -93,10 +93,10 @@ internal sealed class ExtractHandler(
         return StageOutcome.Advanced;
     }
 
-    /// <summary>Stores the outcome's canonical JSON and rewrites the list columns from it through the one role projector.</summary>
-    private static void Apply(Document document, Invoice invoice)
+    /// <summary>Stores the outcome's canonical tree and rewrites the list columns from it through the one role projector.</summary>
+    private static void Apply(Document document, ExtractedDocument extracted)
     {
-        document.CanonicalJson = CanonicalDocumentSerializer.Serialize(invoice);
+        document.CanonicalJson = extracted.ToJson();
         document.CanonicalSchemaVersion = CanonicalDocumentSerializer.SchemaVersion;
         DocumentRoleColumns.Refresh(document);
     }
