@@ -3,6 +3,7 @@ using System.Security.Claims;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Documents;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
@@ -541,6 +542,7 @@ public static class DocumentEndpoints
         CorrectFieldsRequest request,
         [FromServices] DocProcDbContext db,
         [FromServices] IFieldSchemaResolver schemas,
+        [FromServices] IEffectiveConfigResolver configs,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
@@ -588,8 +590,10 @@ public static class DocumentEndpoints
 
         document.CanonicalJson = patched.Json;
         document.UpdatedAt = now;
-        // The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox too.
-        DocumentRoleColumns.Refresh(document);
+        // The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox
+        // too, under the role bindings of the type version the document is pinned to.
+        var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), ct);
+        DocumentRoleColumns.Refresh(document, config.Type?.Roles);
 
         foreach (var applied in patched.Applied)
         {
@@ -602,6 +606,7 @@ public static class DocumentEndpoints
                 OldValueJson = applied.OldValueJson,
                 NewValueJson = applied.NewValueJson,
                 SourceJson = CorrectionSources.ToJson(applied.Source),
+                DocumentTypeVersionId = document.DocumentTypeVersionId,
                 By = actor,
                 At = now,
                 Reason = Clean(applied.Reason, 500),

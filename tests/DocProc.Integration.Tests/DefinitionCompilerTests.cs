@@ -487,6 +487,24 @@ public sealed class DefinitionCompilerTests
         specials.Classification!.Keywords!["de"].ShouldContain("Tagesangebot");
     }
 
+    [Fact]
+    public void A_template_version_the_seed_migration_froze_never_changes_in_place()
+    {
+        var frozen = Infrastructure.Catalogue.TypeCatalogueSeedSql.FrozenTemplates();
+
+        frozen.Select(f => f.Template.Key).ShouldBe(StandardTemplates.All.Select(t => t.Key), "every template the build ships was seeded by the migration or comes with a later one");
+        foreach (var (template, json) in frozen)
+        {
+            var live = StandardTemplates.Find(template.Key)!;
+            if (live.Version == template.Version)
+            {
+                JsonCanonicalizer.Sha256Hex(JsonNode.Parse(StandardTemplates.ReadJson(template.Key))).ShouldBe(
+                    JsonCanonicalizer.Sha256Hex(JsonNode.Parse(json)),
+                    $"{template.Key} v{template.Version} is published; a change ships as a new version (docs/11 §5.7)");
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static PublishReport Publish(string json) => DefinitionSchemaCompiler.RunPublishChecks(new PublishCheckInput { DefinitionJson = json });

@@ -1,0 +1,203 @@
+using DocProc.Application.Configuration;
+using DocProc.Definitions;
+using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Catalogue;
+using DocProc.Infrastructure.Configuration;
+using DocProc.Infrastructure.Persistence;
+using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Infrastructure.Persistence.Tenancy;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+
+namespace DocProc.Integration.Tests;
+
+/// <summary>
+/// The type catalogue on SQL Server behind row-level security (docs/11 §6.1, §6.10): every tenant reads the platform
+/// templates and none can change them; a tenant's types, their versions and their history stay private to it; the
+/// seeder, the catalogue operations and the resolver work in a tenant session; <c>LlmProviderConfigs</c> is under the
+/// same platform-row predicates now.
+/// </summary>
+[Collection(SqlServerCollection.Name)]
+public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFixture<SqlServerFixture>, IAsyncLifetime
+{
+    private static readonly Guid TenantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid TenantB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    private string _connectionString = string.Empty;
+
+    public async ValueTask InitializeAsync()
+    {
+        if (!DockerFacts.IsAvailable)
+        {
+            return;
+        }
+
+        _connectionString = sqlServer.NewDatabaseConnectionString();
+        var ct = TestContext.Current.CancellationToken;
+        await using var platform = NewContext(TenantContext.Platform());
+        await platform.Database.MigrateAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (id, slug) in new[] { (TenantA, "tenant-a"), (TenantB, "tenant-b") })
+        {
+            platform.Tenants.Add(new Tenant { Id = id, Name = slug, Slug = slug, LegalName = slug, DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
+        }
+
+        await platform.SaveChangesAsync(ct);
+
+        // Tenants created after the migration get their adopted types from the seeder (docs/11 §21 step 2).
+        (await TypeCatalogueSeeder.EnsureAllAsync(platform, now, ct)).ShouldBe(14);
+        (await TypeCatalogueSeeder.EnsureAllAsync(platform, now, ct)).ShouldBe(0, "the seeder only adds what is missing");
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    [Fact]
+    public async Task Every_tenant_reads_the_templates_and_only_platform_scope_changes_them()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        var template = TypeCatalogueRows.PlatformDefinitionId("std.invoice");
+
+        foreach (var tenant in new[] { TenantA, TenantB })
+        {
+            await using var asTenant = NewContext(TenantContext.ForTenant(tenant));
+            (await asTenant.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == null, ct)).ShouldBe(StandardTemplates.All.Count);
+            (await asTenant.DocumentTypeVersions.IgnoreQueryFilters().CountAsync(v => v.TenantId == null, ct)).ShouldBe(StandardTemplates.All.Count);
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var row = await asA.DocumentTypeDefinitions.SingleAsync(d => d.Id == template, ct);
+            row.Description = "changed by a tenant";
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            await Should.ThrowAsync<SqlException>(() => asA.Database.ExecuteSqlAsync($"UPDATE dbo.DocumentTypeVersions SET ChangeNote = N'x' WHERE TenantId IS NULL", ct));
+            await Should.ThrowAsync<SqlException>(() => asA.Database.ExecuteSqlAsync($"DELETE FROM dbo.DocumentTypeVersions WHERE TenantId IS NULL", ct));
+            asA.DocumentTypeDefinitions.Add(new DocumentTypeDefinition { Id = Guid.NewGuid(), TenantId = null, Key = "std.forged", Origin = DefinitionOrigin.Platform, CreatedBy = "a", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            var row = await platform.DocumentTypeDefinitions.SingleAsync(d => d.Id == template, ct);
+            row.Description.ShouldBe(StandardTemplates.Find("std.invoice")!.Description);
+            row.Description = "changed by the platform";
+            await platform.SaveChangesAsync(ct);
+        }
+    }
+
+    [Fact]
+    public async Task A_tenants_types_and_their_history_are_its_own()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            // A change on tenant A's adopted version leaves a history row behind.
+            var version = await platform.DocumentTypeVersions.SingleAsync(v => v.TenantId == TenantA && v.Definition!.Key == "Invoice", ct);
+            version.ChangeNote = "history";
+            await platform.SaveChangesAsync(ct);
+        }
+
+        await using var asB = NewContext(TenantContext.ForTenant(TenantB));
+        (await asB.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == TenantA, ct)).ShouldBe(0);
+        (await asB.DocumentTypeVersions.IgnoreQueryFilters().CountAsync(v => v.TenantId == TenantA, ct)).ShouldBe(0);
+        (await asB.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentTypeVersions FOR SYSTEM_TIME ALL WHERE TenantId = {TenantA}").SingleAsync(ct)).ShouldBe(0);
+        (await asB.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentTypeVersionsHistory WHERE TenantId = {TenantA}").SingleAsync(ct)).ShouldBe(0);
+
+        await using var asA = NewContext(TenantContext.ForTenant(TenantA));
+        (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentTypeVersionsHistory WHERE TenantId = {TenantA}").SingleAsync(ct)).ShouldBe(1);
+        (await asA.DocumentTypeDefinitions.CountAsync(d => d.TenantId == TenantA, ct)).ShouldBe(7);
+
+        // A tenant cannot move its type to another tenant.
+        var own = await asA.DocumentTypeDefinitions.SingleAsync(d => d.TenantId == TenantA && d.Key == "Other", ct);
+        own.TenantId = TenantB;
+        await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+    }
+
+    [Fact]
+    public async Task The_catalogue_adopts_forks_and_publishes_in_a_tenant_session_and_the_resolver_follows()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            (await platform.Tenants.SingleAsync(t => t.Id == TenantA, ct)).Settings.Features!.ConfigurableTypes = true;
+            await platform.SaveChangesAsync(ct);
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var catalogue = new DocumentTypeCatalogue(asA, TimeProvider.System);
+            (await catalogue.AdoptAsync(TenantA, "std.price-list", null, "admin-a", ct)).Status.ShouldBe(CatalogueStatus.Created);
+
+            var fork = await catalogue.CopyAsync(TenantA, "std.credit-note", null, "admin-a", ct);
+            fork.Status.ShouldBe(CatalogueStatus.Ok);
+            var draft = fork.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
+            var edited = DefinitionSerializer.Parse(draft.DefinitionJson);
+            edited = edited with { Fields = [.. edited.Fields, new FieldDefinition { Id = "fld_c_scr", Key = "supplierCustomerRef", Kind = FieldKinds.Identifier, Indexed = true }] };
+            (await catalogue.SaveDraftAsync(TenantA, "CreditNote", draft.Version, DefinitionSerializer.Write(edited), draft.Revision, "admin-a", ct)).Status.ShouldBe(CatalogueStatus.Ok);
+            var published = await catalogue.PublishAsync(TenantA, "CreditNote", draft.Version, ifMatch: null, "custom field", "admin-a", ct);
+            published.Status.ShouldBe(CatalogueStatus.Ok, string.Join("; ", published.Problems ?? []));
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var resolver = new CatalogueConfigResolver(asA, new EfTenantFeatures(asA), new PublishedDefinitionCache());
+            var credit = (await resolver.ResolveAsync(new EffectiveConfigRequest(TenantA, DocumentTypeKey.CreditNote), ct)).Type!;
+            credit.Version.ShouldBe(2);
+            credit.Origin.ShouldBe(DefinitionOrigin.Copied);
+            var list = (await resolver.ResolveAsync(new EffectiveConfigRequest(TenantA, DocumentTypeKey.Parse("price-list")), ct)).Type!;
+            list.TemplateKey.ShouldBe("std.price-list");
+            var invoice = (await resolver.ResolveAsync(new EffectiveConfigRequest(TenantA, DocumentTypeKey.Invoice), ct)).Type!;
+            invoice.Origin.ShouldBe(DefinitionOrigin.Adopted);
+            invoice.VersionId.ShouldNotBeNull();
+        }
+
+        // Tenant B neither sees nor publishes tenant A's types, and its own credit note is still the adopted one.
+        await using (var asB = NewContext(TenantContext.ForTenant(TenantB)))
+        {
+            var catalogue = new DocumentTypeCatalogue(asB, TimeProvider.System);
+            (await catalogue.FindAsync(TenantA, "price-list", ct)).ShouldBeNull();
+            (await catalogue.PublishAsync(TenantA, "CreditNote", 2, null, null, "admin-b", ct)).Status.ShouldBe(CatalogueStatus.NotFound);
+            var resolver = new CatalogueConfigResolver(asB, new EfTenantFeatures(asB), new PublishedDefinitionCache());
+            (await resolver.ResolveAsync(new EffectiveConfigRequest(TenantB, DocumentTypeKey.CreditNote), ct)).Type!.Origin.ShouldBe(DefinitionOrigin.Adopted);
+            (await resolver.ResolveAsync(new EffectiveConfigRequest(TenantA, DocumentTypeKey.CreditNote), ct)).Type!.VersionId.ShouldBeNull("B's session cannot read A's catalogue: the embedded fallback answers");
+        }
+    }
+
+    [Fact]
+    public async Task Platform_llm_provider_configurations_are_read_only_to_tenants()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        var platformConfig = new LlmProviderConfigRecord { Id = Guid.NewGuid(), Scope = Llm.Providers.ConfigScope.Platform, TenantId = null, Kind = Llm.LlmProviderKind.Anthropic, UpdatedAt = DateTimeOffset.UtcNow };
+        var tenantConfig = new LlmProviderConfigRecord { Id = Guid.NewGuid(), Scope = Llm.Providers.ConfigScope.Tenant, TenantId = TenantA, Kind = Llm.LlmProviderKind.OpenAi, UpdatedAt = DateTimeOffset.UtcNow };
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            platform.LlmProviderConfigs.AddRange(platformConfig, tenantConfig);
+            await platform.SaveChangesAsync(ct);
+        }
+
+        await using (var asB = NewContext(TenantContext.ForTenant(TenantB)))
+        {
+            (await asB.LlmProviderConfigs.IgnoreQueryFilters().Select(c => c.Id).ToListAsync(ct)).ShouldBe([platformConfig.Id]);
+            await Should.ThrowAsync<SqlException>(() => asB.Database.ExecuteSqlAsync($"UPDATE dbo.LlmProviderConfigs SET MaxConcurrency = 1 WHERE Id = {platformConfig.Id}", ct));
+        }
+
+        await using var asA = NewContext(TenantContext.ForTenant(TenantA));
+        (await asA.LlmProviderConfigs.IgnoreQueryFilters().CountAsync(ct)).ShouldBe(2);
+        var own = await asA.LlmProviderConfigs.SingleAsync(c => c.Id == tenantConfig.Id, ct);
+        own.MaxConcurrency = 2;
+        await asA.SaveChangesAsync(ct);
+    }
+
+    private DocProcDbContext NewContext(ITenantContext tenant)
+    {
+        var options = PersistenceOptions.ConfigureSqlServer(new DbContextOptionsBuilder<DocProcDbContext>(), _connectionString, tenant: tenant);
+        return new DocProcDbContext(options.Options, tenant);
+    }
+}

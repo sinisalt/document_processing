@@ -103,6 +103,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             });
             services.AddSingleton<ISystemDbContextFactory>(new InMemorySqliteDbContextFactory(_connection));
             services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
+            // As the persistence registration does: feature switches and the type catalogue with its resolver.
+            services.AddScoped<DocProc.Application.Configuration.ITenantFeatures, DocProc.Infrastructure.Configuration.EfTenantFeatures>();
+            services.AddDocProcTypeCatalogue();
             services.RemoveAll<IPipelineQueue>();
             services.AddSingleton<IPipelineQueue>(Queue);
 

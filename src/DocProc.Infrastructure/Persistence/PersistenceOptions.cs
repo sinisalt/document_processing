@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Application.Configuration;
 using DocProc.Application.Security;
 using DocProc.Infrastructure.Configuration;
@@ -67,6 +68,7 @@ public static class PersistenceOptions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
         services.AddScoped<ITenantFeatures, EfTenantFeatures>();
+        services.AddDocProcTypeCatalogue();
         return services;
     }
 
@@ -94,6 +96,7 @@ public static class PersistenceOptions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
         services.AddScoped<ITenantFeatures, EfTenantFeatures>();
+        services.AddDocProcTypeCatalogue();
         services.AddHostedService<SqliteSchemaHostedService>();
         return services;
     }
@@ -184,5 +187,17 @@ public static class PersistenceHostExtensions
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// The type catalogue (docs/11 §6.1): its operations and the <see cref="IEffectiveConfigResolver"/> that resolves a
+    /// document's type against it. Registered with persistence, so a host without a database keeps the P0 resolver.
+    /// </summary>
+    public static IServiceCollection AddDocProcTypeCatalogue(this IServiceCollection services)
+    {
+        services.TryAddSingleton<PublishedDefinitionCache>();
+        services.AddScoped<IEffectiveConfigResolver, CatalogueConfigResolver>();
+        services.AddScoped<DocumentTypeCatalogue>();
+        return services;
     }
 }

@@ -1,0 +1,466 @@
+using DocProc.Application.Configuration;
+using DocProc.Definitions;
+using DocProc.Definitions.Compilation;
+using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Persistence;
+using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Llm.Schema;
+using Microsoft.EntityFrameworkCore;
+
+namespace DocProc.Infrastructure.Catalogue;
+
+/// <summary>How a catalogue operation ended; the API maps each to a status code.</summary>
+public enum CatalogueStatus
+{
+    Ok,
+    Created,
+    NotFound,
+
+    /// <summary>The request does not fit the current state (a key in use, a version that is not a draft, ...).</summary>
+    Conflict,
+
+    /// <summary>The definition breaks the meta-schema or the save rules; <see cref="CatalogueResult{T}.Problems"/> says where.</summary>
+    Invalid,
+
+    /// <summary>The draft changed since the caller read it (If-Match).</summary>
+    PreconditionFailed,
+
+    /// <summary>The publish checks refused the version; the report says why.</summary>
+    Blocked,
+}
+
+public sealed record CatalogueResult<T>(CatalogueStatus Status, T? Value, string? Detail = null, IReadOnlyList<DefinitionProblem>? Problems = null, PublishReport? Report = null)
+{
+    public static CatalogueResult<T> Ok(T value) => new(CatalogueStatus.Ok, value);
+
+    public static CatalogueResult<T> Created(T value) => new(CatalogueStatus.Created, value);
+
+    public static CatalogueResult<T> Fail(CatalogueStatus status, string detail, IReadOnlyList<DefinitionProblem>? problems = null) => new(status, default, detail, problems);
+}
+
+/// <summary>A type with its versions, as the catalogue operations return it.</summary>
+public sealed record CatalogueType(DocumentTypeDefinition Definition, string? BaseTemplate, IReadOnlyList<DocumentTypeVersion> Versions);
+
+/// <summary>
+/// The type catalogue of one tenant (docs/11 §5.1, §5.7, §18): adopting a platform template, copying (forking) it,
+/// creating a type of the tenant's own, editing a draft version and publishing it after the publish-time checks.
+/// <list type="bullet">
+/// <item><description><b>Adopt</b> creates a type that follows the template, published at once (version 1).</description></item>
+/// <item><description><b>Copy</b> creates a draft copy of the template under a key of the tenant's choice, or, for a type the
+/// tenant has adopted under that key (<c>Invoice</c>), forks it in place: the type becomes a copy and gets the next
+/// version as a draft.</description></item>
+/// <item><description><b>New</b> creates a draft version 1 of a type with no template, or based on <c>std.generic</c>.</description></item>
+/// <item><description>A type has at most one draft. Saving a draft checks the meta-schema and that key, version and base
+/// stay what the catalogue says; everything else is checked when the draft is validated or published.</description></item>
+/// <item><description><b>Publish</b> runs <see cref="PublishChecks"/> against the published version, with its indexed fields
+/// as dependents; the published version becomes deprecated (documents pinned to it keep it) and the draft becomes the
+/// published version with its compiled artifacts.</description></item>
+/// </list>
+/// The feature switches are the caller's to check (the API refuses writes without <c>configurableTypes</c>).
+/// </summary>
+public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider clock)
+{
+    /// <summary>The template a new type may start from (docs/11 §5.1 "start it from std.generic").</summary>
+    public const string GenericTemplate = "std.generic";
+
+    public async Task<IReadOnlyList<CatalogueType>> ListAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var definitions = await db.DocumentTypeDefinitions.AsNoTracking()
+            .Where(d => d.TenantId == tenantId)
+            .Include(d => d.BaseDefinition)
+            .Include(d => d.Versions)
+            .OrderBy(d => d.Key)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. definitions.Select(ToType)];
+    }
+
+    public async Task<CatalogueType?> FindAsync(Guid tenantId, string key, CancellationToken cancellationToken)
+    {
+        var definition = await Load(tenantId, key, tracked: false, cancellationToken).ConfigureAwait(false);
+        return definition is null ? null : ToType(definition);
+    }
+
+    public async Task<CatalogueResult<CatalogueType>> AdoptAsync(Guid tenantId, string templateKey, string? key, string actor, CancellationToken cancellationToken)
+    {
+        if (StandardTemplates.Find(templateKey) is not { } template)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.NotFound, $"There is no platform template '{templateKey}'.");
+        }
+
+        key ??= DefaultKey(template);
+        if (KeyProblem(key) is { } problem)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, problem, [new DefinitionProblem("key", problem)]);
+        }
+
+        if (await Load(tenantId, key, tracked: false, cancellationToken).ConfigureAwait(false) is { } existing)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"The tenant already has a type '{key}' ({existing.Origin}).");
+        }
+
+        var now = clock.GetUtcNow();
+        await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        var compiled = TypeCatalogueRows.Compile(TypeCatalogueRows.Adopted(template, key));
+        var definition = NewDefinition(tenantId, key, DefinitionOrigin.Adopted, template, now, actor);
+        definition.PublishedVersion = 1;
+        definition.Versions.Add(TypeCatalogueRows.PublishedVersion(Guid.CreateVersion7(), definition.Id, tenantId, compiled, now, actor, $"Adopted {template.Key} v{template.Version}"));
+        db.DocumentTypeDefinitions.Add(definition);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<CatalogueType>.Created(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<CatalogueResult<CatalogueType>> CopyAsync(Guid tenantId, string templateKey, string? key, string actor, CancellationToken cancellationToken)
+    {
+        if (StandardTemplates.Find(templateKey) is not { } template)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.NotFound, $"There is no platform template '{templateKey}'.");
+        }
+
+        key ??= DefaultKey(template);
+        if (KeyProblem(key) is { } problem)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, problem, [new DefinitionProblem("key", problem)]);
+        }
+
+        var now = clock.GetUtcNow();
+        var existing = await Load(tenantId, key, tracked: true, cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            // Fork in place (docs/11 §5.1: "the type keeps its key, so Invoice can be forked in place"): only a type
+            // that follows this very template can become its copy.
+            if (existing.Origin != DefinitionOrigin.Adopted || existing.BaseDefinition?.Key != template.Key)
+            {
+                return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"The tenant already has a type '{key}' ({existing.Origin}{(existing.BaseDefinition is { } b ? $" of {b.Key}" : string.Empty)}); only an adopted {template.Key} can be copied in place.");
+            }
+
+            if (existing.Versions.Any(v => v.State == DocumentTypeVersionState.Draft))
+            {
+                return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"Type '{key}' already has a draft.");
+            }
+
+            var next = existing.Versions.Max(v => v.Version) + 1;
+            existing.Origin = DefinitionOrigin.Copied;
+            existing.BaseVersion = template.Version;
+            existing.UpdatedAt = now;
+            var fork = Draft(existing, TypeCatalogueRows.Copied(template, key, next), now, actor, $"Copied from {template.Key} v{template.Version}");
+            db.DocumentTypeVersions.Add(fork);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return CatalogueResult<CatalogueType>.Ok(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
+        }
+
+        await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        var definition = NewDefinition(tenantId, key, DefinitionOrigin.Copied, template, now, actor);
+        definition.Versions.Add(Draft(definition, TypeCatalogueRows.Copied(template, key), now, actor, $"Copied from {template.Key} v{template.Version}"));
+        db.DocumentTypeDefinitions.Add(definition);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<CatalogueType>.Created(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>A type of the tenant's own from <paramref name="definitionJson"/>, as draft version 1.</summary>
+    public async Task<CatalogueResult<CatalogueType>> CreateAsync(Guid tenantId, string definitionJson, string actor, CancellationToken cancellationToken)
+    {
+        var parsed = ParseDraft(definitionJson);
+        if (parsed.Problems is { Count: > 0 } problems)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, "The definition is not valid.", problems);
+        }
+
+        var definition = parsed.Definition!;
+        if (KeyProblem(definition.Key) is { } keyProblem)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, keyProblem, [new DefinitionProblem("key", keyProblem)]);
+        }
+
+        if (definition.Version != 1)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, "A new type starts at version 1.", [new DefinitionProblem("version", "must be 1 for a new type.")]);
+        }
+
+        if (definition.Base is { } baseRef && (baseRef.Template != GenericTemplate || baseRef.Mode != "copy" || StandardTemplates.Find(GenericTemplate)?.Version != baseRef.Version))
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, $"A new type has no base, or starts from {GenericTemplate} in copy mode; copy another template instead.", [new DefinitionProblem("base", "only std.generic (copy) is allowed for a new type.")]);
+        }
+
+        if (await Load(tenantId, definition.Key, tracked: false, cancellationToken).ConfigureAwait(false) is { } existing)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"The tenant already has a type '{definition.Key}' ({existing.Origin}).");
+        }
+
+        var now = clock.GetUtcNow();
+        if (definition.Base is not null)
+        {
+            await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        }
+
+        var row = NewDefinition(tenantId, definition.Key, DefinitionOrigin.Custom, definition.Base is null ? null : StandardTemplates.Find(GenericTemplate), now, actor);
+        row.Name = new Dictionary<string, string>(definition.Name, StringComparer.Ordinal);
+        row.Description = definition.Description;
+        row.Versions.Add(Draft(row, definition, now, actor, changeNote: null));
+        db.DocumentTypeDefinitions.Add(row);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<CatalogueType>.Created(await ReloadAsync(tenantId, definition.Key, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>The next version of a copied or custom type as a draft, starting from the published version.</summary>
+    public async Task<CatalogueResult<DocumentTypeVersion>> CreateDraftAsync(Guid tenantId, string key, string actor, CancellationToken cancellationToken)
+    {
+        var definition = await Load(tenantId, key, tracked: true, cancellationToken).ConfigureAwait(false);
+        if (definition is null)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.NotFound, $"The tenant has no type '{key}'.");
+        }
+
+        if (definition.Origin == DefinitionOrigin.Adopted)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Conflict, $"Type '{key}' follows {definition.BaseDefinition?.Key}; copy it first (POST /document-types with from: {{ template, mode: \"copy\" }}) to edit it.");
+        }
+
+        if (definition.Versions.FirstOrDefault(v => v.State == DocumentTypeVersionState.Draft) is { } open)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Conflict, $"Type '{key}' already has a draft, version {open.Version}.");
+        }
+
+        var published = definition.Versions.SingleOrDefault(v => v.Version == definition.PublishedVersion);
+        var source = published ?? definition.Versions.OrderByDescending(v => v.Version).First();
+        var next = definition.Versions.Max(v => v.Version) + 1;
+        var draft = Draft(definition, DefinitionSerializer.Parse(source.DefinitionJson) with { Version = next }, clock.GetUtcNow(), actor, changeNote: null);
+        db.DocumentTypeVersions.Add(draft);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<DocumentTypeVersion>.Created(draft);
+    }
+
+    /// <summary>Replaces the draft <paramref name="version"/> with <paramref name="definitionJson"/>; <paramref name="ifMatch"/> is the revision the caller read.</summary>
+    public async Task<CatalogueResult<DocumentTypeVersion>> SaveDraftAsync(Guid tenantId, string key, int version, string definitionJson, int ifMatch, string actor, CancellationToken cancellationToken)
+    {
+        var definition = await Load(tenantId, key, tracked: true, cancellationToken).ConfigureAwait(false);
+        var draft = definition?.Versions.SingleOrDefault(v => v.Version == version);
+        if (definition is null || draft is null)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.NotFound, $"Type '{key}' has no version {version}.");
+        }
+
+        if (draft.State != DocumentTypeVersionState.Draft)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Conflict, $"Version {version} of '{key}' is {draft.State} and cannot change; create a new draft version.");
+        }
+
+        if (draft.Revision != ifMatch)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.PreconditionFailed, $"The draft is at revision {draft.Revision}, not {ifMatch}; reload it and apply the change again.");
+        }
+
+        var parsed = ParseDraft(definitionJson);
+        if (parsed.Problems is { Count: > 0 } problems)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Invalid, "The definition is not valid.", problems);
+        }
+
+        var candidate = parsed.Definition!;
+        var mismatches = new List<DefinitionProblem>();
+        if (candidate.Key != definition.Key)
+        {
+            mismatches.Add(new("key", $"is '{candidate.Key}', but this is type '{definition.Key}'; a type's key does not change."));
+        }
+
+        if (candidate.Version != version)
+        {
+            mismatches.Add(new("version", $"is {candidate.Version}, but this is draft version {version}."));
+        }
+
+        var stored = DefinitionSerializer.Parse(draft.DefinitionJson).Base;
+        if (candidate.Base != stored)
+        {
+            mismatches.Add(new("base", $"must stay {(stored is null ? "absent" : $"{stored.Template} v{stored.Version} ({stored.Mode})")}; a template upgrade is its own action."));
+        }
+
+        if (mismatches.Count > 0)
+        {
+            return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Invalid, "The definition does not fit this draft.", mismatches);
+        }
+
+        draft.DefinitionJson = DefinitionSerializer.Write(candidate);
+        draft.Revision++;
+        draft.UpdatedAt = clock.GetUtcNow();
+        definition.UpdatedAt = draft.UpdatedAt;
+        _ = actor;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<DocumentTypeVersion>.Ok(draft);
+    }
+
+    /// <summary>The publish checks of <paramref name="version"/> without publishing (<c>:validate</c>).</summary>
+    public async Task<CatalogueResult<PublishReport>> ValidateAsync(Guid tenantId, string key, int version, CancellationToken cancellationToken)
+    {
+        var definition = await Load(tenantId, key, tracked: false, cancellationToken).ConfigureAwait(false);
+        var candidate = definition?.Versions.SingleOrDefault(v => v.Version == version);
+        if (definition is null || candidate is null)
+        {
+            return CatalogueResult<PublishReport>.Fail(CatalogueStatus.NotFound, $"Type '{key}' has no version {version}.");
+        }
+
+        return CatalogueResult<PublishReport>.Ok(Check(definition, candidate));
+    }
+
+    /// <summary>Publishes the draft <paramref name="version"/> when the publish checks pass.</summary>
+    public async Task<CatalogueResult<CatalogueType>> PublishAsync(Guid tenantId, string key, int version, int? ifMatch, string? changeNote, string actor, CancellationToken cancellationToken)
+    {
+        var definition = await Load(tenantId, key, tracked: true, cancellationToken).ConfigureAwait(false);
+        var draft = definition?.Versions.SingleOrDefault(v => v.Version == version);
+        if (definition is null || draft is null)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.NotFound, $"Type '{key}' has no version {version}.");
+        }
+
+        if (draft.State != DocumentTypeVersionState.Draft)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"Version {version} of '{key}' is {draft.State}; only a draft is published.");
+        }
+
+        if (ifMatch is { } expected && draft.Revision != expected)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.PreconditionFailed, $"The draft is at revision {draft.Revision}, not {expected}; reload it and publish again.");
+        }
+
+        var report = Check(definition, draft);
+        if (!report.CanPublish)
+        {
+            return new CatalogueResult<CatalogueType>(CatalogueStatus.Blocked, null, $"Version {version} of '{key}' cannot be published.", report.Problems, report);
+        }
+
+        var compiled = report.Compiled!;
+        var now = clock.GetUtcNow();
+        foreach (var previous in definition.Versions.Where(v => v.State == DocumentTypeVersionState.Published))
+        {
+            previous.State = DocumentTypeVersionState.Deprecated;
+            previous.UpdatedAt = now;
+        }
+
+        draft.DefinitionJson = compiled.DefinitionJson;
+        draft.CompiledJsonSchema = compiled.JsonSchemaJson;
+        draft.CompiledLlmSchema = compiled.LlmSchema.Json;
+        draft.LlmSchemaName = compiled.LlmSchema.Name;
+        draft.LlmSchemaVersion = compiled.LlmSchema.Version;
+        draft.LlmSchemaHash = compiled.LlmSchema.Hash;
+        draft.FormSpecJson = compiled.FormSpecJson;
+        draft.DescriptorsJson = compiled.Descriptors.ToJson();
+        draft.ContentHash = compiled.ContentHash;
+        draft.State = DocumentTypeVersionState.Published;
+        draft.PublishedAt = now;
+        draft.PublishedBy = actor;
+        draft.ChangeNote = changeNote ?? draft.ChangeNote;
+        draft.UpdatedAt = now;
+        definition.PublishedVersion = version;
+        definition.Name = new Dictionary<string, string>(compiled.Definition.Name, StringComparer.Ordinal);
+        definition.Description = compiled.Definition.Description;
+        definition.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return new CatalogueResult<CatalogueType>(CatalogueStatus.Ok, await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false), Report: report);
+    }
+
+    private static PublishReport Check(DocumentTypeDefinition definition, DocumentTypeVersion candidate)
+    {
+        var published = definition.Versions.SingleOrDefault(v => v.Version == definition.PublishedVersion && v.Id != candidate.Id);
+        var publishedDefinition = published is null ? null : DefinitionSerializer.Parse(published.DefinitionJson);
+        var report = DefinitionSchemaCompiler.RunPublishChecks(new PublishCheckInput
+        {
+            DefinitionJson = candidate.DefinitionJson,
+            Published = publishedDefinition,
+            // The dependents P1 knows: the published version's indexed fields, whose index rows documents carry.
+            // Supplier layouts (P4), output mappings and bindings (P3) join here as they arrive.
+            Dependents = publishedDefinition is null ? [] : [.. PublishChecks.IndexedKeys(publishedDefinition)],
+        });
+        if (report.Definition is { } parsed && parsed.Key != definition.Key)
+        {
+            return report with { Problems = [.. report.Problems, new DefinitionProblem("key", $"is '{parsed.Key}', but this is type '{definition.Key}'.")], Compiled = null };
+        }
+
+        return report;
+    }
+
+    private static (TypeDefinition? Definition, IReadOnlyList<DefinitionProblem>? Problems) ParseDraft(string json)
+    {
+        var problems = DefinitionMetaSchema.Validate(json);
+        if (problems.Count > 0)
+        {
+            return (null, problems);
+        }
+
+        try
+        {
+            return (DefinitionSerializer.Parse(json), null);
+        }
+        catch (DefinitionFormatException e)
+        {
+            return (null, [new DefinitionProblem("(root)", e.Message)]);
+        }
+    }
+
+    /// <summary>Why <paramref name="key"/> cannot be a tenant's type key, or null.</summary>
+    public static string? KeyProblem(string key)
+    {
+        if (!DocumentTypeKey.IsValid(key))
+        {
+            return $"'{key}' is not a valid type key (a letter, then letters, digits, '_', '.' or '-', at most {DocumentTypeKey.MaxLength}).";
+        }
+
+        if (string.Equals(key, WellKnownTypeKeys.Unknown, StringComparison.OrdinalIgnoreCase))
+        {
+            return "'Unknown' is reserved for documents whose type is not decided.";
+        }
+
+        if (key.StartsWith("std.", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Keys starting with 'std.' are the platform templates'.";
+        }
+
+        return null;
+    }
+
+    /// <summary>The key a template is adopted or copied under when the caller names none: its legacy key, or its id without <c>std.</c>.</summary>
+    public static string DefaultKey(TypeDefinition template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        return template.LegacyKey ?? (template.Key.StartsWith("std.", StringComparison.Ordinal) ? template.Key[4..] : template.Key);
+    }
+
+    private static DocumentTypeDefinition NewDefinition(Guid tenantId, string key, DefinitionOrigin origin, TypeDefinition? template, DateTimeOffset now, string actor) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        TenantId = tenantId,
+        Key = key,
+        Name = template is null ? [] : new Dictionary<string, string>(template.Name, StringComparer.Ordinal),
+        Description = template?.Description,
+        Origin = origin,
+        BaseDefinitionId = template is null ? null : TypeCatalogueRows.PlatformDefinitionId(template.Key),
+        BaseVersion = template?.Version,
+        Status = DocumentTypeStatus.Active,
+        CreatedAt = now,
+        CreatedBy = actor,
+        UpdatedAt = now,
+    };
+
+    private static DocumentTypeVersion Draft(DocumentTypeDefinition definition, TypeDefinition content, DateTimeOffset now, string actor, string? changeNote) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        DefinitionId = definition.Id,
+        TenantId = definition.TenantId,
+        Version = content.Version,
+        DefinitionJson = DefinitionSerializer.Write(content),
+        State = DocumentTypeVersionState.Draft,
+        CreatedAt = now,
+        CreatedBy = actor,
+        UpdatedAt = now,
+        ChangeNote = changeNote,
+    };
+
+    private Task<DocumentTypeDefinition?> Load(Guid tenantId, string key, bool tracked, CancellationToken cancellationToken)
+    {
+        var query = db.DocumentTypeDefinitions.Where(d => d.TenantId == tenantId && d.Key == key).Include(d => d.BaseDefinition).Include(d => d.Versions);
+        return (tracked ? query : query.AsNoTracking()).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<CatalogueType> ReloadAsync(Guid tenantId, string key, CancellationToken cancellationToken) =>
+        ToType((await Load(tenantId, key, tracked: false, cancellationToken).ConfigureAwait(false))!);
+
+    private static CatalogueType ToType(DocumentTypeDefinition definition) =>
+        new(definition, definition.BaseDefinition?.Key, [.. definition.Versions.OrderBy(v => v.Version)]);
+}

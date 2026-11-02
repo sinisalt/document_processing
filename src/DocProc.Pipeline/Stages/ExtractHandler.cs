@@ -1,4 +1,5 @@
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -25,6 +26,7 @@ internal sealed class ExtractHandler(
     DocumentFlagWriter flags,
     PipelineBlobs blobs,
     IEnumerable<IDocumentExtractor> extractors,
+    IEffectiveConfigResolver configResolver,
     ILogger<ExtractHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
@@ -38,6 +40,11 @@ internal sealed class ExtractHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
+        // The document is processed with one type version from here on (docs/11 §5.7): the version it is pinned to
+        // (a retry, a reprocess of the same type), or the tenant's published version of its type, which it now pins.
+        var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
+        document.DocumentTypeVersionId = config.Type?.VersionId;
+
         if (!document.Type.IsInvoiceFamily)
         {
             // A reprocess may have reclassified an extracted invoice: its data describes a type the document no
@@ -74,7 +81,7 @@ internal sealed class ExtractHandler(
                 : $"every extraction path gave up: {string.Join(", ", tried)}");
         }
 
-        Apply(document, outcome.Document);
+        Apply(document, outcome.Document, config.Type?.Roles);
         document.ExtractionMethod = outcome.Method;
         AddCost(document.Costs, outcome.Cost);
         flags.Replace(document, OwnedFlags, outcome.Flags);
@@ -93,12 +100,15 @@ internal sealed class ExtractHandler(
         return StageOutcome.Advanced;
     }
 
-    /// <summary>Stores the outcome's canonical tree and rewrites the list columns from it through the one role projector.</summary>
-    private static void Apply(Document document, ExtractedDocument extracted)
+    /// <summary>
+    /// Stores the outcome's canonical tree and rewrites the list columns from it through the one role projector, under
+    /// the role bindings of the resolved type definition.
+    /// </summary>
+    private static void Apply(Document document, ExtractedDocument extracted, Application.Documents.RoleBindings? roles)
     {
         document.CanonicalJson = extracted.ToJson();
         document.CanonicalSchemaVersion = CanonicalDocumentSerializer.SchemaVersion;
-        DocumentRoleColumns.Refresh(document);
+        DocumentRoleColumns.Refresh(document, roles);
     }
 
     private static void ClearExtraction(Document document)

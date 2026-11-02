@@ -10,9 +10,10 @@ namespace DocProc.Application.Configuration;
 /// the supplier's and its group's settings and the identified layout. Stages ask this seam instead of reading
 /// tables and switches of their own, so a later phase changes what it returns, not who asks.
 /// <para>
-/// P0's implementation is <see cref="StandardTemplateConfigResolver"/>: every tenant has adopted the standard
-/// templates under the legacy keys, so a document's type definition is the platform template of its
-/// <see cref="DocumentTypeKey"/>, and there is no supplier configuration yet.
+/// With a database the implementation is the type catalogue's (<c>CatalogueConfigResolver</c>, P1): the tenant's
+/// published version of the type, or the version the document is pinned to. Without a catalogue row (a host without
+/// a database, a tenant whose rows are not seeded yet) it answers like P0's <see cref="StandardTemplateConfigResolver"/>:
+/// every tenant has adopted the standard templates under the legacy keys. There is no supplier configuration yet.
 /// </para>
 /// </summary>
 public interface IEffectiveConfigResolver
@@ -20,8 +21,12 @@ public interface IEffectiveConfigResolver
     ValueTask<EffectiveConfig> ResolveAsync(EffectiveConfigRequest request, CancellationToken cancellationToken = default);
 }
 
-/// <summary>What the configuration is resolved for: the tenant, the document's type and, once known, its supplier.</summary>
-public sealed record EffectiveConfigRequest(Guid TenantId, DocumentTypeKey Type, Guid? SupplierId = null);
+/// <summary>
+/// What the configuration is resolved for: the tenant, the document's type, once known its supplier, and the type
+/// version the document is pinned to (<c>Documents.DocumentTypeVersionId</c>, docs/11 §5.7), which wins over the
+/// current published version as long as it is a version of the same type.
+/// </summary>
+public sealed record EffectiveConfigRequest(Guid TenantId, DocumentTypeKey Type, Guid? SupplierId = null, Guid? PinnedVersionId = null);
 
 /// <summary>
 /// The resolved configuration of a document. <see cref="Type"/> is null when the type has no definition
@@ -51,7 +56,7 @@ public enum DefinitionOrigin
 /// </summary>
 public sealed record EffectiveType
 {
-    public EffectiveType(string typeKey, TypeDefinition definition, DefinitionOrigin origin, string templateKey, int templateVersion)
+    public EffectiveType(string typeKey, TypeDefinition definition, DefinitionOrigin origin, string templateKey, int templateVersion, Guid? versionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeKey);
         ArgumentNullException.ThrowIfNull(definition);
@@ -61,6 +66,7 @@ public sealed record EffectiveType
         Origin = origin;
         TemplateKey = templateKey;
         TemplateVersion = templateVersion;
+        VersionId = versionId;
         Rules = definition.ToRuleReferences();
         Roles = new RoleBindings(definition.Roles.DocumentNumber, definition.Roles.DocumentDate, definition.Roles.Currency, definition.Roles.Total);
     }
@@ -76,6 +82,12 @@ public sealed record EffectiveType
     public string TemplateKey { get; }
 
     public int TemplateVersion { get; }
+
+    /// <summary>The catalogue row of the version (<c>DocumentTypeVersions.Id</c>) a document pins; null when it came from the embedded templates.</summary>
+    public Guid? VersionId { get; }
+
+    /// <summary>The version of the tenant's type (<c>definition.version</c>).</summary>
+    public int Version => Definition.Version;
 
     /// <summary>The definition's rule list, in order. Empty means the type is not validated and always goes to review.</summary>
     public IReadOnlyList<RuleReference> Rules { get; }

@@ -118,7 +118,7 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
         me.Roles.ShouldBe([Roles.TenantAdmin]);
         me.TenantId.ShouldBe(DevUsers.TenantA);
         me.Scope.ShouldBe("tenant");
-        me.Permissions.ShouldBe([Policies.TenantAdmin, Policies.Review, Policies.Ingest, Policies.Read], ignoreOrder: true);
+        me.Permissions.ShouldBe([Policies.TenantAdmin, Policies.ConfigAdmin, Policies.Review, Policies.Ingest, Policies.Read], ignoreOrder: true);
     }
 
     [Fact]

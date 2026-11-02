@@ -15,10 +15,25 @@ public sealed record TenantIdentity(Guid Id, string Name, string Slug, string Le
     internal static TenantIdentity From(Tenant t) => new(t.Id, t.Name, t.Slug, t.LegalName, t.VatId, t.DefaultCurrency, t.CountryCode, t.TimeZone);
 }
 
-/// <summary>Review policy and retention (docs/02 §1 "settings"); the body of PUT and the <c>settings</c> part of GET.</summary>
-public sealed record TenantSettingsDto(double AutoApproveConfidenceThreshold, IReadOnlyList<Guid> AlwaysReviewSupplierIds, int RetentionYears, bool ShareExtractorProfiles)
+/// <summary>
+/// The per-tenant switches of docs/11 §3 (principle 6), all off by default. <c>configurableTypes</c> opens the type
+/// catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; <c>customTypes</c> also allows types
+/// of the tenant's own; the others belong to later phases and change nothing yet.
+/// </summary>
+public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, bool SourceRouting, bool SupplierLayouts, bool CustomTypes, bool StructuredSources)
 {
-    internal static TenantSettingsDto From(TenantSettings s) => new(s.AutoApproveConfidenceThreshold, s.AlwaysReviewSupplierIds, s.RetentionYears, s.ShareExtractorProfiles);
+    internal static TenantFeaturesDto From(TenantFeatureFlags? f) => f is null
+        ? new(false, false, false, false, false, false)
+        : new(f.ConfigurableTypes, f.Outputs, f.SourceRouting, f.SupplierLayouts, f.CustomTypes, f.StructuredSources);
+}
+
+/// <summary>
+/// Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
+/// and the <c>settings</c> part of GET. <see cref="Features"/> is optional on PUT: left out, the switches stay as they are.
+/// </summary>
+public sealed record TenantSettingsDto(double AutoApproveConfidenceThreshold, IReadOnlyList<Guid> AlwaysReviewSupplierIds, int RetentionYears, bool ShareExtractorProfiles, TenantFeaturesDto? Features = null)
+{
+    internal static TenantSettingsDto From(TenantSettings s) => new(s.AutoApproveConfidenceThreshold, s.AlwaysReviewSupplierIds, s.RetentionYears, s.ShareExtractorProfiles, TenantFeaturesDto.From(s.Features));
 }
 
 public sealed record TenantSettingsResponse(TenantIdentity Tenant, TenantSettingsDto Settings);
@@ -45,7 +60,7 @@ public static class TenantSettingsEndpoints
         })
         .RequireAuthorization(Policies.Read)
         .WithName("GetTenantSettings")
-        .WithSummary("Review policy and retention of the current tenant, with its read-only identity.");
+        .WithSummary("Review policy, retention and feature switches of the current tenant, with its read-only identity.");
 
         settings.MapPut("/", async Task<Results<Ok<TenantSettingsResponse>, ValidationProblem, ProblemHttpResult>> (TenantSettingsDto request, [FromServices] DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
@@ -91,13 +106,26 @@ public static class TenantSettingsEndpoints
             current.Settings.AlwaysReviewSupplierIds = supplierIds;
             current.Settings.RetentionYears = request.RetentionYears;
             current.Settings.ShareExtractorProfiles = request.ShareExtractorProfiles;
+            if (request.Features is { } features)
+            {
+                // Set in place: EF updates the owned JSON object only where it exists (TenantSettings.Features); a row
+                // stored without it (before P0's back-fill) gets a new one.
+                var flags = current.Settings.Features ??= new TenantFeatureFlags();
+                flags.ConfigurableTypes = features.ConfigurableTypes;
+                flags.Outputs = features.Outputs;
+                flags.SourceRouting = features.SourceRouting;
+                flags.SupplierLayouts = features.SupplierLayouts;
+                flags.CustomTypes = features.CustomTypes;
+                flags.StructuredSources = features.StructuredSources;
+            }
+
             current.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(ct);
             return TypedResults.Ok(new TenantSettingsResponse(TenantIdentity.From(current), TenantSettingsDto.From(current.Settings)));
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("PutTenantSettings")
-        .WithSummary("Replaces the review policy and retention of the current tenant.");
+        .WithSummary("Replaces the review policy and retention of the current tenant, and its feature switches when features is given.");
 
         return group;
     }

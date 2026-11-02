@@ -76,7 +76,7 @@ public sealed class TenantSettingsEndpointsTests(ApiFactory factory) : IClassFix
         var ok = await admin.PutAsJsonAsync(SettingsUri, new TenantSettingsDto(0.95, [supplier.Id, supplier.Id], 8, false), Ct);
         ok.StatusCode.ShouldBe(HttpStatusCode.OK);
         var saved = (await ok.Content.ReadFromJsonAsync<TenantSettingsResponse>(Ct))!;
-        saved.Settings.ShouldMatch(new TenantSettingsDto(0.95, [supplier.Id], 8, false));
+        saved.Settings.ShouldMatch(new TenantSettingsDto(0.95, [supplier.Id], 8, false, new TenantFeaturesDto(false, false, false, false, false, false)));
 
         var stored = factory.Query(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA));
         stored.Settings.AutoApproveConfidenceThreshold.ShouldBe(0.95);
@@ -84,6 +84,30 @@ public sealed class TenantSettingsEndpointsTests(ApiFactory factory) : IClassFix
         stored.Settings.RetentionYears.ShouldBe(8);
         stored.Settings.ShareExtractorProfiles.ShouldBeFalse();
         stored.UpdatedAt.ShouldBe(factory.Clock.GetUtcNow());
+    }
+
+    [Fact]
+    public async Task The_feature_switches_are_read_and_switched_through_the_settings_and_left_alone_when_not_sent()
+    {
+        using var admin = factory.ClientFor(new TokenSpec("tenant-a-admin", [Roles.TenantAdmin], TenantA));
+
+        var initial = (await admin.GetFromJsonAsync<TenantSettingsResponse>(SettingsUri, ApiFactory.Json, Ct))!;
+        initial.Settings.Features.ShouldBe(new TenantFeaturesDto(false, false, false, false, false, false), "every switch is off by default (docs/11 §3)");
+
+        var on = await admin.PutAsJsonAsync(SettingsUri, initial.Settings with { Features = new TenantFeaturesDto(true, false, false, false, true, false) }, Ct);
+        on.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await on.Content.ReadFromJsonAsync<TenantSettingsResponse>(Ct))!.Settings.Features.ShouldBe(new TenantFeaturesDto(true, false, false, false, true, false));
+
+        // A client that predates the switches sends no features: they stay as they are.
+        var older = await admin.PutAsJsonAsync(SettingsUri, initial.Settings with { Features = null, RetentionYears = 9 }, Ct);
+        older.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var stored = factory.Query(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA));
+        stored.Settings.Features!.ConfigurableTypes.ShouldBeTrue();
+        stored.Settings.Features.CustomTypes.ShouldBeTrue();
+        stored.Settings.Features.Outputs.ShouldBeFalse();
+        stored.Settings.RetentionYears.ShouldBe(9);
+
+        await admin.PutAsJsonAsync(SettingsUri, initial.Settings, Ct);
     }
 
     [Fact]

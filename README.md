@@ -264,9 +264,9 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 | Role | Scope | Policies satisfied |
 |---|---|---|
-| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, Review, Ingest, Read |
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, Review, Ingest, Read |
 | Operator | platform | Platform, Review, Read |
-| TenantAdmin | own tenant | TenantAdmin, Review, Ingest, Read |
+| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, Review, Ingest, Read |
 | Reviewer | own tenant | Review, Ingest, Read |
 | Viewer | own tenant | Read |
 | API key (`ingest`, `read`) | own tenant | Ingest and/or Read |

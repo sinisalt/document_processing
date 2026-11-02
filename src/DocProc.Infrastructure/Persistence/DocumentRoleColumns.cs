@@ -13,11 +13,15 @@ public static class DocumentRoleColumns
 {
     public const int MaxDocumentNumberLength = 100;
 
-    /// <summary>Re-projects <see cref="Document.CanonicalJson"/> under the bindings of the document's type; a type without bindings is left as it is.</summary>
-    public static void Refresh(Document document)
+    /// <summary>
+    /// Re-projects <see cref="Document.CanonicalJson"/> under <paramref name="bindings"/>, the role bindings of the
+    /// document's resolved type definition (<c>EffectiveType.Roles</c>, docs/11 §6.2); a type without a definition
+    /// (null) leaves the columns as they are.
+    /// </summary>
+    public static void Refresh(Document document, RoleBindings? bindings)
     {
         ArgumentNullException.ThrowIfNull(document);
-        if (RoleBindings.ForLegacyType(document.Type) is not { } bindings)
+        if (bindings is null)
         {
             return;
         }

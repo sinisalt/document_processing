@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Migrations;
@@ -185,6 +186,37 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
 
         statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV3 : RowLevelSecurity.PolicyV2)]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_type_catalogue_migration_seeds_inside_platform_scope_and_re_creates_the_policy(bool up)
+    {
+        var migration = new TypeCatalogue();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+
+        if (up)
+        {
+            statements[0].ShouldBe(RowLevelSecurity.DropSql());
+            statements[^1].ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4));
+            statements[1..^1].ShouldBe([.. TypeCatalogueSeedSql.Statements().Select(RowLevelSecurity.InPlatformScope)]);
+        }
+        else
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV3)]);
+        }
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV4);
+        var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4);
+        foreach (var table in new[] { "DocumentTypeDefinitions", "DocumentTypeVersions", "LlmProviderConfigs", "ExtractorProfiles" })
+        {
+            sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PlatformReadFunction}]([TenantId]) ON [dbo].[{table}]");
+            sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[{table}] BEFORE DELETE");
+        }
+
+        sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PlatformReadFunction}]([TenantId]) ON [dbo].[DocumentTypeVersionsHistory]");
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV3).ShouldNotContain("DocumentType");
     }
 
     [Fact]

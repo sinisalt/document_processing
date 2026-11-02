@@ -159,20 +159,20 @@ public sealed class OutboxSweepSqlTests : IAsyncLifetime
             Disposition = ItemDisposition.Accepted,
             CreatedAt = at,
         };
-        var document = new Document
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenantId,
-            IngestionItemId = item.Id,
-            Status = status,
-            ApprovedAt = status is DocumentStatus.Approved or DocumentStatus.AutoApproved ? at : null,
-            CreatedAt = at,
-            UpdatedAt = at,
-        };
         platform.IngestionItems.Add(item);
-        platform.Documents.Add(document);
         await platform.SaveChangesAsync(ct);
-        return document.Id;
+
+        // The document in SQL: before the migrations ran, the Documents table lacks columns the current model maps
+        // (DocumentTypeVersionId), so the model cannot write it.
+        var id = Guid.CreateVersion7();
+        DateTimeOffset? approvedAt = status is DocumentStatus.Approved or DocumentStatus.AutoApproved ? at : null;
+        await platform.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [Documents] ([Id], [TenantId], [IngestionItemId], [PageStart], [PageEnd], [PageCount], [PageImageKeys], [Type], [Status], [CreatedAt], [UpdatedAt], [ApprovedAt], [Costs])
+            VALUES ({id}, {tenantId}, {item.Id}, 1, 1, 1, N'[]', N'Unknown', {status.ToString()}, {at}, {at}, {approvedAt}, {"{}"});
+            """,
+            ct);
+        return id;
     }
 
     private DocProcDbContext NewContext(ITenantContext tenant)

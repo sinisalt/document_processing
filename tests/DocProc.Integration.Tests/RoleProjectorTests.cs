@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DocProc.Application.Configuration;
 using DocProc.Application.Documents;
 using DocProc.Domain.Common;
 using DocProc.Domain.DeliveryNotes;
@@ -66,7 +67,7 @@ public sealed class RoleProjectorTests
         foreach (var type in new[] { DocumentTypeKey.Invoice, DocumentTypeKey.CreditNote })
         {
             var actual = new Document { TenantId = Guid.Empty, Type = type, CanonicalJson = json };
-            DocumentRoleColumns.Refresh(actual);
+            DocumentRoleColumns.Refresh(actual, StandardTemplateConfigResolver.TypeFor(actual.Type)?.Roles);
 
             actual.DocumentNumber.ShouldBe(expected.DocumentNumber);
             actual.DocumentNumberNormalized.ShouldBe(expected.DocumentNumberNormalized);
@@ -90,7 +91,7 @@ public sealed class RoleProjectorTests
         var expected = new Document { TenantId = Guid.Empty, Type = DocumentTypeKey.PurchaseOrder, CanonicalJson = document.CanonicalJson };
         LegacyRefresh(expected);
 
-        DocumentRoleColumns.Refresh(document);
+        DocumentRoleColumns.Refresh(document, StandardTemplateConfigResolver.TypeFor(document.Type)?.Roles);
 
         document.DocumentNumber.ShouldBe("PO-7");
         document.IssueDate.ShouldBe(new DateOnly(2026, 9, 1));
@@ -113,7 +114,7 @@ public sealed class RoleProjectorTests
             TotalGross = 5m,
         };
 
-        DocumentRoleColumns.Refresh(document);
+        DocumentRoleColumns.Refresh(document, StandardTemplateConfigResolver.TypeFor(document.Type)?.Roles);
 
         document.DocumentNumber.ShouldBe("LS-9");
         document.IssueDate.ShouldBe(new DateOnly(2026, 8, 8));
@@ -129,7 +130,7 @@ public sealed class RoleProjectorTests
     {
         var document = new Document { TenantId = Guid.Empty, Type = type, CanonicalJson = "{}", DocumentNumber = "kept", Currency = "EUR" };
 
-        DocumentRoleColumns.Refresh(document);
+        DocumentRoleColumns.Refresh(document, StandardTemplateConfigResolver.TypeFor(document.Type)?.Roles);
 
         document.DocumentNumber.ShouldBe("kept");
         document.Currency.ShouldBe("EUR");

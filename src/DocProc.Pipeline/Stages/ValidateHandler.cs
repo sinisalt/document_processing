@@ -52,7 +52,7 @@ internal sealed class ValidateHandler(
             : null;
 
         // A type whose definition lists no rules is not validated: nothing vouches for its data, so it goes to review.
-        var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId), cancellationToken).ConfigureAwait(false);
+        var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
         var type = config.Type is { Rules.Count: > 0 } validated ? validated : null;
 
         ValidationResult? result = null;

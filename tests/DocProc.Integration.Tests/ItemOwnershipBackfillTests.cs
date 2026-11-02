@@ -77,8 +77,15 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
                 CreatedAt = DateTimeOffset.UtcNow,
             };
             asA.IngestionItems.Add(item);
-            asA.Documents.Add(new Document { Id = Guid.CreateVersion7(), TenantId = TenantA, IngestionItemId = item.Id, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
             await asA.SaveChangesAsync(ct);
+            // The document in SQL: the old Documents table lacks columns the current model maps (DocumentTypeVersionId).
+            var now = DateTimeOffset.UtcNow;
+            await asA.Database.ExecuteSqlAsync(
+                $"""
+                INSERT INTO [Documents] ([Id], [TenantId], [IngestionItemId], [PageStart], [PageEnd], [PageCount], [PageImageKeys], [Type], [Status], [CreatedAt], [UpdatedAt], [Costs])
+                VALUES ({Guid.CreateVersion7()}, {TenantA}, {item.Id}, 1, 1, 1, N'[]', N'Unknown', N'Received', {now}, {now}, {"{}"});
+                """,
+                ct);
             itemId = item.Id;
         }
 

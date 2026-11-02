@@ -35,6 +35,12 @@ public static class Policies
     /// <summary>Manage one tenant: members, suppliers, channels, policy, API keys, webhooks.</summary>
     public const string TenantAdmin = "TenantAdmin";
 
+    /// <summary>
+    /// Configure one tenant's document types, processing and lookups (docs/11 §16, <c>ConfigAdmin</c>). Implied by
+    /// TenantAdmin; there is no separate role for it yet.
+    /// </summary>
+    public const string ConfigAdmin = "ConfigAdmin";
+
     /// <summary>Review, correct, approve, reject documents.</summary>
     public const string Review = "Review";
 
@@ -49,6 +55,7 @@ public static class Policies
         [PlatformAdmin] = [Roles.SuperAdmin],
         [Platform] = [Roles.SuperAdmin, Roles.Operator],
         [TenantAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
+        [ConfigAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [Review] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer],
         [Ingest] = [Roles.SuperAdmin, Roles.TenantAdmin, Roles.Reviewer],
         [Read] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer],

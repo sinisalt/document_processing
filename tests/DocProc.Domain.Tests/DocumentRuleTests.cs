@@ -144,10 +144,16 @@ public sealed class DocumentRuleTests
     }
 
     [Fact]
-    public void An_unregistered_kind_is_a_platform_defect_and_parameters_reach_the_rule()
+    public void A_kind_without_an_evaluator_does_not_run_and_blocks_auto_approval_and_parameters_reach_the_rule()
     {
-        var unknown = new RuleReference("r1", "sumEquals", RuleParams.None);
-        Should.Throw<InvalidOperationException>(() => DocumentValidator.Default.Validate(DocumentView.ForInvoice(Valid()), [unknown], Context)).Message.ShouldContain("sumEquals");
+        // Publishing refuses a kind the deployment does not declare (docs/11 §5.7); a declared kind whose evaluator is
+        // not registered yet is reported as not run, and a result with a rule that did not run is never auto-approved.
+        var unknown = new RuleReference("r1", "dateOrder", RuleParams.None);
+        var notRun = DocumentValidator.Default.Validate(DocumentView.ForInvoice(Valid()), [unknown], Context);
+        notRun.Flags.ShouldBeEmpty();
+        notRun.RulesNotRun.ShouldBe(["r1"]);
+        notRun.IsEligibleForAutoApproval.ShouldBeFalse();
+        DocumentValidator.Default.Validate(DocumentView.ForInvoice(Valid()), StandardRuleSets.Invoice, Context).RulesNotRun.ShouldBeEmpty();
 
         var probe = new ProbeRule();
         var parameters = new RuleParams(new Dictionary<string, JsonElement>(StringComparer.Ordinal) { ["path"] = JsonSerializer.SerializeToElement("lines") });

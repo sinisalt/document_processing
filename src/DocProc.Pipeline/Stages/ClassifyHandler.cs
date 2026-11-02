@@ -84,6 +84,12 @@ internal sealed class ClassifyHandler(
             }
         }
 
+        if (document.Type != outcome.Type)
+        {
+            // A version of another type is no pin for this one; Extract pins the new type's version.
+            document.DocumentTypeVersionId = null;
+        }
+
         document.Type = outcome.Type;
         document.TypeConfidence = outcome.Confidence;
         document.TypeSource = outcome.Source;

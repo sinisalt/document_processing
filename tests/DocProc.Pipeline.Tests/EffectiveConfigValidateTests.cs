@@ -3,6 +3,7 @@ using DocProc.Definitions;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Validation;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.Pipeline.Tests;
@@ -18,11 +19,12 @@ public sealed class EffectiveConfigValidateTests
     private const string XmlMime = "application/xml";
 
     [Fact]
-    public async Task The_pipeline_resolves_definitions_through_the_standard_templates()
+    public async Task The_pipeline_resolves_definitions_through_the_type_catalogue()
     {
         await using var host = await PipelineTestHost.StartAsync();
 
-        host.Services.GetRequiredService<IEffectiveConfigResolver>().ShouldBeSameAs(StandardTemplateConfigResolver.Instance);
+        using var scope = host.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IEffectiveConfigResolver>().ShouldBeOfType<Infrastructure.Catalogue.CatalogueConfigResolver>();
     }
 
     [Fact]
@@ -33,7 +35,16 @@ public sealed class EffectiveConfigValidateTests
         var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.xml", XmlMime, PipelineTestHost.Fixture("peppol-bis3-invoice.xml"))]);
         await host.RunUntilIdleAsync();
 
-        (await host.SingleDocumentAsync(ingestion.Id)).Status.ShouldBe(DocumentStatus.AutoApproved);
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.Status.ShouldBe(DocumentStatus.AutoApproved);
+
+        // The Extract stage pinned the tenant's adopted Invoice v1 (docs/11 §5.7); the development seed adopted it.
+        Guid? adopted = null;
+        await host.WithDbAsync(async db => adopted = await db.DocumentTypeVersions.IgnoreQueryFilters()
+            .Where(v => v.TenantId == PipelineTestHost.TenantA && v.Definition!.Key == "Invoice" && v.Version == 1)
+            .Select(v => (Guid?)v.Id)
+            .SingleAsync());
+        document.DocumentTypeVersionId.ShouldNotBeNull().ShouldBe(adopted!.Value);
     }
 
     [Fact]
