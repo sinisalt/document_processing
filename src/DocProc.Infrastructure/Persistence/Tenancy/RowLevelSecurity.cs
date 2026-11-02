@@ -22,7 +22,8 @@ namespace DocProc.Infrastructure.Persistence.Tenancy;
 /// <see cref="CreateSql(PolicyDefinition)"/>.
 /// </para>
 /// <para>
-/// Since <c>TenantPolicyHistoryAndMoves</c> (<see cref="PolicyV3"/>) the policy also covers the history tables of the
+/// <c>TypeCatalogue</c> (<see cref="PolicyV4"/>) adds the type catalogue and <c>LlmProviderConfigs</c> to the platform-row
+/// tables. Since <c>TenantPolicyHistoryAndMoves</c> (<see cref="PolicyV3"/>) the policy also covers the history tables of the
 /// temporal tables, which SQL Server does not protect with the current table's predicates (a tenant session would
 /// read every tenant's history through <c>FOR SYSTEM_TIME</c> or the history table itself), and it blocks updates
 /// that move a strict-table row to another tenant. History tables get a filter predicate only: the system writes
@@ -96,6 +97,26 @@ public static class RowLevelSecurity
         ("ExtractorProfilesHistory", "TenantId"),
     ];
 
+    /// <summary>
+    /// The nullable-tenant tables of the <c>TypeCatalogue</c> migration (docs/11 §6.10): <see cref="PlatformRowTablesV1"/>,
+    /// the type catalogue (platform templates have TenantId NULL) and <c>LlmProviderConfigs</c> (platform provider
+    /// configurations), which until then only its EF filter protected. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> PlatformRowTablesV2 =
+    [
+        .. PlatformRowTablesV1,
+        ("DocumentTypeDefinitions", "TenantId"),
+        ("DocumentTypeVersions", "TenantId"),
+        ("LlmProviderConfigs", "TenantId"),
+    ];
+
+    /// <summary>The platform-row history tables of the <c>TypeCatalogue</c> migration: <c>DocumentTypeVersions</c> is temporal. Frozen.</summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> PlatformRowHistoryTablesV2 =
+    [
+        .. PlatformRowHistoryTablesV1,
+        ("DocumentTypeVersionsHistory", "TenantId"),
+    ];
+
     /// <summary>The policy of the <c>P0PersistenceSeams</c> migration. Frozen.</summary>
     public static readonly PolicyDefinition PolicyV2 = new(PipelineProtectedTables, PlatformRowTablesV1, [], [], BlockStrictUpdates: false);
 
@@ -105,8 +126,14 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV3 = new(PipelineProtectedTables, PlatformRowTablesV1, StrictHistoryTablesV1, PlatformRowHistoryTablesV1, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The policy of the <c>TypeCatalogue</c> migration: <see cref="PolicyV3"/> plus the type catalogue tables and
+    /// <c>LlmProviderConfigs</c> under the platform-row predicates, and the catalogue's history table. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV4 = new(PipelineProtectedTables, PlatformRowTablesV2, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV3;
+    public static PolicyDefinition CurrentPolicy => PolicyV4;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

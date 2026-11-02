@@ -46,6 +46,14 @@ public sealed class Document : ITenantScoped, IVersioned
     public BlobReference? EmbeddedXmlBlob { get; set; }
 
     public DocumentTypeKey Type { get; set; } = DocumentTypeKey.Unknown;
+
+    /// <summary>
+    /// The type version the document was processed with (docs/11 §5.7, §6.2): pinned by the Extract stage from the
+    /// tenant's published version of <see cref="Type"/>, back-filled for the documents before the catalogue (the
+    /// adopted v1). Null while the type is Unknown, and for a type without a catalogue entry.
+    /// </summary>
+    public Guid? DocumentTypeVersionId { get; set; }
+
     public double? TypeConfidence { get; set; }
     public TypeSource? TypeSource { get; set; }
 
@@ -79,6 +87,7 @@ public sealed class Document : ITenantScoped, IVersioned
     public IngestionItem? IngestionItem { get; set; }
     public Supplier? Supplier { get; set; }
     public ExtractorProfile? ExtractorProfile { get; set; }
+    public DocumentTypeVersion? DocumentTypeVersion { get; set; }
     public ICollection<DocumentFlagRecord> Flags { get; } = [];
     public ICollection<DocumentEvent> Events { get; } = [];
     public ICollection<ReviewTask> ReviewTasks { get; } = [];
@@ -205,6 +214,9 @@ public sealed class Correction : ITenantScoped
     /// docs/11 §6.2); null when the correction named no source, and for every row written before the column existed.
     /// </summary>
     public string? SourceJson { get; set; }
+
+    /// <summary>The type version of the document when the correction was made (docs/11 §6.2); null for older rows without one.</summary>
+    public Guid? DocumentTypeVersionId { get; set; }
 
     public required string By { get; set; }
     public DateTimeOffset At { get; set; }

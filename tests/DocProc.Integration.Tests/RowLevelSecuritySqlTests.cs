@@ -19,7 +19,7 @@ public sealed class RowLevelSecuritySqlTests
     /// ExtractorProfiles as the gap it closes; LlmProviderConfigs has the same shape (platform configurations with a
     /// NULL TenantId) and is still protected by its EF query filter alone.
     /// </summary>
-    private static readonly string[] KnownUnprotected = ["LlmProviderConfigs"];
+    private static readonly string[] KnownUnprotected = [];
 
     [Fact]
     public void Platform_row_tables_get_the_read_filter_and_the_strict_block_predicates()
@@ -185,7 +185,6 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
 
         statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV3 : RowLevelSecurity.PolicyV2)]);
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV3);
     }
 
     [Fact]

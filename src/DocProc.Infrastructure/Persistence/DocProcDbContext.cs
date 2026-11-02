@@ -39,6 +39,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<LlmProviderConfigRecord> LlmProviderConfigs => Set<LlmProviderConfigRecord>();
     public DbSet<TenantLlmPolicyRecord> TenantLlmPolicies => Set<TenantLlmPolicyRecord>();
     public DbSet<LlmUsageEntry> LlmUsage => Set<LlmUsageEntry>();
+    public DbSet<DocumentTypeDefinition> DocumentTypeDefinitions => Set<DocumentTypeDefinition>();
+    public DbSet<DocumentTypeVersion> DocumentTypeVersions => Set<DocumentTypeVersion>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -127,6 +129,10 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+
+        // The type catalogue (docs/11 §6.1): platform templates (TenantId null) are read by every tenant, a tenant's types only by it.
+        modelBuilder.Entity<DocumentTypeDefinition>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentTypeVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
 
         // Profiles are shared through the global registry unless private to a tenant.
         modelBuilder.Entity<ExtractorProfile>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);

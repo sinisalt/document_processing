@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Api.Auth;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -146,6 +147,9 @@ public static class TenantEndpoints
             // Every tenant can receive documents from the start: API uploads for integrations, portal uploads for people.
             db.IngestionChannels.Add(DefaultChannel(tenant.Id, "API upload", ChannelType.ApiUpload, now));
             db.IngestionChannels.Add(DefaultChannel(tenant.Id, "Portal upload", ChannelType.PortalUpload, now));
+
+            // Every tenant adopts the standard types under the legacy keys (docs/11 §21 step 2).
+            await TypeCatalogueSeeder.AddMissingAdoptedTypesAsync(db, tenant.Id, now, ct);
             try
             {
                 await db.SaveChangesAsync(ct);

@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Catalogue;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,8 @@ public sealed class SqliteSchemaHostedService(ISystemDbContextFactory contexts, 
     {
         await using var db = contexts.CreatePlatformScoped();
         var created = await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
+        // The model has no migrations here, so the type catalogue's own rows come from the seeder (docs/11 §21 step 2).
+        await TypeCatalogueSeeder.EnsureAllAsync(db, TimeProvider.System.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation("SQLite database {Path} {State}.", location.Path, created ? "created from the model" : "already exists");

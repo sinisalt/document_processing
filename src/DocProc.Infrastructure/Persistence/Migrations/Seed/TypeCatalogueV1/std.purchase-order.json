@@ -1,0 +1,360 @@
+{
+  "key": "std.purchase-order",
+  "version": 1,
+  "legacyKey": "PurchaseOrder",
+  "name": {
+    "en": "Purchase order",
+    "de": "Bestellung"
+  },
+  "description": "An order the tenant issued to a supplier. No extraction path fills it yet, so every purchase order goes to review.",
+  "roles": {
+    "documentNumber": "poNumber",
+    "documentDate": "orderDate",
+    "currency": "currency",
+    "total": "totalGross",
+    "net": "totalNet",
+    "supplierParty": "supplier",
+    "customerParty": "buyer",
+    "lineItems": "lines",
+    "lineNet": "lines[*].lineNet",
+    "lineQuantity": "lines[*].quantityOrdered",
+    "lineUnitPrice": "lines[*].unitPrice",
+    "lineSku": "lines[*].supplierSku"
+  },
+  "ui": {
+    "sections": [
+      {
+        "id": "document",
+        "label": {
+          "en": "Document",
+          "de": "Beleg"
+        }
+      },
+      {
+        "id": "parties",
+        "label": {
+          "en": "Parties",
+          "de": "Parteien"
+        }
+      },
+      {
+        "id": "totals",
+        "label": {
+          "en": "Totals",
+          "de": "Summen"
+        }
+      },
+      {
+        "id": "lines",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        }
+      }
+    ]
+  },
+  "fields": [
+    {
+      "id": "fld_po_no",
+      "key": "poNumber",
+      "kind": "identifier",
+      "label": {
+        "en": "Order no.",
+        "de": "Bestellnummer"
+      },
+      "indexed": true,
+      "section": "document"
+    },
+    {
+      "id": "fld_order_date",
+      "key": "orderDate",
+      "kind": "date",
+      "label": {
+        "en": "Order date",
+        "de": "Bestelldatum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_requested",
+      "key": "requestedDeliveryDate",
+      "kind": "date",
+      "label": {
+        "en": "Requested delivery date",
+        "de": "Gewünschtes Lieferdatum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_sup",
+      "key": "supplier",
+      "kind": "party",
+      "label": {
+        "en": "Supplier",
+        "de": "Lieferant"
+      },
+      "section": "parties"
+    },
+    {
+      "id": "fld_buyer",
+      "key": "buyer",
+      "kind": "party",
+      "label": {
+        "en": "Buyer",
+        "de": "Besteller"
+      },
+      "section": "parties"
+    },
+    {
+      "id": "fld_ship_to",
+      "key": "deliveryAddress",
+      "kind": "address",
+      "label": {
+        "en": "Delivery address",
+        "de": "Lieferadresse"
+      },
+      "section": "parties"
+    },
+    {
+      "id": "fld_cur",
+      "key": "currency",
+      "kind": "currency",
+      "label": {
+        "en": "Currency",
+        "de": "Währung"
+      },
+      "section": "totals"
+    },
+    {
+      "id": "fld_net",
+      "key": "totalNet",
+      "kind": "money",
+      "label": {
+        "en": "Net total",
+        "de": "Nettobetrag"
+      },
+      "currencyFrom": "currency",
+      "section": "totals"
+    },
+    {
+      "id": "fld_gross",
+      "key": "totalGross",
+      "kind": "money",
+      "label": {
+        "en": "Gross total",
+        "de": "Gesamtbetrag"
+      },
+      "currencyFrom": "currency",
+      "section": "totals"
+    },
+    {
+      "id": "fld_status",
+      "key": "status",
+      "kind": "enum",
+      "label": {
+        "en": "Order status",
+        "de": "Bestellstatus"
+      },
+      "section": "document",
+      "options": [
+        {
+          "code": "Open",
+          "label": {
+            "en": "Open",
+            "de": "Offen"
+          }
+        },
+        {
+          "code": "PartiallyDelivered",
+          "label": {
+            "en": "Partially delivered",
+            "de": "Teilgeliefert"
+          }
+        },
+        {
+          "code": "Delivered",
+          "label": {
+            "en": "Delivered",
+            "de": "Geliefert"
+          }
+        },
+        {
+          "code": "Invoiced",
+          "label": {
+            "en": "Invoiced",
+            "de": "Berechnet"
+          }
+        },
+        {
+          "code": "Cancelled",
+          "label": {
+            "en": "Cancelled",
+            "de": "Storniert"
+          }
+        }
+      ],
+      "readOnly": true,
+      "provenance": false
+    },
+    {
+      "id": "fld_lines",
+      "key": "lines",
+      "kind": "array",
+      "label": {
+        "en": "Lines",
+        "de": "Positionen"
+      },
+      "section": "lines",
+      "anchor": "description",
+      "item": {
+        "fields": [
+          {
+            "id": "fld_l_no",
+            "key": "lineNumber",
+            "kind": "integer",
+            "label": {
+              "en": "Line no.",
+              "de": "Pos."
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_sku",
+            "key": "supplierSku",
+            "kind": "string",
+            "label": {
+              "en": "Supplier article no.",
+              "de": "Artikelnummer"
+            }
+          },
+          {
+            "id": "fld_l_desc",
+            "key": "description",
+            "kind": "text",
+            "label": {
+              "en": "Description",
+              "de": "Bezeichnung"
+            }
+          },
+          {
+            "id": "fld_l_qty",
+            "key": "quantityOrdered",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity ordered",
+              "de": "Bestellmenge"
+            }
+          },
+          {
+            "id": "fld_l_unit",
+            "key": "unit",
+            "kind": "unit",
+            "label": {
+              "en": "Unit",
+              "de": "Einheit"
+            },
+            "codeList": "uom"
+          },
+          {
+            "id": "fld_l_unit_raw",
+            "key": "unitRaw",
+            "kind": "string",
+            "label": {
+              "en": "Unit as printed",
+              "de": "Einheit wie gedruckt"
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_price",
+            "key": "unitPrice",
+            "kind": "money",
+            "label": {
+              "en": "Unit price",
+              "de": "Einzelpreis"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_net",
+            "key": "lineNet",
+            "kind": "money",
+            "label": {
+              "en": "Net amount",
+              "de": "Nettobetrag"
+            },
+            "currencyFrom": "currency"
+          }
+        ]
+      }
+    }
+  ],
+  "processing": {
+    "review": {
+      "autoApprove": false
+    }
+  },
+  "classification": {
+    "description": "An order for goods or services sent to a supplier.",
+    "keywords": {
+      "de": [
+        "Bestellung",
+        "Bestellschein",
+        "Einkaufsbestellung"
+      ],
+      "en": [
+        "Purchase order",
+        "Order form"
+      ],
+      "hr": [
+        "Narudžba",
+        "Narudžbenica",
+        "Nalog za nabavu"
+      ],
+      "it": [
+        "Ordine",
+        "Ordine di acquisto",
+        "Ordine d'acquisto",
+        "Buono d'ordine"
+      ],
+      "fr": [
+        "Bon de commande",
+        "Commande",
+        "Ordre d'achat"
+      ]
+    },
+    "labels": {
+      "de": [
+        "Bestellnummer",
+        "Bestell-Nr",
+        "Bestellnr"
+      ],
+      "en": [
+        "Purchase order number",
+        "Purchase order no",
+        "PO number",
+        "PO no",
+        "PO #",
+        "Order number",
+        "Order no"
+      ],
+      "hr": [
+        "Broj narudžbe"
+      ],
+      "it": [
+        "Numero ordine"
+      ],
+      "fr": [
+        "Numéro de commande",
+        "N° de commande"
+      ]
+    },
+    "dateLabels": {
+      "de": [
+        "Bestelldatum"
+      ]
+    }
+  }
+}

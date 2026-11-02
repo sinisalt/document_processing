@@ -29,4 +29,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup>
+    <!-- The templates as the TypeCatalogue migration seeds them, frozen with it (see TypeCatalogueSeedSql). -->
+    <EmbeddedResource Include="Persistence/Migrations/Seed/TypeCatalogueV1/*.json" LogicalName="DocProc.Infrastructure.Seed.TypeCatalogueV1.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

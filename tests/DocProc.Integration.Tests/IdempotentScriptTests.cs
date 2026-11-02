@@ -1,5 +1,6 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Configuration;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -156,9 +157,22 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
         var outbox = await asA.OutboxMessages.AsNoTracking().SingleAsync(ct);
         outbox.FannedOutAt.ShouldBe(At);
 
-        // TenantPolicyHistoryAndMoves is in force.
-        (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] IN (OBJECT_ID(N'dbo.DocumentsHistory'), OBJECT_ID(N'dbo.ExtractorProfilesHistory'))").SingleAsync(ct))
-            .ShouldBe(2);
+        // TenantPolicyHistoryAndMoves and TypeCatalogue are in force.
+        (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] IN (OBJECT_ID(N'dbo.DocumentsHistory'), OBJECT_ID(N'dbo.ExtractorProfilesHistory'), OBJECT_ID(N'dbo.DocumentTypeVersionsHistory'))").SingleAsync(ct))
+            .ShouldBe(3);
+
+        // TypeCatalogue seeded the platform templates and the tenant's adopted legacy types, once however often it ran,
+        // and pinned the existing document and its correction to the adopted Invoice v1 (docs/11 §21 steps 2 and 3).
+        var types = await asA.DocumentTypeDefinitions.AsNoTracking().ToListAsync(ct);
+        types.Where(t => t.TenantId is null).Select(t => t.Key).Order(StringComparer.Ordinal).ShouldBe(TypeCatalogueSeedSql.FrozenTemplates().Select(t => t.Template.Key).Order(StringComparer.Ordinal));
+        types.Where(t => t.TenantId == TenantA).Select(t => t.Key).Order(StringComparer.Ordinal)
+            .ShouldBe(["CreditNote", "DeliveryNote", "Invoice", "Other", "PurchaseOrder", "Reminder", "Statement"]);
+        types.Where(t => t.TenantId == TenantA).ShouldAllBe(t => t.Origin == DefinitionOrigin.Adopted && t.PublishedVersion == 1 && t.BaseDefinitionId != null);
+        var invoice = await asA.DocumentTypeVersions.AsNoTracking().SingleAsync(v => v.TenantId == TenantA && v.Definition!.Key == "Invoice", ct);
+        invoice.State.ShouldBe(Infrastructure.Persistence.Entities.DocumentTypeVersionState.Published);
+        invoice.LlmSchemaName.ShouldBe("invoice_extraction");
+        (await asA.Documents.AsNoTracking().SingleAsync(ct)).DocumentTypeVersionId.ShouldBe(invoice.Id);
+        (await asA.Corrections.AsNoTracking().SingleAsync(ct)).DocumentTypeVersionId.ShouldBe(invoice.Id);
     }
 
     private static async Task RunScriptAsync(string connectionString, string script, CancellationToken ct)

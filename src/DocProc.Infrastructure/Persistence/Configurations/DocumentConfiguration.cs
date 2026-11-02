@@ -38,6 +38,7 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
         b.HasOne(d => d.IngestionItem).WithMany(i => i.Documents).HasForeignKey(d => d.IngestionItemId);
         b.HasOne(d => d.Supplier).WithMany().HasForeignKey(d => d.SupplierId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne(d => d.ExtractorProfile).WithMany().HasForeignKey(d => d.ExtractorProfileId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(d => d.DocumentTypeVersion).WithMany().HasForeignKey(d => d.DocumentTypeVersionId).OnDelete(DeleteBehavior.NoAction);
     }
 }
 
