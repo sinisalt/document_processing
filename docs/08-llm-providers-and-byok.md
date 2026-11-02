@@ -154,6 +154,8 @@ the platform operates.
 2. The API writes the secret to **Azure Key Vault** under a per-tenant secret name and stores
    only the reference, the last four characters and a fingerprint in SQL Server. In local
    development a Key Vault emulator or .NET user-secrets stands in behind the same interface.
+   The API returns the last four characters and the fingerprint (the first 16 hex digits of the
+   key's SHA-256), never the key: an admin who holds a key can check whether it is the stored one.
 3. The API validates the credential immediately with a minimal call (list models or a
    one-token completion) and records `validatedAt` or `lastError`.
 4. The worker fetches the secret per job through its managed identity, caches it in memory

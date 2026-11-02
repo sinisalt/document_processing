@@ -1,11 +1,24 @@
 # nginx in front of one web app's static build (web/Dockerfile). The apps call the API on their own origin under
 # /api (VITE_API_BASE_URL empty), so /api is proxied to ${API_UPSTREAM}; every other path that is not a file is a
-# client-side route and gets index.html. Rendered by the nginx image's envsubst at start-up: only variables set in
-# the environment are replaced, nginx's own ($host, $uri, ...) stay as they are.
+# client-side route and gets index.html. Rendered by the nginx image's envsubst at start-up into conf.d, which nginx
+# includes in its http block: only variables set in the environment are replaced, nginx's own ($host, $uri, ...) stay
+# as they are.
+
+# Hashed bundles from vite build never change under the same name; index.html and the other files are revalidated.
+# Set per path here rather than with add_header in the locations, because a location with an add_header of its own
+# drops every add_header of the server block (the security headers below). The API sets its own caching headers.
+map $uri $docproc_cache_control {
+    ~^/api/    "";
+    ~^/assets/ "public, max-age=31536000, immutable";
+    default    "no-cache";
+}
+
 server {
-    listen 80;
+    # The unprivileged image runs nginx as the user nginx, which cannot bind ports below 1024.
+    listen 8080;
     server_name _;
     root /usr/share/nginx/html;
+    server_tokens off;
 
     # Docker's embedded DNS, re-resolved every 10 s: a recreated api container gets a new address, and a proxy_pass
     # with a fixed host name would keep the old one until nginx restarts.
@@ -15,9 +28,21 @@ server {
     # POST /api/v1/ingestions takes up to 20 files of 50 MiB (IngestionLimits.MaxRequestBodyBytes).
     client_max_body_size 1024m;
 
+    add_header Cache-Control $docproc_cache_control;
+    # Scripts only from the app's own bundles; the OIDC authority (${OIDC_ORIGIN}) is called for discovery and tokens
+    # and framed for silent renew, whose callback is this app framed by itself (hence 'self' as frame ancestor).
+    # Inline styles stay allowed: the toast library injects a <style> element. Page images are blob: URLs.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${OIDC_ORIGIN}; frame-src 'self' ${OIDC_ORIGIN}; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' ${OIDC_ORIGIN}; frame-ancestors 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "same-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
     location /api/ {
         # A variable without a URI part passes the request URI unchanged.
         proxy_pass $api_upstream;
+        # The API sends it on some responses itself; the server block's copy is the only one, not a second.
+        proxy_hide_header X-Content-Type-Options;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -28,14 +53,11 @@ server {
         proxy_send_timeout 300s;
     }
 
-    # Hashed bundles from vite build never change under the same name.
     location /assets/ {
         try_files $uri =404;
-        add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
     location / {
         try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache";
     }
 }

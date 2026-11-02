@@ -128,6 +128,16 @@ run `docker compose up -d` again; the second start keeps what the first created.
 (`docker compose logs api`) leave out EF Core's SQL statements; docs/09 "With Docker Compose" says
 how to turn them back on.
 
+The compose stack and the app host use the same fixed host ports (1433, 8080, 8443, 3025, 3143,
+8085), so run one at a time: stop `dotnet run` before `docker compose up`, and run
+`docker compose stop` (or `down`) before going back to `dotnet run`. The app host's containers
+(`sql-*`, `keycloak-*`, `vault-*`, `mail-*`, `storage-*`, `messaging-*`) have a persistent lifetime
+and keep running after `dotnet run` stops, but they do not block compose: they publish random host
+ports, and the fixed ports are served by the app host's proxy, which stops with it. If `up` still
+fails with `Bind for 127.0.0.1:8080 failed: port is already allocated` (or another of those
+ports), `docker ps --format '{{.Names}}\t{{.Ports}}'` shows which container holds it, for example a
+second compose project (`-p`).
+
 | URL | What |
 |---|---|
 | http://localhost:5173 | customer portal; sign in as `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` or `tenant-b-viewer` |
@@ -147,9 +157,12 @@ start, since SQL Server keeps the password it was created with.
 end, and the demo PDFs are answered from their replay fixtures; any other PDF ends `Failed` until a
 provider is configured. To use a real provider, copy `.env.example` to `.env` (git-ignored) and set
 `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` together with `OPENAI_MODEL`, then `docker compose up -d`.
-The one-shot `llm-setup` service turns them into active platform configurations through the admin
-API (`docker compose logs llm-setup` says what it did), or add a provider in the admin console under
-AI providers. Details: docs/09 "With Docker Compose".
+The one-shot `llm-setup` service makes the platform configurations follow `.env` through the admin
+API on every `up`: a key that is set is enabled (or created), a changed OpenAI key replaces the
+previous one, and removing `ANTHROPIC_API_KEY` disables the Anthropic configuration again.
+`docker compose logs llm-setup` says what it did and ends with the configuration in use (the API's
+own start-up log is written before `llm-setup` runs, so it still names the one from before). Or add
+a provider in the admin console under AI providers. Details: docs/09 "With Docker Compose".
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
@@ -297,6 +310,6 @@ web/                          pnpm workspace: apps/customer-portal, apps/admin-c
 fixtures/                     demo documents and their LLM replay fixtures (docs/09 "Demo data")
 schemas/                      committed JSON schemas sent to providers
 docs/                         plan and design
-docker/                       what docker-compose.yml mounts: the Service Bus emulator's entities, the llm-setup script
+docker/                       what docker-compose.yml mounts: the Service Bus emulator's entities, the llm-setup script (and its node tests)
 docker-compose.yml            the whole stack with Docker Compose (images: src/Dockerfile, web/Dockerfile; .env.example)
 ```

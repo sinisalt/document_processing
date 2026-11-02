@@ -51,7 +51,11 @@ rename is caught before anyone runs the stack.
 who want the two web apps as they ship: `docker compose up --build` (`-d` for the background) from a
 clean clone; README "With Docker Compose" has the URLs, users, LLM keys and reset. The project name
 is `docproc` (`name:` in the file), so volumes and the network are `docproc_*`; `-p <name>` runs a
-second copy, though the fixed host ports below allow only one at a time. Nothing is external: the
+second copy, though the fixed host ports below allow only one at a time. The AppHost listens on the
+same ports while it runs, so stop one before starting the other. Its containers outlive it
+(`ContainerLifetime.Persistent`) but do not hold those ports: Aspire proxies every endpoint, so each
+container publishes a random host port, and the fixed one belongs to the AppHost's proxy, which
+stops with `dotnet run`. Nothing is external: the
 default network and four named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`)
 belong to the project, and `down -v` removes them.
 
@@ -70,11 +74,11 @@ normally within the health check's 60 tries. `docker compose ps -a` shows `worke
 | `servicebus` | `mcr.microsoft.com/azure-messaging/servicebus-emulator` (the AppHost's tag), `linux/amd64` | `messaging` | entities from `docker/servicebus/Config.json`; stores them in `sqlserver`. The image has no shell, so the one-shot `servicebus-ready` polls its `:5300/health` and the API waits for that |
 | `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:8080`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
 | `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
-| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet |
+| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
 | `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
 | `worker` | `src/Dockerfile`, target `worker` | `worker` | waits for the API's health check; no HTTP endpoint, so no health check of its own |
 | `llm-setup` | `node:22-bookworm-slim` running `docker/llm-setup.mjs` | (none) | one-shot: LLM keys of `.env` to platform configurations, below |
-| `portal`, `admin` | `web/Dockerfile` (`APP=customer-portal` / `admin-console`) | (Vite dev servers) | nginx on `:5173` / `:5174`, `/api` proxied to `api:8080`, SPA fallback to `index.html` |
+| `portal`, `admin` | `web/Dockerfile` (`APP=customer-portal` / `admin-console`) | (Vite dev servers) | unprivileged nginx on container port 8080, published on `:5173` / `:5174`; `/api` proxied to `api:8080`, SPA fallback to `index.html`, security headers |
 
 **Configuration.** The hosts get the keys the AppHost sets (`ConnectionStrings__DocProc`,
 `ConnectionStrings__blobs`, `ConnectionStrings__messaging`, `Persistence__Provider=SqlServer`,
@@ -120,21 +124,51 @@ one serves every tenant without its own, and its key is resolved from the secret
 `Llm:Secrets:<secretRef>`, then `LLM_SECRET_<SECRET_REF>` (docs/08). The seed adds the Anthropic
 configuration `llm-platform-eu` disabled, and the demo data adds an active Replay configuration for
 the demo PDFs. The compose file passes `.env`'s `ANTHROPIC_API_KEY` to both hosts as
-`LLM_SECRET_LLM_PLATFORM_EU`; the one-shot `llm-setup` (after the API is healthy; the admin console
-waits for it) signs in as `superadmin` and enables that configuration when the key is set, and with
-`OPENAI_API_KEY` and `OPENAI_MODEL` creates an OpenAI platform configuration with that model for every
-stage (the key goes to the shared secret store; a new key replaces the previous one it created).
-With both, the one configured last is in use; switch in the admin console. It never fails the stack:
-read `docker compose logs llm-setup`. Without any key, e-invoice XML needs no LLM, the demo PDFs
-replay, and other PDFs end `Failed`.
+`LLM_SECRET_LLM_PLATFORM_EU`. The one-shot `llm-setup` (`docker/llm-setup.mjs`, after the API is
+healthy; the admin console waits for it) signs in as `superadmin` on every `up` and makes the
+platform configurations follow `.env`:
 
-**Images.** `src/Dockerfile` restores once for the target architecture (cache mount), publishes the
-API and the worker in Release, and runs them on `mcr.microsoft.com/dotnet/aspnet` as the image's
-non-root `app` user (the worker needs the ASP.NET runtime: `DocProc.ServiceDefaults` references it);
-`curl` is added for the health check. `web/Dockerfile` runs `pnpm install --frozen-lockfile` for one
-app and its workspace packages and `pnpm build` (typecheck and `vite build` with `.env.production`),
-and serves `dist` from `nginx:alpine` with `web/nginx.conf.template`, which re-resolves `api` through
-Docker's DNS so a recreated API container is found again. `.dockerignore` keeps `bin`, `obj`,
+- `ANTHROPIC_API_KEY` set: the seeded Anthropic configuration is enabled. Empty: an active seeded
+  configuration is disabled again, since without the variable it has no key and every call would
+  fail with "No key is stored".
+- `OPENAI_API_KEY` with `OPENAI_MODEL`: the platform OpenAI configuration with this key and this
+  model for every stage is the active one. The key is recognised by its fingerprint
+  (`keyFingerprint` of `GET /llm/providers`, the first 16 hex digits of its SHA-256, which the API
+  stores with every key), not by its last four characters, which two keys can share. It is created
+  when none exists (the key goes to the shared secret store) and enabled again when it was disabled,
+  and every other active platform OpenAI configuration is disabled, so a new key replaces the
+  previous one and switching back to an earlier key re-enables that one. Empty: the OpenAI
+  configurations stay as they are, since they keep the key stored for them; the log names the
+  ones still active (disable them in the admin console).
+
+With both keys, the one configured last is in use; switch in the admin console. A rerun with the same
+`.env` changes nothing. It never fails the stack: `docker compose logs llm-setup` says what it did
+and ends with the configuration in use. The API's start-up line "LLM platform configuration in
+use" ("Demo data" below) is written before `llm-setup` runs, so after a key change it still names
+the configuration from before; the admin console's AI providers page shows the current state.
+Without any key, e-invoice XML needs no LLM, the demo PDFs replay, and other PDFs end `Failed`.
+`node --test docker/llm-setup.test.mjs` runs the script's unit tests (CI's `compose` job does).
+
+**Images.** `src/Dockerfile` restores once for the target architecture (cache mount) from the
+project files alone (`COPY --parents src/*/*.csproj` with `Directory.*.props` and `global.json`), so
+a source change does not restore again; then each host's stage copies `src/` without the other
+host's folder and publishes it in Release, so a change under `src/DocProc.Api` does not publish the
+worker again. They run on `mcr.microsoft.com/dotnet/aspnet` as the image's non-root `app` user (the
+worker needs the ASP.NET runtime: `DocProc.ServiceDefaults` references it); `curl` is added for the
+health check. The XML documentation files are left out of `/app` (the OpenAPI descriptions are
+compiled into the API); the `.pdb` files stay, so exceptions in the logs carry file and line
+numbers. `web/Dockerfile` copies the workspace's `package.json` files and the lockfile first and runs
+`pnpm install --frozen-lockfile` for both apps and their packages (one layer both images share),
+then copies the shared packages and the one app and runs its `pnpm build` (typecheck and `vite
+build` with `.env.production`). It serves `dist` from `nginxinc/nginx-unprivileged` (nginx as uid
+101, listening on 8080) with `web/nginx.conf.template`, which re-resolves `api` through Docker's DNS
+so a recreated API container is found again and sends `Content-Security-Policy` (scripts from the
+app only; the OIDC authority `OIDC_ORIGIN`, `http://localhost:8080`, for discovery, tokens and the
+silent-renew frame), `X-Content-Type-Options`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy` and
+`Permissions-Policy`; an override that moves Keycloak sets `OIDC_ORIGIN` for `portal` and `admin`
+as well. The base images are pinned to patch releases (SDK `10.0.403`, runtime `10.0.14`, Node
+`22.23.4`, nginx `1.29.8`); bump them when a servicing release ships. The `# syntax=docker/dockerfile:1`
+line pulls a frontend that knows `COPY --parents` and `--exclude`. `.dockerignore` keeps `bin`, `obj`,
 `node_modules`, `dist`, `data`, tests, docs and `.git` out of the build context. CI's `compose` job
 runs `docker compose config -q` and builds all four images.
 
@@ -166,7 +200,14 @@ three SQL Server-only schema errors (error 1785, multiple cascade paths): the fo
 `Ingestions.ChannelId`, `Documents.SupplierId` and `ExtractorProfiles.SupplierId` are `NO ACTION`
 now (SQLite accepted the cascades), and the API refuses to delete a channel, supplier or the
 supplier of an extractor profile that something still references, with 409, before the database
-would.
+would. That change edits `InitialCreate` (and the snapshot) in place instead of adding a migration,
+because no database ever applied the old version: on SQL Server it stopped at error 1785 (and
+before the globalization fix no connection opened at all), the SQLite development mode creates its
+schema with `EnsureCreated` rather than migrations, and no workflow deploys or migrates a shared
+database yet. A database that somehow did apply the old `InitialCreate` keeps the cascades while EF
+Core considers it current; recreate it. Behaviour change: deleting a supplier that an extractor
+profile references used to set the profile's `SupplierId` to null and is now refused with 409
+(docs/05).
 
 ## Running without Docker
 
@@ -218,7 +259,7 @@ clean checkout without Docker or an LLM key:
 | What | Rows |
 |---|---|
 | Documents | Every file under `fixtures/demo/<tenant slug>/` is ingested for that tenant through the same `UploadIntake` code path as `POST /ingestions` (raw blob, ingestion with one candidate item, `ProcessIngestion` on the in-process queue), from the tenant admin's address. The pipeline then processes them like any upload. |
-| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) ends `Failed` at once (a miss is an `InvalidRequest`, which no retry fixes) with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use, and warns instead when the active configuration is a real provider whose key the gateway cannot resolve (no `Llm:Secrets:<secretRef>` or `LLM_SECRET_<SECRET_REF>`), because every LLM call would then fail. |
+| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) ends `Failed` at once (a miss is an `InvalidRequest`, which no retry fixes) with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use (under docker compose, before `llm-setup` has applied `.env`: its own log names the one in use afterwards), and warns instead when the active configuration is a real provider whose key the gateway cannot resolve (no `Llm:Secrets:<secretRef>` or `LLM_SECRET_<SECRET_REF>`), because every LLM call would then fail. |
 | Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
 | LLM usage | About 50 `LlmUsageEntry` rows over the 14 UTC days up to the first start (both tenants, platform Anthropic configuration, classify and extract, two failed calls), each at 08:00 UTC of its day plus a fixed offset (today's clamped to the start time), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. The rows are written once: the history does not move forward with later starts; reset `data/` to refresh it. |
 

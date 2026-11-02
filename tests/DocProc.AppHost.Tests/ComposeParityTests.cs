@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
@@ -128,12 +129,33 @@ public sealed class ComposeParityTests
         var definition = Service(compose, service);
         ((YamlMappingNode)definition["build"])["args"].ShouldBeOfType<YamlMappingNode>()["APP"].ToString().ShouldBe(app);
 
-        var origin = $"http://localhost:{PublishedPort(definition, 80)}";
+        // The unprivileged nginx of web/Dockerfile listens on 8080 inside the container.
+        var origin = $"http://localhost:{PublishedPort(definition, 8080)}";
         var clientId = DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_CLIENT_ID"];
         var client = Realm().GetProperty("clients").EnumerateArray().Single(c => c.GetProperty("clientId").GetString() == clientId);
 
         client.GetProperty("redirectUris").EnumerateArray().Select(u => u.GetString()).ShouldContain($"{origin}/*");
         client.GetProperty("webOrigins").EnumerateArray().Select(u => u.GetString()).ShouldContain(origin);
+    }
+
+    /// <summary>
+    /// The apps' Content-Security-Policy (web/nginx.conf.template) allows calls to and frames of <c>OIDC_ORIGIN</c> only;
+    /// an authority on another origin would make sign-in fail in the browser with a CSP violation.
+    /// </summary>
+    [Fact]
+    public void The_web_images_allow_the_oidc_authority_of_both_apps_in_their_content_security_policy()
+    {
+        var match = Regex.Match(Read("web", "Dockerfile"), @"OIDC_ORIGIN=(\S+)");
+        match.Success.ShouldBeTrue("web/Dockerfile sets OIDC_ORIGIN");
+        var template = Read("web", "nginx.conf.template");
+        template.ShouldContain("connect-src 'self' ${OIDC_ORIGIN}");
+        template.ShouldContain("frame-src 'self' ${OIDC_ORIGIN}");
+
+        foreach (var app in new[] { "customer-portal", "admin-console" })
+        {
+            var authority = new Uri(DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"]);
+            match.Groups[1].Value.ShouldBe(authority.GetLeftPart(UriPartial.Authority), app);
+        }
     }
 
     [Fact]

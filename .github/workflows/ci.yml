@@ -61,6 +61,13 @@ jobs:
           docker compose config -q
           rm .env
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Unit tests of the llm-setup script
+        run: node --test docker/llm-setup.test.mjs
+
       - name: Build the API, worker, portal and admin images
         run: docker compose build api worker portal admin
 

@@ -37,7 +37,8 @@ x-host-environment: &host-environment
   # Set for parity with the AppHost; no ISecretStore reads it yet (docs/09 "What the AppHost starts").
   KeyVault__Endpoint: https://vault:8443
   # The key of the seeded platform Anthropic configuration (secret reference llm-platform-eu); llm-setup enables
-  # that configuration when the key is set. Empty: e-invoice XML still works, LLM stages do not.
+  # that configuration when the key is set and disables it when it is not. Empty: e-invoice XML still works, LLM
+  # stages need another provider.
   LLM_SECRET_LLM_PLATFORM_EU: ${ANTHROPIC_API_KEY:-}
   # EF Core logs every SQL statement at Information (the first start's migrations alone are thousands of lines), which
   # buries the start-up messages in `docker compose logs api`. Information brings them back (docs/09).
@@ -105,7 +106,7 @@ services:
     restart: unless-stopped
 
   servicebus-ready:
-    image: node:22-bookworm-slim
+    image: node:22.23.4-bookworm-slim
     command:
       - node
       - -e
@@ -173,8 +174,10 @@ services:
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:3025:3025"
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:3143:3143"
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8085:8080"
+    # The image has bash but no wget or curl: read the SMTP greeting and say QUIT, so GreenMail closes the session
+    # itself instead of logging a "Connection reset" stack trace every 5 s.
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3025 && head -c 3 <&3 | grep -q 220"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3025 && IFS= read -r -t 3 greeting <&3 && [[ $$greeting == 220* ]] && printf 'QUIT\\r\\n' >&3 && IFS= read -r -t 3 bye <&3 && [[ $$bye == 221* ]]"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -242,11 +245,12 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Turns ANTHROPIC_API_KEY / OPENAI_API_KEY from .env into active platform LLM configurations through the admin API,
-  # then exits (docker/llm-setup.mjs). Without a key it exits at once; a rejected key is logged
-  # (`docker compose logs llm-setup`) without failing the stack.
+  # Makes the platform LLM configurations follow ANTHROPIC_API_KEY / OPENAI_API_KEY in .env through the admin API, then
+  # exits (docker/llm-setup.mjs): enables or creates the configuration of a key that is set, disables the seeded
+  # Anthropic one again when its key is removed. Its log (`docker compose logs llm-setup`) ends with the configuration
+  # in use; a rejected key is logged there without failing the stack.
   llm-setup:
-    image: node:22-bookworm-slim
+    image: node:22.23.4-bookworm-slim
     command: ["node", "/setup/llm-setup.mjs"]
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -261,7 +265,8 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # The customer portal's production build behind nginx, which proxies /api to the API (web/Dockerfile).
+  # The customer portal's production build behind an unprivileged nginx on 8080, which proxies /api to the API and
+  # sends the security headers (web/Dockerfile, web/nginx.conf.template).
   portal:
     build:
       context: .
@@ -269,9 +274,9 @@ services:
       args:
         APP: customer-portal
     ports:
-      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5173:80"
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5173:8080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -288,9 +293,9 @@ services:
       args:
         APP: admin-console
     ports:
-      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5174:80"
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5174:8080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 5s
       timeout: 3s
       retries: 30

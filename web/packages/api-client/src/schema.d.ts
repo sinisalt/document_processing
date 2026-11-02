@@ -1105,7 +1105,11 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /** @description A provider configuration without its credential: only the last four characters identify the key (docs/08 "Key handling"). */
+        /**
+         * @description A provider configuration without its credential (docs/08 "Key handling"): the last four characters show which key it
+         *     is, and `keyFingerprint` (the first 16 hex digits of the key's SHA-256) tells whether a key a client holds
+         *     is the stored one without the key ever leaving the secret store.
+         */
         LlmProviderResponse: {
             apiVersion: null | string;
             authType: string;
@@ -1115,6 +1119,7 @@ export interface components {
             endpoint: null | string;
             /** Format: uuid */
             id: string;
+            keyFingerprint: null | string;
             keyLast4: null | string;
             kind: string;
             lastError: null | string;
