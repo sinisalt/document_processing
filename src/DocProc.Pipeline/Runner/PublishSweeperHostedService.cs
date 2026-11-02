@@ -1,6 +1,7 @@
 using DocProc.Application.Pipeline;
 using DocProc.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -19,7 +20,7 @@ namespace DocProc.Pipeline.Runner;
 /// interval after start, so a restarted process publishes what its predecessor lost.
 /// </summary>
 public sealed class PublishSweeperHostedService(
-    ISystemDbContextFactory contexts,
+    IServiceProvider services,
     IPipelineQueue queue,
     TimeProvider clock,
     IOptions<PipelineOptions> options,
@@ -27,12 +28,21 @@ public sealed class PublishSweeperHostedService(
 {
     private readonly PipelineOptions _options = options.Value;
 
+    // Looked up, not injected: a host started without a database (the OpenAPI export) still starts, without sweeping.
+    private ISystemDbContextFactory? Contexts => services.GetService<ISystemDbContextFactory>();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var interval = _options.PublishSweepInterval;
         if (interval <= TimeSpan.Zero)
         {
             logger.LogInformation("Publish sweeper is off (Pipeline:PublishSweepInterval is zero).");
+            return;
+        }
+
+        if (Contexts is null)
+        {
+            logger.LogWarning("Publish sweeper is off: this host has no database.");
             return;
         }
 
@@ -61,6 +71,7 @@ public sealed class PublishSweeperHostedService(
     /// <summary>One sweep: queues the publish stage for every due settlement (up to the batch size) and returns how many.</summary>
     public async Task<int> SweepOnceAsync(CancellationToken cancellationToken)
     {
+        var contexts = Contexts ?? throw new InvalidOperationException("The publish sweeper needs persistence (ISystemDbContextFactory), and this host has none.");
         var now = clock.GetUtcNow();
         List<UnpublishedSettlement> due;
         await using (var db = contexts.CreatePlatformScoped())

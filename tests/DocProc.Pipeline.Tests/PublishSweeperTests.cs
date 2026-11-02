@@ -191,6 +191,24 @@ public sealed class PublishSweeperTests
         (await OutboxAsync(host, reprocessed)).Single().FannedOutAt.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task A_host_without_a_database_starts_with_the_sweeper_off()
+    {
+        // The OpenAPI export starts the API without persistence; the sweeper must not stop that host.
+        using var empty = new ServiceCollection().BuildServiceProvider();
+        using var sweeper = new PublishSweeperHostedService(
+            empty,
+            new Queue.InProcessPipelineQueue(),
+            TimeProvider.System,
+            Microsoft.Extensions.Options.Options.Create(new PipelineOptions()),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PublishSweeperHostedService>.Instance);
+
+        await sweeper.StartAsync(TestContext.Current.CancellationToken);
+        await sweeper.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await sweeper.StopAsync(TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<InvalidOperationException>(() => sweeper.SweepOnceAsync(TestContext.Current.CancellationToken));
+    }
+
     private static PublishSweeperHostedService Sweeper(PipelineTestHost host) => host.Services.GetRequiredService<PublishSweeperHostedService>();
 
     private static Task<List<OutboxMessage>> OutboxAsync(PipelineTestHost host, Guid documentId) =>
