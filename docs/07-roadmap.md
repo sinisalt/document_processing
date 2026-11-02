@@ -1,5 +1,9 @@
 # Roadmap
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 Phases are ordered so that each one ships something a customer can use, and so that the
 measurement needed for the next decision (which model, whether profiles pay off) exists
 before the decision is made. Durations assume one to two backend developers and one

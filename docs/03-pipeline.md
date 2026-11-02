@@ -1,5 +1,9 @@
 # Processing pipeline
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 One pipeline, many entry points, three extraction paths. Every stage is an idempotent
 worker step driven by a durable queue; every stage writes its output to storage and
 advances the document state, so any stage can be retried or re-run (for example,

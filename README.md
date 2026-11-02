@@ -19,6 +19,9 @@ with human review where the data could not be read, for restaurant customers.
 - [`docs/09-local-development.md`](docs/09-local-development.md)
 - [`docs/10-screenshots.md`](docs/10-screenshots.md) – every portal and admin screen, captured
   against the dev-mode API
+- [`docs/11-document-types-and-mappings.md`](docs/11-document-types-and-mappings.md) – the accepted design for
+  document types as tenant data, supplier layouts and identification rules, source routing, manual mapping in review
+  and output mappings to existing systems, with the phased delivery plan
 
 ## Building and testing
 

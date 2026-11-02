@@ -1,5 +1,9 @@
 # API and UI
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 ## Principles
 
 - **API first**: the React apps are just clients of the public API. Nothing is reachable from
