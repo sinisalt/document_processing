@@ -3,6 +3,7 @@
     <Project Path="src/DocProc.Api/DocProc.Api.csproj" />
     <Project Path="src/DocProc.AppHost/DocProc.AppHost.csproj" />
     <Project Path="src/DocProc.Application/DocProc.Application.csproj" />
+    <Project Path="src/DocProc.Definitions/DocProc.Definitions.csproj" />
     <Project Path="src/DocProc.Domain/DocProc.Domain.csproj" />
     <Project Path="src/DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
     <Project Path="src/DocProc.Extraction.Profiles/DocProc.Extraction.Profiles.csproj" />

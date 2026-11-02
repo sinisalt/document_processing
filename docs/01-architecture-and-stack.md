@@ -67,7 +67,8 @@ document_processing/
 ├── docs/                          this plan, ADRs, API notes
 ├── src/
 │   ├── DocProc.Domain/            canonical model, flags, state machine, validation rules (no deps)
-│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain only
+│   ├── DocProc.Definitions/       document type definitions as data and the embedded standard templates (docs/11 §5); references Domain
+│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain and Definitions
 │   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Key Vault, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI
 │   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, portable schema, and the LLM stage implementations (classifier, splitter, invoice extractor); references Application
 │   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter

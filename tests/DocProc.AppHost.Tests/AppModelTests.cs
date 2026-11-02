@@ -25,7 +25,7 @@ public class AppModelTests
         var model = await BuildModelAsync();
 
         var names = model.Resources.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        foreach (var expected in new[] { "sql", "DocProc", "storage", "blobs", "messaging", "keycloak", "vault", "mail", "api", "worker" })
+        foreach (var expected in new[] { "sql", "DocProc", "storage", "blobs", "messaging", "keycloak", "vault", "mail", "mock-erp", "api", "worker" })
         {
             names.ShouldContain(expected);
         }

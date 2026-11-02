@@ -40,7 +40,8 @@ Lowkey Vault (`vault`, HTTPS 8443) runs and both hosts get `KeyVault__Endpoint`,
 Key Vault `ISecretStore` reads it yet: BYOK keys go to the file-backed store, and the AppHost
 gives the API and the worker the same absolute `Secrets__Path`
 (`src/DocProc.AppHost/data/secrets`), so a key the API stores is the key the worker's LLM stages
-read. Mail flows use GreenMail (`mail`).
+read. Mail flows use GreenMail (`mail`). WireMock (`mock-erp`, http://localhost:8086) stands in for the
+receiving ERP of the delivery demos ("Mock ERP" below).
 Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
 assert the resource set, images, waits, the shared secret-store path and realm contents, so a
 rename is caught before anyone runs the stack.
@@ -59,6 +60,29 @@ stops with `dotnet run`. Nothing is external: the
 default network and four named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`)
 belong to the project, and `down -v` removes them.
 
+**Mock ERP.** `mock-erp` is WireMock 3 with the stub mappings in `docker/mock-erp/mappings`, the
+receiving system that the delivery demos of docs/11 §23 send to from P3 on (nothing sends to it in
+P0). Both the AppHost and compose run it on host port 8086 with the folder mounted read-only, so a
+change to a stub needs a restart of the container (`docker compose restart mock-erp`).
+
+| Request | Answer |
+|---|---|
+| `POST /api/ap/invoices` (`erp-ap`) with a JSON body | 201 `{"erpId":"AP-<8 digits>","status":"accepted","idempotencyKey":<the Idempotency-Key header>,"receivedAt":...}` |
+| `POST /api/article-prices` with a JSON body | 202 `{"importId":"AP-IMP-<8 digits>","status":"queued",...}` |
+| either endpoint with another content type | 415 |
+| either endpoint with the header `X-Mock-Erp-Fail: 503` | 503 with `Retry-After: 1`, that request only |
+| `POST /__control/<erp-ap\|article-prices>/fail-next` | the next call of that endpoint answers 503 (`Retry-After: 1`), the one after succeeds again: the "forced 503, retried, then success" of the P3 demo |
+| `POST /__control/<erp-ap\|article-prices>/fail-always`, `.../reset` | every call answers 503 until the reset |
+| `GET /__admin/requests` | WireMock's journal: every request it received, with headers and body (`DELETE` clears it) |
+
+The failure modes are WireMock scenarios named after the endpoint, so `POST /__admin/scenarios/reset`
+resets both. `ComposeParityTests` holds the compose service to the AppHost (image, arguments, mount,
+port) and checks that every endpoint has its success and 503 stubs; `MockErpStubTests`
+(`tests/DocProc.Integration.Tests`, Docker) runs the compose file's image over the folder and
+exercises each answer. In P3 the http transport sends through `TenantEndpointGuard`, which accepts
+only https to public hosts; reaching `http://mock-erp:8080` from a tenant destination therefore needs
+the development allowance that docs/11 §13.3 plans for it.
+
 Every long-running service has `restart: unless-stopped`; only the one-shot helpers
 (`servicebus-ready`, `llm-setup`) have `restart: "no"` (`ComposeParityTests` checks both). A
 container that exits while others wait for it to be healthy otherwise fails the whole `up` with
@@ -75,6 +99,7 @@ normally within the health check's 60 tries. `docker compose ps -a` shows `worke
 | `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
 | `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
 | `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
+| `mock-erp` | `wiremock/wiremock` (the AppHost's tag), `--disable-banner --verbose` | `mock-erp` | the receiving ERP of the delivery demos, `:8086`; stubs mounted read-only from `docker/mock-erp` ("Mock ERP" below); the image's `curl` checks `/__admin/health` |
 | `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
 | `worker` | `src/Dockerfile`, target `worker` | `worker` | waits for the API's health check; no HTTP endpoint, so no health check of its own |
 | `llm-setup` | `node:22-bookworm-slim` running `docker/llm-setup.mjs` | (none) | one-shot: LLM keys of `.env` to platform configurations, below |
@@ -301,6 +326,18 @@ For every tenant, not only the demo ones, the publish sweeper (`Pipeline:Publish
 reject and auto-approval write the outbox row with the decision, so a publish message lost after that commit leaves a
 row the publish stage never handed on, and the first sweep after the restart that finds the decision older than the grace
 period (a few minutes with the defaults) queues the publish stage for it; its timeline entry then says `recoveredBy: "publish-sweeper"` (docs/11 §13.5).
+
+**Demo: a decision whose publish message is lost** (the P0 demo of docs/11 §23). In the Development environment
+`Pipeline:Faults:CrashBeforePublishEnqueueMarker` names a file; while that file exists, the next decision's publish
+nudge (approve, reject or auto-approval) deletes it and ends the process at once (`Environment.FailFast`), after the
+decision and its outbox row were committed and before the publish message is queued (`CrashBeforePublishEnqueueQueue`).
+With compose, start the stack with the key set for the API (`Pipeline__Faults__CrashBeforePublishEnqueueMarker:
+/tmp/crash-before-publish-enqueue` in a `docker-compose.override.yml`), arm it with
+`docker compose exec api touch /tmp/crash-before-publish-enqueue`, and approve a document in review: the approve call
+gets no answer, `restart: unless-stopped` starts the API again, the document is `Approved` without a publish entry,
+and the first sweep after the grace period publishes it with `recoveredBy: "publish-sweeper"` in its timeline. The
+marker is deleted before the process ends, so the restarted API does not crash again, and the next approval publishes
+normally. Outside Development the key is ignored, and no shipped configuration sets it.
 `DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table
 above and that a second start-up seeds nothing; `DemoDataHostTests` (`tests/DocProc.Pipeline.Tests/Demo`) interrupts
 a start-up with the delivery note mid-pipeline and six ingestions queued, restarts, and asserts that all seven
@@ -406,6 +443,7 @@ this section does not name.
 | `Pipeline:PublishSweepGrace` | `00:02:00` | How long a settlement may wait for its normal publish message before the sweeper queues one. Not negative. |
 | `Pipeline:PublishSweepLookback` | `7.00:00:00` | How far back the sweeper looks; older settlements are left alone. Longer than the grace. |
 | `Pipeline:PublishSweepBatchSize` | 200 | Most settlements one sweep queues. At least 1. |
+| `Pipeline:Faults:CrashBeforePublishEnqueueMarker` | (unset) | Development only: a file whose presence makes the next decision's publish nudge end the process between the commit and the enqueue, for the publish sweeper demo ("Demo data" above). Ignored in every other environment. |
 | `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`). At least 1 and at most `DocumentProcessing:Pdf:MaximumRenderDpi`: a higher value would fail every PDF render, so the host refuses to start with it. |
 | `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. Between 0 and 1. |
 | `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). Not negative. |

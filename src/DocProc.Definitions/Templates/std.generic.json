@@ -1,0 +1,19 @@
+{
+  "key": "std.generic",
+  "version": 1,
+  "legacyKey": "Other",
+  "name": {
+    "en": "Other document",
+    "de": "Sonstiges Dokument"
+  },
+  "description": "Any other supplier document, and the starting point for a new type. It has no fields yet: today no canonical data is stored for other documents, and they always go to review.",
+  "fields": [],
+  "processing": {
+    "review": {
+      "autoApprove": false
+    }
+  },
+  "classification": {
+    "description": "A supplier document of none of the other types."
+  }
+}

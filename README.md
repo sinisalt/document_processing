@@ -94,6 +94,7 @@ What comes up (resource name → what the hosts read it as):
 | `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-viewer`; password = username |
 | `vault` | Lowkey Vault (Key Vault emulator) on https://localhost:8443 | vault name `docproc`, for the BYOK secret flow |
 | `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled |
+| `mock-erp` | WireMock on http://localhost:8086 with the stubs in `docker/mock-erp` | the receiving ERP of the delivery demos (docs/11 §23): `POST /api/ap/invoices`, `POST /api/article-prices`, a 503 on demand; nothing sends to it before P3 (docs/09 "Mock ERP") |
 | `api`, `worker` | the two hosts | the worker waits for the API so migrations run once |
 
 Stateful containers keep named volumes (`docproc-*`) and survive restarts of the app host. The SQL
@@ -132,7 +133,7 @@ run `docker compose up -d` again; the second start keeps what the first created.
 how to turn them back on.
 
 The compose stack and the app host use the same fixed host ports (1433, 8080, 8443, 3025, 3143,
-8085), so run one at a time: stop `dotnet run` before `docker compose up`, and run
+8085, 8086), so run one at a time: stop `dotnet run` before `docker compose up`, and run
 `docker compose stop` (or `down`) before going back to `dotnet run`. The app host's containers
 (`sql-*`, `keycloak-*`, `vault-*`, `mail-*`, `storage-*`, `messaging-*`) have a persistent lifetime
 and keep running after `dotnet run` stops, but they do not block compose: they publish random host
@@ -154,6 +155,7 @@ and run `docker compose up --build -d` (the apps are built with Keycloak's URL).
 | http://localhost:5100/scalar | API reference (Scalar); `/health/ready`, `/openapi/v1.json` |
 | http://localhost:8080 | Keycloak (realm `docproc`; admin console `admin` / `admin`); `DOCPROC_KEYCLOAK_PORT` in `.env` moves it |
 | http://localhost:8085 | GreenMail API; SMTP `localhost:3025`, IMAP `localhost:3143` |
+| http://localhost:8086 | mock ERP (WireMock): `/__admin/requests` lists what it received; `POST /__control/erp-ap/fail-next` makes the next call answer 503 (docs/09 "Mock ERP") |
 
 Every password is the user name. The API applies the migrations, seeds the realm's two tenants
 (suppliers, upload channels, members) and ingests the demo documents of `fixtures/demo`, so the
@@ -288,6 +290,8 @@ curl -s -X POST http://localhost:8080/realms/docproc/protocol/openid-connect/tok
 ```
 src/
   DocProc.Domain/             canonical model, flags, state machine, validation rules (no dependencies)
+  DocProc.Definitions/        document type definitions as data (docs/11 §5): the format, its checks and the
+                              embedded standard templates (std.invoice, std.credit-note, ...)
   DocProc.Application/        pipeline contracts and the interfaces infrastructure implements
   DocProc.Infrastructure/     EF Core model, migrations, tenancy (query filters + SQL Server RLS), SQLite dev mode,
                               blob stores, PDF processing, keyword classifier, heuristic splitter, secret store

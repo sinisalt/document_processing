@@ -7,6 +7,10 @@
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The standard template parity test compares the templates' keyword blocks with KeywordRuleSet. -->
+    <InternalsVisibleTo Include="DocProc.Integration.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />

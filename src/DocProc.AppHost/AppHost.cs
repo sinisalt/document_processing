@@ -57,6 +57,13 @@ var mail = builder.AddContainer("mail", "greenmail/standalone", "2.1.15")
     .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local:invoices,invoices@tenant-b.local:invoices")
     .WithLifetime(ContainerLifetime.Persistent);
 
+// WireMock as the receiving ERP of the delivery demos (docs/11 §23, docs/09 "Mock ERP"): the stub mappings in
+// docker/mock-erp answer erp-ap and article-prices calls, and can be told to fail with 503. Nothing sends to it before P3.
+builder.AddContainer("mock-erp", "wiremock/wiremock", "3.13.1")
+    .WithHttpEndpoint(port: 8086, targetPort: 8080, name: "http")
+    .WithBindMount(Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "docker", "mock-erp")), "/home/wiremock", isReadOnly: true)
+    .WithArgs("--disable-banner", "--verbose");
+
 // The file-backed ISecretStore stands in for Key Vault until the Key Vault store is wired. The API writes BYOK keys
 // and the worker reads them, so both get one absolute directory instead of each its own content root's ./data/secrets.
 var secretsPath = Path.Combine(builder.AppHostDirectory, "data", "secrets");

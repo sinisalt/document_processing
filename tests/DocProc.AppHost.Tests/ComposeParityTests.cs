@@ -64,6 +64,70 @@ public sealed class ComposeParityTests
         Image(compose, "keycloak").ShouldBe(AppHostImage("keycloak"));
         Image(compose, "vault").ShouldEndWith(AppHostImage("vault"));
         Image(compose, "mail").ShouldEndWith(AppHostImage("mail"));
+        Image(compose, "mock-erp").ShouldBe(AppHostImage("mock-erp"));
+    }
+
+    /// <summary>
+    /// The mock ERP of the delivery demos (docs/11 §23): both stacks run WireMock with the same arguments over the stub
+    /// mappings in <c>docker/mock-erp</c>, mounted read-only, on the same host port.
+    /// </summary>
+    [Fact]
+    public async Task Compose_runs_the_mock_erp_like_the_apphost()
+    {
+        var model = await BuildModelAsync();
+        var appHost = model.Resources.Single(r => r.Name == "mock-erp");
+        var compose = Service(Compose(), "mock-erp");
+
+        var mount = appHost.Annotations.OfType<ContainerMountAnnotation>().ShouldHaveSingleItem();
+        mount.Type.ShouldBe(ContainerMountType.BindMount);
+        mount.IsReadOnly.ShouldBeTrue();
+        Path.GetFullPath(mount.Source!).ShouldBe(RepositoryPath("docker", "mock-erp"));
+        Volumes(compose).ShouldBe([$"./docker/mock-erp:{mount.Target}:ro"]);
+        mount.Target.ShouldBe("/home/wiremock");
+
+        var endpoint = appHost.Annotations.OfType<EndpointAnnotation>().ShouldHaveSingleItem();
+        PublishedPort(compose, endpoint.TargetPort!.Value).ShouldBe(endpoint.Port!.Value);
+
+        var args = new List<object>();
+        foreach (var callback in appHost.Annotations.OfType<CommandLineArgsCallbackAnnotation>())
+        {
+            await callback.Callback(new CommandLineArgsCallbackContext(args, Ct));
+        }
+
+        ((YamlSequenceNode)compose["command"]).Children.Select(c => c.ToString()).ShouldBe(args.Select(a => a.ToString()));
+    }
+
+    /// <summary>
+    /// The stubs the later demos rely on (docs/11 §23, P3 to P5): the erp-ap and article-price endpoints accept JSON, and
+    /// each can be made to answer 503 by a request header, for the next call only, or until reset.
+    /// </summary>
+    [Theory]
+    [InlineData("erp-ap", "/api/ap/invoices", 201)]
+    [InlineData("article-prices", "/api/article-prices", 202)]
+    public void The_mock_erp_stubs_accept_the_endpoint_and_can_be_forced_to_fail(string name, string path, int success)
+    {
+        var stubs = Directory.GetFiles(RepositoryPath("docker", "mock-erp", "mappings"), "*.json")
+            .SelectMany(file =>
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                return doc.RootElement.GetProperty("mappings").EnumerateArray().Select(m => m.Clone()).ToList();
+            })
+            .ToList();
+
+        static string? Text(JsonElement e, string property) => e.TryGetProperty(property, out var v) ? v.GetString() : null;
+        static int Status(JsonElement stub) => stub.GetProperty("response").GetProperty("status").GetInt32();
+        var endpoint = stubs.Where(s => Text(s.GetProperty("request"), "urlPath") == path && Text(s.GetProperty("request"), "method") == "POST").ToList();
+
+        endpoint.Any(s => Status(s) == success && !s.TryGetProperty("scenarioName", out _)).ShouldBeTrue($"{name} accepts a call");
+        endpoint.Any(s => Status(s) == 503 && s.GetProperty("request").GetProperty("headers").TryGetProperty("X-Mock-Erp-Fail", out _)).ShouldBeTrue($"{name}: forced by header");
+        endpoint.Any(s => Status(s) == 503 && Text(s, "scenarioName") == name && Text(s, "requiredScenarioState") == "fail-next" && Text(s, "newScenarioState") == "Started").ShouldBeTrue($"{name}: fails once");
+        endpoint.Any(s => Status(s) == 503 && Text(s, "scenarioName") == name && Text(s, "requiredScenarioState") == "down").ShouldBeTrue($"{name}: down until reset");
+        endpoint.Where(s => Status(s) == 503).All(s => s.GetProperty("response").GetProperty("headers").TryGetProperty("Retry-After", out _)).ShouldBeTrue($"{name}: every 503 says when to retry");
+
+        foreach (var (control, state) in new[] { ("fail-next", "fail-next"), ("fail-always", "down"), ("reset", "Started") })
+        {
+            stubs.Any(s => Text(s.GetProperty("request"), "urlPath") == $"/__control/{name}/{control}" && Text(s, "scenarioName") == name && Text(s, "newScenarioState") == state).ShouldBeTrue($"{name}: {control}");
+        }
     }
 
     [Theory]

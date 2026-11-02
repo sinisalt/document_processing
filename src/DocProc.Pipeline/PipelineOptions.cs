@@ -6,6 +6,13 @@ public sealed class PipelineOptions
     public const string SectionName = "Pipeline";
     public const string RunInProcessKey = SectionName + ":RunInProcess";
 
+    /// <summary>
+    /// Development only: a file whose presence makes the next decision's publish nudge end the process between the
+    /// commit and the enqueue (<c>CrashBeforePublishEnqueueQueue</c>, the publish sweeper demo of docs/09). Unset in
+    /// every shipped configuration; ignored outside the Development environment.
+    /// </summary>
+    public const string CrashBeforePublishEnqueueMarkerKey = SectionName + ":Faults:CrashBeforePublishEnqueueMarker";
+
     /// <summary>How many messages the runner processes at the same time. Each one gets its own DI scope and DbContext.</summary>
     public int MaxParallelism { get; set; } = 2;
 

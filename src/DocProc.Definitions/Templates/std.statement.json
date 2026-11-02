@@ -1,0 +1,50 @@
+{
+  "key": "std.statement",
+  "version": 1,
+  "legacyKey": "Statement",
+  "name": {
+    "en": "Statement",
+    "de": "Kontoauszug"
+  },
+  "description": "A supplier's statement of account or open items. It has no fields yet: today no canonical data is stored for statements, and they always go to review.",
+  "fields": [],
+  "processing": {
+    "review": {
+      "autoApprove": false
+    }
+  },
+  "classification": {
+    "description": "A supplier's statement of account or list of open items.",
+    "keywords": {
+      "de": [
+        "Kontoauszug",
+        "Offene Posten",
+        "Offene-Posten-Liste",
+        "Saldenbestätigung",
+        "Saldenliste",
+        "Kontoübersicht"
+      ],
+      "en": [
+        "Statement",
+        "Statement of account",
+        "Account statement",
+        "Open items"
+      ],
+      "hr": [
+        "Izvod",
+        "Izvod otvorenih stavki",
+        "Otvorene stavke",
+        "IOS obrazac"
+      ],
+      "it": [
+        "Estratto conto",
+        "Partite aperte"
+      ],
+      "fr": [
+        "Relevé de compte",
+        "Relevé",
+        "Relevé de factures"
+      ]
+    }
+  }
+}

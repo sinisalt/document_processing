@@ -185,6 +185,24 @@ services:
       retries: 30
     restart: unless-stopped
 
+  # The receiving ERP of the delivery demos (docs/11 §23; P3 onwards sends to it): WireMock with the stubs in
+  # docker/mock-erp/mappings. POST /api/ap/invoices answers 201 (erp-ap), POST /api/article-prices 202. A 503 is forced
+  # with the header X-Mock-Erp-Fail: 503, or with POST /__control/<erp-ap|article-prices>/fail-next (the next call
+  # only), .../fail-always and .../reset. What it received: GET http://localhost:8086/__admin/requests (docs/09).
+  mock-erp:
+    image: wiremock/wiremock:3.13.1
+    command: ["--disable-banner", "--verbose"]
+    volumes:
+      - ./docker/mock-erp:/home/wiremock:ro
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8086:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/__admin/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
   # The API applies the migrations, seeds the two demo tenants of the realm (with their upload channels, suppliers and
   # the disabled platform Anthropic configuration) and, unless DOCPROC_DEMO_DOCUMENTS=false, ingests the demo
   # documents. It also runs the pipeline in-process (Pipeline:RunInProcess): until the Service Bus transport lands

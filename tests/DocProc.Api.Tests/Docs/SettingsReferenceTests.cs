@@ -45,6 +45,7 @@ public sealed class SettingsReferenceTests
     public static TheoryData<string> LooseKeys => new()
     {
         PipelineOptions.RunInProcessKey,
+        PipelineOptions.CrashBeforePublishEnqueueMarkerKey,
         PersistenceHostExtensions.MigrateOnStartupKey,
         $"ConnectionStrings:{PersistenceHostExtensions.ConnectionStringName}",
         "Llm:Secrets:<secretRef>",

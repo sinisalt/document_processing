@@ -54,7 +54,9 @@ internal sealed class PipelineTestHost : IAsyncDisposable
 
     public PipelineOptions Options => Services.GetRequiredService<IOptions<PipelineOptions>>().Value;
 
-    public static async Task<PipelineTestHost> StartAsync(Action<Dictionary<string, string?>>? configure = null)
+    /// <param name="configure">Changes the host's settings.</param>
+    /// <param name="services">Registers services ahead of the processing stack, which keeps them (it only adds what is missing).</param>
+    public static async Task<PipelineTestHost> StartAsync(Action<Dictionary<string, string?>>? configure = null, Action<IServiceCollection>? services = null)
     {
         var directory = Path.Combine(Path.GetTempPath(), "docproc-pipeline-tests", Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directory);
@@ -84,6 +86,7 @@ internal sealed class PipelineTestHost : IAsyncDisposable
         builder.Services.AddLogging();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.TryAddDocProcPersistence(builder.Configuration, builder.Environment, migrateByDefault: false).ShouldBeTrue();
+        services?.Invoke(builder.Services);
         builder.AddDocProcProcessingStack(runInProcessDefault: true);
 
         var host = builder.Build();

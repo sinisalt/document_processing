@@ -128,8 +128,9 @@ Mail poller -> Ingestion{sender, recipient, auth, subject}
   - `std.invoice`, `std.credit-note`, `std.purchase-order`, `std.delivery-note`, `std.statement`, `std.reminder`, `std.price-list`, `std.daily-specials`, `std.generic`.
   - `std.price-list` is a supplier's list of article prices with a validity period: mostly one large line table (article/SKU, GTIN, description, unit, pack size, price, currency, optional tier prices), no totals. `std.daily-specials` is shipped as a fork of `std.price-list`: the same field tree, but single-day validity, its own classification keywords, rules and review priority. Section 5.8 defines both and explains why they are two templates rather than one with a variant field.
   - Neither price-list template is adopted automatically by existing tenants (they have no legacy key); a tenant adopts them from the catalogue.
-  - The invoice and credit-note field trees are generated once from `Invoice.cs`, `InvoiceLine.cs`, `Party.cs`, `Tax.cs` and `PaymentTerms.cs` by a dev-time tool, then committed. A parity test asserts that their leaf paths equal `Invoice.EnumerateAllFields()`.
+  - The invoice and credit-note field trees are generated once from `Invoice.cs`, `InvoiceLine.cs`, `Party.cs`, `Tax.cs` and `PaymentTerms.cs` by a dev-time tool, then committed. A parity test asserts that their envelope paths (the fields with their own `FieldValue`) equal `Invoice.EnumerateAllFields()`, and that the whole tree, including the members today's records store bare (`provenance: false`: the VAT summary, charges and allowances, a line's number, printed unit and matched product), is the records' tree member by member.
   - The purchase-order and delivery-note templates are generated from today's records, which no code path creates.
+  - P0 seeds the seven templates of the legacy keys (`std.invoice`, `std.credit-note`, `std.purchase-order`, `std.delivery-note`, `std.statement`, `std.reminder`, `std.generic`) in `src/DocProc.Definitions/Templates`. `std.statement`, `std.reminder` and `std.generic` have no fields yet, because no canonical data is stored for those types today; their fields arrive with the first extraction path for them. The two price-list templates ship with P1.
 - **Adopt.** The tenant gets a type that follows the template. Every existing tenant automatically adopts all std templates under the legacy keys `Invoice`, `CreditNote`, `PurchaseOrder`, `DeliveryNote`, `Statement`, `Reminder` and `Other`, so the stored `Document.Type` values are already valid type keys. An adopted type moves to a new template version automatically when that version is non-breaking. A breaking template change is offered as an upgrade.
 - **Copy (fork).** The tenant edits the type: adds fields, deprecates optional std fields, relabels, changes required flags, rules and processing. The type keeps its key (so `Invoice` can be forked in place) and stays pinned to the template version it was copied from. A template update is offered as a three-way diff with one-click merge and is never applied automatically.
 - **New type.** A tenant can create a type from scratch, for example `return-slip`, or start it from `std.generic`.
@@ -149,11 +150,11 @@ A definition is the JSON stored in `DocumentTypeVersion.DefinitionJson`. It is v
 | `integer`, `decimal`, `percent` | number | `percent`: 19 means 19 % |
 | `money` | `{amount, currency}` | `currencyFrom` names the currency field. The shorthand "bare number" correction uses it. |
 | `currency` | ISO 4217 string | Normalised as today (`CanonicalPatcher.cs:327-359`) |
-| `date`, `period` | `yyyy-MM-dd`, `{start, end}` | Supplier locale drives parsing |
+| `date`, `period` | `yyyy-MM-dd`, `{from, to}` (the `DatePeriod` wire shape) | Supplier locale drives parsing |
 | `boolean` | bool | |
 | `enum` | code | Inline `options`, or `codeList` (a `LookupTable` with aliases) |
-| `unit` | UN/ECE code | `UnitOfMeasureParser` plus tenant and supplier aliases from the `uom` lookup |
-| `party`, `address`, `taxRow` | object | Shipped composites mirroring `Party.cs` and `Tax.cs`, inlined at compile time |
+| `unit` | UN/ECE code (version 1 trees hold the `UnitOfMeasure` name, which the `uom` list maps) | `UnitOfMeasureParser` plus tenant and supplier aliases from the `uom` lookup |
+| `party`, `address`, `taxRow`, `paymentTerms`, `chargeOrAllowance`, `temperatureReading` | object | Shipped composites mirroring `Party.cs`, `Tax.cs`, `PaymentTerms.cs`, `ChargeOrAllowance` (`Invoice.cs`) and `TemperatureReading` (`DeliveryNote.cs`), inlined at compile time; their members are fixed in `FieldKinds.CompositeMembers` |
 | `object` | object | Nested group |
 | `array` | array of objects | Repeating group; `anchor` names the row-anchor field used by `LocateLine` |
 | `bag` | `{key: scalar FieldValue}` | Declared extension bag for supplier-specific attributes (`ext`) |
@@ -165,6 +166,8 @@ A definition is the JSON stored in `DocumentTypeVersion.DefinitionJson`. It is v
 - `label {locale}`, `description` (also sent to the LLM schema), `required`, `readOnly`, `section`, `order`, `visibleWhen` (equality on a sibling field).
 - `extraction {labels{lang:[...]}, pattern, llmHint}`.
 - `indexed`, `sensitive`, `deprecated`.
+- `list`: the field is a list of values of its kind (`orderReferences`), each with its own envelope; `array` is for rows of several fields.
+- `provenance` (default true): false for a member the canonical tree stores as a bare value without the `FieldValue` envelope. Only today's records have such members (version 1 trees: the VAT summary, charges, a line's number and printed unit); they are part of the template so its paths are exactly the stored tree's, are `readOnly`, and no correction addresses them.
 - validation: `pattern`, `min`, `max`, `maxLength`; on `array` fields also `maxItems`, the row cap of that repeating group (at most 20,000).
 
 **Roles** bind well-known semantics to paths:
@@ -189,9 +192,10 @@ Roles feed the denormalised columns, duplicate detection, the inbox, the coded i
   - `requirePassedRules` (rule ids that must have run and passed), `blockOnWarnings` (rule ids whose warnings stop auto-approval, section 11);
   - `lines {requireSource, requireLocated, maxLowConfidenceRows}` for the rows of the `lineItems` role.
   All of these keys are part of the meta-schema.
-- `classification`: `{description, keywords{lang:[...]}, negatives{lang:[...]}}`. These are the fuzzy, weighted keyword signals of today's `KeywordMatcher`. Strict identification rules are not part of the type definition: they belong to a supplier layout, or to the tenant fallback list (section 8.5), so a type version does not change when a supplier's design does.
+- `classification`: `{description, keywords{lang:[...]}, labels{lang:[...]}, dateLabels{lang:[...]}, negatives{lang:[...]}}`. These are the fuzzy, weighted keyword signals of today's `KeywordMatcher`: titles, document-number labels, date labels and negative phrases, with the weights it gives each kind. Strict identification rules are not part of the type definition: they belong to a supplier layout, or to the tenant fallback list (section 8.5), so a type version does not change when a supplier's design does.
 - `llm`: `{guidance, examples: "template"|[...], adapter?}`.
 - `ui`: `{sections:[{id, label}]}`.
+- Platform templates only: `legacyKey`, the `DocumentType` name existing tenants adopt the template under (21, step 2).
 
 ### 5.3 Example: Acme's credit note (fork of std.credit-note v1)
 
@@ -234,7 +238,7 @@ The example is abbreviated: inherited std fields are elided with `"..."` comment
         { "id": "fld_l_unit", "key": "unit", "kind": "unit", "codeList": "uom" },
         { "id": "fld_l_price", "key": "unitPrice", "kind": "money", "currencyFrom": "currency" },
         { "id": "fld_l_net", "key": "lineNet", "kind": "money", "currencyFrom": "currency" },
-        { "id": "fld_l_sku", "key": "supplierSku", "kind": "identifier" },
+        { "id": "fld_l_sku", "key": "supplierSku", "kind": "string" },
         { "id": "fld_l_ext", "key": "ext", "kind": "bag" }
       ] } },
     { "id": "fld_ext", "key": "ext", "kind": "bag", "label": { "en": "Supplier-specific attributes" } }
@@ -1526,6 +1530,7 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
   - Config: `{method, urlTemplate, headers, timeoutSeconds, successCodes, auth}`.
   - Auth: `none | apiKeyHeader | basic | bearer | oauth2ClientCredentials` (token cached until expiry) ` | hmacSha256` (signature over timestamp and body). mTLS comes later.
   - Every call goes through `TenantEndpointGuard`, moved from `src/DocProc.Llm/Providers` to `src/DocProc.Infrastructure/Http` (done in P0) and still used by the LLM path: https only, public addresses only, re-checked after DNS resolution, no proxy, no redirects. `DocProc.Infrastructure` references `DocProc.Llm`, so the guard's LLM-specific helpers (`EnsureAllowed`, `ToLlmException`) moved to `LlmEndpointGuard` in `src/DocProc.Infrastructure/Llm`, and the two provider adapters now reference `DocProc.Infrastructure`.
+  - The demos' `mock-erp` (P0, docs/09 "Mock ERP") listens on plain http at a private address (`http://mock-erp:8080` in compose, `http://localhost:8086` under the AppHost), which the guard refuses. P3 therefore adds a development-only allowance: hosts listed in a `Delivery:DevelopmentHosts` setting, honoured only in the Development environment, may be reached over http. Production keeps the guard unchanged.
   - Headers sent: `Idempotency-Key`, `X-DocProc-Document-Id`, `X-DocProc-Revision`.
   - **Multipart** bodies can include the original file (`{"parts":[{"name":"data","mapping":"self"},{"name":"file","content":"original"}]}`).
   - Optional `responseMapping` (JSONata on the response body) captures `DocumentExternalRef.ExternalId`.
@@ -1960,7 +1965,7 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
 | `schemas/identification-rule.v1.json` (new) | Meta-schema of identification rules, snapshot-tested |
 | `src/DocProc.Application/Abstractions/IDocumentExtractor.cs`, `IDocumentClassifier.cs`, `IEInvoiceParser.cs` | Generic contracts (section 9.1); extras from the parser |
 | `src/DocProc.Application/Pipeline/PipelineMessages.cs` | `ProcessDocument.ConfigHash`; `ProcessDelivery`; `DocumentEventMessage` v2 |
-| `src/DocProc.Application/{Outputs,Documents,Config}` (new) | `IDocumentDataViewBuilder`, `RoleProjector`, `IEffectiveConfigResolver`, `IOutputRenderer`, `IDeliveryTransport` |
+| `src/DocProc.Application/{Outputs,Documents,Configuration}` (new) | `IDocumentDataViewBuilder`, `RoleProjector`, `IEffectiveConfigResolver`, `IOutputRenderer`, `IDeliveryTransport` |
 | `src/DocProc.Infrastructure/Persistence/Entities/{Documents,Ingestion,Channels,Suppliers,Tenancy}.cs` | Additive columns (section 6) |
 | `.../Entities/{DocumentTypes,Layouts,Outputs,Routing,Governance,MasterData}.cs` (new) | New entities and EF configurations (`Layouts.cs`: `SupplierLayout`, `SupplierLayoutVersion`, `TypeIdentificationRule`, `TypeIdentificationRuleVersion`; `DocumentTableReport` in `Documents.cs`) |
 | `.../CanonicalDocumentSerializer.cs` | Generic tree read and write; typed overloads kept for projections |
@@ -2185,6 +2190,8 @@ Five decisions change the build. Each is listed with its options and a recommend
 | 3 | Output transform language | JSONata with the visual field mapper compiling to it, rendered on the server; Liquid later for CSV, XML and fixed-width text formats. |
 | 4 | First receiving systems | One JSON POST per document over the generic http transport, plus file drop and a pull feed. Multi-call recipes, batch files, SFTP, XML/CSV output and acknowledgement callbacks stay in the later phases. |
 | 5 | Non-PDF inputs | PDF and images in the first release; spreadsheets, custom XML/JSON and office formats in the later phases as planned. |
+
+Open consequence of decision 2 (found while delivering P0, not yet rewritten): sections 8.3, 12.10 (steps 6 and 8), 22 ("New-layout flow", "End to end in compose") and the P4 and P5 demos in 23 still describe the recommended Option A, where version 1 of a layout saved from a `NEW_LAYOUT` review has warm-up 0, and say that the next document in the new design is delivered without review "with the default tenant settings". Under the decided policy that default is a warm-up of 5, so the first five documents under the new version go to review. Those passages, and whether the demos run five documents or set the demo tenant's warm-up explicitly, are to be settled when P4 is planned in detail.
 
 1. **Source versus content precedence, and sender authentication.** Options: the source always wins; content (VAT, IBAN) always wins; per rule. Recommendation: per rule, as designed in 7.2 and 7.4 (`Exclusive` keeps the source supplier and raises a blocking `SUPPLIER_CONFLICT` on contrary content evidence; `DefaultWhenNoContentMatch` yields to VAT and IBAN), with `RequireSenderAuth` on by default for sender rules.
 2. **Who activates learned layouts, and with which warm-up** (`TenantSettings.LayoutActivation`). This is the "activation policy" referred to in 8.3, 11, 12.6 and 12.10. A layout is always activated under the one condition of 8.3 (identification test passes, field agreement on its replay set); the decision is who may do it and how many documents then still go to review:

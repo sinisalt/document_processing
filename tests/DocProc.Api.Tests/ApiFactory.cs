@@ -48,6 +48,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
 
+    /// <summary>
+    /// Set before the host starts: the request contexts run under a retrying execution strategy, as on SQL Server, and
+    /// <see cref="SaveFailure"/> can fail a save with a transient error the strategy retries.
+    /// </summary>
+    public bool RetryingStrategy { get; init; }
+
+    public TransientSaveFailure SaveFailure { get; } = new();
+
     /// <summary>Replaces the pipeline queue: the API only enqueues, and tests assert on what it enqueued.</summary>
     public CapturingPipelineQueue Queue { get; } = new();
 
@@ -80,7 +88,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             _connection.Open();
             services.AddSingleton<TimeProvider>(Clock);
-            services.AddDbContext<DocProcDbContext>(o => o.UseSqlite(_connection));
+            services.AddDbContext<DocProcDbContext>(o =>
+            {
+                if (RetryingStrategy)
+                {
+                    // As SQL Server's EnableRetryOnFailure: a strategy that retries refuses transactions it does not run.
+                    o.UseSqlite(_connection, sqlite => sqlite.ExecutionStrategy(dependencies => new TestRetryingExecutionStrategy(dependencies)));
+                    o.AddInterceptors(SaveFailure);
+                }
+                else
+                {
+                    o.UseSqlite(_connection);
+                }
+            });
             services.AddSingleton<ISystemDbContextFactory>(new InMemorySqliteDbContextFactory(_connection));
             services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
             services.RemoveAll<IPipelineQueue>();

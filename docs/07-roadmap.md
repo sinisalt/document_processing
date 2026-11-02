@@ -169,12 +169,12 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 in progress
+## Configurable types (docs/11 §23) – P0 done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
-- **P0, safety seams – in progress.** No visible behaviour changes; the invoice family, API, UI and tests behave as
-  before.
+- **P0, safety seams – done.** No visible behaviour changes; the invoice family, API, UI and tests behave as
+  before (one exception, a fix: approve, reject and reprocess answered 500 on SQL Server, see below).
   - Done, persistence and safety:
     - per-tenant feature flags (`TenantSettings.Features`: `configurableTypes`, `outputs`, `sourceRouting`,
       `supplierLayouts`, `customTypes`, `structuredSources`), all off, read through `ITenantFeatures`;
@@ -197,8 +197,25 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       rules; the validate stage runs the invoice rule list (`StandardRuleSets`) and raises identical flags;
     - `ExtractionOutcome(ExtractedDocument, …)` with the compatibility constructor taking an `Invoice`; the Extract
       stage stores the tree, byte for byte the JSON it stored before.
-  - Open: the seeded std templates with the parity test and `IEffectiveConfigResolver`, and `mock-erp` in compose and
-    AppHost.
+  - Done, templates and infrastructure:
+    - the definition format of docs/11 §5.2 (`src/DocProc.Definitions`: records read strictly, `DefinitionChecker` with
+      the structural publish-time checks of §5.7) and the seven standard templates of the legacy keys as embedded JSON
+      (`std.invoice`, `std.credit-note`, `std.purchase-order`, `std.delivery-note`, `std.statement`, `std.reminder`,
+      `std.generic`), with exactly today's field paths; `StandardTemplateParityTests` holds them to the records, the
+      coded rule lists, the role bindings, the required fields, the duplicate check, the extraction path and the
+      keyword classifier's phrases;
+    - `IEffectiveConfigResolver` (`StandardTemplateConfigResolver`: the adopted std template of a document's type); the
+      validate stage takes its rule list and auto-approval switch from it, with identical results;
+    - `mock-erp` (WireMock, `docker/mock-erp`) in compose and the AppHost, held in parity by `ComposeParityTests`, with
+      the erp-ap and article-price stubs and a 503 on demand (docs/09 "Mock ERP");
+    - the P0 demo, run in the compose stack: the demo documents end as designed on the std templates, and an approval
+      interrupted by a crash between commit and enqueue (the Development-only `Pipeline:Faults:CrashBeforePublishEnqueueMarker`)
+      is published by the sweeper after the restart, with `recoveredBy: "publish-sweeper"` in the timeline.
+  - Fixed on the way: approve, reject and reprocess open a transaction, which SQL Server's retrying execution strategy
+    refuses unless it runs it; they answered 500 in the compose stack and under the AppHost (the SQLite tests passed).
+    They now run under the strategy (`DecisionExecutionStrategyTests`).
+  - Left for P1: the meta-schema file `schemas/document-type-definition.v1.json` (shape checks are the strict reader and
+    `DefinitionChecker` until then), the `ext` bags, the compiler, and the price-list templates.
 - **P1 to P6** – not started.
 
 ## Risks and open questions

@@ -1,4 +1,5 @@
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -12,13 +13,15 @@ using Microsoft.Extensions.Logging;
 namespace DocProc.Pipeline.Stages;
 
 /// <summary>
-/// Stage 7 (docs/03 "Validate and enrich") and the hand-over to stage 8 or 9: runs the type's rule list
-/// (<see cref="StandardRuleSets"/>; for invoices the coded rules of <see cref="InvoiceValidator.Default"/> through
-/// <see cref="InvoiceRuleAdapter"/>) with the tenant's identity and confidence threshold, adds
+/// Stage 7 (docs/03 "Validate and enrich") and the hand-over to stage 8 or 9: runs the rule list of the type's
+/// definition, resolved through <see cref="IEffectiveConfigResolver"/> (in P0 the adopted standard template, whose list
+/// for invoices is the coded rules of <see cref="InvoiceValidator.Default"/> through <see cref="InvoiceRuleAdapter"/>,
+/// exactly <see cref="StandardRuleSets"/>), with the tenant's identity and confidence threshold, adds
 /// <c>DUPLICATE_SUSPECTED</c> when the same supplier already sent the same number, persists the flags and decides: no
 /// blocking flag, nothing below threshold and no always-review rule means <c>AutoApproved</c>, with its outbox row in
 /// the same save and a publish message as a nudge; everything else means <c>NeedsReview</c> with a review task. A
-/// document without canonical data (unsupported type) always goes to review.
+/// document without canonical data (unsupported type), or whose type has no rules or no auto-approval in its
+/// definition, always goes to review.
 /// </summary>
 internal sealed class ValidateHandler(
     DocProcDbContext db,
@@ -26,6 +29,7 @@ internal sealed class ValidateHandler(
     DocumentFlagWriter flags,
     IPipelineQueue queue,
     DocumentValidator validator,
+    IEffectiveConfigResolver configResolver,
     ILogger<ValidateHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     public const string ApprovedBy = DocumentTimeline.Actor;
@@ -47,16 +51,20 @@ internal sealed class ValidateHandler(
             ? await Db.Suppliers.AsNoTracking().SingleOrDefaultAsync(s => s.Id == supplierId, cancellationToken).ConfigureAwait(false)
             : null;
 
+        // A type whose definition lists no rules is not validated: nothing vouches for its data, so it goes to review.
+        var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId), cancellationToken).ConfigureAwait(false);
+        var type = config.Type is { Rules.Count: > 0 } validated ? validated : null;
+
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
-        if (document.CanonicalJson is { } json && StandardRuleSets.ForLegacyType(document.Type) is { } rules)
+        if (document.CanonicalJson is { } json && type is not null)
         {
             var view = DocumentView.FromJson(document.Type, json);
             var context = new ValidationContext(
                 Today(tenant),
                 ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
                 new Domain.Validation.TenantContext(tenant.LegalName, tenant.VatId, tenant.DefaultCurrency, tenant.NameAliases));
-            result = validator.Validate(view, rules, context);
+            result = validator.Validate(view, type.Rules, context);
             raised.AddRange(result.Flags);
 
             if (await IsDuplicateAsync(document, cancellationToken).ConfigureAwait(false))
@@ -74,6 +82,7 @@ internal sealed class ValidateHandler(
         var open = DocumentFlagWriter.Unresolved(document);
         var alwaysReview = supplier?.AlwaysReview == true || (document.SupplierId is { } sid && tenant.Settings.AlwaysReviewSupplierIds.Contains(sid));
         var eligible = result is { IsEligibleForAutoApproval: true }
+                       && type is { AutoApprove: true }
                        && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code == FlagCodes.LowConfidence)
                        && !alwaysReview;
 

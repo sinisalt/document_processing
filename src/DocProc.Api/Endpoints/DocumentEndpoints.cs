@@ -347,17 +347,32 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Approved);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
-                    .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
-                    .SetProperty(d => d.ApprovedBy, actor)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
+                        .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
+                        .SetProperty(d => d.ApprovedBy, actor)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            document.Status = DocumentStatus.Approved;
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
+            // The outbox row commits with the decision (docs/11 §13.5): if the process dies before the publish message
+            // below is queued, the publish sweeper finds the row and publishes it.
+            DocumentOutbox.Add(db, document, now);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -367,13 +382,6 @@ public static class DocumentEndpoints
         document.ApprovedBy = actor;
         document.UpdatedAt = now;
         document.Version++;
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
-        // The outbox row commits with the decision (docs/11 §13.5): if the process dies before the publish message
-        // below is queued, the publish sweeper finds the row and publishes it.
-        DocumentOutbox.Add(db, document, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -409,15 +417,28 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Rejected);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            document.Status = DocumentStatus.Rejected;
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
+            DocumentOutbox.Add(db, document, now);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -425,11 +446,6 @@ public static class DocumentEndpoints
         document.Status = DocumentStatus.Rejected;
         document.UpdatedAt = now;
         document.Version++;
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
-        DocumentOutbox.Add(db, document, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -485,16 +501,28 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, target);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, target)
-                    .SetProperty(d => d.FailureReason, (string?)null)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, target)
+                        .SetProperty(d => d.FailureReason, (string?)null)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString() }, now);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -503,11 +531,6 @@ public static class DocumentEndpoints
         document.FailureReason = null;
         document.UpdatedAt = now;
         document.Version++;
-        // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString() }, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, stage), ct);
         return TypedResults.Ok(DocumentQueries.ToDetail(row));
@@ -613,6 +636,32 @@ public static class DocumentEndpoints
 
         return PipelineOrder[furthest];
     }
+
+    /// <summary>
+    /// Runs a decision's writes in one transaction under the context's execution strategy. On SQL Server the context
+    /// retries transient failures (<c>EnableRetryOnFailure</c>), and that strategy refuses a transaction it does not run
+    /// itself ("does not support user-initiated transactions"), so approve, reject and reprocess answered 500 there
+    /// while the SQLite tests passed. Each attempt starts from an empty change tracker, so a retry does not save the
+    /// failed attempt's rows a second time, and <paramref name="work"/> sets every value it writes rather than
+    /// incrementing one. It returns false when the document is no longer in the expected state, and the transaction
+    /// is rolled back. A retry after a commit whose acknowledgement was lost finds the document already moved and
+    /// reports a concurrent change: the decision stands, and its outbox row with it.
+    /// </summary>
+    private static Task<bool> InTransactionAsync(DocProcDbContext db, Func<CancellationToken, Task<bool>> work, CancellationToken ct) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(
+            async cancel =>
+            {
+                db.ChangeTracker.Clear();
+                await using var transaction = await db.Database.BeginTransactionAsync(cancel);
+                if (!await work(cancel))
+                {
+                    return false;
+                }
+
+                await transaction.CommitAsync(cancel);
+                return true;
+            },
+            ct);
 
     private static async Task CloseOpenTasksAsync(DocProcDbContext db, Guid documentId, ReviewTaskStatus outcome, DateTimeOffset now, CancellationToken ct)
     {

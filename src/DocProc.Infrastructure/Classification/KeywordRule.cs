@@ -29,8 +29,12 @@ internal enum KeywordKind
     Negative,
 }
 
-/// <summary>One multilingual keyword rule of the stage 4 classifier (docs/03 "Classify").</summary>
-internal sealed record KeywordRule(DocumentType Type, string Language, KeywordKind Kind, Regex Pattern, double Weight);
+/// <summary>
+/// One multilingual keyword rule of the stage 4 classifier (docs/03 "Classify"). <see cref="Phrases"/> are the phrases
+/// <see cref="Pattern"/> was compiled from, as listed below; the standard templates' classification blocks carry the
+/// same phrases (docs/11 §21 step 2), which the template parity test checks.
+/// </summary>
+internal sealed record KeywordRule(DocumentType Type, string Language, KeywordKind Kind, Regex Pattern, double Weight, IReadOnlyList<string> Phrases);
 
 /// <summary>
 /// The rule table: German, English, Croatian, Italian and French titles, number labels and negative phrases for the
@@ -137,16 +141,16 @@ internal static class KeywordRuleSet
     }
 
     private static KeywordRule Title(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Title, Compile(phrases), TitleWeight);
+        new(type, language, KeywordKind.Title, Compile(phrases), TitleWeight, phrases);
 
     private static KeywordRule Label(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Label, Compile(phrases), LabelWeight);
+        new(type, language, KeywordKind.Label, Compile(phrases), LabelWeight, phrases);
 
     private static KeywordRule DateLabel(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.DateLabel, Compile(phrases), LabelWeight);
+        new(type, language, KeywordKind.DateLabel, Compile(phrases), LabelWeight, phrases);
 
     private static KeywordRule Negative(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight);
+        new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight, phrases);
 
     /// <summary>Whole-word alternation; spaces match any whitespace run, hyphens are optional ("Rechnungs-Nr" and "Rechnungs Nr").</summary>
     private static Regex Compile(IEnumerable<string> phrases)

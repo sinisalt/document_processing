@@ -1,0 +1,51 @@
+{
+  "key": "std.reminder",
+  "version": 1,
+  "legacyKey": "Reminder",
+  "name": {
+    "en": "Reminder",
+    "de": "Mahnung"
+  },
+  "description": "A payment reminder or dunning letter. It has no fields yet: today no canonical data is stored for reminders, and they always go to review.",
+  "fields": [],
+  "processing": {
+    "review": {
+      "autoApprove": false
+    }
+  },
+  "classification": {
+    "description": "A payment reminder or dunning letter about an unpaid invoice.",
+    "keywords": {
+      "de": [
+        "Mahnung",
+        "Zahlungserinnerung",
+        "Mahnbescheid"
+      ],
+      "en": [
+        "Reminder",
+        "Payment reminder",
+        "Overdue notice",
+        "Final notice",
+        "Dunning letter",
+        "Dunning notice",
+        "Past due notice"
+      ],
+      "hr": [
+        "Opomena",
+        "Podsjetnik na plaćanje"
+      ],
+      "it": [
+        "Sollecito",
+        "Sollecito di pagamento",
+        "Avviso di pagamento scaduto"
+      ],
+      "fr": [
+        "Rappel",
+        "Rappel de paiement",
+        "Relance",
+        "Lettre de relance",
+        "Mise en demeure"
+      ]
+    }
+  }
+}

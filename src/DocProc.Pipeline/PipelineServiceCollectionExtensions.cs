@@ -1,4 +1,5 @@
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Validation;
 using DocProc.Extraction.EInvoice;
@@ -64,6 +65,8 @@ public static class PipelineServiceCollectionExtensions
 
         services.TryAddSingleton<PipelineBlobs>();
         services.TryAddSingleton(DocumentValidator.Default);
+        // P0: every tenant has adopted the standard templates, so a document's definition is its legacy type's template.
+        services.TryAddSingleton<IEffectiveConfigResolver>(StandardTemplateConfigResolver.Instance);
         services.TryAddScoped<DocumentTimeline>();
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
@@ -126,6 +129,15 @@ public static class PipelineServiceCollectionExtensions
         else
         {
             services.AddDocProcPipelineQueue();
+        }
+
+        // The publish sweeper demo's crash between commit and enqueue (docs/09); never outside Development.
+        if (builder.Environment.IsDevelopment() && configuration[PipelineOptions.CrashBeforePublishEnqueueMarkerKey] is { Length: > 0 } marker)
+        {
+            services.Replace(ServiceDescriptor.Singleton<IPipelineQueue>(sp => new CrashBeforePublishEnqueueQueue(
+                sp.GetRequiredService<InProcessPipelineQueue>(),
+                marker,
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CrashBeforePublishEnqueueQueue>>())));
         }
 
         return builder;
