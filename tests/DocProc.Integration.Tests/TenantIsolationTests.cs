@@ -100,6 +100,40 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         versions.ShouldBeGreaterThanOrEqualTo(2);
     }
 
+    /// <summary>
+    /// A correction records the field's old and new value as JSON, which for most fields is a bare string, number or
+    /// null. SQL Server's json type rejects those (error 13609, "JSON text is not properly formatted"), which made every
+    /// date or text correction fail with a 500, so the two columns are plain text.
+    /// </summary>
+    [Theory]
+    [InlineData("\"2026-131\"", "\"2026-131-X\"")]
+    [InlineData(null, "\"2026-11-15\"")]
+    [InlineData("12.5", "null")]
+    [InlineData("{\"amount\":1.00,\"currency\":\"EUR\"}", "[1,2]")]
+    public async Task Corrections_store_any_json_value(string? oldValue, string? newValue)
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var context = NewContext(TenantContext.ForTenant(TenantA));
+        var document = await context.Documents.SingleAsync(ct);
+        context.Corrections.Add(new Correction
+        {
+            TenantId = TenantA,
+            DocumentId = document.Id,
+            FieldPath = "dueDate",
+            OldValueJson = oldValue,
+            NewValueJson = newValue,
+            By = "tenant-a-admin",
+            At = DateTimeOffset.UtcNow,
+        });
+        await context.SaveChangesAsync(ct);
+
+        var stored = await context.Corrections.AsNoTracking().OrderByDescending(c => c.Id).FirstAsync(ct);
+        stored.OldValueJson.ShouldBe(oldValue);
+        stored.NewValueJson.ShouldBe(newValue);
+    }
+
     private DocProcDbContext NewContext(ITenantContext tenant)
     {
         var options = PersistenceOptions.ConfigureSqlServer(new DbContextOptionsBuilder<DocProcDbContext>(), _connectionString, tenant: tenant);

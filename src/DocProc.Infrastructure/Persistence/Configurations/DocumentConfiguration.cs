@@ -87,8 +87,11 @@ internal sealed class CorrectionConfiguration : IEntityTypeConfiguration<Correct
     {
         b.ToTable("Corrections");
         b.Property(c => c.FieldPath).HasMaxLength(200);
-        b.Property(c => c.OldValueJson).HasColumnType("json");
-        b.Property(c => c.NewValueJson).HasColumnType("json");
+        // A field value is any JSON value, usually a bare string, number or null ("2026-11-15"), which SQL Server's json
+        // type rejects (it takes an object or array only, error 13609), so these two are plain text: nvarchar(max) on
+        // SQL Server, TEXT on SQLite.
+        b.Property(c => c.OldValueJson);
+        b.Property(c => c.NewValueJson);
         b.Property(c => c.By).HasMaxLength(200);
         b.Property(c => c.Reason).HasMaxLength(500);
         b.HasIndex(c => new { c.DocumentId, c.At });
