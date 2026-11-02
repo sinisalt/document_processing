@@ -47,6 +47,30 @@
         }
       }
     },
+    "/api/v1/document-templates": {
+      "get": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "The platform templates a tenant can adopt or copy, with the tenant's types that come from each.",
+        "operationId": "ListDocumentTemplates",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentTemplateSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/llm-usage": {
       "get": {
         "tags": [
@@ -1752,7 +1776,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Review policy and retention of the current tenant, with its read-only identity.",
+        "summary": "Review policy, retention and feature switches of the current tenant, with its read-only identity.",
         "operationId": "GetTenantSettings",
         "responses": {
           "200": {
@@ -1771,7 +1795,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Replaces the review policy and retention of the current tenant.",
+        "summary": "Replaces the review policy and retention of the current tenant, and its feature switches when features is given.",
         "operationId": "PutTenantSettings",
         "requestBody": {
           "content": {
@@ -1790,6 +1814,402 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TenantSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types": {
+      "get": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "The tenant's document types.",
+        "operationId": "ListDocumentTypes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentTypeDetail"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Adopts or copies a platform template ({from}), or creates a type of the tenant's own ({definition}) as draft version 1.",
+        "operationId": "CreateDocumentType",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentTypeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeDetail"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}": {
+      "get": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "One of the tenant's types with its versions.",
+        "operationId": "GetDocumentType",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}/versions": {
+      "get": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "The versions of a type, oldest first.",
+        "operationId": "ListDocumentTypeVersions",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentTypeVersionSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Starts the next version of a copied or custom type as a draft, from the published version.",
+        "operationId": "CreateDocumentTypeDraft",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeVersionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}/versions/{version}": {
+      "get": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "One version with its definition; include=formSpec,jsonSchema,llmSchema,descriptors adds the compiled artifacts. The ETag is the draft revision.",
+        "operationId": "GetDocumentTypeVersion",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeVersionDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Replaces a draft's definition (If-Match: the revision read). The meta-schema is checked on save; everything else on validate and publish.",
+        "operationId": "SaveDocumentTypeDraft",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeVersionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}/versions/{version}:validate": {
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Runs the publish-time checks on a version and returns the report, without publishing.",
+        "operationId": "ValidateDocumentTypeVersion",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishReportDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}/versions/{version}:publish": {
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Publishes a draft when the publish-time checks pass (422 with the report otherwise); the previous version is deprecated.",
+        "operationId": "PublishDocumentTypeVersion",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishReportDto"
                 }
               }
             }
@@ -2531,6 +2951,43 @@
         },
         "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.\nstring? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the\nserver generates; the response only ever says whether one exists."
       },
+      "CreateDocumentTypeRequest": {
+        "required": [
+          "from",
+          "key",
+          "definition"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentTypeSource"
+              }
+            ]
+          },
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "definition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "`POST /document-types` (docs/11 §18): DocumentTypeSource? CreateDocumentTypeRequest.From to adopt or copy a template (under string? CreateDocumentTypeRequest.Key,\nor its legacy key or its id without `std.`), or JsonElement? CreateDocumentTypeRequest.Definition for a type of the tenant's own."
+      },
       "CreateLlmProviderRequest": {
         "required": [
           "kind",
@@ -2732,6 +3189,47 @@
         },
         "description": "Returned once, on creation: string CreatedApiKey.Key is never retrievable again."
       },
+      "DefinitionProblemDto": {
+        "required": [
+          "where",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "where": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "DependentReferenceDto": {
+        "required": [
+          "kind",
+          "name",
+          "fieldId",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fieldId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "DocumentCostsDto": {
         "required": [
           "llmInputTokens",
@@ -2860,7 +3358,7 @@
             "$ref": "#/components/schemas/DocumentStatus"
           },
           "type": {
-            "$ref": "#/components/schemas/DocumentType"
+            "$ref": "#/components/schemas/DocumentTypeKey"
           },
           "typeConfidence": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
@@ -3241,7 +3739,7 @@
             "$ref": "#/components/schemas/DocumentStatus"
           },
           "type": {
-            "$ref": "#/components/schemas/DocumentType"
+            "$ref": "#/components/schemas/DocumentTypeKey"
           },
           "typeConfidence": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
@@ -3345,17 +3843,312 @@
         },
         "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is."
       },
-      "DocumentType": {
-        "enum": [
-          "Unknown",
-          "Invoice",
-          "CreditNote",
-          "PurchaseOrder",
-          "DeliveryNote",
-          "Statement",
-          "Reminder",
-          "Other"
-        ]
+      "DocumentTemplateSummary": {
+        "required": [
+          "key",
+          "version",
+          "name",
+          "description",
+          "legacyKey",
+          "defaultKey",
+          "adoptedAs"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "legacyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultKey": {
+            "type": "string"
+          },
+          "adoptedAs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "A platform template in the catalogue (`GET /document-templates`): its key and version, its name and\ndescription, the legacy key existing tenants adopted it under (if any), the key adopting or copying it uses when\nthe request names none (`DefaultKey`) and the tenant's type keys that come from it (`AdoptedAs`)."
+      },
+      "DocumentTypeDetail": {
+        "required": [
+          "key",
+          "name",
+          "description",
+          "origin",
+          "status",
+          "baseTemplate",
+          "baseVersion",
+          "publishedVersion",
+          "draftVersion",
+          "createdAt",
+          "updatedAt",
+          "versions"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "baseTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "publishedVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "draftVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentTypeVersionSummary"
+            }
+          }
+        },
+        "description": "A tenant's document type (docs/11 §6.1) with its versions."
+      },
+      "DocumentTypeKey": {
+        "maxLength": 64,
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$",
+        "type": "string",
+        "description": "A document type key: a legacy type (Unknown, Invoice, CreditNote, PurchaseOrder, DeliveryNote, Statement, Reminder, Other) or a key of one of the tenant's types."
+      },
+      "DocumentTypeSource": {
+        "required": [
+          "template",
+          "mode"
+        ],
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "description": "Where a new type comes from: a platform template, adopted (follows it) or copied (a fork)."
+      },
+      "DocumentTypeVersionDetail": {
+        "required": [
+          "key",
+          "version",
+          "definition",
+          "formSpec",
+          "jsonSchema",
+          "llmSchema",
+          "descriptors"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/components/schemas/DocumentTypeVersionSummary"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "formSpec": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "jsonSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "llmSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "descriptors": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "One version with its definition and, on request (`include=formSpec,jsonSchema,llmSchema,descriptors`), its compiled artifacts."
+      },
+      "DocumentTypeVersionSummary": {
+        "required": [
+          "version",
+          "state",
+          "revision",
+          "contentHash",
+          "llmSchema",
+          "createdAt",
+          "createdBy",
+          "updatedAt",
+          "publishedAt",
+          "publishedBy",
+          "changeNote"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "state": {
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "contentHash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "llmSchema": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "publishedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "changeNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One version of a tenant's type, without its JSON."
       },
       "ExtractionMethod": {
         "enum": [
@@ -3365,6 +4158,49 @@
           "Manual",
           null
         ]
+      },
+      "FieldChangeDto": {
+        "required": [
+          "change",
+          "fieldId",
+          "oldPath",
+          "newPath",
+          "oldKind",
+          "newKind"
+        ],
+        "type": "object",
+        "properties": {
+          "change": {
+            "type": "string"
+          },
+          "fieldId": {
+            "type": "string"
+          },
+          "oldPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "newPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "oldKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "newKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "FieldCorrection": {
         "required": [
@@ -4416,6 +5252,60 @@
         },
         "description": "Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it."
       },
+      "PublishReportDto": {
+        "required": [
+          "canPublish",
+          "problems",
+          "warnings",
+          "changes",
+          "blockingDependents",
+          "llmSchema",
+          "contentHash"
+        ],
+        "type": "object",
+        "properties": {
+          "canPublish": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefinitionProblemDto"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefinitionProblemDto"
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldChangeDto"
+            }
+          },
+          "blockingDependents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DependentReferenceDto"
+            }
+          },
+          "llmSchema": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contentHash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "The publish-time checks' report (docs/11 §5.7): what blocks, what to know, which fields changed."
+      },
       "PutLlmPolicyRequest": {
         "required": [
           "defaultConfigId",
@@ -4743,6 +5633,38 @@
           }
         }
       },
+      "TenantFeaturesDto": {
+        "required": [
+          "configurableTypes",
+          "outputs",
+          "sourceRouting",
+          "supplierLayouts",
+          "customTypes",
+          "structuredSources"
+        ],
+        "type": "object",
+        "properties": {
+          "configurableTypes": {
+            "type": "boolean"
+          },
+          "outputs": {
+            "type": "boolean"
+          },
+          "sourceRouting": {
+            "type": "boolean"
+          },
+          "supplierLayouts": {
+            "type": "boolean"
+          },
+          "customTypes": {
+            "type": "boolean"
+          },
+          "structuredSources": {
+            "type": "boolean"
+          }
+        },
+        "description": "The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type\ncatalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types\nof the tenant's own; the others belong to later phases and change nothing yet."
+      },
       "TenantIdentity": {
         "required": [
           "id",
@@ -4885,9 +5807,19 @@
           },
           "shareExtractorProfiles": {
             "type": "boolean"
+          },
+          "features": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TenantFeaturesDto"
+              }
+            ]
           }
         },
-        "description": "Review policy and retention (docs/02 §1 \"settings\"); the body of PUT and the `settings` part of GET."
+        "description": "Review policy, retention and the feature switches (docs/02 §1 \"settings\", docs/11 §18 \"Settings\"); the body of PUT\nand the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are."
       },
       "TenantSettingsResponse": {
         "required": [
@@ -4931,6 +5863,9 @@
   "tags": [
     {
       "name": "DocProc.Api"
+    },
+    {
+      "name": "Document types"
     },
     {
       "name": "LLM"

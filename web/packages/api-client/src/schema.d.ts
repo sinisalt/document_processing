@@ -75,6 +75,128 @@ export interface paths {
         patch: operations["UpdateChannel"];
         trace?: never;
     };
+    "/api/v1/document-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The platform templates a tenant can adopt or copy, with the tenant's types that come from each. */
+        get: operations["ListDocumentTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's document types. */
+        get: operations["ListDocumentTypes"];
+        put?: never;
+        /** Adopts or copies a platform template ({from}), or creates a type of the tenant's own ({definition}) as draft version 1. */
+        post: operations["CreateDocumentType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the tenant's types with its versions. */
+        get: operations["GetDocumentType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The versions of a type, oldest first. */
+        get: operations["ListDocumentTypeVersions"];
+        put?: never;
+        /** Starts the next version of a copied or custom type as a draft, from the published version. */
+        post: operations["CreateDocumentTypeDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version with its definition; include=formSpec,jsonSchema,llmSchema,descriptors adds the compiled artifacts. The ETag is the draft revision. */
+        get: operations["GetDocumentTypeVersion"];
+        /** Replaces a draft's definition (If-Match: the revision read). The meta-schema is checked on save; everything else on validate and publish. */
+        put: operations["SaveDocumentTypeDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}:publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publishes a draft when the publish-time checks pass (422 with the report otherwise); the previous version is deprecated. */
+        post: operations["PublishDocumentTypeVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}:validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the publish-time checks on a version and returns the report, without publishing. */
+        post: operations["ValidateDocumentTypeVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents": {
         parameters: {
             query?: never;
@@ -564,9 +686,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Review policy and retention of the current tenant, with its read-only identity. */
+        /** Review policy, retention and feature switches of the current tenant, with its read-only identity. */
         get: operations["GetTenantSettings"];
-        /** Replaces the review policy and retention of the current tenant. */
+        /** Replaces the review policy and retention of the current tenant, and its feature switches when features is given. */
         put: operations["PutTenantSettings"];
         post?: never;
         delete?: never;
@@ -811,6 +933,15 @@ export interface components {
             prefix: string;
             scopes: string[];
         };
+        /**
+         * @description `POST /document-types` (docs/11 §18): DocumentTypeSource? CreateDocumentTypeRequest.From to adopt or copy a template (under string? CreateDocumentTypeRequest.Key,
+         *     or its legacy key or its id without `std.`), or JsonElement? CreateDocumentTypeRequest.Definition for a type of the tenant's own.
+         */
+        CreateDocumentTypeRequest: {
+            definition: null | components["schemas"]["JsonElement"];
+            from: null | components["schemas"]["DocumentTypeSource"];
+            key: null | string;
+        };
         /** @description string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL. */
         CreateLlmProviderRequest: {
             apiKey: string;
@@ -842,6 +973,16 @@ export interface components {
             slug: string;
             timeZone: string;
             vatId: null | string;
+        };
+        DefinitionProblemDto: {
+            message: string;
+            where: string;
+        };
+        DependentReferenceDto: {
+            fieldId: null | string;
+            kind: string;
+            name: string;
+            path: string;
         };
         DocumentCostsDto: {
             /** Format: double */
@@ -899,7 +1040,7 @@ export interface components {
             tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
-            type: components["schemas"]["DocumentType"];
+            type: components["schemas"]["DocumentTypeKey"];
             /** Format: double */
             typeConfidence: null | number | string;
             /** Format: date-time */
@@ -987,7 +1128,7 @@ export interface components {
             tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
-            type: components["schemas"]["DocumentType"];
+            type: components["schemas"]["DocumentTypeKey"];
             /** Format: double */
             typeConfidence: null | number | string;
             /** Format: date-time */
@@ -995,10 +1136,91 @@ export interface components {
             /** Format: int32 */
             warningFlagCount: number | string;
         };
-        /** @enum {unknown} */
-        DocumentType: "Unknown" | "Invoice" | "CreditNote" | "PurchaseOrder" | "DeliveryNote" | "Statement" | "Reminder" | "Other";
+        /**
+         * @description A platform template in the catalogue (`GET /document-templates`): its key and version, its name and
+         *     description, the legacy key existing tenants adopted it under (if any), the key adopting or copying it uses when
+         *     the request names none (`DefaultKey`) and the tenant's type keys that come from it (`AdoptedAs`).
+         */
+        DocumentTemplateSummary: {
+            adoptedAs: string[];
+            defaultKey: string;
+            description: null | string;
+            key: string;
+            legacyKey: null | string;
+            name: {
+                [key: string]: string;
+            };
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description A tenant's document type (docs/11 §6.1) with its versions. */
+        DocumentTypeDetail: {
+            baseTemplate: null | string;
+            /** Format: int32 */
+            baseVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            description: null | string;
+            /** Format: int32 */
+            draftVersion: null | number | string;
+            key: string;
+            name: {
+                [key: string]: string;
+            };
+            origin: string;
+            /** Format: int32 */
+            publishedVersion: null | number | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["DocumentTypeVersionSummary"][];
+        };
+        /** @description A document type key: a legacy type (Unknown, Invoice, CreditNote, PurchaseOrder, DeliveryNote, Statement, Reminder, Other) or a key of one of the tenant's types. */
+        DocumentTypeKey: string;
+        /** @description Where a new type comes from: a platform template, adopted (follows it) or copied (a fork). */
+        DocumentTypeSource: {
+            mode: string;
+            template: string;
+        };
+        /** @description One version with its definition and, on request (`include=formSpec,jsonSchema,llmSchema,descriptors`), its compiled artifacts. */
+        DocumentTypeVersionDetail: {
+            definition: components["schemas"]["JsonElement"];
+            descriptors: null | components["schemas"]["JsonElement"];
+            formSpec: null | components["schemas"]["JsonElement"];
+            jsonSchema: null | components["schemas"]["JsonElement"];
+            key: string;
+            llmSchema: null | components["schemas"]["JsonElement"];
+            version: components["schemas"]["DocumentTypeVersionSummary"];
+        };
+        /** @description One version of a tenant's type, without its JSON. */
+        DocumentTypeVersionSummary: {
+            changeNote: null | string;
+            contentHash: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            llmSchema: null | string;
+            /** Format: date-time */
+            publishedAt: null | string;
+            publishedBy: null | string;
+            /** Format: int32 */
+            revision: number | string;
+            state: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            version: number | string;
+        };
         /** @enum {unknown} */
         ExtractionMethod: "StructuredXml" | "Profile" | "Llm" | "Manual" | null;
+        FieldChangeDto: {
+            change: string;
+            fieldId: string;
+            newKind: null | string;
+            newPath: null | string;
+            oldKind: null | string;
+            oldPath: null | string;
+        };
         /**
          * @description One human correction (docs/05 "PATCH /documents/{id}/fields"). string FieldCorrection.Path is a canonical field path as
          *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
@@ -1260,6 +1482,16 @@ export interface components {
             status: null | string;
             vatId: null | string;
         };
+        /** @description The publish-time checks' report (docs/11 §5.7): what blocks, what to know, which fields changed. */
+        PublishReportDto: {
+            blockingDependents: components["schemas"]["DependentReferenceDto"][];
+            canPublish: boolean;
+            changes: components["schemas"]["FieldChangeDto"][];
+            contentHash: null | string;
+            llmSchema: null | string;
+            problems: components["schemas"]["DefinitionProblemDto"][];
+            warnings: components["schemas"]["DefinitionProblemDto"][];
+        };
         PutLlmPolicyRequest: {
             /** Format: uuid */
             defaultConfigId: null | string;
@@ -1342,6 +1574,19 @@ export interface components {
             updatedAt: string;
             vatId: null | string;
         };
+        /**
+         * @description The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type
+         *     catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types
+         *     of the tenant's own; the others belong to later phases and change nothing yet.
+         */
+        TenantFeaturesDto: {
+            configurableTypes: boolean;
+            customTypes: boolean;
+            outputs: boolean;
+            sourceRouting: boolean;
+            structuredSources: boolean;
+            supplierLayouts: boolean;
+        };
         /** @description The read-only identity of the current tenant; platform staff change it through `/tenants/{id}`. */
         TenantIdentity: {
             countryCode: string;
@@ -1371,11 +1616,15 @@ export interface components {
             updatedAt: string;
             vatId: null | string;
         };
-        /** @description Review policy and retention (docs/02 §1 "settings"); the body of PUT and the `settings` part of GET. */
+        /**
+         * @description Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
+         *     and the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.
+         */
         TenantSettingsDto: {
             alwaysReviewSupplierIds: string[];
             /** Format: double */
             autoApproveConfidenceThreshold: number | string;
+            features?: null | components["schemas"]["TenantFeaturesDto"];
             /** Format: int32 */
             retentionYears: number | string;
             shareExtractorProfiles: boolean;
@@ -1402,9 +1651,12 @@ export type SchemaCorrectionSource = components['schemas']['CorrectionSource'];
 export type SchemaCreateApiKeyRequest = components['schemas']['CreateApiKeyRequest'];
 export type SchemaCreateChannelRequest = components['schemas']['CreateChannelRequest'];
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
+export type SchemaCreateDocumentTypeRequest = components['schemas']['CreateDocumentTypeRequest'];
 export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
+export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
+export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
 export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
 export type SchemaDocumentEventDto = components['schemas']['DocumentEventDto'];
@@ -1412,8 +1664,14 @@ export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
 export type SchemaDocumentIngestionRef = components['schemas']['DocumentIngestionRef'];
 export type SchemaDocumentStatus = components['schemas']['DocumentStatus'];
 export type SchemaDocumentSummary = components['schemas']['DocumentSummary'];
-export type SchemaDocumentType = components['schemas']['DocumentType'];
+export type SchemaDocumentTemplateSummary = components['schemas']['DocumentTemplateSummary'];
+export type SchemaDocumentTypeDetail = components['schemas']['DocumentTypeDetail'];
+export type SchemaDocumentTypeKey = components['schemas']['DocumentTypeKey'];
+export type SchemaDocumentTypeSource = components['schemas']['DocumentTypeSource'];
+export type SchemaDocumentTypeVersionDetail = components['schemas']['DocumentTypeVersionDetail'];
+export type SchemaDocumentTypeVersionSummary = components['schemas']['DocumentTypeVersionSummary'];
 export type SchemaExtractionMethod = components['schemas']['ExtractionMethod'];
+export type SchemaFieldChangeDto = components['schemas']['FieldChangeDto'];
 export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
 export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
@@ -1444,6 +1702,7 @@ export type SchemaPageOfTenantResponse = components['schemas']['PageOfTenantResp
 export type SchemaPatchChannelRequest = components['schemas']['PatchChannelRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
@@ -1452,6 +1711,7 @@ export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
+export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
 export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
@@ -1657,6 +1917,297 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ListDocumentTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTemplateSummary"][];
+                };
+            };
+        };
+    };
+    ListDocumentTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"][];
+                };
+            };
+        };
+    };
+    CreateDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+        };
+    };
+    ListDocumentTypeVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"][];
+                };
+            };
+        };
+    };
+    CreateDocumentTypeDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentTypeVersion: {
+        parameters: {
+            query?: {
+                include?: string;
+            };
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionDetail"];
+                };
+            };
+        };
+    };
+    SaveDocumentTypeDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonElement"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PublishDocumentTypeVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishReportDto"];
+                };
+            };
+        };
+    };
+    ValidateDocumentTypeVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishReportDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };

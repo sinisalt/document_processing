@@ -274,6 +274,8 @@ The example is abbreviated: inherited std fields are elided with `"..."` comment
 }
 ```
 
+Correction (P1): the coded invoice kinds take no parameters (`InvoiceRuleAdapter` has none to pass on to the coded rules), so a publish refuses `"params": { "tolerance": 0.02 }` on `invoice.totals` and `invoice.lineArithmetic`; the tolerance stays the coded one until those rules take parameters. `requiredIf` (`r_scr`) is a P5 kind, so the example as a whole publishes only from P5.
+
 The std template keeps the key `invoiceNumber` for the credit-note number. This keeps existing CreditNote rows, `Correction.FieldPath` values and `invoice_extraction@1` compatible. The label says "Credit note no.", and output mappings normally use `roles.documentNumber`, so the legacy key does not leak into integrations.
 
 ### 5.4 Example: a new type (return slip)
@@ -307,7 +309,8 @@ The std template keeps the key `invoiceNumber` for the credit-note number. This 
 
 The new `DefinitionCompiler` in `src/DocProc.Definitions` compiles each published version into four artifacts, stored on `DocumentTypeVersion`:
 
-1. **`CompiledJsonSchema`**: JSON Schema 2020-12 over the values view. It is used by the server (JsonSchema.Net, subject to a licence check in P1; the fallback is Corvus.Json.Validator) and by the client (Ajv 2020) for instant hints.
+1. **`CompiledJsonSchema`**: JSON Schema 2020-12 over the values view. It is used by the server (JsonSchema.Net) and by the client (Ajv 2020) for instant hints.
+   - Licence check (P1): JsonSchema.Net is MIT up to 8.0.5. From 9.0 its binary releases ship under the json-everything "Open Source Maintenance Fee" EULA (`OSMFEULA.txt` in the package): the source stays MIT, but users with revenue-generating use above US$10,000 a year owe a monthly fee for the published binaries (self-compiled binaries are exempt). The build pins **8.0.5** (`Directory.Packages.props`); moving to 9.x needs the fee or a self-compiled package. The fallback, Corvus.Json.Validator, is Apache-2.0 but pulls Roslyn in to compile validators at run time, so it was not taken.
 2. **`CompiledLlmSchema`**: built by reusing the `PortableSchemaGenerator.Transform` rules (all properties required, nullable type arrays, `additionalProperties:false`, composites inlined with no `$ref`, `description` copied, the reserved `unreadableRegions` appended). It is checked by `SchemaPortability.EnsurePortable`.
    - Name: `doc_<key>`.
    - Version: the first 16 hex characters of the SHA-256 of the compiled JSON (`LlmSchemaHash`).
@@ -387,7 +390,7 @@ The alternative, one type with a `listKind` field, was rejected: every rule and 
 - **v1 (P1)** has the same fields, roles, classification and processing steps as below, but only the rules whose kinds exist in P1 (`r_validity`, `r_from`, `r_price_pos`, `r_pack`, `r_unit`, `r_dup`; for specials `r_validity`, `r_not_expired`, `r_price_pos`, `r_pack`, `r_unit`, `r_dup`) and `"review": { "autoApprove": false }`. This is how "always reviewed" is enforced from P1 to P4: the gate's first condition (section 11) fails, so every list goes to review whatever its other rules say.
 - **v2 (P5)**, shown below, adds `r_table`, `r_count`, `r_sku_unique`, `r_tiers` and `r_delta` (for specials `r_single_day` and `r_below_prev` instead of `r_delta`) and the full review block. It changes no field, so it is a non-breaking template version and adopted types move to it automatically, with one exception: an automatic template upgrade never switches `review.autoApprove` on. The upgrade report offers it, and a `ConfigAdmin` turns it on in the type's Processing tab. A tenant that copied v1 gets the usual three-way diff.
 
-**`std.price-list` v2** (adopted by Acme as `price-list`; abbreviated only where noted):
+**`std.price-list` v2** (adopted by Acme as `price-list`; abbreviated only where noted). Correction (P1): the line roles are full paths, as in section 5.2 and the invoice template (`"lineSku": "lines[*].supplierSku"`, `"lineUnitPrice": "lines[*].price"`); the block below writes them relative to the row, which the publish checks refuse. The shipped templates use the full paths.
 
 ```json
 {
@@ -589,6 +592,7 @@ New file `DocumentTypes.cs` in `src/DocProc.Infrastructure/Persistence/Entities`
 - `Status {Active, Archived}`, `PublishedVersion int?`.
 - `DraftJson json?`, `DraftRevision rowversion` (used for If-Match).
 - `CreatedAt/By`, `UpdatedAt`.
+- Correction (P1): the draft is a `DocumentTypeVersion` in state `Draft` (the per-version API of section 18 addresses it as `…/versions/{v}`), so the definition row has no `DraftJson`, and the If-Match token is the version's `Revision int`, raised with every saved change, instead of a `rowversion`, which the SQLite development mode does not have. A type has at most one draft.
 
 **DocumentTypeVersion** (temporal; immutable once Published)
 - `Id`, `DefinitionId`, `TenantId?`, `Version int`, unique on `(DefinitionId, Version)`.
@@ -1267,7 +1271,7 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 2. **Rule kinds** implement `IDocumentRule.Evaluate(DocumentView view, RuleParams p, ValidationContext ctx)`:
    - Generic kinds: `required`, `requiredIf`, `pattern`, `range`, `enumMember`, `compare`, `sumEquals` (for example `lines[*].lineNet.amount` equals `net.amount`, with a tolerance), `arithmetic` (`quantity*unitPrice-discountAmount = lineNet` per row), `dateOrder`, `datePlausibility`, `lookupExists`, `duplicate` (the role `duplicateKey`), `confidence`, `customerMatch` (receiving entities), and `expression` (a sandboxed JSONata predicate).
    - Phase in which each generic kind is registered (a type that uses a kind before then cannot publish, 5.7):
-     - **P1**: `required`, `pattern`, `range`, `enumMember`, `dateOrder`, `datePlausibility`, `lookupExists`, `duplicate` (including `onMatch`), `confidence`, `customerMatch`. The coded invoice kinds come with `InvoiceRuleAdapter` in P0.
+     - **P1**: `required`, `pattern`, `range`, `enumMember`, `dateOrder`, `datePlausibility`, `lookupExists`, `duplicate` (including `onMatch`), `confidence`, `customerMatch`. The coded invoice kinds come with `InvoiceRuleAdapter` in P0. The catalogue of kinds (`RuleKinds`, with each kind's `ParamsSchema`) is what publishing checks against; a declared kind whose evaluator is not registered yet does not run, and a document with such a rule is never auto-approved (`ValidationResult.RulesNotRun`).
      - **P5**: `requiredIf`, `compare`, `sumEquals`, `arithmetic`, `expression`, and the line-table kinds `tableComplete`, `unique`, `ordered`, `deltaToPrevious`. The review-gate keys `requirePassedRules`, `blockOnWarnings` and `lines` also arrive in P5.
    - Generic kinds for line-heavy types without totals, such as price lists (section 5.8):
      - `tableComplete {path, maxRejectedRows, everyPageInRange?, allowUnreported?}` reads the `DocumentTableReport` of the path, written by the `column-table` strategy or the review table tool (sections 6.2, 8.6). It raises `TABLE_ROWS_REJECTED` (blocking) and `TABLE_PAGE_NO_ROWS`, which is blocking when `everyPageInRange` is true and a warning otherwise. For rows that came from the LLM there is no report: the rule fails unless `allowUnreported` is set, in which case it passes on the report check and leaves the rows to the gate's `lines` conditions (`requireSource`, `requireLocated`);
@@ -1783,7 +1787,7 @@ Rendered for a Nordwind specials list of 3 November with 18 rows (two shown); th
 - **Prompt injection.** Tenant text (guidance, descriptions, `llmHints`) is length-capped and placed in delimited Task sections, never in the system prompt.
 - **Spoofing.** `RequireSenderAuth` is on by default for sender rules. Content corroboration raises `SUPPLIER_CONFLICT`. Free-mail domains are on a platform deny list for `SenderDomain`. Forward unwrapping is limited to trusted forwarder domains.
 - **Permissions** (`src/DocProc.Api/Auth/Roles.cs`). TenantAdmin implies all of these:
-  - `ConfigAdmin`: types, processing, lookups;
+  - `ConfigAdmin`: types, processing, lookups (P1: a policy satisfied by TenantAdmin and SuperAdmin; there is no role that grants it alone yet);
   - `IntegrationAdmin`: destinations, outputs, bindings, master data;
   - `MappingAuthor`: activating layouts (including layouts saved from a `NEW_LAYOUT` review), retiring layouts, exclusive source rules;
   - `MappingEditor`: proposing candidate layouts and identification rules, and default-mode source rules; granted to Reviewers by default;

@@ -22,7 +22,7 @@ import { UploadDialog } from "@/components/UploadDialog";
 import { inboxTabs, statusFilterOf, type InboxTab } from "@/lib/inbox";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
 
-type DocumentType = components["schemas"]["DocumentType"];
+type DocumentType = components["schemas"]["DocumentTypeKey"];
 const documentTypes: DocumentType[] = ["Invoice", "CreditNote", "PurchaseOrder", "DeliveryNote", "Statement", "Reminder", "Other", "Unknown"];
 
 const ALL = "__all__";

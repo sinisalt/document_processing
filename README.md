@@ -45,7 +45,10 @@ dotnet test DocProc.slnx
 
 Tests use xunit v3 on the Microsoft Testing Platform (opted in via `global.json`). The schemas
 sent to LLM providers are snapshotted under `schemas/`; after an intentional contract change,
-bump the version in `CanonicalSchemas` and rerun with `UPDATE_SCHEMAS=1`.
+bump the version in `CanonicalSchemas` and rerun with `UPDATE_SCHEMAS=1`. The same switch rewrites
+the meta-schema of document type definitions (`schemas/document-type-definition.v1.json`) and the
+compiled schemas of the standard templates (`schemas/templates/`); a published template version is
+immutable, so a changed template ships as a new version (docs/11 §5.7).
 
 ### Database
 
@@ -278,7 +281,8 @@ manage keys at `/api/v1/api-keys` (create returns the secret once; the database 
 hash and the display prefix; revoke is idempotent). Keys of suspended tenants stop working.
 
 `GET /api/v1/me` returns the caller's identity, roles or scopes, resolved tenant scope and the
-policies they satisfy, which the front ends use to show or hide actions. Get a local token from
+policies they satisfy, which the front ends use to show or hide actions. ConfigAdmin (document
+types, docs/11 §16) is a policy, not a role: TenantAdmin and SuperAdmin satisfy it. Get a local token from
 Keycloak:
 
 ```bash
@@ -290,8 +294,9 @@ curl -s -X POST http://localhost:8080/realms/docproc/protocol/openid-connect/tok
 ```
 src/
   DocProc.Domain/             canonical model, flags, state machine, validation rules (no dependencies)
-  DocProc.Definitions/        document type definitions as data (docs/11 §5): the format, its checks and the
-                              embedded standard templates (std.invoice, std.credit-note, ...)
+  DocProc.Definitions/        document type definitions as data (docs/11 §5): the format, its meta-schema and checks,
+                              the compiler and publish checks, and the embedded standard templates (std.invoice,
+                              std.credit-note, ..., std.price-list, std.daily-specials)
   DocProc.Application/        pipeline contracts and the interfaces infrastructure implements
   DocProc.Infrastructure/     EF Core model, migrations, tenancy (query filters + SQL Server RLS), SQLite dev mode,
                               blob stores, PDF processing, keyword classifier, heuristic splitter, secret store
@@ -321,7 +326,8 @@ tests/
 web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
                               api-client (generated from the OpenAPI document), e2e (Playwright)
 fixtures/                     demo documents and their LLM replay fixtures (docs/09 "Demo data")
-schemas/                      committed JSON schemas sent to providers
+schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
+                              template schemas (templates/)
 docs/                         plan and design
 docker/                       what docker-compose.yml mounts: the Service Bus emulator's entities, the llm-setup script (and its node tests)
 docker-compose.yml            the whole stack with Docker Compose (images: src/Dockerfile, web/Dockerfile; .env.example)

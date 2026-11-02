@@ -251,7 +251,7 @@ checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
 |---|---|---|
 | `Persistence:Provider` | `Sqlite` (default is `SqlServer` whenever `ConnectionStrings:DocProc` is set) | `DocProcDbContext` on a SQLite file; the schema comes from the model with `EnsureCreated`, because the migrations are SQL Server-only. |
 | `Persistence:SqlitePath` | `./data/docproc.db` (relative to the content root, i.e. the project folder under `dotnet run`, whatever the working directory; the folder is created) | Delete the file after a model change; there is no migration path for SQLite. |
-| `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. |
+| `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. The type catalogue's own rows (the platform templates and every tenant's adopted legacy types, see "Document types" below) are added on every start whatever this switch says. |
 | `Persistence:SeedDemoDocuments` | `true` (default `false`; refused in Production; only acts where the seed runs, so not under the AppHost) | After the seed, the API ingests the demo documents of `Persistence:DemoDocumentsPath` (`fixtures/demo`) and adds members and two weeks of LLM usage; see "Demo data" below. |
 | `Llm:Replay:Directory` | `fixtures/demo/llm-replay` | Registers the file replay provider. A relative path is searched upwards from the content root until its first folder (`fixtures`) exists, so `src/DocProc.Api` finds the repository's folder; an absolute path is taken as it is. |
 | `Authentication:Dev:Enabled` | `true` | The API signs its own tokens (`POST /dev/token`, `GET /dev/users`, tagged "Development") with an RSA key and the bearer handler trusts issuer `docproc-dev` instead of the OIDC authority. The endpoints are not mapped at all when disabled. |
@@ -278,6 +278,35 @@ stores every timestamp as UTC ticks (an integer) when the provider is SQLite, so
 lists, the idempotency window and the timeline order work unchanged; SQL Server keeps `datetimeoffset`.
 A `docproc.db` created before that change must be deleted (as after any model change). Everything
 SQL Server-specific is exercised by the integration tests against a container, not here.
+
+### Document types
+
+The type catalogue (docs/11 §5, §6.1) is seeded on every start: the SQLite schema host and the
+migration host add the platform templates and, for every tenant, the standard types it adopts under
+the legacy keys (`Invoice` … `Other`, version 1, published); the `TypeCatalogue` migration does the
+same on SQL Server. Documents are processed with their tenant's published version of their type
+(pinned in `Documents.DocumentTypeVersionId` by the Extract stage).
+
+Changing the catalogue needs the `configurableTypes` switch of the tenant (all switches are off by
+default, docs/11 §3) and ConfigAdmin (a tenant admin); a type of the tenant's own also needs
+`customTypes`. With the dev issuer:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)
+H="authorization: Bearer $TOKEN"
+# Switch the feature on (features is optional on PUT; the other settings are sent as read).
+curl -s http://localhost:5100/api/v1/settings -H "$H" | jq '.settings | .features.configurableTypes = true' \
+  | curl -s -X PUT http://localhost:5100/api/v1/settings -H "$H" -H 'content-type: application/json' -d @- | jq .settings.features
+curl -s http://localhost:5100/api/v1/document-templates -H "$H" | jq '.[].key'
+# Adopt the price list (published at once), or fork the credit note in place as a draft to edit.
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.price-list","mode":"adopt"}}' | jq '{key, origin, publishedVersion}'
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.credit-note","mode":"copy"}}' | jq '{key, origin, draftVersion}'
+```
+
+A draft is edited with `PUT /api/v1/document-types/{key}/versions/{v}` (the body is the definition;
+`If-Match` is the ETag of `GET …/versions/{v}`), checked with `POST …/versions/{v}:validate` and
+published with `POST …/versions/{v}:publish` (422 with the report when a check fails). The
+publish-time checks and their report are those of docs/11 §5.7.
 
 ### Demo data
 

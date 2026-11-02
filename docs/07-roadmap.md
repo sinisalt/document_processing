@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done
+## Configurable types (docs/11 §23) – P0 done, P1 in progress
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -236,7 +236,59 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
     `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
     (docs/11 §21 step 1).
-- **P1 to P6** – not started.
+- **P1, types as data and custom fields – in progress.** Part A, the type catalogue backend, is done; the
+  generated review form, the patcher, the type editor and the validation work of P1 are not.
+  - Done (part A):
+    - the `DocumentTypeKey` string switch in one change: the `DocumentType` enum is gone, `DocumentTypeKey` (a
+      `readonly record struct`) and `WellKnownTypeKeys` replace it; `Documents.Type` keeps its `nvarchar(64)` column and
+      values, the API writes the same strings and reads the legacy names in any case as before, the OpenAPI schema
+      `DocumentTypeKey` is a string of the key syntax, and the document list's `type` filter takes any valid key;
+    - the meta-schema `schemas/document-type-definition.v1.json`, generated from the definition records
+      (`DefinitionMetaSchema`) and snapshot-tested, checked with JsonSchema.Net 8.0.5 (the last MIT release; 9.x binaries
+      come under the json-everything maintenance-fee EULA, docs/11 §5.5); the strict reader now also refuses numbers
+      written as strings;
+    - `DefinitionCompiler` (`src/DocProc.Definitions/Compilation`) with the four artifacts of docs/11 §5.5 (the values-view
+      JSON Schema, the portable LLM schema or `invoice_extraction@1` plus `x_custom` for added header fields, the form
+      spec, the descriptor index with concrete-path lookup), the size caps, the RFC 8785 content hash, and a snapshot
+      of every template's compiled schemas (`schemas/templates`); the invoice family compiles to `invoice_extraction@1`
+      byte for byte;
+    - the publish-time checks of docs/11 §5.7 (`PublishChecks`): meta-schema, strict reader, `DefinitionChecker`, rule
+      parameters against each kind's `ParamsSchema` and the paths they name, indexed `duplicateKey` components, compile
+      caps, LLM portability, and the dependents of removed, retyped and renamed fields (matched by field id; in P1 the
+      dependents are the published version's indexed fields, the hook takes layouts and output mappings later);
+    - the rule-kind catalogue of this deployment (`RuleKinds`: the coded invoice kinds and the generic P1 kinds with
+      their parameter schemas);
+    - `std.price-list` and `std.daily-specials` v1 (P1 rule kinds only, `review.autoApprove: false`), adoptable;
+    - the catalogue tables `DocumentTypeDefinitions` and the temporal `DocumentTypeVersions`, under the platform-row
+      predicates of the new frozen `PolicyV4` together with `LlmProviderConfigs` and the history table; migration
+      `TypeCatalogue` seeds the platform templates (from a copy frozen with it) and every tenant's adopted legacy
+      types at v1, and back-fills `Documents.DocumentTypeVersionId` and `Corrections.DocumentTypeVersionId`;
+      `TypeCatalogueSeeder` adds what is missing on start (migration host, SQLite schema host, development seed)
+      and when a tenant is created;
+    - the catalogue API of docs/11 §18: `GET /document-templates`, `GET|POST /document-types` (adopt, copy, also in place
+      for an adopted legacy type, or a definition of the tenant's own), `GET /document-types/{key}`,
+      `GET|POST …/versions`, `GET|PUT …/versions/{v}` (draft with If-Match, artifacts on `include=`), `POST
+      …/versions/{v}:validate` and `:publish`; reads need Read, writes the new `ConfigAdmin` policy (TenantAdmin and
+      SuperAdmin; there is no separate role yet) and `configurableTypes`, a type of the tenant's own also `customTypes`;
+    - the feature switches in `GET|PUT /settings` (`features`, optional on PUT);
+    - `IEffectiveConfigResolver` over the catalogue (`CatalogueConfigResolver`): the pinned version, else the tenant's
+      published version; with `configurableTypes` off only adopted types count, so such a tenant behaves as before;
+      without a row the embedded templates answer. Extract pins `Documents.DocumentTypeVersionId`, Classify clears the
+      pin when the type changes, Validate resolves it, corrections record it, and the list columns are refreshed with
+      the resolved role bindings (no caller of `RoleBindings.ForLegacyType` or `StandardRuleSets` is left in `src`).
+  - Left for the rest of P1:
+    - the generic P1 rule kinds are declared but have no evaluators yet: a rule of such a kind does not run, which keeps
+      the document out of auto-approval (`ValidationResult.RulesNotRun`); `validate.schema`, `DocumentFieldIndex`, the
+      duplicate check with `onMatch` and the retirement of `invoice.required`/`invoice.datePlausibility`/`invoice.confidence`
+      come with them;
+    - the `DefinitionPatcher` (descriptor resolver, append and remove), the generated review form in `packages/review`,
+      forms for PurchaseOrder and DeliveryNote, the document types editor, `x_custom` in the invoice LLM call (the
+      compiled schema exists; the extractor does not send it yet), the `ext` bags at run time;
+    - `LookupTables` (the `uom` code list for `lookupExists`), `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`,
+      `ReviewTasks.Priority` and `TenantSettings.TimeZone` (none of their columns exists yet), the inbox columns;
+    - `DocumentSummary`/`DocumentDetail` `typeName` and `typeVersion` and `definition {key, version, formSpec}`;
+    - the type-key in the web apps is still the legacy list in the filters; types from the API come with the editor.
+- **P2 to P6** – not started.
 
 ## Risks and open questions
 
