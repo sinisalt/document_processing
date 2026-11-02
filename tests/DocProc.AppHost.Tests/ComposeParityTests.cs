@@ -162,6 +162,46 @@ public sealed class ComposeParityTests
         }
     }
 
+    /// <summary>
+    /// A container that exits while the stack starts (SQL Server's first boot times out on a busy machine and exits 1)
+    /// fails the whole <c>docker compose up</c> with "dependency failed to start" unless compose restarts it. So every
+    /// long-running service has a restart policy; only the one-shot helpers, which others wait for to complete, have
+    /// <c>restart: "no"</c>.
+    /// </summary>
+    [Fact]
+    public void Every_long_running_service_is_restarted_when_it_exits()
+    {
+        var compose = Compose();
+        var services = Services(compose).ToList();
+        var oneShots = services
+            .SelectMany(s => s.Definition.Children.TryGetValue(new YamlScalarNode("depends_on"), out var deps)
+                ? ((YamlMappingNode)deps).Children
+                : Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
+            .Where(d => ((YamlMappingNode)d.Value)["condition"].ToString() == "service_completed_successfully")
+            .Select(d => d.Key.ToString())
+            .ToHashSet(StringComparer.Ordinal);
+        oneShots.ShouldBe(["servicebus-ready", "llm-setup"], ignoreOrder: true);
+
+        foreach (var (name, definition) in services)
+        {
+            definition.Children.TryGetValue(new YamlScalarNode("restart"), out var restart).ShouldBeTrue($"{name} has no restart policy");
+            if (oneShots.Contains(name))
+            {
+                restart!.ToString().ShouldBe("no", $"{name} is a one-shot helper");
+            }
+            else
+            {
+                restart!.ToString().ShouldBeOneOf(["unless-stopped", "on-failure", "always"], $"{name} must come back when it exits");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("api")]
+    [InlineData("worker")]
+    public void Hosts_do_not_log_every_sql_statement(string host) =>
+        Environment(Compose(), host)["Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command"].ShouldBe("Warning");
+
     private static bool IsAspirePlumbing(string key) =>
         key.StartsWith("OTEL_", StringComparison.Ordinal)
         || key.StartsWith("ASPNETCORE_", StringComparison.Ordinal)

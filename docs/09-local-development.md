@@ -55,6 +55,14 @@ second copy, though the fixed host ports below allow only one at a time. Nothing
 default network and four named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`)
 belong to the project, and `down -v` removes them.
 
+Every long-running service has `restart: unless-stopped`; only the one-shot helpers
+(`servicebus-ready`, `llm-setup`) have `restart: "no"` (`ComposeParityTests` checks both). A
+container that exits while others wait for it to be healthy otherwise fails the whole `up` with
+"dependency failed to start": SQL Server 2025 does exit on a busy machine's first boot now and then
+(`[AppLoader] Failed to load LSA: 0xc0070102`, a start-up timeout), and restarted it comes up
+normally within the health check's 60 tries. `docker compose ps -a` shows `worker` and
+`servicebus` as `Up` without "(healthy)": neither has a health check of its own (see the table).
+
 | Service | Image | Mirrors | Notes |
 |---|---|---|---|
 | `sqlserver` | `mcr.microsoft.com/mssql/server:2025-latest`, `linux/amd64` | `sql` | `sa` password `DOCPROC_SQL_PASSWORD` (local default in the file); healthy once `sqlcmd` answers |
@@ -78,7 +86,12 @@ compose file does not) and run in the Development environment like under the App
 `Persistence__SeedDevData=true` (the realm's tenants must exist, or every tenant user gets 404
 "Unknown tenant"), `Persistence__SeedDemoDocuments` (`DOCPROC_DEMO_DOCUMENTS`, default true; the
 image carries `fixtures/demo` and its replay fixtures), `Pipeline__RunInProcess=true` and
-`Blobs__CreateContainersOnStartup=true`. Both hosts mount the `secrets` volume at `/data/secrets`
+`Blobs__CreateContainersOnStartup=true`. Both hosts set
+`Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command=Warning`, because EF Core logs
+every statement at Information and the first start's migrations alone are thousands of lines of
+SQL that bury the start-up messages (migrations applied, "Development seed applied", "Demo data
+applied", "Now listening"); to see the SQL, set it to `Information` for the host in a
+`docker-compose.override.yml`. Both hosts mount the `secrets` volume at `/data/secrets`
 (created owner-only for the image's non-root user), so a BYOK key the API stores is one the worker
 reads.
 

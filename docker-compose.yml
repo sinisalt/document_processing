@@ -39,6 +39,9 @@ x-host-environment: &host-environment
   # The key of the seeded platform Anthropic configuration (secret reference llm-platform-eu); llm-setup enables
   # that configuration when the key is set. Empty: e-invoice XML still works, LLM stages do not.
   LLM_SECRET_LLM_PLATFORM_EU: ${ANTHROPIC_API_KEY:-}
+  # EF Core logs every SQL statement at Information (the first start's migrations alone are thousands of lines), which
+  # buries the start-up messages in `docker compose logs api`. Information brings them back (docs/09).
+  Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Warning
 
 services:
   # SQL Server 2025 (amd64 only; Docker Desktop / OrbStack on Apple Silicon emulate it with Rosetta). Also the store
@@ -60,6 +63,10 @@ services:
       timeout: 5s
       retries: 60
       start_period: 20s
+    # SQL Server can exit on its first boot when the machine is busy (AppLoader "Failed to load LSA: 0xc0070102", a
+    # start-up timeout); restarted, it comes up, and the health check's retries cover the wait. Without a restart
+    # policy compose gives up at once: "dependency sqlserver failed to start".
+    restart: unless-stopped
 
   # Azure Blob Storage → Azurite. The API creates the containers raw, derived and exports at start-up.
   azurite:
@@ -75,6 +82,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    restart: unless-stopped
 
   # Azure Service Bus → the official emulator (amd64 only), with the AppHost's entities: one queue per pipeline stage
   # and the topic document-events with the subscription webhooks (docker/servicebus/Config.json; ServiceBusEmulatorConfigTests
@@ -93,6 +101,8 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+    # Like sqlserver and keycloak: a crash while starting is retried instead of failing the whole `up`.
+    restart: unless-stopped
 
   servicebus-ready:
     image: node:22-bookworm-slim
@@ -138,6 +148,7 @@ services:
       timeout: 5s
       retries: 60
       start_period: 20s
+    restart: unless-stopped
 
   # Key Vault → Lowkey Vault (vault name docproc) for the BYOK flow; in memory, like under the AppHost.
   vault:
@@ -151,6 +162,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    restart: unless-stopped
 
   # GreenMail: SMTP 3025 / IMAP 3143 with the two tenants' invoice mailboxes, authentication off.
   mail:
@@ -166,6 +178,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    restart: unless-stopped
 
   # The API applies the migrations, seeds the two demo tenants of the realm (with their upload channels, suppliers and
   # the disabled platform Anthropic configuration) and, unless DOCPROC_DEMO_DOCUMENTS=false, ingests the demo

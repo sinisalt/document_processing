@@ -113,9 +113,20 @@ docker compose up --build        # or: docker compose up --build -d
 ```
 
 The first build takes a few minutes (restore, publish, two `vite build`s); SQL Server and the
-Service Bus emulator then need about half a minute. With `-d`, `docker compose ps` shows every
-service healthy (the worker has no health check, and `servicebus-ready` and `llm-setup` are
-one-shot helpers that exit 0).
+Service Bus emulator then need about half a minute. With `-d`, `docker compose ps -a` shows the
+other services healthy; `worker` and `servicebus` are only `Up`, because they have no health check
+of their own (the worker has no HTTP endpoint; the emulator's image has no shell, so the one-shot
+`servicebus-ready` checks it from outside), and `servicebus-ready` and `llm-setup` are one-shot
+helpers that exit 0.
+
+SQL Server can exit on its first boot when the machine is busy (`docker compose logs sqlserver`
+shows `Failed to load LSA: 0xc0070102`, a start-up timeout). Every long-running service has
+`restart: unless-stopped`, so it is started again and `up` carries on once it is healthy. If `up`
+still stops with `dependency sqlserver failed to start` (for example `is unhealthy`, after five
+minutes of failed health checks on a very slow machine), read `docker compose logs sqlserver` and
+run `docker compose up -d` again; the second start keeps what the first created. The hosts' logs
+(`docker compose logs api`) leave out EF Core's SQL statements; docs/09 "With Docker Compose" says
+how to turn them back on.
 
 | URL | What |
 |---|---|
