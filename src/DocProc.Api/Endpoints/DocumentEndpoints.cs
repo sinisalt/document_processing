@@ -4,7 +4,6 @@ using DocProc.Api.Auth;
 using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
-using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -560,7 +559,8 @@ public static class DocumentEndpoints
 
         document.CanonicalJson = patched.Json;
         document.UpdatedAt = now;
-        RefreshDenormalizedColumns(document);
+        // The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox too.
+        DocumentRoleColumns.Refresh(document);
 
         foreach (var applied in patched.Applied)
         {
@@ -569,8 +569,10 @@ public static class DocumentEndpoints
                 TenantId = document.TenantId,
                 DocumentId = document.Id,
                 FieldPath = applied.Path,
+                Op = applied.Op,
                 OldValueJson = applied.OldValueJson,
                 NewValueJson = applied.NewValueJson,
+                SourceJson = CorrectionSources.ToJson(applied.Source),
                 By = actor,
                 At = now,
                 Reason = Clean(applied.Reason, 500),
@@ -604,51 +606,6 @@ public static class DocumentEndpoints
         }
 
         return PipelineOrder[furthest];
-    }
-
-    /// <summary>The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox too.</summary>
-    private static void RefreshDenormalizedColumns(Document document)
-    {
-        switch (document.Type)
-        {
-            case DocumentType.Invoice or DocumentType.CreditNote:
-                var invoice = CanonicalDocumentSerializer.DeserializeInvoice(document.CanonicalJson!);
-                SetNumber(document, invoice.InvoiceNumber.HasValue ? invoice.InvoiceNumber.Value : null);
-                document.IssueDate = invoice.IssueDate.HasValue ? invoice.IssueDate.Value : null;
-                SetCurrency(document, invoice.Currency.HasValue ? invoice.Currency.Value : null);
-                document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value.Amount : null;
-                break;
-
-            case DocumentType.PurchaseOrder:
-                var order = CanonicalDocumentSerializer.DeserializePurchaseOrder(document.CanonicalJson!);
-                SetNumber(document, order.PoNumber.HasValue ? order.PoNumber.Value : null);
-                document.IssueDate = order.OrderDate.HasValue ? order.OrderDate.Value : null;
-                SetCurrency(document, order.Currency.HasValue ? order.Currency.Value : null);
-                document.TotalGross = order.TotalGross.HasValue ? order.TotalGross.Value.Amount : null;
-                break;
-
-            case DocumentType.DeliveryNote:
-                var note = CanonicalDocumentSerializer.DeserializeDeliveryNote(document.CanonicalJson!);
-                SetNumber(document, note.DeliveryNoteNumber.HasValue ? note.DeliveryNoteNumber.Value : null);
-                document.IssueDate = note.DeliveryDate.HasValue ? note.DeliveryDate.Value : null;
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    private static void SetNumber(Document document, DocumentIdentifier? number)
-    {
-        document.DocumentNumber = number is null ? null : Truncate(number.Verbatim, 100);
-        document.DocumentNumberNormalized = number is null ? null : Truncate(number.Normalized, 100);
-    }
-
-    /// <summary><c>Document.Currency</c> is <c>char(3)</c>: only a well-formed code goes into the list column; anything else stays in the canonical JSON alone.</summary>
-    private static void SetCurrency(Document document, string? currency)
-    {
-        var normalized = currency is null ? null : CurrencyCode.Normalize(currency);
-        document.Currency = CurrencyCode.IsWellFormed(normalized) ? normalized : null;
     }
 
     private static async Task CloseOpenTasksAsync(DocProcDbContext db, Guid documentId, ReviewTaskStatus outcome, DateTimeOffset now, CancellationToken ct)

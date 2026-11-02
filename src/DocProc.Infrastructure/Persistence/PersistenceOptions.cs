@@ -1,4 +1,6 @@
+using DocProc.Application.Configuration;
 using DocProc.Application.Security;
+using DocProc.Infrastructure.Configuration;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using DocProc.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
@@ -64,6 +66,7 @@ public static class PersistenceOptions
         services.AddSingleton<ISystemDbContextFactory>(new SqlServerSystemDbContextFactory(connectionString));
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
+        services.AddScoped<ITenantFeatures, EfTenantFeatures>();
         return services;
     }
 
@@ -90,6 +93,7 @@ public static class PersistenceOptions
         services.AddSingleton<ISystemDbContextFactory>(new SqliteSystemDbContextFactory(location.ConnectionString));
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
+        services.AddScoped<ITenantFeatures, EfTenantFeatures>();
         services.AddHostedService<SqliteSchemaHostedService>();
         return services;
     }

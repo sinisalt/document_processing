@@ -46,11 +46,6 @@ namespace DocProc.Infrastructure.Persistence.Migrations
         }
 
         /// <summary>Runs a data statement with the row-level security predicate open (platform scope), then closes it.</summary>
-        internal static string InPlatformScope(string statement) =>
-            $"""
-            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = N'{TenantSessionContextInterceptor.PlatformScopeValue}', @read_only = 0;
-            {statement}
-            EXEC sp_set_session_context @key = N'{TenantSessionContextInterceptor.ScopeKey}', @value = NULL, @read_only = 0;
-            """;
+        internal static string InPlatformScope(string statement) => RowLevelSecurity.InPlatformScope(statement);
     }
 }

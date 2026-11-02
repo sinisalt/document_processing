@@ -69,7 +69,7 @@ The requirements also imply the following, and the design covers each one:
 3. **Phases stay fixed; steps inside them are configurable.** The coarse pipeline (Ingest, Normalize, Split, Classify, Match, Extract, Validate, Publish), `DocumentStateMachine` and the "one status per stage" idempotency in `DocumentStageHandler` stay as they are. What happens inside Split, Classify, Extract, Validate and Publish comes from the type version, patched by the supplier's settings and the selected layout's overrides.
 4. **No stage reorder.** The supplier is resolved from the source at document creation. When its configuration fixes the type, Classify only transitions (`TypeSource.Supplier`). Match stays where it is and corroborates the source-resolved supplier against content evidence.
 5. **Every configuration is versioned, immutable once published, and pinned per document.** `Document.AppliedConfigJson` records which type version, supplier layout version (with the identification evidence), source rule, supplier settings snapshot and pipeline hash a document was processed with. A retry uses the pinned configuration; a reprocess offers "pinned" or "current".
-6. **Additive migrations behind per-tenant feature flags.** `TenantSettings.Features` holds `configurableTypes`, `outputs`, `sourceRouting`, `supplierLayouts`, `customTypes` and `structuredSources`. Nothing is dropped until the hardening phase. The invoice family behaves identically throughout and is the regression gate.
+6. **Additive migrations behind per-tenant feature flags.** `TenantSettings.Features` holds `configurableTypes`, `outputs`, `sourceRouting`, `supplierLayouts`, `customTypes` and `structuredSources`, all off by default and read only through `ITenantFeatures` (`src/DocProc.Application/Configuration/ITenantFeatures.cs`). The P0 migration writes the flags object into every existing tenant's settings: EF updates a nested owned JSON object only in place, so a settings row without it could not be switched on. Nothing is dropped until the hardening phase. The invoice family behaves identically throughout and is the regression gate.
 7. **The invoice family stays strong.** The std invoice and credit note templates keep `LlmInvoiceExtractor`, today's prompt and examples, `invoice_extraction@1` byte-identical, the UBL/CII parsers and the eight coded invoice rules. These run through adapters over the same tree.
 8. **Safe by default.** Nothing that a tenant newly configured auto-approves until it has rules, an explicit policy and a review warm-up. This applies to a new type, a new layout and a source rule that relies on an unauthenticated sender.
 9. **Strict rules decide, scores only suggest.** Which layout (and therefore which field mapping) applies to a document is decided by identification rules that either hold or do not (section 8.5). A similarity score may rank suggestions for a reviewer; it never applies a layout. A known supplier whose document matches none of its layouts goes to review with a blocking `NEW_LAYOUT`.
@@ -318,7 +318,7 @@ The new `DefinitionCompiler` in `src/DocProc.Definitions` compiles each publishe
 - The new column `DocumentTypeVersionId` pins the definition.
 - **Custom fields** are declared on the tenant type, like `supplierCustomerRef` above. They are first-class paths: validated, indexed, shown in the generated form, and addressable by rules and outputs.
 - **The `ext` bag** holds one-off supplier attributes that need no type change, such as a store number printed only by one supplier. A bag is declared at header level and at line level. Its values are scalar FieldValues, written by supplier mappings that declare the key with a kind and label (section 8). If two suppliers declare the same ext key with different kinds, publish raises a warning.
-- **Round-trip safety.** In P0, `Invoice`, `InvoiceLine`, `Party`, `PurchaseOrder` and `DeliveryNote` get `[JsonExtensionData] JsonObject? Extra`. Today, `CanonicalDocumentSerializer` silently drops properties that are not on the record (`CanonicalDocumentSerializer.cs:18-24`). With this change, custom fields survive every typed round trip.
+- **Round-trip safety.** In P0, `Invoice`, `InvoiceLine`, `Party`, `PurchaseOrder` and `DeliveryNote` get `[JsonExtensionData] Dictionary<string, JsonElement>? Extra` (so do the PurchaseOrder and DeliveryNote lines). Before P0, `CanonicalDocumentSerializer` silently dropped properties that are not on the record. With this change, custom fields survive every typed round trip. (Correction: the first draft said `JsonObject? Extra`; System.Text.Json writes a `JsonObject` extension bag as a bare nested object, which is invalid JSON, so the bag is a dictionary of `JsonElement`.)
 - **Typed projection.** Coded invoice rules and the e-invoice mapper keep using `Invoice` via `InvoiceProjection`, which is `CanonicalDocumentSerializer.Deserialize<Invoice>` over the same tree. This works because std paths are identical.
 - **Values view.** `IDocumentDataViewBuilder` (in `src/DocProc.Application/Outputs`) produces plain values and is cached per `(DocumentId, Version)`:
   - identifier becomes the verbatim string, money becomes `{amount, currency}`, date becomes `yyyy-MM-dd`, enum becomes its code, and Missing becomes `null`;
@@ -576,7 +576,7 @@ All new tables implement `ITenantScoped`, get a `HasQueryFilter` (the pattern at
 
 ### 6.1 Type catalogue
 
-New file `src/DocProc.Infrastructure/Persistence/Entities/DocumentTypes.cs`.
+New file `DocumentTypes.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P1).
 
 **DocumentTypeDefinition**
 - `Id`, `TenantId?` (null for a platform template), `Key nvarchar(64)` unique per `(TenantId, Key)`.
@@ -655,7 +655,7 @@ When a tenant fallback rule decided the type, `identification` holds `{"scope": 
 - Adds `FannedOutAt datetime2?`. `DeliveredAt` is deprecated: it is never set today, and deliveries track their own state.
 - The payload becomes `DocumentEventMessage` v2: `{tenantId, documentId, documentVersion, typeKey, typeVersion, supplierId, receivingEntityId, channelId, eventType, at}`.
 
-The single **RoleProjector** (`src/DocProc.Application/Documents/RoleProjector.cs`) fills the existing denormalised columns (`DocumentNumber`, `DocumentNumberNormalized`, `IssueDate`, `Currency`, `TotalGross`), the new `ValidFrom`, `ValidUntil` and `LineCount`, and `DocumentFieldIndex` from role bindings. It replaces both `ExtractHandler.Apply` (`ExtractHandler.cs:97-106`) and `DocumentEndpoints.RefreshDenormalizedColumns` (`DocumentEndpoints.cs:610-640`).
+The single **RoleProjector** (`src/DocProc.Application/Documents/RoleProjector.cs`) fills the existing denormalised columns (`DocumentNumber`, `DocumentNumberNormalized`, `IssueDate`, `Currency`, `TotalGross`), the new `ValidFrom`, `ValidUntil` and `LineCount`, and `DocumentFieldIndex` from role bindings. It replaces both `ExtractHandler.Apply` and `DocumentEndpoints.RefreshDenormalizedColumns` (done in P0). It reads the stored JSON tree, not a typed record, so it serves definition-driven trees unchanged; the Application layer cannot see the `Document` entity, so `DocumentRoleColumns` (`src/DocProc.Infrastructure/Persistence/DocumentRoleColumns.cs`) writes its result into the columns, leaving the columns of unbound roles alone. Until definitions carry role bindings (P1), `RoleBindings.ForLegacyType` holds the bindings of the coded types. The two old copies differed slightly; the projector follows the corrections endpoint (a value counts only when its field has one, and a currency is upper-cased before the three-letter check).
 
 ### 6.3 Ingestion, channels and attachment-level routing
 
@@ -749,7 +749,7 @@ A rule is a set of conditions that must all hold. This covers the plain cases (o
 
 ### 6.6 Supplier layouts and identification rules
 
-A supplier can send the same document type in several designs: invoices from its ERP and from its web shop, or a redesign in 2025 while some branches still print the old one. Each design is one **layout**. A layout is an identification rule (which components of the page prove this design, section 8.5) plus a field mapping (where each value sits, section 8.1), versioned together. Several layouts per supplier and type are Active at the same time; adding a new design never retires an old one. New file `src/DocProc.Infrastructure/Persistence/Entities/Layouts.cs`.
+A supplier can send the same document type in several designs: invoices from its ERP and from its web shop, or a redesign in 2025 while some branches still print the old one. Each design is one **layout**. A layout is an identification rule (which components of the page prove this design, section 8.5) plus a field mapping (where each value sits, section 8.1), versioned together. Several layouts per supplier and type are Active at the same time; adding a new design never retires an old one. New file `Layouts.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P4).
 
 **SupplierLayout** (one design of one type)
 - `Id`, `TenantId`, `Scope {Supplier, Group}`, `SupplierId?`, `GroupId?`, `DocumentTypeKey`.
@@ -788,7 +788,7 @@ Reading the earlier draft's terms: a "mapping variant" is now a layout, `Supplie
 
 ### 6.7 Outputs and delivery
 
-New file `src/DocProc.Infrastructure/Persistence/Entities/Outputs.cs`.
+New file `Outputs.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P3).
 
 **OutputDestination**
 - `Id`, `TenantId`, `Name`, `Transport nvarchar(32)`: `http | blob | sftp | email | pull`.
@@ -852,7 +852,8 @@ New in P0:
 - A second function `rls.fn_tenant_or_platform_read(@TenantId)`. It allows `@TenantId IS NULL OR @TenantId = SESSION_CONTEXT tenant OR platform scope`, and is used as the **filter** predicate on nullable-tenant tables.
 - **Block** predicates `AFTER INSERT`, `AFTER UPDATE`, `BEFORE UPDATE` and `BEFORE DELETE` use the existing strict `fn_tenant_predicate`. A tenant session can therefore never create, change or delete a platform row.
 - Nullable-tenant tables: `DocumentTypeDefinitions`, `DocumentTypeVersions`, `LookupTables`, `LookupEntries`, `OutputMappings`, `OutputMappingVersions`, and `ExtractorProfiles` (closing today's gap).
-- Every other new table goes under the strict predicate. A migration re-creates the policy from `ProtectedTables`, as documented in that file.
+- Every other new table goes under the strict predicate. A migration re-creates the policy from frozen table lists of its own (`PipelineProtectedTables`, `PlatformRowTablesV1`, as documented in that file): the SQL is generated when a migration runs, so a migration built from a list that later grew would reference tables that do not exist yet on a fresh database.
+- `LlmProviderConfigs` has the same shape as `ExtractorProfiles` (platform configurations with TenantId NULL) and is also protected only by its EF filter. It is not in the P0 list above; it joins the nullable-tenant tables with the P1 policy re-creation.
 - Tests (Testcontainers.MsSql): a tenant session can SELECT a platform template but gets an error on UPDATE or DELETE of it; tenant B cannot see tenant A's type; platform scope can do everything.
 
 ## 7. Supplier identification and configuration (R6)
@@ -869,7 +870,7 @@ New in P0:
 
 ### 7.2 Resolution at ingest
 
-`ISupplierSourceResolver` (`src/DocProc.Pipeline/Routing/SupplierSourceResolver.cs`) is a pure function. It is called in `IngestHandler.CreateDocumentsAsync` (`IngestHandler.cs:219-230`) for each item, so documents are created with their supplier already set. Candidate rules come from indexed lookups on the normalised conditions; it does not load the whole supplier table the way `MatchHandler.cs:38` does.
+`ISupplierSourceResolver` (new, `SupplierSourceResolver.cs` in `src/DocProc.Pipeline/Routing`) is a pure function. It is called in `IngestHandler.CreateDocumentsAsync` (`IngestHandler.cs:219-230`) for each item, so documents are created with their supplier already set. Candidate rules come from indexed lookups on the normalised conditions; it does not load the whole supplier table the way `MatchHandler.cs:38` does.
 
 1. An authorised explicit hint wins (method `Hint`).
 2. Rules whose conditions all hold become candidates. Sender conditions require DMARC pass, or SPF plus aligned DKIM, when `RequireSenderAuth` is set. Otherwise the rule is skipped, and `SUPPLIER_SOURCE_UNVERIFIED` (warning; never auto-approve) is raised if it would have matched.
@@ -1002,7 +1003,7 @@ Transforms: `trim`, `removeWhitespace`, `regex` (capture or replace), `replace`,
 
 Follow-up F3: a supplier can have invoices from different systems, or change its invoice design; each is still an invoice. Several Active layouts can exist per `(supplier or group, type)`, for example `nordwind-invoice-erp`, `nordwind-invoice-webshop` (another source system) and `nordwind-invoice-2023` (the old design, still printed by two branches). A new layout is added next to the existing ones; the old layout stays Active until a `MappingAuthor` retires it. Nothing retires a layout automatically: section 17 lists layouts that have not matched for 180 days as candidates to retire, and that report is advisory only.
 
-`ILayoutResolver` (`src/DocProc.Mapping/Identification/LayoutResolver.cs`) is a pure function over the text layer (or tree or tabular layer), the source facts and the supplier's master data. It selects the layout, and with it the type, like this:
+`ILayoutResolver` (new, `LayoutResolver.cs` in `src/DocProc.Mapping/Identification`) is a pure function over the text layer (or tree or tabular layer), the source facts and the supplier's master data. It selects the layout, and with it the type, like this:
 
 1. **Candidates.** The Active (and Shadow, for stats only) layout versions of the document's supplier, filtered by `ItemKinds`, `ReceivingEntityId` and, when the type is already fixed (`TypeSource` `Supplier`, `Human`, `Hint` or `Structured`), by that type. If the supplier has none, its group's layouts. Candidate versions (saved but not yet activated) are evaluated as well, but **never applied**: they only feed step 5.
 2. **Evaluate** every candidate's identification rule strictly (section 8.5). The result per layout is true or false, plus evidence.
@@ -1374,7 +1375,7 @@ This needs new normalizers (`NormalizeHandler.cs:42-48` throws "unsupported form
 ### 12.6 Save and learn
 
 - `PATCH /documents/{id}/fields` takes `{path, op, value?, from?, source?, reason}`. `CanonicalPatcher` becomes `DefinitionPatcher` (12.8).
-- `FieldValue<T>.Correct(value, by, at, reason, FieldSource? source)` stores Human provenance with its location; today it always stores `FieldSource.Human` (`FieldValue.cs:68-80`). Each Correction row stores `SourceJson`.
+- `FieldValue<T>.Correct(value, by, at, FieldSource? source)` stores Human provenance with its location (done in P0); without a source it stores `FieldSource.Human` as before. The reason stays on the Correction row: the field history has no reason, and adding one would change the stored canonical JSON. Each Correction row stores `Op` and `SourceJson`.
 - **Remember for this supplier** (`POST /documents/{id}:learn-layout`, which replaces the earlier draft's `:learn-mapping`) saves an identification rule and a field mapping as a layout. The identification rule comes from the identifiers the reviewer marked (section 12.9); if they marked none, the learner proposes one (the type keyword found in the page-1 title area, plus the supplier's VAT id when it is printed) and the dialog asks the reviewer to confirm it. The field mapping comes from the `AnchorLearner` in `DocProc.Mapping`, run over this document's sourced corrections and confirmed pre-filled values:
   - It looks for the nearest label words to the left on the same baseline, or above within 1.5 line heights, preferring definition and mapping synonyms, and emits `label-right` or `label-below`.
   - It derives a value pattern from the kind and the observed shape (`123 456789` gives `[0-9]{3}\s?[0-9]{6}`) and keeps a tolerant `region` rule as fallback.
@@ -1523,7 +1524,7 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
 - **http**
   - Config: `{method, urlTemplate, headers, timeoutSeconds, successCodes, auth}`.
   - Auth: `none | apiKeyHeader | basic | bearer | oauth2ClientCredentials` (token cached until expiry) ` | hmacSha256` (signature over timestamp and body). mTLS comes later.
-  - Every call goes through `TenantEndpointGuard`, moved from `src/DocProc.Llm/Providers` to `src/DocProc.Infrastructure/Http` and still used by the LLM path: https only, public addresses only, re-checked after DNS resolution, no proxy, no redirects.
+  - Every call goes through `TenantEndpointGuard`, moved from `src/DocProc.Llm/Providers` to `src/DocProc.Infrastructure/Http` (done in P0) and still used by the LLM path: https only, public addresses only, re-checked after DNS resolution, no proxy, no redirects. `DocProc.Infrastructure` references `DocProc.Llm`, so the guard's LLM-specific helpers (`EnsureAllowed`, `ToLlmException`) moved to `LlmEndpointGuard` in `src/DocProc.Infrastructure/Llm`, and the two provider adapters now reference `DocProc.Infrastructure`.
   - Headers sent: `Idempotency-Key`, `X-DocProc-Document-Id`, `X-DocProc-Revision`.
   - **Multipart** bodies can include the original file (`{"parts":[{"name":"data","mapping":"self"},{"name":"file","content":"original"}]}`).
   - Optional `responseMapping` (JSONata on the response body) captures `DocumentExternalRef.ExternalId`.

@@ -186,7 +186,7 @@ public static class IngestionEndpoints
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["channelId"] = ["No such channel in this tenant."] });
         }
 
-        var ingestion = UploadIntake.CreateIngestion(tenantId, channel.Id, DocumentQueries.ActorName(user), stored, now);
+        var ingestion = UploadIntake.CreateIngestion(tenantId, channel.Id, SourceMetadata.Upload(DocumentQueries.ActorName(user)), stored, now);
         db.Ingestions.Add(ingestion);
 
         var response = new IngestionCreated(ingestion.Id, ingestion.Status, ingestion.Items.Select(i => new IngestionItemCreated(i.Id, i.FileName, i.SizeBytes, i.Sha256)).ToList());

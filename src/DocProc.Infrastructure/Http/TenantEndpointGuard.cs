@@ -1,9 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace DocProc.Llm.Providers;
+namespace DocProc.Infrastructure.Http;
 
 /// <summary>
+/// The platform's guard for outbound calls to tenant-chosen hosts (docs/11 §16: outbound HTTP to a tenant endpoint
+/// goes only through it). Today its one user is the LLM path, so its messages speak of provider configurations; it
+/// lives here, not in <c>DocProc.Llm</c>, so delivery destinations and lookups can share it.
+/// <para>
 /// Where a tenant-scope provider configuration may send requests (docs/08 "Endpoint restrictions"). A tenant chooses
 /// the endpoint and the platform's worker sends the tenant's key and document content to it, so the endpoint must be a
 /// public <c>https</c> host: loopback, private (RFC 1918, CGNAT, ULA), link-local (cloud metadata at 169.254.169.254
@@ -12,6 +16,7 @@ namespace DocProc.Llm.Providers;
 /// configuration is created; <see cref="HttpClient"/> checks every connection again after DNS resolution and connects
 /// to the vetted address itself, so a name that resolves elsewhere later (DNS rebinding) cannot get around it.
 /// Platform configurations, which only a SuperAdmin creates, are not restricted (self-hosted models).
+/// </para>
 /// </summary>
 public static class TenantEndpointGuard
 {
@@ -109,23 +114,6 @@ public static class TenantEndpointGuard
         }
 
         return null;
-    }
-
-    /// <summary>The refusal as the error every adapter reports: the configuration is unusable until the tenant fixes it.</summary>
-    public static LlmException ToLlmException(BlockedEndpointException blocked) =>
-        new(LlmErrorKind.Unavailable, BlockedMessage, inner: blocked);
-
-    /// <summary>
-    /// Throws when <paramref name="config"/> is a tenant configuration whose endpoint <see cref="Validate(Uri)"/> refuses
-    /// (a row created before the check existed); the connect step would refuse it anyway.
-    /// </summary>
-    public static void EnsureAllowed(LlmProviderConfig config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        if (config.Scope == ConfigScope.Tenant && config.Endpoint is { } endpoint && Validate(endpoint) is not null)
-        {
-            throw ToLlmException(new BlockedEndpointException());
-        }
     }
 
     /// <summary>

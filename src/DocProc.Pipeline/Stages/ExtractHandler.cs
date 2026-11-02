@@ -1,6 +1,5 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
-using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
@@ -94,15 +93,12 @@ internal sealed class ExtractHandler(
         return StageOutcome.Advanced;
     }
 
+    /// <summary>Stores the outcome's canonical JSON and rewrites the list columns from it through the one role projector.</summary>
     private static void Apply(Document document, Invoice invoice)
     {
         document.CanonicalJson = CanonicalDocumentSerializer.Serialize(invoice);
         document.CanonicalSchemaVersion = CanonicalDocumentSerializer.SchemaVersion;
-        document.DocumentNumber = Truncate(invoice.InvoiceNumber.Value?.Verbatim, 100);
-        document.DocumentNumberNormalized = Truncate(invoice.InvoiceNumber.Value?.Normalized, 100);
-        document.IssueDate = invoice.IssueDate.HasValue ? invoice.IssueDate.Value : null;
-        document.Currency = invoice.Currency.HasValue && CurrencyCode.IsWellFormed(invoice.Currency.Value) ? invoice.Currency.Value : null;
-        document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value.Amount : null;
+        DocumentRoleColumns.Refresh(document);
     }
 
     private static void ClearExtraction(Document document)
@@ -211,7 +207,4 @@ internal sealed class ExtractHandler(
 
         return new SupplierHints(supplier.Id, supplier.Name, supplier.VatId, skus, lastApproved, ActiveProfileId: null);
     }
-
-    private static string? Truncate(string? value, int max) =>
-        value is null || value.Length <= max ? value : value[..max];
 }

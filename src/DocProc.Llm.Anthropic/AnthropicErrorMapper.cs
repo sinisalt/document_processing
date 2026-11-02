@@ -1,6 +1,7 @@
 using System.Net;
 using Anthropic.Exceptions;
-using DocProc.Llm.Providers;
+using DocProc.Infrastructure.Http;
+using DocProc.Infrastructure.Llm;
 
 namespace DocProc.Llm.Anthropic;
 
@@ -16,7 +17,7 @@ public static class AnthropicErrorMapper
 
         if (TenantEndpointGuard.FindBlocked(exception) is { } blocked)
         {
-            return TenantEndpointGuard.ToLlmException(blocked);
+            return LlmEndpointGuard.ToLlmException(blocked);
         }
 
         return exception switch

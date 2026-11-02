@@ -119,9 +119,31 @@ public sealed record ReprocessDocumentRequest(string? FromStage);
 /// <c>Invoice.EnumerateAllFields</c> produces it (<c>invoiceNumber</c>, <c>lines[2].quantity</c>, <c>supplier</c>) or a
 /// property inside such a field's value (<c>supplier.vatId</c>); <see cref="Value"/> is the new value in the JSON
 /// shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-/// clear it.
+/// clear it. <c>op</c> is the correction operation; only <c>set</c> (the default) exists so far, the others of
+/// docs/11 §6.2 (<c>append</c>, <c>remove</c>, <c>move</c>, …) are refused until their phase. <c>source</c>
+/// optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
+/// provenance and on the Correction row.
 /// </summary>
-public sealed record FieldCorrection(string Path, JsonElement? Value, string? Reason);
+public sealed record FieldCorrection(string Path, JsonElement? Value, string? Reason, string? Op = null, CorrectionSource? Source = null);
+
+/// <summary>
+/// Where a corrected value came from (docs/11 §6.2 <c>Correction.SourceJson</c>). Every part is optional.
+/// <c>method</c> names how the reviewer picked it (for example <c>word</c>, <c>region</c>, <c>ocr</c>); <c>page</c> is
+/// 1-based; <c>bBox</c> is in the text layer's 1000 × 1000 page units; <c>rawText</c> is the text as printed;
+/// <c>words</c> lists the picked words as <c>[page, wordIndex]</c> pairs; <c>path</c> and <c>cell</c> locate a value
+/// in a structured file (an XML element path, a spreadsheet cell such as <c>B7</c>).
+/// </summary>
+public sealed record CorrectionSource(
+    string? Method = null,
+    int? Page = null,
+    SourceBox? BBox = null,
+    string? RawText = null,
+    IReadOnlyList<IReadOnlyList<int>>? Words = null,
+    string? Path = null,
+    string? Cell = null);
+
+/// <summary>An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes.</summary>
+public sealed record SourceBox(double X0, double Y0, double X1, double Y1);
 
 public sealed record CorrectFieldsRequest(IReadOnlyList<FieldCorrection> Corrections);
 

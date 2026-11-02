@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using DocProc.Api.Auth;
 using DocProc.Application.Abstractions;
+using DocProc.Infrastructure.Http;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;

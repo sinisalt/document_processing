@@ -330,7 +330,8 @@ public sealed class DemoDataHostedService(
             return 0;
         }
 
-        var sender = DemoData.Members.FirstOrDefault(m => m.TenantId == tenant.Id && m.Role == TenantRole.TenantAdmin)?.Email;
+        // The demo documents are uploads by the tenant admin: the actor, not a mail sender.
+        var submittedBy = DemoData.Members.FirstOrDefault(m => m.TenantId == tenant.Id && m.Role == TenantRole.TenantAdmin)?.Email;
         var ingested = 0;
         foreach (var path in missing)
         {
@@ -339,7 +340,7 @@ public sealed class DemoDataHostedService(
             var contentType = ContentTypes[Path.GetExtension(path)];
             var upload = new UploadFile(fileName, contentType, ItemKinds.Detect(contentType, fileName), () => new MemoryStream(bytes, writable: false));
             var stored = await UploadIntake.StoreAsync(blobs, tenant.Id, [upload], cancellationToken).ConfigureAwait(false);
-            var ingestion = UploadIntake.CreateIngestion(tenant.Id, channel.Id, sender, stored, clock.GetUtcNow());
+            var ingestion = UploadIntake.CreateIngestion(tenant.Id, channel.Id, SourceMetadata.Upload(submittedBy), stored, clock.GetUtcNow());
             db.Ingestions.Add(ingestion);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             db.ChangeTracker.Clear();

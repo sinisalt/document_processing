@@ -17,7 +17,18 @@ public sealed class Ingestion : ITenantScoped, IVersioned
     public int Version { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
     public string? SourceMessageId { get; set; }
+
+    /// <summary>
+    /// Legacy, written for one more release and then dropped (docs/11 §6.3): the e-mail sender for a mailbox, the
+    /// submitting actor for an upload. New code reads <see cref="SourceSender"/> or <see cref="SubmittedBy"/>.
+    /// </summary>
     public string? SourceFrom { get; set; }
+
+    /// <summary>The real e-mail From of a mailbox ingestion, lower-cased; null for uploads and for rows written before the split.</summary>
+    public string? SourceSender { get; set; }
+
+    /// <summary>Who submitted an upload (the user or API key name); null for mailbox and folder ingestions.</summary>
+    public string? SubmittedBy { get; set; }
     public string? SourceSubject { get; set; }
     public string? SourceFileName { get; set; }
 

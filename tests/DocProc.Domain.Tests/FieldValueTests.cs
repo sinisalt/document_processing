@@ -56,4 +56,26 @@ public class FieldValueTests
         twice.History[1].Value.ShouldBe(2m);
         twice.History[1].Status.ShouldBe(FieldStatus.Corrected);
     }
+
+    [Fact]
+    public void Correct_without_a_source_stores_the_bare_human_provenance()
+    {
+        var corrected = FieldValue.Extracted("RE-1", new FieldSource(SourceMethod.Llm, 2, new BoundingBox(1, 2, 3, 4), "RE-1")).Correct("RE-2", "a", DateTimeOffset.UnixEpoch);
+
+        corrected.Source.ShouldBe(FieldSource.Human);
+        corrected.History.ShouldHaveSingleItem().Source!.Method.ShouldBe(SourceMethod.Llm);
+    }
+
+    [Fact]
+    public void Correct_with_a_source_keeps_its_location_under_human_provenance()
+    {
+        // "Map from page" (docs/11 §12.6): the reviewer picked the words, so the method is Human and the place stays.
+        var picked = new FieldSource(SourceMethod.Ocr, 3, new BoundingBox(610, 912, 760, 926), "DE 811 111 111");
+
+        var corrected = FieldValue<string>.Missing().Correct("DE811111111", "reviewer", DateTimeOffset.UnixEpoch, picked);
+
+        corrected.Status.ShouldBe(FieldStatus.Corrected);
+        corrected.Source.ShouldBe(new FieldSource(SourceMethod.Human, 3, new BoundingBox(610, 912, 760, 926), "DE 811 111 111"));
+        corrected.History.ShouldHaveSingleItem().Status.ShouldBe(FieldStatus.Missing);
+    }
 }

@@ -62,6 +62,9 @@ public sealed class IngestionEndpointTests(ApiFactory factory) : IClassFixture<A
         var stored = factory.Query(db => db.Ingestions.Include(i => i.Items).Include(i => i.Channel).AsNoTracking().Single(i => i.Id == created.Id));
         stored.TenantId.ShouldBe(ApiFactory.TenantA);
         stored.SourceFrom.ShouldBe("reviewer-a");
+        // The actor split (docs/11 §6.3): an upload has a submitter and no mail sender.
+        stored.SubmittedBy.ShouldBe("reviewer-a");
+        stored.SourceSender.ShouldBeNull();
         stored.SourceFileName.ShouldBe("Rechnung 42.pdf");
         stored.Channel!.Type.ShouldBe(ChannelType.ApiUpload);
         stored.Channel.Name.ShouldBe("API upload");

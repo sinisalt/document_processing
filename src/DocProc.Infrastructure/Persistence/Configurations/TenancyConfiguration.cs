@@ -17,7 +17,11 @@ internal sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         b.Property(t => t.DefaultCurrency).HasMaxLength(3).IsFixedLength();
         b.Property(t => t.CountryCode).HasMaxLength(2).IsFixedLength();
         b.Property(t => t.TimeZone).HasMaxLength(64);
-        b.OwnsOne(t => t.Settings, s => s.ToJson());
+        b.OwnsOne(t => t.Settings, s =>
+        {
+            s.ToJson();
+            s.OwnsOne(x => x.Features);
+        });
     }
 }
 

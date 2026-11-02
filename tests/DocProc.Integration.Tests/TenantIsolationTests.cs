@@ -134,6 +134,112 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         stored.NewValueJson.ShouldBe(newValue);
     }
 
+    /// <summary>
+    /// docs/11 §6.10: a nullable-tenant table (ExtractorProfiles) lets every session read its platform rows (TenantId
+    /// NULL) but only platform scope create, change or delete them; tenant rows stay private to their tenant.
+    /// </summary>
+    [Fact]
+    public async Task Platform_rows_are_readable_by_every_tenant_and_writable_only_in_platform_scope()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        var platformRow = NewProfile(tenantId: null, "platform");
+        var privateA = NewProfile(TenantA, "private-a");
+        var privateB = NewProfile(TenantB, "private-b");
+        Guid[] ids = [platformRow.Id, privateA.Id, privateB.Id];
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            platform.ExtractorProfiles.AddRange(platformRow, privateA, privateB);
+            await platform.SaveChangesAsync(ct);
+        }
+
+        // Reads: the platform row and the own row, never the other tenant's, even with the EF filter bypassed.
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            (await asA.ExtractorProfiles.IgnoreQueryFilters().Where(p => ids.Contains(p.Id)).Select(p => p.DocumentType).ToListAsync(ct))
+                .ShouldBe(["platform", "private-a"], ignoreOrder: true);
+        }
+
+        await using (var asB = NewContext(TenantContext.ForTenant(TenantB)))
+        {
+            (await asB.ExtractorProfiles.IgnoreQueryFilters().Where(p => ids.Contains(p.Id)).Select(p => p.DocumentType).ToListAsync(ct))
+                .ShouldBe(["platform", "private-b"], ignoreOrder: true);
+        }
+
+        // Writes to the platform row from a tenant session are blocked: update, delete, and creating a new one.
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var shared = await asA.ExtractorProfiles.SingleAsync(p => p.Id == platformRow.Id, ct);
+            shared.Attempts = 99;
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            asA.ExtractorProfiles.Remove(await asA.ExtractorProfiles.SingleAsync(p => p.Id == platformRow.Id, ct));
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            asA.ExtractorProfiles.Add(NewProfile(tenantId: null, "forged-platform"));
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        // Raw SQL bypasses EF entirely and is blocked all the same.
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            await Should.ThrowAsync<SqlException>(() => asA.Database.ExecuteSqlAsync($"UPDATE dbo.ExtractorProfiles SET Attempts = 7 WHERE Id = {platformRow.Id}", ct));
+            await Should.ThrowAsync<SqlException>(() => asA.Database.ExecuteSqlAsync($"DELETE FROM dbo.ExtractorProfiles WHERE Id = {platformRow.Id}", ct));
+        }
+
+        // A tenant keeps full control of its own rows, but cannot turn one into a platform row or hand it to another tenant.
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var own = await asA.ExtractorProfiles.SingleAsync(p => p.Id == privateA.Id, ct);
+            own.Attempts = 3;
+            await asA.SaveChangesAsync(ct);
+
+            own.TenantId = null;
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var own = await asA.ExtractorProfiles.SingleAsync(p => p.Id == privateA.Id, ct);
+            own.TenantId = TenantB;
+            await Should.ThrowAsync<DbUpdateException>(() => asA.SaveChangesAsync(ct));
+        }
+
+        // Platform scope does everything; the platform row is unchanged by the refused writes above.
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            var shared = await platform.ExtractorProfiles.SingleAsync(p => p.Id == platformRow.Id, ct);
+            shared.Attempts.ShouldBe(0);
+            shared.Attempts = 1;
+            await platform.SaveChangesAsync(ct);
+            (await platform.ExtractorProfiles.SingleAsync(p => p.Id == privateA.Id, ct)).Attempts.ShouldBe(3);
+            platform.ExtractorProfiles.Remove(await platform.ExtractorProfiles.SingleAsync(p => p.Id == privateB.Id, ct));
+            await platform.SaveChangesAsync(ct);
+        }
+
+        // A session without any context sees the platform rows only.
+        await using var raw = new SqlConnection(_connectionString);
+        await raw.OpenAsync(ct);
+        await using var count = new SqlCommand($"SELECT COUNT(*) FROM dbo.ExtractorProfiles WHERE Id IN ('{platformRow.Id}', '{privateA.Id}')", raw);
+        (await count.ExecuteScalarAsync(ct)).ShouldBe(1);
+    }
+
+    private static ExtractorProfile NewProfile(Guid? tenantId, string documentType) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        TenantId = tenantId,
+        DocumentType = documentType,
+        CreatedAt = DateTimeOffset.UtcNow,
+        UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
     private DocProcDbContext NewContext(ITenantContext tenant)
     {
         var options = PersistenceOptions.ConfigureSqlServer(new DbContextOptionsBuilder<DocProcDbContext>(), _connectionString, tenant: tenant);

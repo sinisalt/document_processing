@@ -101,9 +101,19 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<string>("OldValueJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Op")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasDefaultValue("set");
+
                     b.Property<string>("Reason")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SourceJson")
+                        .HasColumnType("json");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -664,6 +674,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(998)
                         .HasColumnType("nvarchar(998)");
 
+                    b.Property<string>("SourceSender")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
                     b.Property<string>("SourceSubject")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
@@ -672,6 +686,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SubmittedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -1616,6 +1634,32 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                             b1.WithOwner()
                                 .HasForeignKey("TenantId");
+
+                            b1.OwnsOne("DocProc.Infrastructure.Persistence.Entities.TenantFeatureFlags", "Features", b2 =>
+                                {
+                                    b2.Property<Guid>("TenantSettingsTenantId");
+
+                                    b2.Property<bool>("ConfigurableTypes");
+
+                                    b2.Property<bool>("CustomTypes");
+
+                                    b2.Property<bool>("Outputs");
+
+                                    b2.Property<bool>("SourceRouting");
+
+                                    b2.Property<bool>("StructuredSources");
+
+                                    b2.Property<bool>("SupplierLayouts");
+
+                                    b2.HasKey("TenantSettingsTenantId");
+
+                                    b2.ToTable("Tenants");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("TenantSettingsTenantId");
+                                });
+
+                            b1.Navigation("Features");
                         });
 
                     b.Navigation("Settings")

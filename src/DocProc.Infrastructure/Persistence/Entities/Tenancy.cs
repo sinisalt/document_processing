@@ -28,6 +28,41 @@ public sealed class TenantSettings
 
     /// <summary>Share extractor profiles learned from this tenant's documents through the global supplier registry.</summary>
     public bool ShareExtractorProfiles { get; set; } = true;
+
+    /// <summary>
+    /// The per-tenant switches of docs/11 §3 (principle 6): every configurable-types capability ships behind one and
+    /// stays off until a tenant is moved onto it. Read through <c>ITenantFeatures</c>, never directly.
+    /// <para>
+    /// Every stored settings object carries it: new tenants through this initialiser, existing ones through the
+    /// <c>P0PersistenceSeams</c> back-fill. That matters for writes: when the stored JSON lacks the object, EF leaves
+    /// this initialised instance in place untracked, so changes to it are silently not saved, and assigning a new
+    /// instance fails on SQL Server (the partial JSON update addresses a path that does not exist). Null is still read
+    /// as all off, for safety.
+    /// </para>
+    /// </summary>
+    public TenantFeatureFlags? Features { get; set; } = new();
+}
+
+/// <summary>Per-tenant feature flags (docs/11 §3); all off by default, so a tenant behaves as before until switched.</summary>
+public sealed class TenantFeatureFlags
+{
+    /// <summary>Document types as data: the type catalogue, definitions and the generated review form (P1).</summary>
+    public bool ConfigurableTypes { get; set; }
+
+    /// <summary>Output mappings, destinations and delivery (P3).</summary>
+    public bool Outputs { get; set; }
+
+    /// <summary>Supplier source rules: routing by mailbox, sender and folder (P4).</summary>
+    public bool SourceRouting { get; set; }
+
+    /// <summary>Supplier layouts with identification rules and field mappings (P4).</summary>
+    public bool SupplierLayouts { get; set; }
+
+    /// <summary>Tenant-defined types beyond the standard templates, end to end (P5).</summary>
+    public bool CustomTypes { get; set; }
+
+    /// <summary>Structured sources: spreadsheets, custom XML and JSON, e-mail bodies (P6).</summary>
+    public bool StructuredSources { get; set; }
 }
 
 /// <summary>A customer: one restaurant or a restaurant group.</summary>

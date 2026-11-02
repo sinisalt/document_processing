@@ -2413,6 +2413,72 @@
           }
         }
       },
+      "CorrectionSource": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceBox"
+              }
+            ]
+          },
+          "rawText": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "words": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "array",
+              "items": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            }
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cell": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Where a corrected value came from (docs/11 §6.2 `Correction.SourceJson`). Every part is optional.\n`method` names how the reviewer picked it (for example `word`, `region`, `ocr`); `page` is\n1-based; `bBox` is in the text layer's 1000 × 1000 page units; `rawText` is the text as printed;\n`words` lists the picked words as `[page, wordIndex]` pairs; `path` and `cell` locate a value\nin a structured file (an XML element path, a spreadsheet cell such as `B7`)."
+      },
       "CreateApiKeyRequest": {
         "required": [
           "name",
@@ -3326,9 +3392,25 @@
               "null",
               "string"
             ]
+          },
+          "op": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CorrectionSource"
+              }
+            ]
           }
         },
-        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it."
+        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it. `op` is the correction operation; only `set` (the default) exists so far, the others of\ndocs/11 §6.2 (`append`, `remove`, `move`, …) are refused until their phase. `source`\noptionally says where on the page or in the file the reviewer took the value from; it is stored with the field's\nprovenance and on the Correction row."
       },
       "FlagOrigin": {
         "enum": [
@@ -4474,6 +4556,50 @@
           "Done",
           "Skipped"
         ]
+      },
+      "SourceBox": {
+        "required": [
+          "x0",
+          "y0",
+          "x1",
+          "y1"
+        ],
+        "type": "object",
+        "properties": {
+          "x0": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "y0": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "x1": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "y1": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes."
       },
       "SupplierActivityItem": {
         "required": [

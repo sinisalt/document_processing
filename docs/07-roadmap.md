@@ -169,6 +169,28 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
+## Configurable types (docs/11 §23) – P0 in progress
+
+The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
+
+- **P0, safety seams – in progress.** No visible behaviour changes; the invoice family, API, UI and tests behave as
+  before.
+  - Done, persistence and safety:
+    - per-tenant feature flags (`TenantSettings.Features`: `configurableTypes`, `outputs`, `sourceRouting`,
+      `supplierLayouts`, `customTypes`, `structuredSources`), all off, read through `ITenantFeatures`;
+    - `[JsonExtensionData]` on `Invoice`, `InvoiceLine`, `Party`, `PurchaseOrder`, `DeliveryNote` and their lines, so
+      unknown canonical properties survive typed round trips;
+    - the single `RoleProjector` (`src/DocProc.Application/Documents/RoleProjector.cs`), written to the list columns
+      by `DocumentRoleColumns`, replacing the Extract stage's and the corrections endpoint's copies;
+    - `FieldValue.Correct(…, source)`, `FieldCorrection.op` and `.source`, `Correction.Op` and `Correction.SourceJson`;
+    - `Ingestion.SourceSender` and `Ingestion.SubmittedBy`, back-filled for uploads (`SourceFrom` still written);
+    - the platform-row RLS predicate (`rls.fn_tenant_or_platform_read`) over `ExtractorProfiles`;
+    - `TenantEndpointGuard` in `src/DocProc.Infrastructure/Http`.
+  - Open: the `IFieldSchemaResolver` seam, the outbox inside the approve and reject transactions with the
+    `PublishSweeper`, the seeded std templates with the parity test and `IEffectiveConfigResolver`, `IDocumentRule`
+    with `InvoiceRuleAdapter`, the `ExtractionOutcome` compatibility constructor, and `mock-erp` in compose and AppHost.
+- **P1 to P6** – not started.
+
 ## Risks and open questions
 
 | Risk / question | Mitigation or decision needed |

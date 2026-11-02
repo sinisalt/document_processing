@@ -92,6 +92,9 @@ internal sealed class CorrectionConfiguration : IEntityTypeConfiguration<Correct
         // SQL Server, TEXT on SQLite.
         b.Property(c => c.OldValueJson);
         b.Property(c => c.NewValueJson);
+        b.Property(c => c.Op).HasMaxLength(16).HasDefaultValue("set");
+        // Always an object (or null), so the native json type takes it.
+        b.Property(c => c.SourceJson).HasColumnType("json");
         b.Property(c => c.By).HasMaxLength(200);
         b.Property(c => c.Reason).HasMaxLength(500);
         b.HasIndex(c => new { c.DocumentId, c.At });

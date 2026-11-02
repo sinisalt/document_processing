@@ -193,8 +193,19 @@ public sealed class Correction : ITenantScoped
     public Guid TenantId { get; set; }
     public Guid DocumentId { get; set; }
     public required string FieldPath { get; set; }
+
+    /// <summary>The correction operation (docs/11 §6.2): <c>set</c> today; <c>append</c>, <c>remove</c>, <c>move</c> and the review actions later.</summary>
+    public string Op { get; set; } = "set";
+
     public string? OldValueJson { get; set; }
     public string? NewValueJson { get; set; }
+
+    /// <summary>
+    /// Where the reviewer took the value from, as a JSON object (<c>{method, page, bBox, rawText, words, path, cell}</c>,
+    /// docs/11 §6.2); null when the correction named no source, and for every row written before the column existed.
+    /// </summary>
+    public string? SourceJson { get; set; }
+
     public required string By { get; set; }
     public DateTimeOffset At { get; set; }
     public string? Reason { get; set; }

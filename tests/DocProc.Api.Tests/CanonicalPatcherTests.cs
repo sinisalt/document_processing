@@ -281,4 +281,60 @@ public sealed class CanonicalPatcherTests
         CanonicalPatcher.RootTypeFor(DocumentType.Statement).ShouldBeNull();
         CanonicalPatcher.RootTypeFor(DocumentType.Unknown).ShouldBeNull();
     }
+
+    [Fact]
+    public void A_correction_source_becomes_the_location_of_the_human_provenance()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+        var source = new CorrectionSource(Method: "word", Page: 2, BBox: new SourceBox(1, 2, 3, 4), RawText: "28.10.2026", Cell: "B7");
+
+        var result = Apply(json, new FieldCorrection("issueDate", Value(new DateOnly(2026, 10, 28)), null, Source: source));
+
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(result.Json);
+        invoice.IssueDate.Source.ShouldBe(new FieldSource(SourceMethod.Human, 2, new BoundingBox(1, 2, 3, 4), "28.10.2026"));
+        var applied = result.Applied.ShouldHaveSingleItem();
+        applied.Op.ShouldBe(CorrectionOps.Set);
+        applied.Source.ShouldBe(source);
+        CorrectionSources.ToJson(applied.Source).ShouldBe("{\"method\":\"word\",\"page\":2,\"bBox\":{\"x0\":1,\"y0\":2,\"x1\":3,\"y1\":4},\"rawText\":\"28.10.2026\",\"cell\":\"B7\"}");
+    }
+
+    [Fact]
+    public void A_source_without_a_page_location_keeps_the_bare_human_provenance()
+    {
+        // A structured-file location (path, cell) has no page place to store in the field; it goes to the Correction row only.
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var result = Apply(json, new FieldCorrection("notes", Value("x"), null, Op: "set", Source: new CorrectionSource(Method: "cell", Cell: "C3")));
+
+        CanonicalDocumentSerializer.DeserializeInvoice(result.Json).Notes.Source.ShouldBe(FieldSource.Human);
+        CorrectionSources.ToJson(null).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("append", "not available yet")]
+    [InlineData("move", "not available yet")]
+    [InlineData("SET", "not a correction operation")]
+    [InlineData("", "not a correction operation")]
+    public void Operations_other_than_set_are_refused(string op, string message)
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var error = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("notes", Value("x"), null, Op: op)));
+
+        error.Path.ShouldBe("notes");
+        error.Message.ShouldContain(message);
+    }
+
+    [Theory]
+    [InlineData("extra")]
+    [InlineData("extra.supplierCustomerRef")]
+    [InlineData("lines[0].extra")]
+    public void The_extension_data_bag_is_not_an_addressable_field(string path)
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var error = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection(path, Value("x"), null)));
+
+        error.Message.ShouldContain("'extra' is not a field");
+    }
 }

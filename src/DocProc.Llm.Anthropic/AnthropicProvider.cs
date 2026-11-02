@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Anthropic;
 using Anthropic.Models.Messages;
+using DocProc.Infrastructure.Http;
+using DocProc.Infrastructure.Llm;
 using DocProc.Llm.Providers;
 
 namespace DocProc.Llm.Anthropic;
@@ -163,7 +165,7 @@ public sealed class AnthropicProviderFactory(TimeProvider? clock = null) : ILlmP
             throw new LlmException(LlmErrorKind.Auth, $"Provider configuration {config.Id} has no API key.");
         }
 
-        TenantEndpointGuard.EnsureAllowed(config);
+        LlmEndpointGuard.EnsureAllowed(config);
         IAnthropicClient client = new AnthropicClient
         {
             ApiKey = credential.ApiKey,

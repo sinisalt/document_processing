@@ -2,6 +2,8 @@ using System.Collections.Frozen;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using DocProc.Infrastructure.Http;
+using DocProc.Infrastructure.Llm;
 using DocProc.Llm.Anthropic;
 using DocProc.Llm.OpenAi;
 using DocProc.Llm.Providers;
@@ -205,6 +207,25 @@ public sealed class TenantEndpointGuardTests : IAsyncDisposable
         await Should.ThrowAsync<LlmException>(() => provider.ValidateCredentialAsync(Ct)); // the listener answers 401
 
         (await _internal.FirstRequestLineAsync()).ShouldStartWith("POST /v1/chat/completions");
+    }
+
+    [Fact]
+    public void The_guard_lives_in_infrastructure_so_every_outbound_path_can_share_it()
+    {
+        // docs/11 §13.3 and §16: delivery destinations and http-lookup use the same guard as the LLM path.
+        typeof(TenantEndpointGuard).Assembly.GetName().Name.ShouldBe("DocProc.Infrastructure");
+        typeof(TenantEndpointGuard).Namespace.ShouldBe("DocProc.Infrastructure.Http");
+        typeof(LlmException).Assembly.GetTypes().ShouldNotContain(t => t.Name == nameof(TenantEndpointGuard) || t.Name == nameof(BlockedEndpointException));
+    }
+
+    [Fact]
+    public void A_refused_connection_is_reported_as_an_unavailable_configuration()
+    {
+        var error = LlmEndpointGuard.ToLlmException(new BlockedEndpointException());
+
+        error.Kind.ShouldBe(LlmErrorKind.Unavailable);
+        error.Message.ShouldBe(TenantEndpointGuard.BlockedMessage);
+        TenantEndpointGuard.FindBlocked(error).ShouldNotBeNull();
     }
 
     private static Func<string, CancellationToken, Task<IPAddress[]>> Resolving(string name, params IPAddress[] addresses) =>

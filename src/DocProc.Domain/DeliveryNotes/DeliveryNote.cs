@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DocProc.Domain.Common;
 using DocProc.Domain.Fields;
 
@@ -18,6 +20,10 @@ public sealed record DeliveryNoteLine
     public FieldValue<string> LotNumber { get; init; } = FieldValue<string>.Missing();
     public FieldValue<DateOnly> BestBefore { get; init; } = FieldValue<DateOnly>.Missing();
     public FieldValue<decimal> BackorderQuantity { get; init; } = FieldValue<decimal>.Missing();
+
+    /// <summary>Properties of the stored JSON this record does not declare; kept across typed round trips (see <see cref="DeliveryNote.Extra"/>).</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
 }
 
 /// <summary>Delivery note / packing slip (docs/02-data-model.md §4.4).</summary>
@@ -33,4 +39,11 @@ public sealed record DeliveryNote
     public IReadOnlyList<TemperatureReading> TemperatureReadings { get; init; } = [];
     public FieldValue<string> Notes { get; init; } = FieldValue<string>.Missing();
     public IReadOnlyList<DeliveryNoteLine> Lines { get; init; } = [];
+
+    /// <summary>
+    /// Properties of the stored JSON that this record does not declare (custom fields of a tenant type, docs/11 §5.6),
+    /// kept so a typed load, patch and save round trip does not drop them. Null when there are none.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
 }

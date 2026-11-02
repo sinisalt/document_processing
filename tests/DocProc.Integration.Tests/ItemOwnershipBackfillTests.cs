@@ -59,13 +59,14 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         Guid itemId;
         await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
         {
-            var ingestion = await asA.Ingestions.SingleAsync(ct);
+            // Only the id: the old schema lacks columns the current model maps (Ingestions.SubmittedBy and later ones).
+            var ingestionId = await asA.Ingestions.Select(i => i.Id).SingleAsync(ct);
             var sha = new string('a', 64);
             var item = new IngestionItem
             {
                 Id = Guid.CreateVersion7(),
                 TenantId = TenantA,
-                IngestionId = ingestion.Id,
+                IngestionId = ingestionId,
                 FileName = "invoice.pdf",
                 MimeType = "application/pdf",
                 SizeBytes = 1,
@@ -104,7 +105,15 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         var blob = new BlobReference { Container = "raw", Key = $"{TenantA}/raw", Sha256 = new string('0', 64), SizeBytes = 1, ContentType = "application/pdf" };
         context.Tenants.Add(new Tenant { Id = TenantA, Name = "tenant-a", Slug = "tenant-a", LegalName = "tenant-a", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
         context.IngestionChannels.Add(channel);
-        context.Ingestions.Add(new Ingestion { Id = Guid.CreateVersion7(), TenantId = TenantA, ChannelId = channel.Id, ReceivedAt = now, RawBlob = blob, UpdatedAt = now });
         await context.SaveChangesAsync(ct);
+
+        // In SQL: the current model maps Ingestions columns this older schema does not have yet.
+        await context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [Ingestions] ([Id], [TenantId], [ChannelId], [ReceivedAt], [Status], [Attempts], [UpdatedAt],
+                                      [RawBlob_Container], [RawBlob_ContentType], [RawBlob_Key], [RawBlob_Sha256], [RawBlob_SizeBytes])
+            VALUES ({Guid.CreateVersion7()}, {TenantA}, {channel.Id}, {now}, N'Received', 0, {now}, {blob.Container}, {blob.ContentType}, {blob.Key}, {blob.Sha256}, {blob.SizeBytes});
+            """,
+            ct);
     }
 }

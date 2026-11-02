@@ -768,6 +768,23 @@ export interface components {
         CorrectFieldsRequest: {
             corrections: components["schemas"]["FieldCorrection"][];
         };
+        /**
+         * @description Where a corrected value came from (docs/11 §6.2 `Correction.SourceJson`). Every part is optional.
+         *     `method` names how the reviewer picked it (for example `word`, `region`, `ocr`); `page` is
+         *     1-based; `bBox` is in the text layer's 1000 × 1000 page units; `rawText` is the text as printed;
+         *     `words` lists the picked words as `[page, wordIndex]` pairs; `path` and `cell` locate a value
+         *     in a structured file (an XML element path, a spreadsheet cell such as `B7`).
+         */
+        CorrectionSource: {
+            bBox?: null | components["schemas"]["SourceBox"];
+            cell?: null | string;
+            method?: null | string;
+            /** Format: int32 */
+            page?: null | number | string;
+            path?: null | string;
+            rawText?: null | string;
+            words?: null | (number | string)[][];
+        };
         CreateApiKeyRequest: {
             name: string;
             scopes: string[];
@@ -987,11 +1004,16 @@ export interface components {
          *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
          *     property inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON
          *     shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-         *     clear it.
+         *     clear it. `op` is the correction operation; only `set` (the default) exists so far, the others of
+         *     docs/11 §6.2 (`append`, `remove`, `move`, …) are refused until their phase. `source`
+         *     optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
+         *     provenance and on the Correction row.
          */
         FieldCorrection: {
+            op?: null | string;
             path: string;
             reason: null | string;
+            source?: null | components["schemas"]["CorrectionSource"];
             value: null | components["schemas"]["JsonElement"];
         };
         /** @enum {unknown} */
@@ -1275,6 +1297,17 @@ export interface components {
         };
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @description An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes. */
+        SourceBox: {
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+            /** Format: double */
+            y0: number | string;
+            /** Format: double */
+            y1: number | string;
+        };
         /** @description One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity"). */
         SupplierActivityItem: {
             /** Format: date-time */
@@ -1365,6 +1398,7 @@ export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumen
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
+export type SchemaCorrectionSource = components['schemas']['CorrectionSource'];
 export type SchemaCreateApiKeyRequest = components['schemas']['CreateApiKeyRequest'];
 export type SchemaCreateChannelRequest = components['schemas']['CreateChannelRequest'];
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
@@ -1415,6 +1449,7 @@ export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentR
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaSourceBox = components['schemas']['SourceBox'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];

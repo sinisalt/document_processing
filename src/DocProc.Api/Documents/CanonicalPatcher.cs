@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using DocProc.Domain.Common;
 using DocProc.Domain.DeliveryNotes;
@@ -42,8 +43,22 @@ public sealed class CanonicalPatchException : Exception
     public string Path { get; }
 }
 
-/// <summary>What one correction changed: the field's value before and after, as JSON, for the <c>Corrections</c> audit table.</summary>
-public sealed record AppliedCorrection(string Path, string? OldValueJson, string? NewValueJson, string? Reason);
+/// <summary>
+/// What one correction changed: the field's value before and after, as JSON, for the <c>Corrections</c> audit table,
+/// with the operation and the place the value was taken from (<see cref="CorrectionSource"/>, null when not given).
+/// </summary>
+public sealed record AppliedCorrection(string Path, string? OldValueJson, string? NewValueJson, string? Reason, string Op = CorrectionOps.Set, CorrectionSource? Source = null);
+
+/// <summary>
+/// The correction operations of docs/11 §6.2. Only <see cref="Set"/> is applied today; the others are known so a
+/// request naming one gets "not available yet" rather than "unknown".
+/// </summary>
+public static class CorrectionOps
+{
+    public const string Set = "set";
+
+    public static readonly IReadOnlyList<string> Planned = ["append", "remove", "move", "setType", "split", "join"];
+}
 
 public sealed record CanonicalPatchResult(string Json, IReadOnlyList<AppliedCorrection> Applied);
 
@@ -100,6 +115,8 @@ public static partial class CanonicalPatcher
     private static AppliedCorrection ApplyOne(Type rootType, JsonObject root, FieldCorrection correction, string by, DateTimeOffset at, string? documentCurrency)
     {
         var path = correction.Path?.Trim() ?? string.Empty;
+        CheckOp(path, correction.Op);
+        CorrectionSources.Check(path, correction.Source);
         var segments = ParsePath(path);
         JsonObject node = root;
         var type = rootType;
@@ -197,7 +214,7 @@ public static partial class CanonicalPatcher
         object corrected;
         try
         {
-            corrected = correct.Invoke(current, [newValue, by, at])!;
+            corrected = correct.Invoke(current, [newValue, by, at, CorrectionSources.ToFieldSource(correction.Source)])!;
         }
         catch (TargetInvocationException ex) when (ex.InnerException is not null)
         {
@@ -205,7 +222,19 @@ public static partial class CanonicalPatcher
         }
 
         var newNode = JsonSerializer.SerializeToNode(corrected, fieldType, options)!;
-        return (newNode, new AppliedCorrection(path, oldValueNode?.ToJsonString(), newNode["value"]?.ToJsonString(), correction.Reason));
+        return (newNode, new AppliedCorrection(path, oldValueNode?.ToJsonString(), newNode["value"]?.ToJsonString(), correction.Reason, CorrectionOps.Set, correction.Source));
+    }
+
+    private static void CheckOp(string path, string? op)
+    {
+        if (op is null || string.Equals(op, CorrectionOps.Set, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new CanonicalPatchException(path, CorrectionOps.Planned.Contains(op, StringComparer.Ordinal)
+            ? $"The correction operation '{op}' is not available yet; only '{CorrectionOps.Set}' is."
+            : $"'{op}' is not a correction operation; use '{CorrectionOps.Set}'.");
     }
 
     /// <summary>A property inside the field's value (<c>supplier.vatId</c>): patch that property on the current value and re-read the whole value.</summary>
@@ -399,13 +428,14 @@ public static partial class CanonicalPatcher
     /// Public settable (or init-only) properties keyed by their JSON name (camelCase, as
     /// <see cref="CanonicalDocumentSerializer"/> writes them). Computed get-only properties such as
     /// <c>Party.NormalizedVatId</c> are not addressable: the serialiser ignores them on input, so a correction to one
-    /// would be recorded but change nothing.
+    /// would be recorded but change nothing. Neither is the <c>[JsonExtensionData]</c> bag (<c>Extra</c>): it has no JSON
+    /// name of its own, its entries sit beside the declared properties and are carried through untouched.
     /// </summary>
     private static PropertyInfo? FindProperty(Type type, string jsonName)
     {
         var properties = PropertyCache.GetOrAdd(type, t => t
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0)
+            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0 && p.GetCustomAttribute<JsonExtensionDataAttribute>() is null)
             .ToDictionary(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name), p => p, StringComparer.Ordinal));
         return properties.TryGetValue(jsonName, out var property) ? property : null;
     }
