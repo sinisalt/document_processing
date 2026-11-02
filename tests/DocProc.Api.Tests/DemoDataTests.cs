@@ -113,10 +113,10 @@ public sealed class DemoDataTests
         // The clean e-invoices: structured path, supplier matched, no blocking flag, auto-approved and published.
         foreach (var (file, supplier, type, tenant) in new[]
                  {
-                     (MetroInvoice, DevSeed.MetroDeutschland, DocumentType.Invoice, DevSeed.TenantA),
-                     (MetroCreditNote, DevSeed.MetroDeutschland, DocumentType.CreditNote, DevSeed.TenantA),
-                     (HoffmannInvoice, DevSeed.GetraenkeHoffmann, DocumentType.Invoice, DevSeed.TenantA),
-                     (KonzumInvoice, DevSeed.KonzumPlus, DocumentType.Invoice, DevSeed.TenantB),
+                     (MetroInvoice, DevSeed.MetroDeutschland, DocumentTypeKey.Invoice, DevSeed.TenantA),
+                     (MetroCreditNote, DevSeed.MetroDeutschland, DocumentTypeKey.CreditNote, DevSeed.TenantA),
+                     (HoffmannInvoice, DevSeed.GetraenkeHoffmann, DocumentTypeKey.Invoice, DevSeed.TenantA),
+                     (KonzumInvoice, DevSeed.KonzumPlus, DocumentTypeKey.Invoice, DevSeed.TenantB),
                  })
         {
             Of(file).ShouldSatisfyAllConditions(
@@ -140,7 +140,7 @@ public sealed class DemoDataTests
         // The two-page PDF invoice, extracted from the replay fixture with its hand-authored values.
         Of(BioHofPdfInvoice).ShouldSatisfyAllConditions(
             d => d.PageCount.ShouldBe(2),
-            d => d.Type.ShouldBe(DocumentType.Invoice),
+            d => d.Type.ShouldBe(DocumentTypeKey.Invoice),
             d => d.TypeSource.ShouldBe(TypeSource.Rule),
             d => d.SupplierId.ShouldBe(DevSeed.BioHofMueller),
             d => d.ExtractionMethod.ShouldBe(ExtractionMethod.Llm),
@@ -164,7 +164,7 @@ public sealed class DemoDataTests
         if (DemoData.IsFixtureCapturePlatform)
         {
             Of(BioHofDeliveryNote).ShouldSatisfyAllConditions(
-                d => d.Type.ShouldBe(DocumentType.DeliveryNote),
+                d => d.Type.ShouldBe(DocumentTypeKey.DeliveryNote),
                 d => d.TypeSource.ShouldBe(TypeSource.Llm),
                 d => d.TypeConfidence.ShouldBe(0.91),
                 d => d.SupplierId.ShouldBe(DevSeed.BioHofMueller),

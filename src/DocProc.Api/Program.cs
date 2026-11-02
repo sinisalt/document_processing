@@ -15,7 +15,7 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<OpenApiSecurityTransformer>());
+builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<OpenApiSecurityTransformer>().AddSchemaTransformer<DocProc.Api.Documents.DocumentTypeKeySchemaTransformer>());
 builder.Services.AddProblemDetails();
 builder.Services.AddDocProcAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddTenantStatusCache();

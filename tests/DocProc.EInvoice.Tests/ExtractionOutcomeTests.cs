@@ -124,7 +124,7 @@ public sealed class ExtractionOutcomeTests
         var json = JsonSerializer.Serialize(invoice, CanonicalJson.Options);
 
         var expected = InvoiceValidator.Default.Validate(JsonSerializer.Deserialize<Invoice>(json, CanonicalJson.Options)!, Fixtures.Context).Flags;
-        var actual = DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.Invoice, json), StandardRuleSets.Invoice, Fixtures.Context).Flags;
+        var actual = DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.Invoice, json), StandardRuleSets.Invoice, Fixtures.Context).Flags;
 
         actual.Select(Describe).ShouldBe(expected.Select(Describe));
     }

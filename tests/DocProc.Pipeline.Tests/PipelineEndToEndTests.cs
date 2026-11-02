@@ -31,7 +31,7 @@ public class PipelineEndToEndTests
         var document = await host.SingleDocumentAsync(ingestion.Id);
         document.FailureReason.ShouldBeNull();
         document.Status.ShouldBe(DocumentStatus.AutoApproved);
-        document.Type.ShouldBe(DocumentType.Invoice);
+        document.Type.ShouldBe(DocumentTypeKey.Invoice);
         document.TypeSource.ShouldBe(TypeSource.Structured);
         document.TypeConfidence.ShouldBe(1.0);
         document.ExtractionMethod.ShouldBe(ExtractionMethod.StructuredXml);
@@ -113,7 +113,7 @@ public class PipelineEndToEndTests
         document.TextLayerBlob.ShouldNotBeNull().Container.ShouldBe(BlobContainers.Derived);
         document.NormalizedBlob.ShouldNotBeNull().ContentType.ShouldBe(PdfMime);
         document.EmbeddedXmlBlob.ShouldBeNull();
-        document.Type.ShouldBe(DocumentType.Invoice);
+        document.Type.ShouldBe(DocumentTypeKey.Invoice);
         document.TypeSource.ShouldBe(TypeSource.Llm);
         document.TypeConfidence.ShouldBe(0.9);
         document.SupplierId.ShouldBe(supplier.Id, "fuzzy name match on the first page");

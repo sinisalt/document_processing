@@ -17,7 +17,7 @@ public sealed record TypeDefinition
 
     /// <summary>
     /// Platform templates only: the key every existing tenant adopts the template under (docs/11 §21 step 2), which
-    /// is the <c>DocumentType</c> name the stored documents already carry (<c>Invoice</c>, <c>Other</c>, ...).
+    /// is the <c>DocumentTypeKey</c> name the stored documents already carry (<c>Invoice</c>, <c>Other</c>, ...).
     /// </summary>
     public string? LegacyKey { get; init; }
 

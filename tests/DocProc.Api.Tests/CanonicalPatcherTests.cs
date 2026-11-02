@@ -274,12 +274,12 @@ public sealed class CanonicalPatcherTests
     [Fact]
     public void Root_types_follow_the_document_type()
     {
-        CanonicalPatcher.RootTypeFor(DocumentType.Invoice).ShouldBe(typeof(Invoice));
-        CanonicalPatcher.RootTypeFor(DocumentType.CreditNote).ShouldBe(typeof(Invoice));
-        CanonicalPatcher.RootTypeFor(DocumentType.PurchaseOrder).ShouldBe(typeof(DocProc.Domain.PurchaseOrders.PurchaseOrder));
-        CanonicalPatcher.RootTypeFor(DocumentType.DeliveryNote).ShouldBe(typeof(DocProc.Domain.DeliveryNotes.DeliveryNote));
-        CanonicalPatcher.RootTypeFor(DocumentType.Statement).ShouldBeNull();
-        CanonicalPatcher.RootTypeFor(DocumentType.Unknown).ShouldBeNull();
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Invoice).ShouldBe(typeof(Invoice));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.CreditNote).ShouldBe(typeof(Invoice));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.PurchaseOrder).ShouldBe(typeof(DocProc.Domain.PurchaseOrders.PurchaseOrder));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.DeliveryNote).ShouldBe(typeof(DocProc.Domain.DeliveryNotes.DeliveryNote));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Statement).ShouldBeNull();
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Unknown).ShouldBeNull();
     }
 
     [Fact]

@@ -25,7 +25,7 @@ public sealed class LlmInvoiceExtractor(
     public bool CanHandle(ExtractionInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        return input.Type is DocumentType.Invoice or DocumentType.CreditNote
+        return input.Type.IsInvoiceFamily
                && (input.Pdf is { Length: > 0 } || input.PageImages.Count > 0 || input.TextLayer is { WordCount: > 0 });
     }
 

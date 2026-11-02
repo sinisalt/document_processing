@@ -40,7 +40,7 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
 
         var metroReview = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Invoice = TestInvoices.Valid("RE-1001", new DateOnly(2026, 10, 1)), SupplierName = "METRO Deutschland GmbH", Flags = [FlagCodes.Create(FlagCodes.TotalsMismatch, "sum off", "totalGross"), FlagCodes.Create(FlagCodes.LowConfidence, "low", "lines[1].quantity")] });
         var metroApproved = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.Approved, Invoice = TestInvoices.Valid("RE-1002", new DateOnly(2026, 10, 15)), SupplierName = "METRO Deutschland GmbH" });
-        var hoffmannCredit = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Type = DocumentType.CreditNote, Invoice = TestInvoices.Valid("GS-77", new DateOnly(2026, 9, 20)), SupplierName = "Getränke Hoffmann GmbH" });
+        var hoffmannCredit = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Type = DocumentTypeKey.CreditNote, Invoice = TestInvoices.Valid("GS-77", new DateOnly(2026, 9, 20)), SupplierName = "Getränke Hoffmann GmbH" });
         var failed = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.Failed, Invoice = null, SupplierName = null });
 
         using var client = factory.ClientFor(new TokenSpec("filter-reviewer", [Roles.Reviewer], tenant.ToString()));

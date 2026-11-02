@@ -26,7 +26,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = await _classifier.ClassifyAsync(Tenant, layer, null, TestContext.Current.CancellationToken);
 
-        outcome.Type.ShouldBe(DocumentType.Invoice);
+        outcome.Type.ShouldBe(DocumentTypeKey.Invoice);
         outcome.Source.ShouldBe(TypeSource.Rule);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.8);
         outcome.Confidence.ShouldBeLessThanOrEqualTo(1);
@@ -41,7 +41,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(deliveryNoteOnly);
 
-        outcome.Type.ShouldBe(DocumentType.DeliveryNote);
+        outcome.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.8);
         outcome.Language.ShouldBe(DocumentLanguages.German);
     }
@@ -60,7 +60,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.CreditNote);
+        outcome.Type.ShouldBe(DocumentTypeKey.CreditNote);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.7);
         outcome.Language.ShouldBe(DocumentLanguages.German);
     }
@@ -80,7 +80,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.DeliveryNote);
+        outcome.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.7);
         outcome.Language.ShouldBe(DocumentLanguages.English);
     }
@@ -96,22 +96,22 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.Invoice);
+        outcome.Type.ShouldBe(DocumentTypeKey.Invoice);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.6);
         outcome.Language.ShouldBe(language);
     }
 
     [Theory]
-    [InlineData("Kontoauszug", DocumentType.Statement)]
-    [InlineData("Mahnung", DocumentType.Reminder)]
-    [InlineData("Zahlungserinnerung", DocumentType.Reminder)]
-    [InlineData("Bestellung", DocumentType.PurchaseOrder)]
-    [InlineData("Purchase order", DocumentType.PurchaseOrder)]
-    [InlineData("Statement of account", DocumentType.Statement)]
-    [InlineData("Opomena", DocumentType.Reminder)]
-    [InlineData("Nota di credito", DocumentType.CreditNote)]
-    [InlineData("Bon de livraison", DocumentType.DeliveryNote)]
-    public void Title_in_the_header_decides_the_type_even_when_invoices_are_listed_below(string title, DocumentType expected)
+    [InlineData("Kontoauszug", WellKnownTypeKeys.Statement)]
+    [InlineData("Mahnung", WellKnownTypeKeys.Reminder)]
+    [InlineData("Zahlungserinnerung", WellKnownTypeKeys.Reminder)]
+    [InlineData("Bestellung", WellKnownTypeKeys.PurchaseOrder)]
+    [InlineData("Purchase order", WellKnownTypeKeys.PurchaseOrder)]
+    [InlineData("Statement of account", WellKnownTypeKeys.Statement)]
+    [InlineData("Opomena", WellKnownTypeKeys.Reminder)]
+    [InlineData("Nota di credito", WellKnownTypeKeys.CreditNote)]
+    [InlineData("Bon de livraison", WellKnownTypeKeys.DeliveryNote)]
+    public void Title_in_the_header_decides_the_type_even_when_invoices_are_listed_below(string title, DocumentTypeKey expected)
     {
         var layer = TextLayers.Layer(TextLayers.Page(
             1,
@@ -136,7 +136,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.Unknown);
+        outcome.Type.ShouldBe(DocumentTypeKey.Unknown);
         outcome.Source.ShouldBe(TypeSource.Rule);
         outcome.Confidence.ShouldBeGreaterThan(0);
         outcome.Confidence.ShouldBeLessThan(0.6);
@@ -151,8 +151,8 @@ public class KeywordDocumentClassifierTests
         var strict = _classifier.Classify(layer);
         var relaxed = lenient.Classify(layer);
 
-        strict.Type.ShouldBe(DocumentType.Unknown);
-        relaxed.Type.ShouldBe(DocumentType.Invoice);
+        strict.Type.ShouldBe(DocumentTypeKey.Unknown);
+        relaxed.Type.ShouldBe(DocumentTypeKey.Invoice);
         relaxed.Confidence.ShouldBe(strict.Confidence);
     }
 
@@ -167,7 +167,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.Unknown);
+        outcome.Type.ShouldBe(DocumentTypeKey.Unknown);
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.Unknown);
+        outcome.Type.ShouldBe(DocumentTypeKey.Unknown);
         outcome.Confidence.ShouldBeLessThan(0.6);
     }
 
@@ -205,11 +205,11 @@ public class KeywordDocumentClassifierTests
             (500, "Replaces proforma PI-1 of 1 March 2026"))));
 
         // Header title (8) and labels (4) against one header negation (-8): not enough for a confident invoice.
-        proforma.Type.ShouldBe(DocumentType.Unknown);
+        proforma.Type.ShouldBe(DocumentTypeKey.Unknown);
         proforma.Confidence.ShouldBe(0.5);
 
         // The same word in the body (-4) does not overturn a clear invoice header.
-        body.Type.ShouldBe(DocumentType.Invoice);
+        body.Type.ShouldBe(DocumentTypeKey.Invoice);
         body.Confidence.ShouldBe(1);
     }
 
@@ -229,7 +229,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.Invoice);
+        outcome.Type.ShouldBe(DocumentTypeKey.Invoice);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.6);
         outcome.Language.ShouldBe(DocumentLanguages.English);
     }
@@ -241,12 +241,12 @@ public class KeywordDocumentClassifierTests
         var empty = _classifier.Classify(TextLayers.Layer(TextLayers.BlankPage(1)));
         var none = _classifier.Classify(null);
 
-        noKeywords.Type.ShouldBe(DocumentType.Unknown);
+        noKeywords.Type.ShouldBe(DocumentTypeKey.Unknown);
         noKeywords.Confidence.ShouldBe(0);
         noKeywords.Language.ShouldBeNull();
-        empty.Type.ShouldBe(DocumentType.Unknown);
+        empty.Type.ShouldBe(DocumentTypeKey.Unknown);
         empty.Confidence.ShouldBe(0);
-        none.Type.ShouldBe(DocumentType.Unknown);
+        none.Type.ShouldBe(DocumentTypeKey.Unknown);
         none.Confidence.ShouldBe(0);
         none.Source.ShouldBe(TypeSource.Rule);
     }
@@ -263,7 +263,7 @@ public class KeywordDocumentClassifierTests
 
         var outcome = _classifier.Classify(layer);
 
-        outcome.Type.ShouldBe(DocumentType.DeliveryNote);
+        outcome.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
         outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.8);
     }
 

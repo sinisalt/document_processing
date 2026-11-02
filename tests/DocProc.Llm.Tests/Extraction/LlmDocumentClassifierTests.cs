@@ -20,7 +20,7 @@ public class LlmDocumentClassifierTests
 
         var outcome = await Classifier(gateway).ClassifyAsync(Inputs.TenantId, Inputs.SampleTextLayer(), Inputs.PngBytes, CancellationToken.None);
 
-        outcome.Type.ShouldBe(DocumentType.CreditNote);
+        outcome.Type.ShouldBe(DocumentTypeKey.CreditNote);
         outcome.Confidence.ShouldBe(0.82);
         outcome.Source.ShouldBe(TypeSource.Llm);
         outcome.Language.ShouldBe("de");
@@ -55,7 +55,7 @@ public class LlmDocumentClassifierTests
 
         var outcome = await Classifier(gateway).ClassifyAsync(Inputs.TenantId, null, null, CancellationToken.None);
 
-        outcome.ShouldBe(new Application.Abstractions.ClassificationOutcome(DocumentType.Unknown, 0, TypeSource.Llm));
+        outcome.ShouldBe(new Application.Abstractions.ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Llm));
         gateway.Requests.ShouldBeEmpty();
     }
 
@@ -71,18 +71,18 @@ public class LlmDocumentClassifierTests
         high.Confidence.ShouldBe(LlmDocumentClassifier.MaxConfidence);
         high.Language.ShouldBeNull();
         low.Confidence.ShouldBe(0);
-        low.Type.ShouldBe(DocumentType.Other);
+        low.Type.ShouldBe(DocumentTypeKey.Other);
     }
 
     [Theory]
-    [InlineData(ClassifiedDocumentType.Invoice, DocumentType.Invoice)]
-    [InlineData(ClassifiedDocumentType.CreditNote, DocumentType.CreditNote)]
-    [InlineData(ClassifiedDocumentType.PurchaseOrder, DocumentType.PurchaseOrder)]
-    [InlineData(ClassifiedDocumentType.DeliveryNote, DocumentType.DeliveryNote)]
-    [InlineData(ClassifiedDocumentType.Statement, DocumentType.Statement)]
-    [InlineData(ClassifiedDocumentType.Reminder, DocumentType.Reminder)]
-    [InlineData(ClassifiedDocumentType.Other, DocumentType.Other)]
-    public void Every_classified_type_maps_to_a_document_type(ClassifiedDocumentType classified, DocumentType expected) =>
+    [InlineData(ClassifiedDocumentType.Invoice, WellKnownTypeKeys.Invoice)]
+    [InlineData(ClassifiedDocumentType.CreditNote, WellKnownTypeKeys.CreditNote)]
+    [InlineData(ClassifiedDocumentType.PurchaseOrder, WellKnownTypeKeys.PurchaseOrder)]
+    [InlineData(ClassifiedDocumentType.DeliveryNote, WellKnownTypeKeys.DeliveryNote)]
+    [InlineData(ClassifiedDocumentType.Statement, WellKnownTypeKeys.Statement)]
+    [InlineData(ClassifiedDocumentType.Reminder, WellKnownTypeKeys.Reminder)]
+    [InlineData(ClassifiedDocumentType.Other, WellKnownTypeKeys.Other)]
+    public void Every_classified_type_maps_to_a_document_type(ClassifiedDocumentType classified, DocumentTypeKey expected) =>
         LlmDocumentClassifier.Map(classified).ShouldBe(expected);
 
     [Fact]

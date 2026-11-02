@@ -3,7 +3,7 @@ using DocProc.Domain.Text;
 
 namespace DocProc.Application.Abstractions;
 
-public sealed record ClassificationOutcome(DocumentType Type, double Confidence, TypeSource Source, string? Language = null);
+public sealed record ClassificationOutcome(DocumentTypeKey Type, double Confidence, TypeSource Source, string? Language = null);
 
 /// <summary>Stage 4 (docs/03): keyword rules over the text layer first, an LLM only below threshold.</summary>
 public interface IDocumentClassifier

@@ -126,7 +126,7 @@ public static class DocumentEndpoints
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var statuses = ParseList<DocumentStatus>(status, "status", errors);
-        var types = ParseList<DocumentType>(type, "type", errors);
+        var types = ParseTypeKeys(type, errors);
         PageCursor? after = null;
         if (!string.IsNullOrEmpty(cursor))
         {
@@ -734,6 +734,28 @@ public static class DocumentEndpoints
             else
             {
                 errors[name] = [$"'{token}' is not one of {string.Join(", ", Enum.GetNames<T>())}."];
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// The <c>type</c> filter (docs/11 §18): any type key, not only the legacy ones; the legacy names in any case, as
+    /// the enum filter took them. Only a value that is not of the key syntax is refused.
+    /// </summary>
+    private static List<DocumentTypeKey> ParseTypeKeys(string? csv, Dictionary<string, string[]> errors)
+    {
+        var values = new List<DocumentTypeKey>();
+        foreach (var token in (csv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (DocumentTypeKey.TryParse(token, out var key))
+            {
+                values.Add(key);
+            }
+            else
+            {
+                errors["type"] = [$"'{token}' is not a document type key (a letter, then letters, digits, '_', '.' or '-', at most {DocumentTypeKey.MaxLength})."];
             }
         }
 

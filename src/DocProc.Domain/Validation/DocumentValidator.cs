@@ -32,7 +32,7 @@ public static class StandardRuleSets
     public static IReadOnlyList<RuleReference> Invoice { get; } = [.. InvoiceRuleAdapter.All.Select(a => RuleReference.Of(a.Kind))];
 
     /// <summary>The rule list of a coded type, or null for a type that is not validated (it always goes to review).</summary>
-    public static IReadOnlyList<RuleReference>? ForLegacyType(DocumentType type) =>
+    public static IReadOnlyList<RuleReference>? ForLegacyType(DocumentTypeKey type) =>
         InvoiceProjection.IsInvoiceCompatible(type) ? Invoice : null;
 }
 

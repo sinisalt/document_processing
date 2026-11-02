@@ -71,9 +71,9 @@ public sealed class DocumentRuleTests
 
         // As the validate stage reads it: the stored JSON, deserialised once for all eight kinds.
         var json = JsonSerializer.Serialize(invoice, CanonicalJson.Options);
-        var stored = DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.Invoice, json), StandardRuleSets.Invoice, Context);
+        var stored = DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.Invoice, json), StandardRuleSets.Invoice, Context);
         Describe(stored).ShouldBe(Describe(InvoiceValidator.Default.Validate(JsonSerializer.Deserialize<Invoice>(json, CanonicalJson.Options)!, Context)));
-        Describe(DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.CreditNote, json), StandardRuleSets.Invoice, Context)).ShouldBe(Describe(stored));
+        Describe(DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.CreditNote, json), StandardRuleSets.Invoice, Context)).ShouldBe(Describe(stored));
     }
 
     [Fact]
@@ -100,13 +100,13 @@ public sealed class DocumentRuleTests
     }
 
     [Theory]
-    [InlineData(DocumentType.Invoice, true)]
-    [InlineData(DocumentType.CreditNote, true)]
-    [InlineData(DocumentType.PurchaseOrder, false)]
-    [InlineData(DocumentType.DeliveryNote, false)]
-    [InlineData(DocumentType.Statement, false)]
-    [InlineData(DocumentType.Unknown, false)]
-    public void Only_the_invoice_types_have_a_rule_list_and_an_invoice_projection(DocumentType type, bool invoice)
+    [InlineData(WellKnownTypeKeys.Invoice, true)]
+    [InlineData(WellKnownTypeKeys.CreditNote, true)]
+    [InlineData(WellKnownTypeKeys.PurchaseOrder, false)]
+    [InlineData(WellKnownTypeKeys.DeliveryNote, false)]
+    [InlineData(WellKnownTypeKeys.Statement, false)]
+    [InlineData(WellKnownTypeKeys.Unknown, false)]
+    public void Only_the_invoice_types_have_a_rule_list_and_an_invoice_projection(DocumentTypeKey type, bool invoice)
     {
         (StandardRuleSets.ForLegacyType(type) is not null).ShouldBe(invoice);
         InvoiceProjection.IsInvoiceCompatible(type).ShouldBe(invoice);
@@ -116,10 +116,10 @@ public sealed class DocumentRuleTests
     public void A_coded_invoice_kind_raises_nothing_on_a_view_without_an_invoice()
     {
         var json = JsonSerializer.Serialize(Valid() with { SubtotalNet = FieldValue.Extracted(Eur(1m)) }, CanonicalJson.Options);
-        var deliveryNote = DocumentView.FromJson(DocumentType.DeliveryNote, json);
+        var deliveryNote = DocumentView.FromJson(DocumentTypeKey.DeliveryNote, json);
         InvoiceProjection.Of(deliveryNote).ShouldBeNull();
         DocumentValidator.Default.Validate(deliveryNote, StandardRuleSets.Invoice, Context).Flags.ShouldBeEmpty();
-        DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.Invoice, null), StandardRuleSets.Invoice, Context).Flags.ShouldBeEmpty();
+        DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.Invoice, null), StandardRuleSets.Invoice, Context).Flags.ShouldBeEmpty();
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class DocumentRuleTests
         view.Root.ShouldNotBeNull()["invoiceNumber"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe("RE-2026-0042");
         view.Root.ShouldBeSameAs(view.Root);
 
-        var stored = DocumentView.FromJson(DocumentType.Invoice, JsonSerializer.Serialize(invoice, CanonicalJson.Options));
+        var stored = DocumentView.FromJson(DocumentTypeKey.Invoice, JsonSerializer.Serialize(invoice, CanonicalJson.Options));
         InvoiceProjection.Of(stored).ShouldBeSameAs(InvoiceProjection.Of(stored));
         stored.Root!["currency"]!["value"]!.GetValue<string>().ShouldBe("EUR");
     }
@@ -139,8 +139,8 @@ public sealed class DocumentRuleTests
     [Fact]
     public void A_malformed_tree_fails_as_the_validator_did()
     {
-        Should.Throw<JsonException>(() => DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.Invoice, "null"), StandardRuleSets.Invoice, Context));
-        Should.Throw<JsonException>(() => DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentType.Invoice, "{\"lines\": 5}"), StandardRuleSets.Invoice, Context));
+        Should.Throw<JsonException>(() => DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.Invoice, "null"), StandardRuleSets.Invoice, Context));
+        Should.Throw<JsonException>(() => DocumentValidator.Default.Validate(DocumentView.FromJson(DocumentTypeKey.Invoice, "{\"lines\": 5}"), StandardRuleSets.Invoice, Context));
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public sealed class DocumentRuleTests
         var parameters = new RuleParams(new Dictionary<string, JsonElement>(StringComparer.Ordinal) { ["path"] = JsonSerializer.SerializeToElement("lines") });
         var result = new DocumentValidator(new RuleRegistry([probe])).Validate(DocumentView.ForInvoice(Valid()), [new RuleReference("r_probe", ProbeRule.Name, parameters)], Context);
         result.Flags.ShouldHaveSingleItem().Field.ShouldBe("lines");
-        probe.Seen.ShouldBe(DocumentType.Invoice);
+        probe.Seen.ShouldBe(DocumentTypeKey.Invoice);
         Should.Throw<ArgumentOutOfRangeException>(() => InvoiceRuleAdapter.KindOf(new ProbeInvoiceRule()));
     }
 
@@ -164,7 +164,7 @@ public sealed class DocumentRuleTests
     {
         public const string Name = "test.probe";
 
-        public DocumentType? Seen { get; private set; }
+        public DocumentTypeKey? Seen { get; private set; }
 
         public string Kind => Name;
 

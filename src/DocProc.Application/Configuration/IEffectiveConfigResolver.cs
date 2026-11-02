@@ -12,7 +12,7 @@ namespace DocProc.Application.Configuration;
 /// <para>
 /// P0's implementation is <see cref="StandardTemplateConfigResolver"/>: every tenant has adopted the standard
 /// templates under the legacy keys, so a document's type definition is the platform template of its
-/// <see cref="DocumentType"/>, and there is no supplier configuration yet.
+/// <see cref="DocumentTypeKey"/>, and there is no supplier configuration yet.
 /// </para>
 /// </summary>
 public interface IEffectiveConfigResolver
@@ -21,11 +21,11 @@ public interface IEffectiveConfigResolver
 }
 
 /// <summary>What the configuration is resolved for: the tenant, the document's type and, once known, its supplier.</summary>
-public sealed record EffectiveConfigRequest(Guid TenantId, DocumentType Type, Guid? SupplierId = null);
+public sealed record EffectiveConfigRequest(Guid TenantId, DocumentTypeKey Type, Guid? SupplierId = null);
 
 /// <summary>
 /// The resolved configuration of a document. <see cref="Type"/> is null when the type has no definition
-/// (<see cref="DocumentType.Unknown"/>). Supplier and layout configuration join in P4.
+/// (<see cref="DocumentTypeKey.Unknown"/>). Supplier and layout configuration join in P4.
 /// </summary>
 public sealed record EffectiveConfig(EffectiveConfigRequest Request, EffectiveType? Type);
 
@@ -98,8 +98,8 @@ public sealed record EffectiveType
 /// </summary>
 public sealed class StandardTemplateConfigResolver : IEffectiveConfigResolver
 {
-    private static readonly Lazy<IReadOnlyDictionary<DocumentType, EffectiveType>> Types = new(() =>
-        Enum.GetValues<DocumentType>()
+    private static readonly Lazy<IReadOnlyDictionary<DocumentTypeKey, EffectiveType>> Types = new(() =>
+        DocumentTypeKey.Legacy
             .Select(type => (type, template: StandardTemplates.ForLegacyType(type)))
             .Where(t => t.template is not null)
             .ToDictionary(
@@ -114,6 +114,6 @@ public sealed class StandardTemplateConfigResolver : IEffectiveConfigResolver
         return ValueTask.FromResult(new EffectiveConfig(request, TypeFor(request.Type)));
     }
 
-    /// <summary>The adopted standard type of a legacy <see cref="DocumentType"/>, or null for Unknown.</summary>
-    public static EffectiveType? TypeFor(DocumentType type) => Types.Value.GetValueOrDefault(type);
+    /// <summary>The adopted standard type of a legacy <see cref="DocumentTypeKey"/>, or null for Unknown.</summary>
+    public static EffectiveType? TypeFor(DocumentTypeKey type) => Types.Value.GetValueOrDefault(type);
 }

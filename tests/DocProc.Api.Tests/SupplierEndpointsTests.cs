@@ -184,7 +184,7 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         activity[0].DocumentNumber.ShouldBe("INV-024", "newest first");
         activity[0].TotalGross.ShouldBe(124m);
         activity[0].Status.ShouldBe(nameof(DocumentStatus.Approved));
-        activity[0].Type.ShouldBe(nameof(DocumentType.Invoice));
+        activity[0].Type.ShouldBe(nameof(DocumentTypeKey.Invoice));
         activity[0].IssueDate.ShouldBe(DateOnly.FromDateTime(now.UtcDateTime));
 
         (await admin.DeleteAsync(SupplierUri(created.Id), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);

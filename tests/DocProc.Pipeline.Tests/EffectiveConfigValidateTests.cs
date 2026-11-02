@@ -47,7 +47,7 @@ public sealed class EffectiveConfigValidateTests
 
         var document = await host.SingleDocumentAsync(ingestion.Id);
         document.Status.ShouldBe(DocumentStatus.NeedsReview);
-        resolver.Requests.ShouldContain(r => r.TenantId == PipelineTestHost.TenantA && r.Type == DocumentType.Invoice);
+        resolver.Requests.ShouldContain(r => r.TenantId == PipelineTestHost.TenantA && r.Type == DocumentTypeKey.Invoice);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class EffectiveConfigValidateTests
             }
 
             var config = await StandardTemplateConfigResolver.Instance.ResolveAsync(request, cancellationToken);
-            if (request.Type != DocumentType.Invoice || config.Type is not { } type)
+            if (request.Type != DocumentTypeKey.Invoice || config.Type is not { } type)
             {
                 return config;
             }

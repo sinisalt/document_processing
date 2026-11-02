@@ -87,19 +87,19 @@ public sealed class FieldSchemaSeamTests(ApiFactory factory) : IClassFixture<Api
         var legacy = Outcome(() => LegacyCanonicalPatcher.Apply(typeof(Invoice), json, corrections, "anna", At));
         legacy.ShouldStartWith("ok:");
         Outcome(() => CanonicalPatcher.Apply(typeof(Invoice), json, corrections, "anna", At)).ShouldBe(legacy);
-        Outcome(() => CanonicalPatcher.Apply(ReflectionFieldSchemaResolver.Instance.RootFor(DocumentType.CreditNote)!, json, corrections, "anna", At)).ShouldBe(legacy);
+        Outcome(() => CanonicalPatcher.Apply(ReflectionFieldSchemaResolver.Instance.RootFor(DocumentTypeKey.CreditNote)!, json, corrections, "anna", At)).ShouldBe(legacy);
     }
 
     [Theory]
-    [InlineData(DocumentType.Invoice, typeof(Invoice))]
-    [InlineData(DocumentType.CreditNote, typeof(Invoice))]
-    [InlineData(DocumentType.PurchaseOrder, typeof(PurchaseOrder))]
-    [InlineData(DocumentType.DeliveryNote, typeof(DeliveryNote))]
-    [InlineData(DocumentType.Statement, null)]
-    [InlineData(DocumentType.Reminder, null)]
-    [InlineData(DocumentType.Other, null)]
-    [InlineData(DocumentType.Unknown, null)]
-    public void The_reflection_resolver_has_a_schema_for_exactly_the_types_with_canonical_data(DocumentType type, Type? root)
+    [InlineData(WellKnownTypeKeys.Invoice, typeof(Invoice))]
+    [InlineData(WellKnownTypeKeys.CreditNote, typeof(Invoice))]
+    [InlineData(WellKnownTypeKeys.PurchaseOrder, typeof(PurchaseOrder))]
+    [InlineData(WellKnownTypeKeys.DeliveryNote, typeof(DeliveryNote))]
+    [InlineData(WellKnownTypeKeys.Statement, null)]
+    [InlineData(WellKnownTypeKeys.Reminder, null)]
+    [InlineData(WellKnownTypeKeys.Other, null)]
+    [InlineData(WellKnownTypeKeys.Unknown, null)]
+    public void The_reflection_resolver_has_a_schema_for_exactly_the_types_with_canonical_data(DocumentTypeKey type, Type? root)
     {
         ReflectionFieldSchemaResolver.Instance.RootFor(type)?.ClrType.ShouldBe(root);
         (ReflectionFieldSchemaResolver.Instance.RootFor(type) is null).ShouldBe(root is null);
@@ -109,7 +109,7 @@ public sealed class FieldSchemaSeamTests(ApiFactory factory) : IClassFixture<Api
     [Fact]
     public void The_schema_describes_the_records_as_the_walk_read_them()
     {
-        var invoice = ReflectionFieldSchemaResolver.Instance.RootFor(DocumentType.Invoice)!;
+        var invoice = ReflectionFieldSchemaResolver.Instance.RootFor(DocumentTypeKey.Invoice)!;
         invoice.Name.ShouldBe(nameof(Invoice));
 
         var number = invoice.Member("invoiceNumber")!;

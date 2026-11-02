@@ -53,7 +53,7 @@ internal static class TestData
         TenantId = item.TenantId,
         IngestionItemId = item.Id,
         SupplierId = supplierId,
-        Type = DocumentType.Invoice,
+        Type = DocumentTypeKey.Invoice,
         Status = DocumentStatus.Approved,
         DocumentNumber = number,
         DocumentNumberNormalized = number.ToUpperInvariant(),

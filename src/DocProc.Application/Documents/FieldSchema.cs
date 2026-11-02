@@ -19,7 +19,7 @@ namespace DocProc.Application.Documents;
 public interface IFieldSchemaResolver
 {
     /// <summary>The schema of a document type's canonical tree, or null for a type that has no canonical data.</summary>
-    FieldSchemaNode? RootFor(DocumentType type);
+    FieldSchemaNode? RootFor(DocumentTypeKey type);
 }
 
 /// <summary>How a member of a <see cref="FieldSchemaNode"/> is shaped, in the order the patcher tests them.</summary>
@@ -137,15 +137,15 @@ public sealed class ReflectionFieldSchemaResolver : IFieldSchemaResolver
     public static ReflectionFieldSchemaResolver Instance { get; } = new();
 
     /// <summary>The domain record a document's canonical JSON holds, or null for types without canonical data.</summary>
-    public static Type? RootTypeFor(DocumentType type) => type switch
+    public static Type? RootTypeFor(DocumentTypeKey type) => type.Value switch
     {
-        DocumentType.Invoice or DocumentType.CreditNote => typeof(Invoice),
-        DocumentType.PurchaseOrder => typeof(PurchaseOrder),
-        DocumentType.DeliveryNote => typeof(DeliveryNote),
+        WellKnownTypeKeys.Invoice or WellKnownTypeKeys.CreditNote => typeof(Invoice),
+        WellKnownTypeKeys.PurchaseOrder => typeof(PurchaseOrder),
+        WellKnownTypeKeys.DeliveryNote => typeof(DeliveryNote),
         _ => null,
     };
 
-    public FieldSchemaNode? RootFor(DocumentType type) => RootTypeFor(type) is { } root ? NodeFor(root) : null;
+    public FieldSchemaNode? RootFor(DocumentTypeKey type) => RootTypeFor(type) is { } root ? NodeFor(root) : null;
 
     /// <summary>The node of any CLR type, built from its properties on first use.</summary>
     public FieldSchemaNode NodeFor(Type type)

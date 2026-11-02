@@ -60,10 +60,10 @@ public sealed class RoleProjectorTests
     public void Invoices_project_exactly_as_the_typed_mapping_did(string name)
     {
         var json = CanonicalDocumentSerializer.Serialize(InvoiceCase(name));
-        var expected = new Document { TenantId = Guid.Empty, Type = DocumentType.Invoice, CanonicalJson = json };
+        var expected = new Document { TenantId = Guid.Empty, Type = DocumentTypeKey.Invoice, CanonicalJson = json };
         LegacyRefresh(expected);
 
-        foreach (var type in new[] { DocumentType.Invoice, DocumentType.CreditNote })
+        foreach (var type in new[] { DocumentTypeKey.Invoice, DocumentTypeKey.CreditNote })
         {
             var actual = new Document { TenantId = Guid.Empty, Type = type, CanonicalJson = json };
             DocumentRoleColumns.Refresh(actual);
@@ -86,8 +86,8 @@ public sealed class RoleProjectorTests
             Currency = FieldValue.Extracted("chf"),
             TotalGross = FieldValue.Extracted(new Money(10m, "CHF")),
         };
-        var document = new Document { TenantId = Guid.Empty, Type = DocumentType.PurchaseOrder, CanonicalJson = CanonicalDocumentSerializer.Serialize(order) };
-        var expected = new Document { TenantId = Guid.Empty, Type = DocumentType.PurchaseOrder, CanonicalJson = document.CanonicalJson };
+        var document = new Document { TenantId = Guid.Empty, Type = DocumentTypeKey.PurchaseOrder, CanonicalJson = CanonicalDocumentSerializer.Serialize(order) };
+        var expected = new Document { TenantId = Guid.Empty, Type = DocumentTypeKey.PurchaseOrder, CanonicalJson = document.CanonicalJson };
         LegacyRefresh(expected);
 
         DocumentRoleColumns.Refresh(document);
@@ -107,7 +107,7 @@ public sealed class RoleProjectorTests
         var document = new Document
         {
             TenantId = Guid.Empty,
-            Type = DocumentType.DeliveryNote,
+            Type = DocumentTypeKey.DeliveryNote,
             CanonicalJson = CanonicalDocumentSerializer.Serialize(note),
             Currency = "EUR",
             TotalGross = 5m,
@@ -122,10 +122,10 @@ public sealed class RoleProjectorTests
     }
 
     [Theory]
-    [InlineData(DocumentType.Unknown)]
-    [InlineData(DocumentType.Statement)]
-    [InlineData(DocumentType.Other)]
-    public void Types_without_bindings_are_not_touched(DocumentType type)
+    [InlineData(WellKnownTypeKeys.Unknown)]
+    [InlineData(WellKnownTypeKeys.Statement)]
+    [InlineData(WellKnownTypeKeys.Other)]
+    public void Types_without_bindings_are_not_touched(DocumentTypeKey type)
     {
         var document = new Document { TenantId = Guid.Empty, Type = type, CanonicalJson = "{}", DocumentNumber = "kept", Currency = "EUR" };
 
@@ -176,9 +176,9 @@ public sealed class RoleProjectorTests
     /// <summary>The mapping <c>DocumentEndpoints.RefreshDenormalizedColumns</c> applied to invoices and purchase orders before the projector.</summary>
     private static void LegacyRefresh(Document document)
     {
-        switch (document.Type)
+        switch (document.Type.Value)
         {
-            case DocumentType.Invoice or DocumentType.CreditNote:
+            case WellKnownTypeKeys.Invoice or WellKnownTypeKeys.CreditNote:
                 var invoice = CanonicalDocumentSerializer.DeserializeInvoice(document.CanonicalJson!);
                 SetNumber(document, invoice.InvoiceNumber.HasValue ? invoice.InvoiceNumber.Value : null);
                 document.IssueDate = invoice.IssueDate.HasValue ? invoice.IssueDate.Value : null;
@@ -186,7 +186,7 @@ public sealed class RoleProjectorTests
                 document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value!.Amount : null;
                 break;
 
-            case DocumentType.PurchaseOrder:
+            case WellKnownTypeKeys.PurchaseOrder:
                 var order = CanonicalDocumentSerializer.DeserializePurchaseOrder(document.CanonicalJson!);
                 SetNumber(document, order.PoNumber.HasValue ? order.PoNumber.Value : null);
                 document.IssueDate = order.OrderDate.HasValue ? order.OrderDate.Value : null;

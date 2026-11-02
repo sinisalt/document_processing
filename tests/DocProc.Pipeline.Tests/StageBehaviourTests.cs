@@ -43,7 +43,7 @@ public class StageBehaviourTests
         var rerun = await host.DocumentAsync(failed.Id);
         rerun.Status.ShouldNotBe(DocumentStatus.Failed);
         rerun.FailureReason.ShouldBeNull();
-        rerun.Type.ShouldBe(DocumentType.Invoice);
+        rerun.Type.ShouldBe(DocumentTypeKey.Invoice);
         rerun.Flags.ShouldNotContain(f => f.Code == FlagCodes.LlmProviderUnavailable, "the stage that failed owns the flag and replaced it on success");
         host.Llm.Remaining.ShouldBe(0);
     }
@@ -119,7 +119,7 @@ public class StageBehaviourTests
         var document = await host.SingleDocumentAsync(ingestion.Id);
         document.FailureReason.ShouldBeNull();
         document.PageCount.ShouldBe(1);
-        document.Type.ShouldBe(DocumentType.Invoice);
+        document.Type.ShouldBe(DocumentTypeKey.Invoice);
         document.TypeSource.ShouldBe(TypeSource.Llm, "no text, so only the image classifier could decide");
         document.ExtractionMethod.ShouldBe(ExtractionMethod.Llm);
         var flag = document.Flags.Where(f => f.Code == FlagCodes.UnreadablePages && f.ResolvedAt == null).ShouldHaveSingleItem();
@@ -164,7 +164,7 @@ public class StageBehaviourTests
         document.FailureReason.ShouldBeNull();
         document.Status.ShouldNotBe(DocumentStatus.Failed);
         document.PageCount.ShouldBe(2);
-        document.Type.ShouldBe(DocumentType.Invoice);
+        document.Type.ShouldBe(DocumentTypeKey.Invoice);
         document.TypeSource.ShouldBe(TypeSource.Llm);
         document.ExtractionMethod.ShouldBe(ExtractionMethod.Llm);
         document.DocumentNumber.ShouldBe(TestPdfs.InvoiceNumber);
@@ -213,7 +213,7 @@ public class StageBehaviourTests
         await host.RunUntilIdleAsync();
 
         var note = await host.DocumentAsync(invoice.Id);
-        note.Type.ShouldBe(DocumentType.DeliveryNote);
+        note.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
         note.Flags.ShouldContain(f => f.Code == FlagCodes.UnsupportedType && f.ResolvedAt == null);
         note.CanonicalJson.ShouldBeNull();
         note.CanonicalSchemaVersion.ShouldBeNull();

@@ -30,14 +30,14 @@ namespace DocProc.Integration.Tests;
 /// </summary>
 public sealed class StandardTemplateParityTests
 {
-    public static TheoryData<DocumentType> LegacyTypes() => [.. Enum.GetValues<DocumentType>().Where(t => t != DocumentType.Unknown)];
+    public static TheoryData<DocumentTypeKey> LegacyTypes() => [.. DocumentTypeKey.Legacy.Where(t => t != DocumentTypeKey.Unknown)];
 
-    public static TheoryData<DocumentType, Type> RecordTypes() => new()
+    public static TheoryData<DocumentTypeKey, Type> RecordTypes() => new()
     {
-        { DocumentType.Invoice, typeof(Invoice) },
-        { DocumentType.CreditNote, typeof(Invoice) },
-        { DocumentType.PurchaseOrder, typeof(PurchaseOrder) },
-        { DocumentType.DeliveryNote, typeof(DeliveryNote) },
+        { DocumentTypeKey.Invoice, typeof(Invoice) },
+        { DocumentTypeKey.CreditNote, typeof(Invoice) },
+        { DocumentTypeKey.PurchaseOrder, typeof(PurchaseOrder) },
+        { DocumentTypeKey.DeliveryNote, typeof(DeliveryNote) },
     };
 
     [Theory]
@@ -60,7 +60,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(RecordTypes))]
-    public void The_template_tree_is_the_record_tree_member_by_member(DocumentType type, Type record)
+    public void The_template_tree_is_the_record_tree_member_by_member(DocumentTypeKey type, Type record)
     {
         var template = StandardTemplates.ForLegacyType(type).ShouldNotBeNull();
         ReflectionFieldSchemaResolver.RootTypeFor(type).ShouldBe(record);
@@ -82,10 +82,10 @@ public sealed class StandardTemplateParityTests
     }
 
     [Theory]
-    [InlineData(DocumentType.Statement)]
-    [InlineData(DocumentType.Reminder)]
-    [InlineData(DocumentType.Other)]
-    public void Types_without_canonical_data_have_templates_without_fields(DocumentType type)
+    [InlineData(WellKnownTypeKeys.Statement)]
+    [InlineData(WellKnownTypeKeys.Reminder)]
+    [InlineData(WellKnownTypeKeys.Other)]
+    public void Types_without_canonical_data_have_templates_without_fields(DocumentTypeKey type)
     {
         ReflectionFieldSchemaResolver.RootTypeFor(type).ShouldBeNull();
         var template = StandardTemplates.ForLegacyType(type).ShouldNotBeNull();
@@ -166,7 +166,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void The_rule_list_is_the_coded_rule_set_of_the_type(DocumentType type)
+    public void The_rule_list_is_the_coded_rule_set_of_the_type(DocumentTypeKey type)
     {
         var effective = StandardTemplateConfigResolver.TypeFor(type).ShouldNotBeNull();
         var legacy = StandardRuleSets.ForLegacyType(type);
@@ -185,7 +185,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void Only_the_invoice_family_may_be_auto_approved_as_today(DocumentType type)
+    public void Only_the_invoice_family_may_be_auto_approved_as_today(DocumentTypeKey type)
     {
         var effective = StandardTemplateConfigResolver.TypeFor(type).ShouldNotBeNull();
 
@@ -195,7 +195,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void The_summary_roles_are_the_list_column_bindings(DocumentType type)
+    public void The_summary_roles_are_the_list_column_bindings(DocumentTypeKey type)
     {
         var effective = StandardTemplateConfigResolver.TypeFor(type).ShouldNotBeNull();
 
@@ -220,7 +220,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void Only_the_invoice_family_declares_the_duplicate_check_it_runs_today(DocumentType type)
+    public void Only_the_invoice_family_declares_the_duplicate_check_it_runs_today(DocumentTypeKey type)
     {
         var template = StandardTemplates.ForLegacyType(type)!;
         var invoiceFamily = InvoiceProjection.IsInvoiceCompatible(type);
@@ -241,7 +241,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void Only_the_invoice_family_lists_an_extraction_path_the_e_invoice_reader_then_the_invoice_adapter(DocumentType type)
+    public void Only_the_invoice_family_lists_an_extraction_path_the_e_invoice_reader_then_the_invoice_adapter(DocumentTypeKey type)
     {
         var template = StandardTemplates.ForLegacyType(type)!;
         var adapter = $"{CanonicalSchemas.InvoiceExtraction.Name}@{CanonicalSchemas.InvoiceExtractionVersion}";
@@ -262,7 +262,7 @@ public sealed class StandardTemplateParityTests
 
     [Theory]
     [MemberData(nameof(LegacyTypes))]
-    public void The_classification_phrases_are_the_keyword_rule_set(DocumentType type)
+    public void The_classification_phrases_are_the_keyword_rule_set(DocumentTypeKey type)
     {
         var template = StandardTemplates.ForLegacyType(type)!;
         var classification = template.Classification.ShouldNotBeNull();

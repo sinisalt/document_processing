@@ -202,6 +202,6 @@ public class LlmServiceCollectionTests : IDisposable
     private sealed class RuleClassifier : IDocumentClassifier
     {
         public Task<ClassificationOutcome> ClassifyAsync(Guid tenantId, Domain.Text.TextLayer? textLayer, ReadOnlyMemory<byte>? firstPagePng, CancellationToken cancellationToken) =>
-            Task.FromResult(new ClassificationOutcome(Domain.Documents.DocumentType.Invoice, 1, Domain.Documents.TypeSource.Rule));
+            Task.FromResult(new ClassificationOutcome(Domain.Documents.DocumentTypeKey.Invoice, 1, Domain.Documents.TypeSource.Rule));
     }
 }

@@ -78,7 +78,7 @@ public class WorkerHostTests
 
             document.FailureReason.ShouldBeNull();
             document.Status.ShouldBe(DocumentStatus.AutoApproved, "the structured e-invoice path needs no LLM and no supplier (SUPPLIER_UNMATCHED is a warning)");
-            document.Type.ShouldBe(DocumentType.Invoice);
+            document.Type.ShouldBe(DocumentTypeKey.Invoice);
             document.ExtractionMethod.ShouldBe(ExtractionMethod.StructuredXml);
             document.DocumentNumber.ShouldBe("RE-2026-10412");
         }

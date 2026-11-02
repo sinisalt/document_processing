@@ -1,3 +1,4 @@
+using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -10,6 +11,8 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
     {
         b.ToTable("Documents", t => t.IsTemporal());
         b.Property(d => d.Version).IsConcurrencyToken();
+        // A type key is a string (docs/11 §6.2); the column is the nvarchar(64) the enum was stored in, so no data changes.
+        b.Property(d => d.Type).HasConversion(v => v.Value, v => DocumentTypeKey.FromStored(v)).HasMaxLength(DocumentTypeKey.MaxLength);
         b.ComplexProperty(d => d.NormalizedBlob, BlobReferenceMapping.Configure);
         b.ComplexProperty(d => d.TextLayerBlob, BlobReferenceMapping.Configure);
         b.ComplexProperty(d => d.EmbeddedXmlBlob, BlobReferenceMapping.Configure);

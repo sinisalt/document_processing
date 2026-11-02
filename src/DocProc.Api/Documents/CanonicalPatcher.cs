@@ -68,7 +68,7 @@ public sealed record CanonicalPatchResult(string Json, IReadOnlyList<AppliedCorr
 public static partial class CanonicalPatcher
 {
     /// <summary>The domain record a document's canonical JSON holds, or null for types without canonical data.</summary>
-    public static Type? RootTypeFor(DocumentType type) => ReflectionFieldSchemaResolver.RootTypeFor(type);
+    public static Type? RootTypeFor(DocumentTypeKey type) => ReflectionFieldSchemaResolver.RootTypeFor(type);
 
     /// <summary>
     /// <see cref="Apply(FieldSchemaNode, string, IReadOnlyList{FieldCorrection}, string, DateTimeOffset, string?)"/> on

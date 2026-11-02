@@ -12,7 +12,7 @@ namespace DocProc.Application.Abstractions;
 public sealed record ExtractionInput(
     Guid TenantId,
     Guid DocumentId,
-    DocumentType Type,
+    DocumentTypeKey Type,
     ReadOnlyMemory<byte>? Pdf,
     IReadOnlyList<ReadOnlyMemory<byte>> PageImages,
     TextLayer? TextLayer,

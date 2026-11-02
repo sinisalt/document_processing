@@ -22,10 +22,10 @@ public sealed class StandardTemplateTests
     {
         StandardTemplates.All.Select(t => t.Key).ShouldBe(P0Templates);
 
-        foreach (var type in Enum.GetValues<DocumentType>())
+        foreach (var type in DocumentTypeKey.Legacy)
         {
             var template = StandardTemplates.ForLegacyType(type);
-            if (type == DocumentType.Unknown)
+            if (type == DocumentTypeKey.Unknown)
             {
                 template.ShouldBeNull("Unknown stays a reserved key without a definition");
             }
@@ -35,7 +35,7 @@ public sealed class StandardTemplateTests
             }
         }
 
-        StandardTemplates.ForLegacyType(DocumentType.Other)!.Key.ShouldBe("std.generic");
+        StandardTemplates.ForLegacyType(DocumentTypeKey.Other)!.Key.ShouldBe("std.generic");
         StandardTemplates.Find("std.price-list").ShouldBeNull("the price-list templates ship with P1");
     }
 
@@ -190,14 +190,14 @@ public sealed class StandardTemplateTests
     }
 
     [Theory]
-    [InlineData(DocumentType.Invoice, "std.invoice", true)]
-    [InlineData(DocumentType.CreditNote, "std.credit-note", true)]
-    [InlineData(DocumentType.PurchaseOrder, "std.purchase-order", false)]
-    [InlineData(DocumentType.DeliveryNote, "std.delivery-note", false)]
-    [InlineData(DocumentType.Statement, "std.statement", false)]
-    [InlineData(DocumentType.Reminder, "std.reminder", false)]
-    [InlineData(DocumentType.Other, "std.generic", false)]
-    public async Task The_P0_resolver_returns_the_adopted_standard_template_for_every_tenant_and_supplier(DocumentType type, string template, bool autoApprove)
+    [InlineData(WellKnownTypeKeys.Invoice, "std.invoice", true)]
+    [InlineData(WellKnownTypeKeys.CreditNote, "std.credit-note", true)]
+    [InlineData(WellKnownTypeKeys.PurchaseOrder, "std.purchase-order", false)]
+    [InlineData(WellKnownTypeKeys.DeliveryNote, "std.delivery-note", false)]
+    [InlineData(WellKnownTypeKeys.Statement, "std.statement", false)]
+    [InlineData(WellKnownTypeKeys.Reminder, "std.reminder", false)]
+    [InlineData(WellKnownTypeKeys.Other, "std.generic", false)]
+    public async Task The_P0_resolver_returns_the_adopted_standard_template_for_every_tenant_and_supplier(DocumentTypeKey type, string template, bool autoApprove)
     {
         var resolver = StandardTemplateConfigResolver.Instance;
         var request = new EffectiveConfigRequest(Guid.NewGuid(), type, Guid.NewGuid());
@@ -219,7 +219,7 @@ public sealed class StandardTemplateTests
     [Fact]
     public async Task An_unknown_document_has_no_definition()
     {
-        var config = await StandardTemplateConfigResolver.Instance.ResolveAsync(new EffectiveConfigRequest(Guid.NewGuid(), DocumentType.Unknown), TestContext.Current.CancellationToken);
+        var config = await StandardTemplateConfigResolver.Instance.ResolveAsync(new EffectiveConfigRequest(Guid.NewGuid(), DocumentTypeKey.Unknown), TestContext.Current.CancellationToken);
 
         config.Type.ShouldBeNull();
     }

@@ -28,10 +28,10 @@ public static class StandardTemplates
 
     /// <summary>
     /// The template every tenant adopts for a legacy type (docs/11 §21 step 2): the one whose <c>legacyKey</c> is the
-    /// type's name. Null for <see cref="DocumentType.Unknown"/>, which stays a reserved key without a definition.
+    /// type's name. Null for <see cref="DocumentTypeKey.Unknown"/>, which stays a reserved key without a definition.
     /// </summary>
-    public static TypeDefinition? ForLegacyType(DocumentType type) =>
-        Loaded.Value.ByLegacyKey.GetValueOrDefault(type.ToString());
+    public static TypeDefinition? ForLegacyType(DocumentTypeKey type) =>
+        Loaded.Value.ByLegacyKey.GetValueOrDefault(type.Value);
 
     /// <summary>The template's JSON exactly as shipped.</summary>
     public static string ReadJson(string templateKey)
@@ -70,7 +70,7 @@ public static class StandardTemplates
         var byLegacyKey = new Dictionary<string, TypeDefinition>(StringComparer.Ordinal);
         foreach (var template in templates.Where(t => t.LegacyKey is not null))
         {
-            if (!Enum.TryParse<DocumentType>(template.LegacyKey, ignoreCase: false, out var type) || type == DocumentType.Unknown || !Enum.IsDefined(type))
+            if (!WellKnownTypeKeys.Legacy.Contains(template.LegacyKey, StringComparer.Ordinal) || template.LegacyKey == WellKnownTypeKeys.Unknown)
             {
                 throw new DefinitionFormatException($"The platform template '{template.Key}' names the legacy key '{template.LegacyKey}', which is not a document type.");
             }

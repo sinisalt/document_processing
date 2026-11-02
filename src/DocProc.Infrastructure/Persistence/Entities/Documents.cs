@@ -45,7 +45,7 @@ public sealed class Document : ITenantScoped, IVersioned
     /// </summary>
     public BlobReference? EmbeddedXmlBlob { get; set; }
 
-    public DocumentType Type { get; set; } = DocumentType.Unknown;
+    public DocumentTypeKey Type { get; set; } = DocumentTypeKey.Unknown;
     public double? TypeConfidence { get; set; }
     public TypeSource? TypeSource { get; set; }
 

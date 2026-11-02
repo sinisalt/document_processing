@@ -25,11 +25,11 @@ internal static partial class LegacyCanonicalPatcher
     private static readonly ConcurrentDictionary<Type, Dictionary<string, PropertyInfo>> PropertyCache = new();
 
     /// <summary>The domain record a document's canonical JSON holds, or null for types without canonical data.</summary>
-    public static Type? RootTypeFor(DocumentType type) => type switch
+    public static Type? RootTypeFor(DocumentTypeKey type) => type.Value switch
     {
-        DocumentType.Invoice or DocumentType.CreditNote => typeof(Invoice),
-        DocumentType.PurchaseOrder => typeof(PurchaseOrder),
-        DocumentType.DeliveryNote => typeof(DeliveryNote),
+        WellKnownTypeKeys.Invoice or WellKnownTypeKeys.CreditNote => typeof(Invoice),
+        WellKnownTypeKeys.PurchaseOrder => typeof(PurchaseOrder),
+        WellKnownTypeKeys.DeliveryNote => typeof(DeliveryNote),
         _ => null,
     };
 

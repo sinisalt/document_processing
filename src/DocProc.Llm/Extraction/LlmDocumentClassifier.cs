@@ -32,7 +32,7 @@ public sealed class LlmDocumentClassifier(
         var hasImage = firstPagePng is { Length: > 0 };
         if (excerpt.Length == 0 && !hasImage)
         {
-            return new ClassificationOutcome(DocumentType.Unknown, 0, TypeSource.Llm);
+            return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Llm);
         }
 
         var request = new LlmRequest
@@ -52,15 +52,15 @@ public sealed class LlmDocumentClassifier(
         return new ClassificationOutcome(Map(parsed.DocumentType), confidence, TypeSource.Llm, Blank(parsed.Language));
     }
 
-    public static DocumentType Map(ClassifiedDocumentType type) => type switch
+    public static DocumentTypeKey Map(ClassifiedDocumentType type) => type switch
     {
-        ClassifiedDocumentType.Invoice => DocumentType.Invoice,
-        ClassifiedDocumentType.CreditNote => DocumentType.CreditNote,
-        ClassifiedDocumentType.PurchaseOrder => DocumentType.PurchaseOrder,
-        ClassifiedDocumentType.DeliveryNote => DocumentType.DeliveryNote,
-        ClassifiedDocumentType.Statement => DocumentType.Statement,
-        ClassifiedDocumentType.Reminder => DocumentType.Reminder,
-        _ => DocumentType.Other,
+        ClassifiedDocumentType.Invoice => DocumentTypeKey.Invoice,
+        ClassifiedDocumentType.CreditNote => DocumentTypeKey.CreditNote,
+        ClassifiedDocumentType.PurchaseOrder => DocumentTypeKey.PurchaseOrder,
+        ClassifiedDocumentType.DeliveryNote => DocumentTypeKey.DeliveryNote,
+        ClassifiedDocumentType.Statement => DocumentTypeKey.Statement,
+        ClassifiedDocumentType.Reminder => DocumentTypeKey.Reminder,
+        _ => DocumentTypeKey.Other,
     };
 
     /// <summary>

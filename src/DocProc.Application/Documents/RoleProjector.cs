@@ -25,11 +25,11 @@ public sealed record RoleBindings(string? DocumentNumber, string? DocumentDate, 
     /// <c>ExtractHandler</c> and the corrections endpoint filled before the projector replaced both. Null for types
     /// without canonical data, whose columns are never touched.
     /// </summary>
-    public static RoleBindings? ForLegacyType(DocumentType type) => type switch
+    public static RoleBindings? ForLegacyType(DocumentTypeKey type) => type.Value switch
     {
-        DocumentType.Invoice or DocumentType.CreditNote => Invoice,
-        DocumentType.PurchaseOrder => PurchaseOrder,
-        DocumentType.DeliveryNote => DeliveryNote,
+        WellKnownTypeKeys.Invoice or WellKnownTypeKeys.CreditNote => Invoice,
+        WellKnownTypeKeys.PurchaseOrder => PurchaseOrder,
+        WellKnownTypeKeys.DeliveryNote => DeliveryNote,
         _ => null,
     };
 }

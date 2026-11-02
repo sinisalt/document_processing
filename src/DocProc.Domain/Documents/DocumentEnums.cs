@@ -1,17 +1,5 @@
 namespace DocProc.Domain.Documents;
 
-public enum DocumentType
-{
-    Unknown,
-    Invoice,
-    CreditNote,
-    PurchaseOrder,
-    DeliveryNote,
-    Statement,
-    Reminder,
-    Other,
-}
-
 public enum TypeSource
 {
     Rule,

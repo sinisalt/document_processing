@@ -78,7 +78,7 @@ public sealed class DemoFixtureTests
                 invoice.ExtractionMethod.ShouldBe(ExtractionMethod.Llm);
                 invoice.DocumentNumber.ShouldBe("2026-131");
                 var deliveryNote = documents.Single(d => d.IngestionItem!.FileName == DemoPdfs.DeliveryNoteFileName);
-                deliveryNote.Type.ShouldBe(DocumentType.DeliveryNote);
+                deliveryNote.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
                 deliveryNote.TypeSource.ShouldBe(TypeSource.Llm);
 
                 var generated = Path.Combine(work, "llm-replay");

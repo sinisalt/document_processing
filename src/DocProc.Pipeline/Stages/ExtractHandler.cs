@@ -38,7 +38,7 @@ internal sealed class ExtractHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
-        if (document.Type is not (DocumentType.Invoice or DocumentType.CreditNote))
+        if (!document.Type.IsInvoiceFamily)
         {
             // A reprocess may have reclassified an extracted invoice: its data describes a type the document no
             // longer has, so it goes (the costs stay, they were spent).

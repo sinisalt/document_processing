@@ -13,7 +13,7 @@ public sealed record DocumentSeed
 {
     public Guid TenantId { get; init; } = ApiFactory.TenantA;
     public DocumentStatus Status { get; init; } = DocumentStatus.NeedsReview;
-    public DocumentType Type { get; init; } = DocumentType.Invoice;
+    public DocumentTypeKey Type { get; init; } = DocumentTypeKey.Invoice;
     public Invoice? Invoice { get; init; } = TestInvoices.Valid();
     public string? SupplierName { get; init; } = "METRO Deutschland GmbH";
     public IReadOnlyList<DocumentFlag> Flags { get; init; } = [];

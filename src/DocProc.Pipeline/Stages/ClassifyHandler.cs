@@ -69,7 +69,7 @@ internal sealed class ClassifyHandler(
         {
             var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
             outcome = keywords.Classify(textLayer);
-            if ((outcome.Type == DocumentType.Unknown || outcome.Confidence < _options.LlmClassificationThreshold)
+            if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < _options.LlmClassificationThreshold)
                 && services.GetService<LlmDocumentClassifier>() is { } llm)
             {
                 var firstPage = document.PageImageKeys.Count > 0
@@ -77,7 +77,7 @@ internal sealed class ClassifyHandler(
                     : (ReadOnlyMemory<byte>?)null;
                 var fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
                 usedLlm = true;
-                if (fromLlm.Type != DocumentType.Unknown)
+                if (fromLlm.Type != DocumentTypeKey.Unknown)
                 {
                     outcome = fromLlm with { Language = fromLlm.Language ?? outcome.Language };
                 }
@@ -87,7 +87,7 @@ internal sealed class ClassifyHandler(
         document.Type = outcome.Type;
         document.TypeConfidence = outcome.Confidence;
         document.TypeSource = outcome.Source;
-        flags.Replace(document, OwnedFlags, outcome.Type == DocumentType.Unknown
+        flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
             ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
             : []);
 
@@ -131,7 +131,7 @@ internal sealed class ClassifyHandler(
             }
         }
 
-        var type = kind == InvoiceKind.CreditNote ? DocumentType.CreditNote : DocumentType.Invoice;
+        var type = kind == InvoiceKind.CreditNote ? DocumentTypeKey.CreditNote : DocumentTypeKey.Invoice;
         return new ClassificationOutcome(type, 1.0, TypeSource.Structured);
     }
 }

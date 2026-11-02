@@ -19,7 +19,7 @@ public sealed class DocumentView
     private Invoice? _invoice;
     private bool _invoiceRead;
 
-    private DocumentView(DocumentType type, string? json, Invoice? invoice)
+    private DocumentView(DocumentTypeKey type, string? json, Invoice? invoice)
     {
         Type = type;
         _json = json;
@@ -27,7 +27,7 @@ public sealed class DocumentView
         _invoiceRead = invoice is not null;
     }
 
-    public DocumentType Type { get; }
+    public DocumentTypeKey Type { get; }
 
     /// <summary>The canonical tree, or null when the document has none. Parsed on first use.</summary>
     public JsonObject? Root
@@ -47,13 +47,13 @@ public sealed class DocumentView
     }
 
     /// <summary>A view over the stored canonical JSON, as the validate stage reads it.</summary>
-    public static DocumentView FromJson(DocumentType type, string? canonicalJson) => new(type, canonicalJson, null);
+    public static DocumentView FromJson(DocumentTypeKey type, string? canonicalJson) => new(type, canonicalJson, null);
 
     /// <summary>A view over an invoice already in memory; its tree is serialised on demand.</summary>
-    public static DocumentView ForInvoice(Invoice invoice, DocumentType type = DocumentType.Invoice)
+    public static DocumentView ForInvoice(Invoice invoice, DocumentTypeKey? type = null)
     {
         ArgumentNullException.ThrowIfNull(invoice);
-        return new DocumentView(type, null, invoice);
+        return new DocumentView(type ?? DocumentTypeKey.Invoice, null, invoice);
     }
 
     internal Invoice? ProjectInvoice()
@@ -79,7 +79,7 @@ public sealed class DocumentView
 public static class InvoiceProjection
 {
     /// <summary>Whether documents of this type hold an invoice tree. Until types are data (P1) these are the two coded invoice types.</summary>
-    public static bool IsInvoiceCompatible(DocumentType type) => type is DocumentType.Invoice or DocumentType.CreditNote;
+    public static bool IsInvoiceCompatible(DocumentTypeKey type) => type.IsInvoiceFamily;
 
     public static Invoice? Of(DocumentView view)
     {

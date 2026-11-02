@@ -225,7 +225,7 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
         }
 
         /// <summary>The type this page's header says it is: the first title in the header third, else the first numbered label.</summary>
-        public DocumentType? DominantType =>
+        public DocumentTypeKey? DominantType =>
             (Hits.FirstOrDefault(h => h.Kind == KeywordKind.Title && h.RelativeY < HeaderFraction) ?? (Numbers.Count > 0 ? Numbers[0] : null))?.Rule.Type;
     }
 
@@ -247,15 +247,15 @@ public sealed partial class HeuristicDocumentSplitter(IOptions<HeuristicSplitter
         public HashSet<string> HeaderBand { get; }
 
         /// <summary>The range's document type; null until a page shows a header title or a numbered label.</summary>
-        public DocumentType? Type { get; private set; }
+        public DocumentTypeKey? Type { get; private set; }
 
         public PageNumber? LastNumbering { get; private set; }
 
-        public bool Owns(DocumentType type) => Type == type;
+        public bool Owns(DocumentTypeKey type) => Type == type;
 
-        public bool HasNumber(DocumentType type, string value) => Owns(type) && _numbers.Contains(value);
+        public bool HasNumber(DocumentTypeKey type, string value) => Owns(type) && _numbers.Contains(value);
 
-        public bool HasOtherNumber(DocumentType type, string value) => Owns(type) && _numbers.Count > 0 && !_numbers.Contains(value);
+        public bool HasOtherNumber(DocumentTypeKey type, string value) => Owns(type) && _numbers.Count > 0 && !_numbers.Contains(value);
 
         public void Absorb(PageEvidence evidence)
         {
