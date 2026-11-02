@@ -4,7 +4,7 @@
 #   docker compose up --build        (add -d to run in the background)
 #
 # Portal http://localhost:5173, admin console http://localhost:5174, API http://localhost:5100 (Scalar at /scalar),
-# Keycloak http://localhost:8080. Users = passwords: superadmin, operator, tenant-a-admin, tenant-a-reviewer,
+# Keycloak http://localhost:8080 (DOCPROC_KEYCLOAK_PORT in .env moves it). Users = passwords: superadmin, operator, tenant-a-admin, tenant-a-reviewer,
 # tenant-b-admin, tenant-b-viewer. `docker compose down -v` deletes every volume and starts from the seed again.
 #
 # Everything here is for a developer machine only: the passwords below are well-known local defaults (override them
@@ -12,8 +12,10 @@
 # port is bound to 127.0.0.1 unless DOCPROC_BIND_ADDRESS says otherwise. The services mirror
 # src/DocProc.AppHost/AppHost.cs, and the hosts get the same configuration keys the AppHost sets.
 #
-# The fixed host ports are part of the contract: the Keycloak realm's redirect URIs name 5173 and 5174, the apps'
-# .env.production name http://localhost:8080/realms/docproc, and that URL is the issuer of every token.
+# The fixed host ports are part of the contract: the Keycloak realm's redirect URIs name 5173 and 5174. Keycloak's
+# host port is DOCPROC_KEYCLOAK_PORT (default 8080, as in the apps' .env.production): http://localhost:<port>/realms/docproc
+# is the issuer of every token, so KC_HOSTNAME, the API's authority, the apps' VITE_OIDC_AUTHORITY build argument and
+# their CSP (OIDC_ORIGIN) all name the same port.
 
 name: docproc
 
@@ -133,7 +135,7 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
@@ -142,7 +144,7 @@ services:
       # Imported on the first start only; afterwards the realm lives in keycloak-data (down -v re-imports it).
       - ./src/DocProc.AppHost/realms:/opt/keycloak/data/import:ro
     ports:
-      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:${DOCPROC_KEYCLOAK_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
       interval: 5s
@@ -202,7 +204,7 @@ services:
       # The AppHost and Bicep own the containers elsewhere; here the API creates raw, derived and exports.
       Blobs__CreateContainersOnStartup: "true"
       # Tokens carry the issuer the browser saw; the API reads the realm's metadata and keys over the compose network.
-      Authentication__Oidc__Authority: http://localhost:8080/realms/docproc
+      Authentication__Oidc__Authority: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
       Authentication__Oidc__MetadataAddress: http://keycloak:8080/realms/docproc/.well-known/openid-configuration
       Authentication__Oidc__RequireHttpsMetadata: "false"
     volumes:
@@ -273,6 +275,10 @@ services:
       dockerfile: web/Dockerfile
       args:
         APP: customer-portal
+        # The browser's URL of the realm (KC_HOSTNAME), built into the app; its origin is allowed by the CSP.
+        VITE_OIDC_AUTHORITY: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
+    environment:
+      OIDC_ORIGIN: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
     ports:
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5173:8080"
     healthcheck:
@@ -292,6 +298,10 @@ services:
       dockerfile: web/Dockerfile
       args:
         APP: admin-console
+        # The browser's URL of the realm (KC_HOSTNAME), built into the app; its origin is allowed by the CSP.
+        VITE_OIDC_AUTHORITY: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
+    environment:
+      OIDC_ORIGIN: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
     ports:
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5174:8080"
     healthcheck:

@@ -111,13 +111,38 @@ public sealed class ComposeParityTests
         PublishedPort(keycloak, 8080).ShouldBe(8080);
 
         var issuer = $"{Environment(compose, "keycloak")["KC_HOSTNAME"]}/realms/{Realm().GetProperty("realm").GetString()}";
-        issuer.ShouldBe("http://localhost:8080/realms/docproc");
+        Interpolate(issuer).ShouldBe("http://localhost:8080/realms/docproc");
         Environment(compose, "api")["Authentication__Oidc__Authority"].ShouldBe(issuer);
         Environment(compose, "api")["Authentication__Oidc__MetadataAddress"].ShouldBe("http://keycloak:8080/realms/docproc/.well-known/openid-configuration");
-        foreach (var app in new[] { "customer-portal", "admin-console" })
+        foreach (var (service, app) in new[] { ("portal", "customer-portal"), ("admin", "admin-console") })
         {
-            DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"].ShouldBe(issuer, app);
+            // The default of DOCPROC_KEYCLOAK_PORT is the port of .env.production, which `pnpm build` outside Docker uses.
+            DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"].ShouldBe(Interpolate(issuer), app);
+            BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"].ShouldBe(issuer, app);
         }
+    }
+
+    /// <summary>
+    /// Keycloak's host port is <c>DOCPROC_KEYCLOAK_PORT</c>, because 8080 is often taken by another server. Every URL the
+    /// browser or a token carries must follow it: a value left at 8080 would send sign-in to whatever else listens there.
+    /// </summary>
+    [Fact]
+    public void Every_browser_facing_keycloak_url_follows_DOCPROC_KEYCLOAK_PORT()
+    {
+        const string Port = "${DOCPROC_KEYCLOAK_PORT:-8080}";
+        var compose = Compose();
+
+        ((YamlSequenceNode)Service(compose, "keycloak")["ports"]).Children.Select(p => p.ToString()).ShouldContain($"${{DOCPROC_BIND_ADDRESS:-127.0.0.1}}:{Port}:8080");
+        Environment(compose, "keycloak")["KC_HOSTNAME"].ShouldBe($"http://localhost:{Port}");
+        Environment(compose, "api")["Authentication__Oidc__Authority"].ShouldBe($"http://localhost:{Port}/realms/docproc");
+        foreach (var service in new[] { "portal", "admin" })
+        {
+            BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"].ShouldBe($"http://localhost:{Port}/realms/docproc", service);
+            Environment(compose, service)["OIDC_ORIGIN"].ShouldBe($"http://localhost:{Port}", service);
+        }
+
+        Read("web", "Dockerfile").ShouldContain("ARG VITE_OIDC_AUTHORITY");
+        Read(".env.example").ShouldContain("DOCPROC_KEYCLOAK_PORT=");
     }
 
     [Theory]
@@ -151,10 +176,16 @@ public sealed class ComposeParityTests
         template.ShouldContain("connect-src 'self' ${OIDC_ORIGIN}");
         template.ShouldContain("frame-src 'self' ${OIDC_ORIGIN}");
 
-        foreach (var app in new[] { "customer-portal", "admin-console" })
+        var compose = Compose();
+        foreach (var (service, app) in new[] { ("portal", "customer-portal"), ("admin", "admin-console") })
         {
+            // The image's default, for a `docker build` without arguments: the authority of .env.production.
             var authority = new Uri(DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"]);
             match.Groups[1].Value.ShouldBe(authority.GetLeftPart(UriPartial.Authority), app);
+
+            // What compose builds and runs: the origin of the build argument, for any DOCPROC_KEYCLOAK_PORT.
+            var built = BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"];
+            built.ShouldStartWith(Environment(compose, service)["OIDC_ORIGIN"] + "/", Case.Sensitive, service);
         }
     }
 
@@ -276,13 +307,23 @@ public sealed class ComposeParityTests
 
     private static List<string> Volumes(YamlMappingNode service) => ((YamlSequenceNode)service["volumes"]).Children.Select(v => v.ToString()).ToList();
 
-    /// <summary>The host port a service publishes for <paramref name="containerPort"/> (<c>[address:]host:container</c>).</summary>
+    /// <summary>
+    /// The host port a service publishes for <paramref name="containerPort"/> (<c>[address:]host:container</c>), with
+    /// every <c>${NAME:-default}</c> at its default, i.e. without a <c>.env</c>.
+    /// </summary>
     private static int PublishedPort(YamlMappingNode service, int containerPort)
     {
-        var mapping = ((YamlSequenceNode)service["ports"]).Children.Select(p => p.ToString().Split(':'))
+        var mapping = ((YamlSequenceNode)service["ports"]).Children.Select(p => Interpolate(p.ToString()).Split(':'))
             .Single(parts => parts[^1] == containerPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return int.Parse(mapping[^2], System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>Replaces each compose variable <c>${NAME:-default}</c> with its default, as compose does when NAME is unset.</summary>
+    private static string Interpolate(string value) => Regex.Replace(value, @"\$\{[A-Z0-9_]+:-([^}]*)\}", m => m.Groups[1].Value);
+
+    private static Dictionary<string, string> BuildArgs(YamlMappingNode compose, string service) =>
+        ((YamlMappingNode)((YamlMappingNode)Service(compose, service)["build"])["args"]).Children
+            .ToDictionary(e => e.Key.ToString(), e => e.Value.ToString(), StringComparer.Ordinal);
 
     /// <summary>A service's environment with YAML merge keys (<c>&lt;&lt;: *anchor</c>) applied, the way compose reads it.</summary>
     private static Dictionary<string, string> Environment(YamlMappingNode compose, string service)

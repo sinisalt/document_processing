@@ -72,7 +72,7 @@ normally within the health check's 60 tries. `docker compose ps -a` shows `worke
 | `sqlserver` | `mcr.microsoft.com/mssql/server:2025-latest`, `linux/amd64` | `sql` | `sa` password `DOCPROC_SQL_PASSWORD` (local default in the file); healthy once `sqlcmd` answers |
 | `azurite` | `mcr.microsoft.com/azure-storage/azurite` (the AppHost's tag) | `storage` | `--skipApiVersionCheck`; the API creates `raw`, `derived`, `exports` (`Blobs:CreateContainersOnStartup`) |
 | `servicebus` | `mcr.microsoft.com/azure-messaging/servicebus-emulator` (the AppHost's tag), `linux/amd64` | `messaging` | entities from `docker/servicebus/Config.json`; stores them in `sqlserver`. The image has no shell, so the one-shot `servicebus-ready` polls its `:5300/health` and the API waits for that |
-| `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:8080`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
+| `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
 | `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
 | `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
 | `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
@@ -114,9 +114,15 @@ and answers other containers with back-channel URLs on the host name they used
 (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`). The API keeps `Authentication:Oidc:Authority` at the public
 URL and reads the discovery document from `Authentication:Oidc:MetadataAddress`
 (`http://keycloak:8080/realms/docproc/.well-known/openid-configuration`), whose `jwks_uri` then
-points at `http://keycloak:8080/...` too ("Settings reference"). The host ports are fixed for the
-same reason: the realm's redirect URIs name 5173 and 5174, and the apps' `.env.production` and
-`KC_HOSTNAME` name 8080 (`ComposeParityTests` checks all three against the compose file).
+points at `http://keycloak:8080/...` too ("Settings reference"). The apps' host ports are fixed
+for the same reason: the realm's redirect URIs name 5173 and 5174. Keycloak's host port is
+`DOCPROC_KEYCLOAK_PORT` (default 8080), because 8080 is often taken by another local server; when
+that server answers instead of Keycloak, sign-in fails with "Failed to fetch" and a CORS error on
+`.../.well-known/openid-configuration`. The port goes into `KC_HOSTNAME`, the API's `Authority`, the
+apps' `VITE_OIDC_AUTHORITY` build argument (which overrides `.env.production`, whose 8080 is the
+default) and their `OIDC_ORIGIN`, so a change needs `docker compose up --build -d`
+(`ComposeParityTests` checks all of them against the compose file). Inside the network Keycloak
+stays `keycloak:8080`.
 
 **LLM keys.** Outside the development mode the platform provider is a platform configuration in the
 database, managed through `/api/v1/llm/providers` (admin console, "AI providers"); the newest active
@@ -163,10 +169,9 @@ then copies the shared packages and the one app and runs its `pnpm build` (typec
 build` with `.env.production`). It serves `dist` from `nginxinc/nginx-unprivileged` (nginx as uid
 101, listening on 8080) with `web/nginx.conf.template`, which re-resolves `api` through Docker's DNS
 so a recreated API container is found again and sends `Content-Security-Policy` (scripts from the
-app only; the OIDC authority `OIDC_ORIGIN`, `http://localhost:8080`, for discovery, tokens and the
-silent-renew frame), `X-Content-Type-Options`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy` and
-`Permissions-Policy`; an override that moves Keycloak sets `OIDC_ORIGIN` for `portal` and `admin`
-as well. The base images are pinned to patch releases (SDK `10.0.403`, runtime `10.0.14`, Node
+app only; the OIDC authority `OIDC_ORIGIN`, `http://localhost:${DOCPROC_KEYCLOAK_PORT}`, for
+discovery, tokens and the silent-renew frame), `X-Content-Type-Options`, `X-Frame-Options:
+SAMEORIGIN`, `Referrer-Policy` and `Permissions-Policy`. The base images are pinned to patch releases (SDK `10.0.403`, runtime `10.0.14`, Node
 `22.23.4`, nginx `1.29.8`); bump them when a servicing release ships. The `# syntax=docker/dockerfile:1`
 line pulls a frontend that knows `COPY --parents` and `--exclude`. `.dockerignore` keeps `bin`, `obj`,
 `node_modules`, `dist`, `data`, tests, docs and `.git` out of the build context. CI's `compose` job

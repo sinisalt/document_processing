@@ -37,7 +37,11 @@ RUN test -n "$APP" -a -f "apps/$APP/package.json" || { echo "APP must name a fol
 COPY web/tsconfig.base.json ./
 COPY web/packages/ packages/
 COPY web/apps/${APP}/ apps/${APP}/
-RUN pnpm --filter "@docproc/$APP" build
+# VITE_OIDC_AUTHORITY overrides the app's .env.production (Vite prefers the environment) when it is set, which is how
+# docker-compose.yml moves Keycloak to DOCPROC_KEYCLOAK_PORT; empty or unset, .env.production applies.
+ARG VITE_OIDC_AUTHORITY
+RUN if [ -z "$VITE_OIDC_AUTHORITY" ]; then unset VITE_OIDC_AUTHORITY; fi; \
+    pnpm --filter "@docproc/$APP" build
 
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine AS serve
 ARG APP
@@ -45,8 +49,9 @@ ARG APP
 # runs nginx as the user nginx (uid 101), which cannot bind ports below 1024, hence 8080.
 COPY web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /web/apps/${APP}/dist /usr/share/nginx/html
-# OIDC_ORIGIN: the origin of VITE_OIDC_AUTHORITY in the app's .env.production (ComposeParityTests checks it), which
-# the Content-Security-Policy lets the app call (discovery, token) and frame (silent renew).
+# OIDC_ORIGIN: the origin of the app's OIDC authority (.env.production here; docker-compose.yml sets it with
+# VITE_OIDC_AUTHORITY, ComposeParityTests checks both), which the Content-Security-Policy lets the app call (discovery,
+# token) and frame (silent renew).
 ENV API_UPSTREAM=http://api:8080 \
     OIDC_ORIGIN=http://localhost:8080
 EXPOSE 8080

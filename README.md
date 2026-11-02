@@ -138,12 +138,18 @@ fails with `Bind for 127.0.0.1:8080 failed: port is already allocated` (or anoth
 ports), `docker ps --format '{{.Names}}\t{{.Ports}}'` shows which container holds it, for example a
 second compose project (`-p`).
 
+If sign-in fails with "Failed to fetch", and the browser console shows a CORS error on
+`http://localhost:8080/realms/docproc/.well-known/openid-configuration`, another server (a local
+Apache, another project's container) answers on 8080 instead of Keycloak; opening that URL shows
+whose page it is. Stop that server, or move Keycloak: put `DOCPROC_KEYCLOAK_PORT=8180` in `.env`
+and run `docker compose up --build -d` (the apps are built with Keycloak's URL).
+
 | URL | What |
 |---|---|
 | http://localhost:5173 | customer portal; sign in as `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` or `tenant-b-viewer` |
 | http://localhost:5174 | admin console; sign in as `superadmin` or `operator` |
 | http://localhost:5100/scalar | API reference (Scalar); `/health/ready`, `/openapi/v1.json` |
-| http://localhost:8080 | Keycloak (realm `docproc`; admin console `admin` / `admin`) |
+| http://localhost:8080 | Keycloak (realm `docproc`; admin console `admin` / `admin`); `DOCPROC_KEYCLOAK_PORT` in `.env` moves it |
 | http://localhost:8085 | GreenMail API; SMTP `localhost:3025`, IMAP `localhost:3143` |
 
 Every password is the user name. The API applies the migrations, seeds the realm's two tenants
