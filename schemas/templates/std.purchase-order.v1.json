@@ -1,0 +1,857 @@
+{
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "std.purchase-order v1 (values view)",
+    "type": "object",
+    "properties": {
+      "poNumber": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "orderDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      },
+      "requestedDeliveryDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      },
+      "supplier": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "buyer": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "deliveryAddress": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "line1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "countryCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "currency": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^[A-Z]{3}$"
+      },
+      "totalNet": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "totalGross": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "status": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "Open",
+          "PartiallyDelivered",
+          "Delivered",
+          "Invoiced",
+          "Cancelled",
+          null
+        ],
+        "readOnly": true
+      },
+      "lines": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "lineNumber": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "readOnly": true
+            },
+            "supplierSku": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "quantityOrdered": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unitRaw": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "readOnly": true
+            },
+            "unitPrice": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "lineNet": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "llmSchema": {
+    "name": "doc_std_purchase-order",
+    "version": "e72b4dd02c2a45f9",
+    "adapter": null,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "poNumber": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "orderDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "requestedDeliveryDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "supplier": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vatId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taxId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "registrationNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "line1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "line2": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "countryCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "line1",
+                "line2",
+                "postalCode",
+                "city",
+                "region",
+                "countryCode"
+              ]
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "iban": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bic": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "vatId",
+            "taxId",
+            "registrationNumber",
+            "address",
+            "email",
+            "phone",
+            "iban",
+            "bic"
+          ]
+        },
+        "buyer": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vatId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taxId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "registrationNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "line1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "line2": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "countryCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "line1",
+                "line2",
+                "postalCode",
+                "city",
+                "region",
+                "countryCode"
+              ]
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "iban": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bic": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "vatId",
+            "taxId",
+            "registrationNumber",
+            "address",
+            "email",
+            "phone",
+            "iban",
+            "bic"
+          ]
+        },
+        "deliveryAddress": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "line1": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line2": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "postalCode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "city": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "region": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "countryCode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "line1",
+            "line2",
+            "postalCode",
+            "city",
+            "region",
+            "countryCode"
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalNet": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "totalGross": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "supplierSku": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quantityOrdered": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unitPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "lineNet": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "supplierSku",
+              "description",
+              "quantityOrdered",
+              "unit",
+              "unitPrice",
+              "lineNet"
+            ]
+          }
+        },
+        "unreadableRegions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "area": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "page",
+              "area",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "poNumber",
+        "orderDate",
+        "requestedDeliveryDate",
+        "supplier",
+        "buyer",
+        "deliveryAddress",
+        "currency",
+        "totalNet",
+        "totalGross",
+        "lines",
+        "unreadableRegions"
+      ]
+    }
+  }
+}

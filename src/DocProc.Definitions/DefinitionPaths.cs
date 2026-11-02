@@ -71,6 +71,47 @@ public static class DefinitionPaths
         return current;
     }
 
+    /// <summary>
+    /// The kind of the value at <paramref name="path"/>: a field's path, or a field's path followed by members of its
+    /// value shape (<c>lines[*].price.amount</c>, <c>supplier.address.city</c>), as rule parameters address them
+    /// (docs/11 §11). Null when the path names nothing.
+    /// </summary>
+    public static string? FindValue(TypeDefinition definition, string path)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var segments = path.Split('.');
+        for (var take = segments.Length; take >= 1; take--)
+        {
+            if (Find(definition, string.Join('.', segments[..take])) is not { } field)
+            {
+                continue;
+            }
+
+            var kind = field.Kind;
+            foreach (var member in segments[take..])
+            {
+                var next = FieldKinds.CompositeMemberKinds.TryGetValue(kind, out var members)
+                    ? members.FirstOrDefault(m => string.Equals(m.Member, member, StringComparison.Ordinal)).Kind
+                    : null;
+                if (next is null)
+                {
+                    return null;
+                }
+
+                kind = next;
+            }
+
+            return kind;
+        }
+
+        return null;
+    }
+
     private static IEnumerable<DefinitionField> Enumerate(IReadOnlyList<FieldDefinition> fields, string? prefix)
     {
         foreach (var field in fields)

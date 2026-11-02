@@ -54,6 +54,11 @@
     <PackageVersion Include="MimeKit" Version="4.18.2" />
     <PackageVersion Include="MailKit" Version="4.18.2" />
     <PackageVersion Include="SharpZipLib" Version="1.4.2" />
+    <!-- JSON Schema 2020-12 validation of definitions (docs/11 §5.2, §5.5, §11). Pinned to 8.x on purpose: 8.0.5 is
+         the last release under the MIT licence; from 9.0 the binary releases ship under the json-everything "Open
+         Source Maintenance Fee" EULA (a monthly fee for revenue-generating users above US$10k a year), see the
+         licence note in docs/11 §5.5 before moving past 8.x. -->
+    <PackageVersion Include="JsonSchema.Net" Version="8.0.5" />
 
     <!-- Azure -->
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />

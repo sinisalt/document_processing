@@ -1,0 +1,1027 @@
+{
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "std.price-list v1 (values view)",
+    "type": "object",
+    "properties": {
+      "priceListNumber": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "title": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "issueDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      },
+      "validFrom": {
+        "type": "string",
+        "format": "date"
+      },
+      "validUntil": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date",
+        "description": "Empty means valid until replaced."
+      },
+      "listScope": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "Full",
+          "Changes",
+          null
+        ],
+        "description": "Full replaces every price of the supplier; Changes updates only the listed articles."
+      },
+      "currency": {
+        "type": "string",
+        "pattern": "^[A-Z]{3}$"
+      },
+      "priceBasis": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "Net",
+          "Gross",
+          null
+        ]
+      },
+      "declaredLineCount": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "description": "Number of articles printed on the list, if any (for example \u0027Anzahl Artikel: 412\u0027). Used as a control figure."
+      },
+      "supplier": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "customer": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "supplierCustomerRef": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "lines": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "supplierSku": {
+              "type": "string"
+            },
+            "gtin": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9]{8}([0-9]{4,6})?$"
+            },
+            "description": {
+              "type": "string"
+            },
+            "category": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Group heading the row is printed under, for example \u0027Rotweine\u0027."
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "packSize": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Number of content units per order unit, for example 6 bottles per case."
+            },
+            "packUnit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "packDescription": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "As printed, for example \u00276 x 0,75 l\u0027."
+            },
+            "priceQuantity": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "The price applies per this many units (for example \u0027per 100\u0027). Empty means 1."
+            },
+            "price": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "previousPrice": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ],
+              "description": "Printed old price, for example \u0027statt 12,99\u0027."
+            },
+            "taxRate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "minOrderQuantity": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "tiers": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "minQuantity": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "price": {
+                    "type": "object",
+                    "properties": {
+                      "amount": {
+                        "type": "number"
+                      },
+                      "currency": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "amount"
+                    ]
+                  }
+                },
+                "required": [
+                  "minQuantity",
+                  "price"
+                ]
+              }
+            },
+            "lineValidFrom": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "lineValidUntil": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "New",
+                "Changed",
+                "Discontinued",
+                "Unchanged",
+                null
+              ]
+            },
+            "ext": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          },
+          "required": [
+            "supplierSku",
+            "description",
+            "price"
+          ]
+        },
+        "maxItems": 10000
+      },
+      "ext": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "required": [
+      "validFrom",
+      "currency",
+      "supplier"
+    ]
+  },
+  "llmSchema": {
+    "name": "doc_std_price-list",
+    "version": "cc05739717fdbc52",
+    "adapter": null,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "priceListNumber": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "issueDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "validFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "validUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "Empty means valid until replaced."
+        },
+        "listScope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Full",
+            "Changes",
+            null
+          ],
+          "description": "Full replaces every price of the supplier; Changes updates only the listed articles."
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "priceBasis": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Net",
+            "Gross",
+            null
+          ]
+        },
+        "declaredLineCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Number of articles printed on the list, if any (for example \u0027Anzahl Artikel: 412\u0027). Used as a control figure."
+        },
+        "supplier": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vatId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taxId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "registrationNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "line1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "line2": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "countryCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "line1",
+                "line2",
+                "postalCode",
+                "city",
+                "region",
+                "countryCode"
+              ]
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "iban": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bic": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "vatId",
+            "taxId",
+            "registrationNumber",
+            "address",
+            "email",
+            "phone",
+            "iban",
+            "bic"
+          ]
+        },
+        "customer": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vatId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taxId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "registrationNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "line1": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "line2": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "postalCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "countryCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "line1",
+                "line2",
+                "postalCode",
+                "city",
+                "region",
+                "countryCode"
+              ]
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "iban": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bic": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "vatId",
+            "taxId",
+            "registrationNumber",
+            "address",
+            "email",
+            "phone",
+            "iban",
+            "bic"
+          ]
+        },
+        "supplierCustomerRef": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "supplierSku": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gtin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Group heading the row is printed under, for example \u0027Rotweine\u0027."
+              },
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "packSize": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Number of content units per order unit, for example 6 bottles per case."
+              },
+              "packUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "packDescription": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "As printed, for example \u00276 x 0,75 l\u0027."
+              },
+              "priceQuantity": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "The price applies per this many units (for example \u0027per 100\u0027). Empty means 1."
+              },
+              "price": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "previousPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Printed old price, for example \u0027statt 12,99\u0027."
+              },
+              "taxRate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "minOrderQuantity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "tiers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minQuantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "price": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "minQuantity",
+                    "price"
+                  ]
+                }
+              },
+              "lineValidFrom": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lineValidUntil": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "New",
+                  "Changed",
+                  "Discontinued",
+                  "Unchanged",
+                  null
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "supplierSku",
+              "gtin",
+              "description",
+              "category",
+              "unit",
+              "packSize",
+              "packUnit",
+              "packDescription",
+              "priceQuantity",
+              "price",
+              "previousPrice",
+              "taxRate",
+              "minOrderQuantity",
+              "tiers",
+              "lineValidFrom",
+              "lineValidUntil",
+              "status"
+            ]
+          }
+        },
+        "unreadableRegions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "area": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "page",
+              "area",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "priceListNumber",
+        "title",
+        "issueDate",
+        "validFrom",
+        "validUntil",
+        "listScope",
+        "currency",
+        "priceBasis",
+        "declaredLineCount",
+        "supplier",
+        "customer",
+        "supplierCustomerRef",
+        "lines",
+        "unreadableRegions"
+      ]
+    }
+  }
+}

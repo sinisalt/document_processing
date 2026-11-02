@@ -52,6 +52,27 @@ public static class FieldKinds
         [TemperatureReading] = ["celsius", "location", "rawText"],
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The kind of each member of a composite value, in <see cref="CompositeMembers"/> order: what the compiler
+    /// describes the member as in the JSON schema, the LLM schema and the form (docs/11 §5.5). A composite is one
+    /// <c>FieldValue</c> envelope; its members are parts of that value, not fields of their own.
+    /// </summary>
+    public static readonly FrozenDictionary<string, IReadOnlyList<(string Member, string Kind)>> CompositeMemberKinds = new Dictionary<string, IReadOnlyList<(string Member, string Kind)>>(StringComparer.Ordinal)
+    {
+        [Identifier] = [("verbatim", String), ("normalized", String)],
+        [Money] = [("amount", Decimal), ("currency", Currency)],
+        [Period] = [("from", Date), ("to", Date)],
+        [Party] = [("name", String), ("vatId", String), ("taxId", String), ("registrationNumber", String), ("address", Address), ("email", String), ("phone", String), ("iban", String), ("bic", String)],
+        [Address] = [("line1", String), ("line2", String), ("postalCode", String), ("city", String), ("region", String), ("countryCode", String)],
+        [TaxRow] = [("rate", Percent), ("taxableAmount", Money), ("taxAmount", Money), ("category", String)],
+        [PaymentTerms] = [("dueDate", Date), ("discountPercent", Percent), ("discountUntil", Date), ("paymentMeans", String), ("paymentReference", String), ("iban", String), ("bic", String), ("rawText", Text)],
+        [ChargeOrAllowance] = [("description", String), ("amount", Money), ("taxRate", Percent), ("isCharge", Boolean)],
+        [TemperatureReading] = [("celsius", Decimal), ("location", String), ("rawText", Text)],
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The shipped composites whose members are inlined at compile time (not <c>identifier</c>, <c>money</c> or <c>period</c>, which are value shapes).</summary>
+    public static bool IsComposite(string kind) => kind is Party or Address or TaxRow or PaymentTerms or ChargeOrAllowance or TemperatureReading;
+
     /// <summary>Every kind the format knows.</summary>
     public static readonly FrozenSet<string> All = new[]
     {

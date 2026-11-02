@@ -7,8 +7,9 @@ namespace DocProc.Definitions;
 /// <summary>
 /// Reads and writes definitions (docs/11 §5.2). Reading is strict: an unknown property, a missing required one, a
 /// comment or a trailing comma is an error, so a definition either means exactly what it says or does not load. The
-/// meta-schema <c>schemas/document-type-definition.v1.json</c> takes over the shape checks when definitions become
-/// editable (P1); until then this reader and <see cref="DefinitionChecker"/> are the checks.
+/// meta-schema <c>schemas/document-type-definition.v1.json</c> (<see cref="DefinitionMetaSchema"/>, generated from the
+/// same records) checks the shape of an edited definition first and names every place it breaks; this reader and
+/// <see cref="DefinitionChecker"/> follow.
 /// </summary>
 public static class DefinitionSerializer
 {
@@ -19,6 +20,8 @@ public static class DefinitionSerializer
         RespectRequiredConstructorParameters = true,
         ReadCommentHandling = JsonCommentHandling.Disallow,
         AllowTrailingCommas = false,
+        // A number is a number: the web defaults would also read "1" for 1, and the meta-schema would have to allow it.
+        NumberHandling = JsonNumberHandling.Strict,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         WriteIndented = true,

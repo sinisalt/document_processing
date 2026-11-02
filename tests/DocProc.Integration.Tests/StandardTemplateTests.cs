@@ -12,15 +12,15 @@ namespace DocProc.Integration.Tests;
 /// </summary>
 public sealed class StandardTemplateTests
 {
-    private static readonly string[] P0Templates =
-        ["std.credit-note", "std.delivery-note", "std.generic", "std.invoice", "std.purchase-order", "std.reminder", "std.statement"];
+    private static readonly string[] P1Templates =
+        ["std.credit-note", "std.daily-specials", "std.delivery-note", "std.generic", "std.invoice", "std.price-list", "std.purchase-order", "std.reminder", "std.statement"];
 
-    public static TheoryData<string> TemplateKeys() => [.. P0Templates];
+    public static TheoryData<string> TemplateKeys() => [.. P1Templates];
 
     [Fact]
-    public void P0_ships_the_templates_of_the_legacy_types_one_per_type()
+    public void The_templates_are_those_of_the_legacy_types_one_per_type_plus_the_two_price_lists()
     {
-        StandardTemplates.All.Select(t => t.Key).ShouldBe(P0Templates);
+        StandardTemplates.All.Select(t => t.Key).ShouldBe(P1Templates);
 
         foreach (var type in DocumentTypeKey.Legacy)
         {
@@ -36,7 +36,8 @@ public sealed class StandardTemplateTests
         }
 
         StandardTemplates.ForLegacyType(DocumentTypeKey.Other)!.Key.ShouldBe("std.generic");
-        StandardTemplates.Find("std.price-list").ShouldBeNull("the price-list templates ship with P1");
+        StandardTemplates.Find("std.price-list")!.LegacyKey.ShouldBeNull("no tenant adopts a price list automatically (docs/11 §5.1)");
+        StandardTemplates.Find("std.daily-specials")!.LegacyKey.ShouldBeNull();
     }
 
     [Theory]
@@ -45,9 +46,18 @@ public sealed class StandardTemplateTests
     {
         var template = StandardTemplates.Find(key).ShouldNotBeNull();
 
-        DefinitionChecker.Check(template, RuleRegistry.Default.Kinds).ShouldBeEmpty();
+        DefinitionChecker.Check(template, RuleKinds.Keys).ShouldBeEmpty();
+        template.Rules.Select(r => RuleKinds.Available.GetValueOrDefault(r.Kind)?.Phase).ShouldAllBe(phase => phase == RuleKinds.P0 || phase == RuleKinds.P1);
         template.Version.ShouldBe(1);
-        template.Base.ShouldBeNull("a template is not based on another");
+        if (key == "std.daily-specials")
+        {
+            template.Base.ShouldBe(new DefinitionBase { Template = "std.price-list", Version = 1, Mode = "copy" }, "the specials template is shipped as a fork of the price list (docs/11 §5.1)");
+        }
+        else
+        {
+            template.Base.ShouldBeNull("a template is not based on another");
+        }
+
         template.Name.Keys.ShouldBe(["en", "de"], ignoreOrder: true);
     }
 

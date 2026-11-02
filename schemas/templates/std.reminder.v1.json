@@ -1,0 +1,45 @@
+{
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "std.reminder v1 (values view)",
+    "type": "object",
+    "properties": {}
+  },
+  "llmSchema": {
+    "name": "doc_std_reminder",
+    "version": "996eb8433f4d8c9c",
+    "adapter": null,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "unreadableRegions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "area": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "page",
+              "area",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "unreadableRegions"
+      ]
+    }
+  }
+}

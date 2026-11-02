@@ -52,13 +52,21 @@ public sealed class DocumentValidator(RuleRegistry registry)
         ArgumentNullException.ThrowIfNull(context);
 
         var flags = new List<DocumentFlag>();
+        var notRun = new List<string>();
         foreach (var entry in rules)
         {
-            // Publishing a definition refuses an unknown kind (docs/11 §5.7), so one here is a platform defect.
-            var rule = registry.Find(entry.Kind) ?? throw new InvalidOperationException($"Rule '{entry.Id}' names the kind '{entry.Kind}', which is not registered.");
+            // Publishing a definition refuses a kind this deployment does not declare (docs/11 §5.7). A declared kind
+            // whose evaluator is not registered yet does not run, and the result says so, which keeps the document
+            // in review (ValidationResult.IsEligibleForAutoApproval).
+            if (registry.Find(entry.Kind) is not { } rule)
+            {
+                notRun.Add(entry.Id);
+                continue;
+            }
+
             flags.AddRange(rule.Evaluate(view, entry.Params, context));
         }
 
-        return new ValidationResult(flags);
+        return new ValidationResult(flags, notRun.Count == 0 ? null : notRun);
     }
 }

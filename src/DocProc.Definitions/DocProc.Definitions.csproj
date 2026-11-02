@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Document type definitions as data (docs/11 §5): the definition format, its structural checks and the embedded platform templates.</Description>
+    <Description>Document type definitions as data (docs/11 §5): the definition format, its meta-schema and structural checks, the compiler and the embedded platform templates.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>
   <ItemGroup>
     <!-- The platform templates ship inside the assembly (docs/11 §5.1); StandardTemplates reads them by this name. -->
