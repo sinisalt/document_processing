@@ -28,6 +28,13 @@ public static class StandardTemplates
     public static TypeDefinition? Find(string templateKey) => Loaded.Value.ByKey.GetValueOrDefault(templateKey);
 
     /// <summary>
+    /// The template <paramref name="templateKey"/> in exactly <paramref name="version"/>, or null when this build does
+    /// not carry that version: what a copy's <c>base</c> refers to (docs/11 §5.1).
+    /// </summary>
+    public static TypeDefinition? Find(string templateKey, int version) =>
+        Find(templateKey) is { } template && template.Version == version ? template : null;
+
+    /// <summary>
     /// The template every tenant adopts for a legacy type (docs/11 §21 step 2): the one whose <c>legacyKey</c> is the
     /// type's name. Null for <see cref="DocumentTypeKey.Unknown"/>, which stays a reserved key without a definition.
     /// </summary>

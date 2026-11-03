@@ -90,6 +90,8 @@ public sealed record DocumentIngestionRef(Guid IngestionId, Guid ItemId, string 
 /// the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
 /// <c>CanonicalSchemaVersion</c> 2 marks a definition-driven tree (docs/11 §5.6); <c>TypeName</c> (English, else the first
 /// locale), <c>TypeVersion</c> and <c>Definition</c> describe the type version it is shown with when the API resolved one.
+/// <c>AppliedConfig</c> is what the pipeline resolved for the document (docs/11 §6.2, §18 <c>AppliedConfigJson</c>): the
+/// type version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract.
 /// </summary>
 public sealed record DocumentDetail(
     Guid Id,
@@ -124,7 +126,8 @@ public sealed record DocumentDetail(
     int? LineCount,
     string? TypeName,
     int? TypeVersion,
-    DocumentDefinitionRef? Definition);
+    DocumentDefinitionRef? Definition,
+    JsonElement? AppliedConfig);
 
 public sealed record DocumentEventDto(
     long Id,

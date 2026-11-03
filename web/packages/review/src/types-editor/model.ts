@@ -140,11 +140,23 @@ function allFields(fields: readonly DefinitionField[]): DefinitionField[] {
   return fields.flatMap((field) => [field, ...allFields(childrenOf(field) ?? [])]);
 }
 
-/** A field id no field of the definition has (`fld_c1`, `fld_c2`, …): ids are stable and never reused (docs/11 §5.2). */
-export function newFieldId(definition: Definition, taken: Iterable<string> = []): string {
+/** Eight random characters of `[a-z0-9]`. */
+export function randomIdSuffix(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+}
+
+/**
+ * A new field id (`fld_c_k3j9x2q1`): ids are stable and never reused (docs/11 §5.2). A counter over the draft's own
+ * fields would hand a removed field's id to the next new field, and the publish checks, which match fields by id,
+ * would then take a removed field and a new one for a rename. A random suffix is new to every version of the type
+ * without knowing them; `taken` (and the draft's own ids) are avoided all the same.
+ */
+export function newFieldId(definition: Definition, taken: Iterable<string> = [], random: () => string = randomIdSuffix): string {
   const used = new Set([...allFields(definition.fields).map((f) => f.id), ...taken]);
-  for (let n = 1; ; n++) {
-    const id = `fld_c${n}`;
+  for (;;) {
+    const id = `fld_c_${random()}`;
     if (!used.has(id)) return id;
   }
 }

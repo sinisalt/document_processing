@@ -276,7 +276,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `IEffectiveConfigResolver` over the catalogue (`CatalogueConfigResolver`): the pinned version, else the tenant's
       published version; with `configurableTypes` off only adopted types count, so such a tenant behaves as before;
       without a row the embedded templates answer. Extract pins `Documents.DocumentTypeVersionId`, Classify clears the
-      pin when the type changes, Validate resolves it, corrections record it, and the list columns are refreshed with
+      pin when the type changes, Validate resolves it (and pins it when the document has none), corrections record it, and the list columns are refreshed with
       the resolved role bindings (no caller of `RoleBindings.ForLegacyType` or `StandardRuleSets` is left in `src`).
   - Done (part B), every new behaviour behind `configurableTypes` except where noted:
     - canonical storage of docs/11 §5.6 (`DefinitionTree`, `CanonicalStorage`): a definition-driven document is stored
@@ -403,7 +403,51 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       No browser console errors and no 5xx after the fixes above; the API log still holds one EF Core "error
       occurred using the connection" line from the moment of the upload (EF Core logs a cancelled query's
       `SqlException` itself, outside the exception handler; no request failed).
+  - Fixed after the P1 review:
+    - a tenant's field `pattern` no longer runs in JsonSchema.Net's backtracking regex without a timeout (one
+      `^(a+)+$` could stall the worker every tenant shares): `StructuralValidator` evaluates the schema without the
+      field patterns and checks them itself, non-backtracking with a 100 ms timeout, as `FIELD_INVALID
+      {keyword: pattern}`;
+    - the duplicate checks (the `duplicate` rule's `duplicateKey` and the coded one) name the document's tenant in
+      every query: an operator's correction in platform scope matched, and named, another tenant's document;
+    - marking a field required now always counts: for a type whose definition does not list `validate.schema` (the
+      invoice and credit note forks, purchase orders, delivery notes, new types), the validate stage and the inline
+      re-validation raise `FIELD_REQUIRED` for every required field the template does not already require
+      (`EffectiveType.RequiredOutsideSchemaStep`; the invoice family's own required fields stay `invoice.required`'s).
+      A forked invoice with a missing required custom field auto-approved before;
+    - reprocessing with `configMode: current` (the Reprocess dialog's default when a newer version is published) threw
+      away what a reviewer had entered in a purchase order, delivery note or tenant type: Extract keeps a stored tree
+      whose `AppliedConfigJson.typeKey` is the document's type, and Classify drops a tree when it changes the type;
+      reprocessing from Validate with `configMode: current` pins the version Validate resolves;
+    - the type editor gives a new field a random id (`fld_c_<8 characters>`) instead of the first free `fld_cN` of the
+      draft, which handed a removed field's id to the next new one, so publish took a removed indexed field for a
+      rename and only warned; publish also refuses a field that keeps a published field's id with another key and kind;
+    - a published version runs on the artifacts it stored (descriptors, LLM schema, form spec, JSON Schema;
+      `DefinitionCompiler.FromStored`), compiled again only for a row without them; the compiler tells a copy's added
+      fields apart against the template version in its `base` (a version this build does not carry does not compile);
+    - `customTypes` gates every write to a type of the tenant's own (new draft, save, publish), and the resolver uses
+      such a type only with `customTypes` on;
+    - the start-up back-fill copies a document's version onto its corrections only for the tenants whose catalogue
+      that start added; a correction made without a version later keeps none;
+    - an invoice or credit note type (from `std.invoice` or `std.credit-note`, or with the `invoice_extraction@1`
+      adapter) keeps the key `Invoice` or `CreditNote`: adopt, copy, create and save refuse another key, because the
+      invoice extraction, the coded invoice rules and the invoice record's corrections are chosen by the key until P2;
+    - saving a draft checks the size caps of docs/11 §5.7 (fields, depth, enum codes) and a length of 1 MiB, and the
+      catalogue write endpoints take at most that much (`RequestSizeLimit`); a 30 MB draft was stored before;
+    - both P1 migrations migrate down on SQL Server (the old policy is created after the drops of the temporal
+      `Documents` columns, `TypeCatalogueSqlTests`);
+    - `DocumentDetail.appliedConfig` carries `AppliedConfigJson`;
+    - docs/09: the demo's step 5 sets the corrected value back, so step 6 finds it; a note on SQL Server crashing on
+      every restart after a first-boot crash.
   - Left for the rest of P1:
+    - the ETag on `DocumentDetail.definition` (docs/11 §18) and the client-side Ajv hints over the compiled JSON Schema
+      (§5.5 artifact 1, §11): the review form checks nothing before the save, the server's inline re-validation answers;
+    - invoice compatibility from the definition (docs/11 §9.1 `Definition.IsInvoiceCompatible`): the Extract stage,
+      `LlmInvoiceExtractor.CanHandle`, the coded invoice rules and the invoice record's patcher go by the key
+      `Invoice`/`CreditNote`, so an invoice-compatible type under another key is refused until documents can get one
+      (P2 `:set-type`, P5 the tenant classifier);
+    - a type without `validate.schema` gets only the `FIELD_REQUIRED` part of the structural check for the fields
+      its template does not require; `FIELD_INVALID` (pattern, bounds, length) needs the step in the definition;
     - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
       nor are a row's `ext` bag and composites inside rows; the grid pages instead of virtualising (docs/11 §12.2); the
       type editor reorders with up and down buttons (no dnd-kit), edits neither sections, roles nor `sensitive`, has no

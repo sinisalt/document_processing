@@ -52,6 +52,30 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task The_P1_migrations_migrate_down_and_up_again()
+    {
+        // Their Down methods drop columns of the temporal Documents table, which turns system versioning off; SQL
+        // Server refuses that while the schema-bound policy names the table, so the old policy comes back last.
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(platform);
+            await migrator.MigrateAsync("20261102231925_TypeCatalogue", ct);
+            await migrator.MigrateAsync("20261102210935_TenantPolicyHistoryAndMoves", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261102210935_TenantPolicyHistoryAndMoves");
+            await platform.Database.MigrateAsync(ct);
+            (await platform.Database.GetPendingMigrationsAsync(ct)).ShouldBeEmpty();
+        }
+
+        // Up again, the migration seeds the adopted types of the tenants that exist, and the policy filters them.
+        await using var asA = NewContext(TenantContext.ForTenant(TenantA));
+        (await asA.DocumentTypeDefinitions.CountAsync(d => d.TenantId == TenantA, ct)).ShouldBe(7);
+        (await asA.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == TenantB, ct)).ShouldBe(0, "row-level security is back");
+        (await asA.DocumentFieldIndex.CountAsync(ct)).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Every_tenant_reads_the_templates_and_only_platform_scope_changes_them()
     {
         DockerFacts.SkipUnlessAvailable();

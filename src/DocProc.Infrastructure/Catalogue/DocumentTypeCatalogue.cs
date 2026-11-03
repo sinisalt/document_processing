@@ -63,6 +63,12 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
     /// <summary>The template a new type may start from (docs/11 §5.1 "start it from std.generic").</summary>
     public const string GenericTemplate = "std.generic";
 
+    /// <summary>
+    /// The longest definition JSON a draft may hold (characters). The largest platform template is about 15 KB; a
+    /// definition at the field cap with long descriptions stays well below. The API's request limit is the same.
+    /// </summary>
+    public const int MaxDefinitionLength = 1024 * 1024;
+
     public async Task<IReadOnlyList<CatalogueType>> ListAsync(Guid tenantId, CancellationToken cancellationToken)
     {
         var definitions = await db.DocumentTypeDefinitions.AsNoTracking()
@@ -88,7 +94,7 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         }
 
         key ??= DefaultKey(template);
-        if (KeyProblem(key) is { } problem)
+        if ((KeyProblem(key) ?? InvoiceKeyProblem(template, key)) is { } problem)
         {
             return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, problem, [new DefinitionProblem("key", problem)]);
         }
@@ -117,7 +123,7 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         }
 
         key ??= DefaultKey(template);
-        if (KeyProblem(key) is { } problem)
+        if ((KeyProblem(key) ?? InvoiceKeyProblem(template, key)) is { } problem)
         {
             return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, problem, [new DefinitionProblem("key", problem)]);
         }
@@ -166,7 +172,7 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         }
 
         var definition = parsed.Definition!;
-        if (KeyProblem(definition.Key) is { } keyProblem)
+        if ((KeyProblem(definition.Key) ?? InvoiceKeyProblem(definition, definition.Key)) is { } keyProblem)
         {
             return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, keyProblem, [new DefinitionProblem("key", keyProblem)]);
         }
@@ -273,6 +279,11 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
             mismatches.Add(new("base", $"must stay {(stored is null ? "absent" : $"{stored.Template} v{stored.Version} ({stored.Mode})")}; a template upgrade is its own action."));
         }
 
+        if (InvoiceKeyProblem(candidate, candidate.Key) is { } invoiceProblem)
+        {
+            mismatches.Add(new("llm.adapter", invoiceProblem));
+        }
+
         if (mismatches.Count > 0)
         {
             return CatalogueResult<DocumentTypeVersion>.Fail(CatalogueStatus.Invalid, "The definition does not fit this draft.", mismatches);
@@ -376,22 +387,53 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         return report;
     }
 
+    /// <summary>
+    /// A draft's definition: within <see cref="MaxDefinitionLength"/> (checked first, so an oversized body costs no
+    /// meta-schema run), valid against the meta-schema, readable, and within the compiler's size caps (docs/11 §5.7:
+    /// fields, depth, enum codes), so a draft that could never publish is not stored.
+    /// </summary>
     private static (TypeDefinition? Definition, IReadOnlyList<DefinitionProblem>? Problems) ParseDraft(string json)
     {
+        if (json.Length > MaxDefinitionLength)
+        {
+            return (null, [new DefinitionProblem("(root)", $"The definition is {json.Length} characters long; at most {MaxDefinitionLength} are allowed.")]);
+        }
+
         var problems = DefinitionMetaSchema.Validate(json);
         if (problems.Count > 0)
         {
             return (null, problems);
         }
 
+        TypeDefinition definition;
         try
         {
-            return (DefinitionSerializer.Parse(json), null);
+            definition = DefinitionSerializer.Parse(json);
         }
         catch (DefinitionFormatException e)
         {
             return (null, [new DefinitionProblem("(root)", e.Message)]);
         }
+
+        var caps = DefinitionCompiler.CheckSizeCaps(definition);
+        return caps.Count > 0 ? (null, caps) : (definition, null);
+    }
+
+    /// <summary>
+    /// Why <paramref name="key"/> cannot be the key of an invoice-compatible type (one from <c>std.invoice</c> or
+    /// <c>std.credit-note</c>, or with the <c>invoice_extraction@1</c> adapter), or null. Until a document can get any
+    /// key (P2 set-type, P5 the tenant classifier), the invoice extraction, the coded invoice rules and the correction
+    /// of the invoice record are chosen by the key Invoice or CreditNote; under another key such a type would get
+    /// none of them (docs/07, P1 "left for later").
+    /// </summary>
+    public static string? InvoiceKeyProblem(TypeDefinition definition, string key)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var template = definition.Base?.Template ?? (definition.Key.StartsWith("std.", StringComparison.Ordinal) ? definition.Key : null);
+        var invoiceCompatible = template is "std.invoice" or "std.credit-note" || DefinitionCompiler.AdapterOf(definition) == DefinitionCompiler.InvoiceAdapter;
+        return invoiceCompatible && !DocumentTypeKey.FromStored(key).IsInvoiceFamily
+            ? $"An invoice or credit note type keeps the key Invoice or CreditNote for now; under '{key}' the invoice extraction and rules would not run."
+            : null;
     }
 
     /// <summary>Why <paramref name="key"/> cannot be a tenant's type key, or null.</summary>

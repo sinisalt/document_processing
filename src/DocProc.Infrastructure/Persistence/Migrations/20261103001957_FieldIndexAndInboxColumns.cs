@@ -96,8 +96,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // The schema-bound policy names Documents, whose drops turn system versioning off: SQL Server refuses that
+            // while the policy exists, so the earlier policy is created again after the drops (see RowLevelSecurity).
             migrationBuilder.Sql(RowLevelSecurity.DropSql());
-            migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4));
 
             migrationBuilder.DropTable(
                 name: "DocumentFieldIndex");
@@ -121,6 +122,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
             migrationBuilder.DropColumn(
                 name: "ValidUntil",
                 table: "Documents");
+
+            migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4));
         }
     }
 }

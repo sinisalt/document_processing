@@ -116,9 +116,16 @@ public static class TypeCatalogueSeeder
         ArgumentNullException.ThrowIfNull(db);
         var added = await AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
         var tenants = await db.Tenants.IgnoreQueryFilters().Select(t => t.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+        var seeded = new List<Guid>();
         foreach (var tenant in tenants)
         {
-            added += await AddMissingAdoptedTypesAsync(db, tenant, now, cancellationToken).ConfigureAwait(false);
+            var adopted = await AddMissingAdoptedTypesAsync(db, tenant, now, cancellationToken).ConfigureAwait(false);
+            if (adopted > 0)
+            {
+                seeded.Add(tenant);
+            }
+
+            added += adopted;
         }
 
         if (added > 0)
@@ -126,18 +133,23 @@ public static class TypeCatalogueSeeder
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        await BackfillTypeVersionsAsync(db, cancellationToken).ConfigureAwait(false);
+        await BackfillTypeVersionsAsync(db, seeded, cancellationToken).ConfigureAwait(false);
         return added;
     }
 
     /// <summary>
-    /// Pins every document without a type version to its tenant's adopted version 1 of its legacy type, and copies the
-    /// document's version onto its corrections (docs/11 §21 step 3). Unknown documents and types without an adopted
-    /// row stay null. The SQL Server migration does the same in one statement each; this is the path of the SQLite
-    /// development database and of documents written while an older build ran.
+    /// Pins every document without a type version to its tenant's adopted version 1 of its legacy type, and, for the
+    /// tenants in <paramref name="catalogueJustAdded"/> (whose adopted types this start added, so every correction they
+    /// have predates the catalogue), copies the document's version onto its corrections (docs/11 §21 step 3). Unknown
+    /// documents and types without an adopted row stay null. A correction made since keeps the version it was made
+    /// under, also none (a document of a copied type while <c>configurableTypes</c> was off): the back-fill never
+    /// attributes it to a version the document was pinned to later. The SQL Server migration does the same once, in
+    /// one statement each; this is the path of the SQLite development database and of documents written while an
+    /// older build ran.
     /// </summary>
-    public static async Task BackfillTypeVersionsAsync(DocProcDbContext db, CancellationToken cancellationToken = default)
+    public static async Task BackfillTypeVersionsAsync(DocProcDbContext db, IReadOnlyCollection<Guid> catalogueJustAdded, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(catalogueJustAdded);
         ArgumentNullException.ThrowIfNull(db);
         var adopted = await db.DocumentTypeVersions.IgnoreQueryFilters()
             .Where(v => v.Version == 1 && v.TenantId != null && v.Definition!.Origin == DefinitionOrigin.Adopted)
@@ -151,8 +163,14 @@ public static class TypeCatalogueSeeder
                 .ExecuteUpdateAsync(s => s.SetProperty(d => d.DocumentTypeVersionId, row.Id), cancellationToken).ConfigureAwait(false);
         }
 
+        if (catalogueJustAdded.Count == 0)
+        {
+            return;
+        }
+
+        var tenants = catalogueJustAdded.ToList();
         await db.Corrections.IgnoreQueryFilters()
-            .Where(c => c.DocumentTypeVersionId == null)
+            .Where(c => tenants.Contains(c.TenantId) && c.DocumentTypeVersionId == null)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(c => c.DocumentTypeVersionId, c => db.Documents.IgnoreQueryFilters().Where(d => d.Id == c.DocumentId).Select(d => d.DocumentTypeVersionId).FirstOrDefault()),
                 cancellationToken).ConfigureAwait(false);

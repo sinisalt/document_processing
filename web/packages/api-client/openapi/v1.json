@@ -3389,7 +3389,8 @@
           "lineCount",
           "typeName",
           "typeVersion",
-          "definition"
+          "definition",
+          "appliedConfig"
         ],
         "type": "object",
         "properties": {
@@ -3615,9 +3616,19 @@
                 "$ref": "#/components/schemas/DocumentDefinitionRef"
               }
             ]
+          },
+          "appliedConfig": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
           }
         },
-        "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one."
+        "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.\n`AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the\ntype version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract."
       },
       "DocumentEventDto": {
         "required": [

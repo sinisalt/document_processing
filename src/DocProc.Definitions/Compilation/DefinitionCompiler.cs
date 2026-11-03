@@ -48,6 +48,17 @@ public sealed record CompiledDefinition(
     public string FormSpecJson => JsonCanonicalizer.Compact(FormSpec);
 }
 
+/// <summary>The artifact columns of a stored version (<c>DocumentTypeVersions</c>), as <see cref="DefinitionCompiler.FromStored"/> reads them.</summary>
+public sealed record StoredArtifacts(
+    string? JsonSchema,
+    string? LlmSchema,
+    string? LlmSchemaName,
+    string? LlmSchemaVersion,
+    string? LlmSchemaHash,
+    string? FormSpec,
+    string? Descriptors,
+    string? ContentHash);
+
 /// <summary>The compiler's answer: the artifacts, or the problems that stop the compile, and notes either way.</summary>
 public sealed record CompileResult(CompiledDefinition? Compiled, IReadOnlyList<DefinitionProblem> Problems, IReadOnlyList<DefinitionProblem> Notes)
 {
@@ -96,28 +107,8 @@ public static partial class DefinitionCompiler
     {
         ArgumentNullException.ThrowIfNull(definition);
         options ??= CompileOptions.Default;
-        var problems = new List<DefinitionProblem>();
+        var problems = new List<DefinitionProblem>(CheckSizeCaps(definition));
         var notes = new List<DefinitionProblem>();
-
-        var all = DefinitionPaths.Enumerate(definition).ToList();
-        if (all.Count > MaxFields)
-        {
-            problems.Add(new("fields", $"declares {all.Count} fields; at most {MaxFields} are allowed."));
-        }
-
-        foreach (var (path, field) in all)
-        {
-            var depth = path.Split('.').Length;
-            if (depth > MaxDepth)
-            {
-                problems.Add(new(path, $"is nested {depth} levels deep; at most {MaxDepth} are allowed."));
-            }
-
-            if (field.Options is { Count: > MaxEnumValues } options1)
-            {
-                problems.Add(new(path, $"lists {options1.Count} codes; at most {MaxEnumValues} are allowed."));
-            }
-        }
 
         var llm = CompileLlmSchema(definition, options, problems, notes);
         if (problems.Count > 0 || llm is null)
@@ -136,6 +127,79 @@ public static partial class DefinitionCompiler
             CompileFormSpec(definition),
             CompileDescriptors(definition));
         return new CompileResult(compiled, problems, notes);
+    }
+
+    /// <summary>
+    /// The artifacts a published version stored (docs/11 §5.5: <c>CompiledJsonSchema</c>, <c>CompiledLlmSchema</c> with
+    /// its name, version and hash, <c>FormSpecJson</c>, <c>DescriptorsJson</c>, <c>ContentHash</c>), read back instead
+    /// of compiled again, so a later build with another compiler or template changes nothing about a published,
+    /// pinned version. Null when a column is missing or does not read.
+    /// </summary>
+    public static CompiledDefinition? FromStored(TypeDefinition definition, StoredArtifacts stored)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(stored);
+        if (stored is not { JsonSchema: { } jsonSchemaJson, LlmSchema: { } llmJson, LlmSchemaName: { } name, LlmSchemaVersion: { } version, LlmSchemaHash: { } hash, FormSpec: { } formSpecJson, Descriptors: { } descriptorsJson, ContentHash: { } contentHash })
+        {
+            return null;
+        }
+
+        try
+        {
+            if (JsonNode.Parse(jsonSchemaJson) is not JsonObject jsonSchema || JsonNode.Parse(llmJson) is not JsonObject llm || JsonNode.Parse(formSpecJson) is not JsonObject formSpec)
+            {
+                return null;
+            }
+
+            var adapter = AdapterOf(definition);
+            IReadOnlyList<string> customPaths = adapter is not null && llm["properties"]?[CustomObject]?["properties"] is JsonObject custom
+                ? [.. custom.Select(p => p.Key)]
+                : [];
+            var definitionJson = JsonCanonicalizer.Compact(JsonNode.Parse(DefinitionSerializer.Write(definition))!);
+            return new CompiledDefinition(
+                definition,
+                definitionJson,
+                contentHash,
+                jsonSchema,
+                new CompiledLlmSchema(name, version, llm, hash, adapter, customPaths),
+                formSpec,
+                DescriptorIndex.FromJson(descriptorsJson));
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The size caps of docs/11 §5.7: at most <see cref="MaxFields"/> fields, a depth of <see cref="MaxDepth"/> and
+    /// <see cref="MaxEnumValues"/> codes per enum. Compiling checks them, and so does saving a draft.
+    /// </summary>
+    public static IReadOnlyList<DefinitionProblem> CheckSizeCaps(TypeDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var problems = new List<DefinitionProblem>();
+        var all = DefinitionPaths.Enumerate(definition).ToList();
+        if (all.Count > MaxFields)
+        {
+            problems.Add(new("fields", $"declares {all.Count} fields; at most {MaxFields} are allowed."));
+        }
+
+        foreach (var (path, field) in all)
+        {
+            var depth = path.Split('.').Length;
+            if (depth > MaxDepth)
+            {
+                problems.Add(new(path, $"is nested {depth} levels deep; at most {MaxDepth} are allowed."));
+            }
+
+            if (field.Options is { Count: > MaxEnumValues } options)
+            {
+                problems.Add(new(path, $"lists {options.Count} codes; at most {MaxEnumValues} are allowed."));
+            }
+        }
+
+        return problems;
     }
 
     /// <summary><see cref="Compile"/> for a definition that must compile (a platform template); throws otherwise.</summary>
@@ -345,8 +409,15 @@ public static partial class DefinitionCompiler
         var at = adapter.IndexOf('@', StringComparison.Ordinal);
         var (name, version) = at > 0 ? (adapter[..at], adapter[(at + 1)..]) : (adapter, "1");
 
-        // The tenant's added fields: header fields the template the type comes from does not have.
-        var template = definition.Base is { } baseRef ? StandardTemplates.Find(baseRef.Template) : null;
+        // The tenant's added fields: header fields the template the type comes from does not have, in the version the
+        // type was taken from (a later template version would make other fields the added ones).
+        var template = definition.Base is { } baseRef ? StandardTemplates.Find(baseRef.Template, baseRef.Version) : null;
+        if (definition.Base is { } missingBase && template is null)
+        {
+            problems.Add(new("base", $"the template {missingBase.Template} v{missingBase.Version} the type comes from is not available, so its added fields cannot be told apart."));
+            return null;
+        }
+
         var templateKeys = (template ?? definition).Fields.Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
         var custom = definition.Fields.Where(f => !templateKeys.Contains(f.Key) && IsLlmField(f)).ToList();
         if (template is not null)

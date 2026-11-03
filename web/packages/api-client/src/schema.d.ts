@@ -1023,8 +1023,11 @@ export interface components {
          *     the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
          *     `CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first
          *     locale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.
+         *     `AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the
+         *     type version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract.
          */
         DocumentDetail: {
+            appliedConfig: null | components["schemas"]["JsonElement"];
             /** Format: date-time */
             approvedAt: null | string;
             approvedBy: null | string;

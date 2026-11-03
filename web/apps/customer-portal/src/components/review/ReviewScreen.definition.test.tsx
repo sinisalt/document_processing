@@ -73,6 +73,7 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     lineCount: 1,
     typeName: "Delivery note",
     typeVersion: 1,
+    appliedConfig: null,
     definition: {
       key: "DeliveryNote",
       version: 1,

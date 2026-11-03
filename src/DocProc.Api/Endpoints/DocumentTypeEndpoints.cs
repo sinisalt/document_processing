@@ -205,6 +205,9 @@ public static class DocumentTypeEndpoints
 {
     private const string What = "Document types";
 
+    /// <summary>The request limit of the writes that carry a definition: its length cap and room for the wrapper.</summary>
+    private const long MaxDefinitionRequestBytes = DocumentTypeCatalogue.MaxDefinitionLength + (16 * 1024);
+
     public static RouteGroupBuilder MapDocumentTypes(this RouteGroupBuilder group)
     {
         group.MapGet("/document-templates", ListTemplatesAsync)
@@ -220,6 +223,7 @@ public static class DocumentTypeEndpoints
             .WithSummary("The tenant's document types.");
         types.MapPost("/", CreateAsync)
             .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxDefinitionRequestBytes))
             .WithName("CreateDocumentType")
             .WithSummary("Adopts or copies a platform template ({from}), or creates a type of the tenant's own ({definition}) as draft version 1.");
         types.MapGet("/{key}", GetTypeAsync)
@@ -240,6 +244,7 @@ public static class DocumentTypeEndpoints
             .WithSummary("One version with its definition; include=formSpec,jsonSchema,llmSchema,descriptors adds the compiled artifacts. The ETag is the draft revision.");
         types.MapPut("/{key}/versions/{version:int}", SaveDraftAsync)
             .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxDefinitionRequestBytes))
             .WithName("SaveDocumentTypeDraft")
             .WithSummary("Replaces a draft's definition (If-Match: the revision read). The meta-schema is checked on save; everything else on validate and publish.");
         types.MapPost("/{key}/versions/{version:int}:validate", ValidateAsync)
@@ -248,6 +253,7 @@ public static class DocumentTypeEndpoints
             .WithSummary("Runs the publish-time checks on a version and returns the report, without publishing.");
         types.MapPost("/{key}/versions/{version:int}:publish", PublishAsync)
             .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
             .WithName("PublishDocumentTypeVersion")
             .WithSummary("Publishes a draft when the publish-time checks pass (422 with the report otherwise); the previous version is deprecated.");
         return group;
@@ -421,6 +427,11 @@ public static class DocumentTypeEndpoints
             return off;
         }
 
+        if (await RequireCustomTypesForOwnTypeAsync(features, catalogue, tenant.TenantId!.Value, key, ct) is { } customOff)
+        {
+            return customOff;
+        }
+
         var result = await catalogue.CreateDraftAsync(tenant.TenantId!.Value, key, DocumentQueries.ActorName(user), ct);
         if (result.Status == CatalogueStatus.Created)
         {
@@ -449,6 +460,11 @@ public static class DocumentTypeEndpoints
         if (await RequireFeatureAsync(features, tenant.TenantId!.Value, TenantFeature.ConfigurableTypes, ct) is { } off)
         {
             return off;
+        }
+
+        if (await RequireCustomTypesForOwnTypeAsync(features, catalogue, tenant.TenantId!.Value, key, ct) is { } customOff)
+        {
+            return customOff;
         }
 
         if (!TryReadIfMatch(http, out var revision))
@@ -517,6 +533,11 @@ public static class DocumentTypeEndpoints
             return off;
         }
 
+        if (await RequireCustomTypesForOwnTypeAsync(features, catalogue, tenant.TenantId!.Value, key, ct) is { } customOff)
+        {
+            return customOff;
+        }
+
         int? revision = TryReadIfMatch(http, out var read) ? read : null;
         // The body is optional ({ changeNote }); read here, because an endpoint with a body parameter does not match a
         // request that sends none (no Content-Type), and "publish" without a note is the common call.
@@ -552,6 +573,12 @@ public static class DocumentTypeEndpoints
                 return Problem(result);
         }
     }
+
+    /// <summary>A type of the tenant's own (origin Custom) also needs <c>customTypes</c> to be edited or published (docs/07 P1 part A).</summary>
+    private static async Task<ProblemHttpResult?> RequireCustomTypesForOwnTypeAsync(ITenantFeatures features, DocumentTypeCatalogue catalogue, Guid tenantId, string key, CancellationToken ct) =>
+        (await catalogue.FindAsync(tenantId, key, ct))?.Definition.Origin == DefinitionOrigin.Custom
+            ? await RequireFeatureAsync(features, tenantId, TenantFeature.CustomTypes, ct)
+            : null;
 
     private static async Task<ProblemHttpResult?> RequireFeatureAsync(ITenantFeatures features, Guid tenantId, TenantFeature feature, CancellationToken ct)
     {

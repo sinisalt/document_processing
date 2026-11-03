@@ -88,7 +88,13 @@ Every long-running service has `restart: unless-stopped`; only the one-shot help
 container that exits while others wait for it to be healthy otherwise fails the whole `up` with
 "dependency failed to start": SQL Server 2025 does exit on a busy machine's first boot now and then
 (`[AppLoader] Failed to load LSA: 0xc0070102`, a start-up timeout), and restarted it comes up
-normally within the health check's 60 tries. `docker compose ps -a` shows `worker` and
+normally within the health check's 60 tries. Not always: after a first-boot crash
+(`This program has encountered a fatal error ... Reason: 0x00000002`, with a core dump in the volume) the
+restarted container can crash again on every restart (`Reason: 0x00000002, Last errno text: No such file or
+directory`, `RestartCount` climbing in `docker inspect`), and `up --wait` fails with "container ...-sqlserver-1 is
+unhealthy". Then start over with an empty volume and SQL Server on its own first:
+`docker compose down -v`, `docker compose up -d --wait sqlserver`, then the usual `up` (with `--build` and the
+same `-p` and `-f` options as before). `docker compose ps -a` shows `worker` and
 `servicebus` as `Up` without "(healthy)": neither has a health check of its own (see the table).
 
 | Service | Image | Mirrors | Notes |
@@ -514,7 +520,9 @@ port 5100). The screens are the portal on http://localhost:5173 and the admin co
    date, which the model worked out from "spätestens nach 30 Tagen" and which is not printed.
 5. **Review.** As `tenant-a-reviewer`, open GS-2026-0918: the header says Credit note v2, and the generated form
    shows "Our customer no. at supplier" = `104 220815` with its AI provenance on page 1 (highlighted on the page).
-   Change it and Save corrections: the field is Corrected, re-validated at once.
+   Change it (to `104 220816`, say) and Save corrections: the field is Corrected, re-validated at once. Then set it
+   back to `104 220815` and save again: step 6 and the curl call below search for that value, and the index holds
+   whatever was saved last.
 6. **Inbox.** Tab All, Type Credit note, Field "Our customer no. at supplier", value `104 220815`, Apply: the credit
    note alone, with the field as a column (the value is compared as the index stores it, see "Document types").
    Through the API: `GET /api/v1/documents?type=CreditNote&field.supplierCustomerRef=104%20220815&fields=supplierCustomerRef`;

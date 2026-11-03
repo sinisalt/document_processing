@@ -10,6 +10,7 @@ using DocProc.Application.Configuration;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Configuration;
+using DocProc.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DocProc.Api.Tests;
@@ -104,6 +105,37 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         resolved.TemplateKey.ShouldBe("std.price-list");
         resolved.VersionId.ShouldBe(factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant).Id));
         resolved.AutoApprove.ShouldBeFalse("price lists are always reviewed in P1 (docs/11 §5.8)");
+    }
+
+    [Fact]
+    public async Task A_published_version_runs_on_the_artifacts_it_stored_not_on_a_new_compile()
+    {
+        // docs/11 §5.5, §5.7: a later build's compiler or template must not change a published, pinned version.
+        var tenant = factory.CreateTenant("Stored artifacts");
+        SetFeatures(tenant, configurable: true);
+        using var admin = factory.TenantAdminOf(tenant);
+        (await admin.PostAsJsonAsync("/api/v1/document-types", Adopt("std.price-list"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        var compiledNow = (await ResolveAsync(tenant, "price-list"))!.Compiled.ShouldNotBeNull();
+
+        // What an older compile stored: another form spec and schema version than this build would produce.
+        factory.Run(db =>
+        {
+            var row = db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "price-list");
+            var form = JsonNode.Parse(row.FormSpecJson!)!.AsObject();
+            form["storedMarker"] = true;
+            row.FormSpecJson = form.ToJsonString();
+            row.LlmSchemaVersion = "stored-0001";
+        });
+
+        var stored = (await ResolveAsync(tenant, "price-list"))!.Compiled.ShouldNotBeNull();
+        stored.FormSpec["storedMarker"]!.GetValue<bool>().ShouldBeTrue();
+        stored.LlmSchema.Version.ShouldBe("stored-0001");
+        stored.Descriptors.Fields.Select(f => f.Path).ShouldBe(compiledNow.Descriptors.Fields.Select(f => f.Path));
+        stored.JsonSchemaJson.ShouldBe(compiledNow.JsonSchemaJson);
+
+        // A row without its artifacts is compiled, as before.
+        factory.Run(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "price-list").DescriptorsJson = null);
+        (await ResolveAsync(tenant, "price-list"))!.Compiled.ShouldNotBeNull().LlmSchema.Version.ShouldBe(compiledNow.LlmSchema.Version);
     }
 
     [Fact]
@@ -229,6 +261,14 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         removalReport.BlockingDependents.ShouldContain(d => d.Kind == "indexedKey" && d.Path == "returnNumber");
         removalReport.Changes.ShouldContain(c => c.Change == "Removed" && c.FieldId == "fld_rn");
 
+        // Without customTypes the tenant's own type can be neither edited nor published, and its documents do not use it.
+        SetFeatures(tenant, configurable: true, custom: false);
+        (await Put(admin, "return-slip", 2, v2, ifMatch: "\"1\"")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await admin.PostAsync("/api/v1/document-types/return-slip/versions/2:publish", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await ResolveAsync(tenant, "return-slip")).ShouldBeNull("a type of the tenant's own counts only with customTypes");
+        SetFeatures(tenant, configurable: true, custom: true);
+        (await ResolveAsync(tenant, "return-slip")).ShouldNotBeNull().Origin.ShouldBe(DefinitionOrigin.Custom);
+
         // A key that is taken, a key of the platform, and a definition that is not one.
         (await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = JsonNode.Parse(ReturnSlip()) }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = JsonNode.Parse(ReturnSlip().Replace("\"return-slip\"", "\"std.mine\"", StringComparison.Ordinal)) }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -291,6 +331,75 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         factory.Query(db => db.Corrections.Single(c => c.DocumentId == seeded.DocumentId).DocumentTypeVersionId).ShouldBe(version);
         factory.Query(db => db.Documents.Single(d => d.Id == seeded.DocumentId).DocumentNumber).ShouldBe("RE-2026-0099", "the adopted invoice binds documentNumber to invoiceNumber");
+    }
+
+    [Fact]
+    public async Task The_back_fill_gives_corrections_a_version_only_when_the_catalogue_arrives()
+    {
+        var tenant = factory.CreateTenant("Back-fill");
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant });
+        Correction Made(string by) => new() { TenantId = tenant, DocumentId = seeded.DocumentId, FieldPath = "invoiceNumber", By = by, At = factory.Clock.GetUtcNow() };
+        factory.Run(db => db.Corrections.Add(Made("before the catalogue")));
+
+        // The start that adds the tenant's adopted types pins its documents and their earlier corrections.
+        await using (var db = factory.PlatformDb())
+        {
+            await TypeCatalogueSeeder.AddMissingAdoptedTypesAsync(db, tenant, factory.Clock.GetUtcNow(), Ct);
+            await db.SaveChangesAsync(Ct);
+            await TypeCatalogueSeeder.BackfillTypeVersionsAsync(db, [tenant], Ct);
+        }
+
+        var version = factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "Invoice").Id);
+        factory.Query(db => db.Documents.Single(d => d.Id == seeded.DocumentId).DocumentTypeVersionId).ShouldBe(version);
+        factory.Query(db => db.Corrections.Single(c => c.DocumentId == seeded.DocumentId).DocumentTypeVersionId).ShouldBe(version);
+
+        // A correction made later without a version (the document was not pinned then) keeps none on every later start.
+        factory.Run(db => db.Corrections.Add(Made("without a pin")));
+        await using (var db = factory.PlatformDb())
+        {
+            await TypeCatalogueSeeder.BackfillTypeVersionsAsync(db, [], Ct);
+        }
+
+        factory.Query(db => db.Corrections.Single(c => c.DocumentId == seeded.DocumentId && c.By == "without a pin").DocumentTypeVersionId).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task An_invoice_type_keeps_an_invoice_key_and_an_oversized_draft_is_not_stored()
+    {
+        var tenant = factory.CreateTenant("Limits");
+        SetFeatures(tenant, configurable: true, custom: true);
+        using var admin = factory.TenantAdminOf(tenant);
+
+        // Under another key the invoice extraction and rules would not run (they follow the key until P2).
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.invoice", mode = "copy" }, key = "Rechnung" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.credit-note", mode = "adopt" }, key = "Gutschrift" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var withAdapter = JsonNode.Parse(ReturnSlip())!.AsObject();
+        withAdapter["llm"] = new JsonObject { ["adapter"] = "invoice_extraction@1" };
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = withAdapter }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The size caps of §5.7 apply on save, not only on publish.
+        var many = JsonNode.Parse(ReturnSlip())!.AsObject();
+        for (var i = 0; i < DocProc.Definitions.Compilation.DefinitionCompiler.MaxFields; i++)
+        {
+            many["fields"]!.AsArray().Add(new JsonObject { ["id"] = $"fld_x{i}", ["key"] = $"extra{i}", ["kind"] = "string" });
+        }
+
+        var tooMany = await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = many }, Ct);
+        tooMany.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await tooMany.Content.ReadAsStringAsync(Ct)).ShouldContain($"at most {DocProc.Definitions.Compilation.DefinitionCompiler.MaxFields}");
+
+        // A definition beyond the length cap is refused before it is read (400 from the catalogue, or 413 from the server).
+        var huge = JsonNode.Parse(ReturnSlip())!.AsObject();
+        huge["description"] = new string('x', DocumentTypeCatalogue.MaxDefinitionLength);
+        var refused = await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = huge }, Ct);
+        refused.StatusCode.ShouldBeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.RequestEntityTooLarge);
+        factory.Query(db => db.DocumentTypeDefinitions.Count(d => d.TenantId == tenant && d.Origin == DefinitionOrigin.Custom)).ShouldBe(0);
+
+        // The same through a draft save.
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = JsonNode.Parse(ReturnSlip()) }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        var put = await Put(admin, "return-slip", 1, many.DeepClone().AsObject(), ifMatch: "\"0\"");
+        put.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "return-slip").Revision).ShouldBe(0);
     }
 
     private static object Adopt(string template) => new { from = new { template, mode = "adopt" } };

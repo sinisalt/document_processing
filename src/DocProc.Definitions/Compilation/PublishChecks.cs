@@ -118,6 +118,15 @@ public static class PublishChecks
             }
         }
 
+        // An id whose key and kind both changed is a new field that took a published field's id (docs/11 §5.2: ids are
+        // never reused). Matched by id it would pass as a change of that field; it needs an id of its own.
+        foreach (var change in changes.Where(c => c.Change == FieldChangeKind.KindChanged && KeyOf(c.OldPath) != KeyOf(c.NewPath)))
+        {
+            problems.Add(new DefinitionProblem(
+                change.NewPath ?? change.FieldId,
+                $"uses the id '{change.FieldId}' of the published field '{change.OldPath}' ({change.OldKind}) with another key and kind ({change.NewKind}); a new field needs a new id, ids are never reused."));
+        }
+
         foreach (var change in changes.Where(c => c.Change == FieldChangeKind.Renamed))
         {
             var dependents = input.Dependents.Count(d => d.FieldId == change.FieldId || d.Path == change.OldPath);
@@ -129,6 +138,9 @@ public static class PublishChecks
 
         return new PublishReport(definition, problems.Count == 0 ? compiled : null, problems, warnings, changes, blocking);
     }
+
+    private static string? KeyOf(string? path) =>
+        path is null ? null : path[(path.LastIndexOf('.') + 1)..].Replace("[*]", string.Empty, StringComparison.Ordinal);
 
     /// <summary>The field changes from <paramref name="published"/> to <paramref name="candidate"/>, matched by stable field id.</summary>
     public static IReadOnlyList<FieldChange> Compare(TypeDefinition published, TypeDefinition candidate)

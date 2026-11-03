@@ -115,6 +115,12 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         var move = await Patch(reviewer, id, new FieldCorrection("lines[0]", null, null, Op: "move"));
         move.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await move.Content.ReadAsStringAsync(Ct)).ShouldContain("not available yet");
+
+        // docs/11 §18: the detail carries what the pipeline resolved (AppliedConfigJson), null before Extract wrote it.
+        (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!.AppliedConfig.ShouldBeNull();
+        factory.Run(db => db.Documents.Single(d => d.Id == id).AppliedConfigJson = """{"typeKey":"PurchaseOrder","typeVersion":1}""");
+        var applied = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!.AppliedConfig.ShouldNotBeNull();
+        applied.GetProperty("typeKey").GetString().ShouldBe("PurchaseOrder");
     }
 
     [Fact]

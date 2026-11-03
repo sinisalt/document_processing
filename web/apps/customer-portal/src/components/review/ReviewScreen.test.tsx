@@ -99,6 +99,7 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     lineCount: null,
     typeName: null,
     typeVersion: null,
+    appliedConfig: null,
     definition: null,
     ...patch,
   };

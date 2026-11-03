@@ -65,6 +65,7 @@ function detail(flags: DocumentFlag[]): DocumentDetail {
     lineCount: null,
     typeName: null,
     typeVersion: null,
+    appliedConfig: null,
     definition: null,
   } as DocumentDetail;
 }

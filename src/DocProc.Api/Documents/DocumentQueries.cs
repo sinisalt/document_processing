@@ -126,7 +126,8 @@ public static class DocumentQueries
             d.LineCount,
             definition is null ? null : definition.Name.GetValueOrDefault("en") ?? definition.Name.Values.FirstOrDefault(),
             definition?.Version,
-            definition);
+            definition,
+            ParseJson(d.AppliedConfigJson));
     }
 
     /// <summary>What a flag without parameters (or one stored before they existed) sends: <c>{}</c>, never null.</summary>

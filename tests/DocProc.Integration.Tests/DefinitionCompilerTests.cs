@@ -199,6 +199,26 @@ public sealed class DefinitionCompilerTests
     }
 
     [Fact]
+    public void The_added_fields_are_told_apart_against_the_template_version_the_type_came_from()
+    {
+        var template = StandardTemplates.Find("std.invoice")!;
+        StandardTemplates.Find("std.invoice", template.Version).ShouldBeSameAs(template);
+        StandardTemplates.Find("std.invoice", template.Version + 1).ShouldBeNull();
+        var fork = template with
+        {
+            Key = "Invoice",
+            LegacyKey = null,
+            Base = new DefinitionBase { Template = "std.invoice", Version = template.Version + 1, Mode = "copy" },
+            Fields = [.. template.Fields, Field("fld_c_scr", "supplierCustomerRef", "identifier")],
+        };
+
+        var result = DefinitionSchemaCompiler.Compile(fork);
+
+        result.Succeeded.ShouldBeFalse("x_custom against another version of the template would name other fields");
+        result.Problems.Single().Where.ShouldBe("base");
+    }
+
+    [Fact]
     public void A_type_without_an_adapter_gets_its_own_schema_named_after_its_key()
     {
         var compiled = DefinitionSchemaCompiler.Compile(ReturnSlip()).Compiled!;
@@ -443,6 +463,11 @@ public sealed class DefinitionCompilerTests
 
         var unreferenced = PublishChecks.Run(new PublishCheckInput { DefinitionJson = ReturnSlipJson(version: 2, withoutDeliveryNote: true), Published = published });
         unreferenced.CanPublish.ShouldBeTrue("a removed field nothing refers to does not block");
+
+        // A new field that took a published field's id (another key and another kind) is refused, dependents or not.
+        var reused = PublishChecks.Run(new PublishCheckInput { DefinitionJson = ReturnSlipJson(version: 2).Replace("\"key\":\"returnDate\",\"kind\":\"date\"", "\"key\":\"tour\",\"kind\":\"string\"", StringComparison.Ordinal), Published = published });
+        reused.CanPublish.ShouldBeFalse();
+        string.Join("\n", reused.Problems).ShouldContain("uses the id 'fld_rd' of the published field 'returnDate'");
     }
 
     [Fact]

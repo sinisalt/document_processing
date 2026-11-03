@@ -189,7 +189,8 @@ describe("type editor", () => {
     expect(screen.getByTestId("version-badge")).toHaveTextContent("v2 · Draft");
     fireEvent.click(screen.getByTestId("add-field"));
     const form = await screen.findByTestId("field-form");
-    expect(form).toHaveAttribute("data-field-id", "fld_c1");
+    const fieldId = form.getAttribute("data-field-id")!;
+    expect(fieldId).toMatch(/^fld_c_[a-z0-9]{8}$/);
     fireEvent.change(within(form).getByLabelText("Key"), { target: { value: "supplierCustomerRef" } });
     fireEvent.change(within(form).getByLabelText("Label (EN)"), { target: { value: "Our customer no. at supplier" } });
     fireEvent.change(within(form).getByLabelText("Label (DE)"), { target: { value: "Unsere Kundennummer beim Lieferanten" } });
@@ -201,7 +202,7 @@ describe("type editor", () => {
     expect(put.options.headers).toEqual({ "If-Match": '"3"' });
     const saved = put.options.body as typeof creditNoteDefinition;
     expect(saved.base).toEqual(creditNoteDefinition.base);
-    expect(saved.fields.at(-1)).toEqual({ id: "fld_c1", key: "supplierCustomerRef", kind: "string", label: { en: "Our customer no. at supplier", de: "Unsere Kundennummer beim Lieferanten" }, section: "document", indexed: true, required: true });
+    expect(saved.fields.at(-1)).toEqual({ id: fieldId, key: "supplierCustomerRef", kind: "string", label: { en: "Our customer no. at supplier", de: "Unsere Kundennummer beim Lieferanten" }, section: "document", indexed: true, required: true });
   });
 
   it("edits the printed labels and the pattern of a field as its extraction hints (docs/11 §5.3)", async () => {

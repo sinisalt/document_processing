@@ -11,8 +11,10 @@ using Microsoft.EntityFrameworkCore;
 namespace DocProc.Infrastructure.Catalogue;
 
 /// <summary>
-/// The parsed definitions of published (immutable) type versions, by version id, for the life of the process. A
-/// version never changes once published, so an entry never goes stale; the cache is bounded by clearing it.
+/// The parsed definitions of published (immutable) type versions, by version id, for the life of the process, with
+/// their artifacts: the ones the version stored when it was published (docs/11 §5.5), compiled again only for a row
+/// without them. A version never changes once published, so an entry never goes stale; the cache is bounded by
+/// clearing it.
 /// </summary>
 public sealed class PublishedDefinitionCache
 {
@@ -25,7 +27,7 @@ public sealed class PublishedDefinitionCache
         return definition is not null;
     }
 
-    public TypeDefinition Add(Guid versionId, TypeDefinition definition)
+    public TypeDefinition Add(Guid versionId, TypeDefinition definition, StoredArtifacts? stored = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (_definitions.Count >= MaxEntries)
@@ -33,20 +35,22 @@ public sealed class PublishedDefinitionCache
             _definitions.Clear();
         }
 
-        return _definitions.GetOrAdd(versionId, _ => new Entry(definition)).Definition;
+        return _definitions.GetOrAdd(versionId, _ => new Entry(definition, stored)).Definition;
     }
 
     /// <summary>
-    /// The compiled artifacts of a cached version (docs/11 §5.5), compiled once on first use with this deployment's
-    /// adapter schemas; the compiler is deterministic, so they are the artifacts the publish stored.
+    /// The artifacts of a cached version (docs/11 §5.5): the stored ones, read once on first use; for a row without
+    /// them, compiled with this deployment's adapter schemas.
     /// </summary>
     public CompiledDefinition? CompiledOf(Guid versionId) => _definitions.TryGetValue(versionId, out var entry) ? entry.Compiled.Value : null;
 
-    private sealed class Entry(TypeDefinition definition)
+    private sealed class Entry(TypeDefinition definition, StoredArtifacts? stored)
     {
         public TypeDefinition Definition { get; } = definition;
 
-        public Lazy<CompiledDefinition?> Compiled { get; } = new(() => StandardTemplateConfigResolver.CompileOrNull(definition, DefinitionSchemaCompiler.Options));
+        public Lazy<CompiledDefinition?> Compiled { get; } = new(() =>
+            (stored is null ? null : DefinitionCompiler.FromStored(definition, stored))
+            ?? StandardTemplateConfigResolver.CompileOrNull(definition, DefinitionSchemaCompiler.Options));
     }
 }
 
@@ -57,7 +61,8 @@ public sealed class PublishedDefinitionCache
 /// <para>
 /// The <c>configurableTypes</c> switch (docs/11 §3) decides which types count: while it is off only the adopted
 /// standard types do, which are the embedded templates under the tenant's key, so a tenant that has not been moved
-/// onto the feature behaves exactly as before even if copies or custom types were saved while it was on. A type
+/// onto the feature behaves exactly as before even if copies or custom types were saved while it was on. A type of
+/// the tenant's own also needs <c>customTypes</c>: without it, its documents resolve as if it did not exist. A type
 /// without a catalogue row falls back to <see cref="StandardTemplateConfigResolver"/>, the P0 answer.
 /// </para>
 /// </summary>
@@ -75,11 +80,12 @@ public sealed class CatalogueConfigResolver(DocProcDbContext db, ITenantFeatures
         }
 
         var configurable = await features.IsEnabledAsync(request.TenantId, TenantFeature.ConfigurableTypes, cancellationToken).ConfigureAwait(false);
+        var custom = configurable && await features.IsEnabledAsync(request.TenantId, TenantFeature.CustomTypes, cancellationToken).ConfigureAwait(false);
         var key = request.Type.Value;
         var tenantId = request.TenantId;
         var query = db.DocumentTypeVersions.AsNoTracking()
             .Where(v => v.TenantId == tenantId && v.Definition!.TenantId == tenantId && v.Definition.Key == key)
-            .Where(v => configurable || v.Definition!.Origin == DefinitionOrigin.Adopted);
+            .Where(v => v.Definition!.Origin == DefinitionOrigin.Adopted || (configurable && v.Definition.Origin == DefinitionOrigin.Copied) || (custom && v.Definition.Origin == DefinitionOrigin.Custom));
 
         Row? row = null;
         if (request.PinnedVersionId is { } pinned)
@@ -109,11 +115,12 @@ public sealed class CatalogueConfigResolver(DocProcDbContext db, ITenantFeatures
             return cached;
         }
 
-        var json = await db.DocumentTypeVersions.AsNoTracking()
+        var row = await db.DocumentTypeVersions.AsNoTracking()
             .Where(v => v.Id == versionId)
-            .Select(v => v.DefinitionJson)
+            .Select(v => new { v.DefinitionJson, v.CompiledJsonSchema, v.CompiledLlmSchema, v.LlmSchemaName, v.LlmSchemaVersion, v.LlmSchemaHash, v.FormSpecJson, v.DescriptorsJson, v.ContentHash })
             .SingleAsync(cancellationToken).ConfigureAwait(false);
-        return cache.Add(versionId, DefinitionSerializer.Parse(json));
+        var stored = new StoredArtifacts(row.CompiledJsonSchema, row.CompiledLlmSchema, row.LlmSchemaName, row.LlmSchemaVersion, row.LlmSchemaHash, row.FormSpecJson, row.DescriptorsJson, row.ContentHash);
+        return cache.Add(versionId, DefinitionSerializer.Parse(row.DefinitionJson), stored);
     }
 
     private static IQueryable<Row> Select(IQueryable<DocumentTypeVersion> versions) =>

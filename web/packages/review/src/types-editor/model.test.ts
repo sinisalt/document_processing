@@ -34,14 +34,27 @@ describe("definition editing", () => {
     expect(fieldAt(definition, [1, 0])?.label).toBeUndefined();
   });
 
+  it("never hands a removed field's id to a new field (docs/11 §5.2)", () => {
+    const sequence = ["aaaaaaaa", "aaaaaaaa", "bbbbbbbb", "cccccccc"];
+    const next = () => sequence.shift()!;
+    const first = addField(definition, null, { id: newFieldId(definition, [], next), key: "supplierCustomerRef", kind: "identifier" });
+    expect(fieldAt(first.definition, first.location)!.id).toBe("fld_c_aaaaaaaa");
+    const removed = removeField(first.definition, first.location);
+    // The draft no longer has the field, but the id is known to be taken (published): the next draw is used.
+    expect(newFieldId(removed, ["fld_c_aaaaaaaa"], next)).toBe("fld_c_bbbbbbbb");
+    expect(newFieldId(first.definition, [], next)).toBe("fld_c_cccccccc");
+    expect(new Set(Array.from({ length: 50 }, () => newFieldId(removed))).size).toBe(50);
+  });
+
   it("adds a custom field with a new id, moves and removes fields", () => {
     const added = addField(definition, null, { id: newFieldId(definition), key: newFieldKey(definition.fields, "supplierCustomerRef"), kind: "identifier", indexed: true, label: { en: "Our customer no. at supplier" } });
     expect(added.location).toEqual([2]);
-    expect(fieldAt(added.definition, [2])).toMatchObject({ id: "fld_c1", key: "supplierCustomerRef" });
+    expect(fieldAt(added.definition, [2])).toMatchObject({ id: expect.stringMatching(/^fld_c_[a-z0-9]{8}$/), key: "supplierCustomerRef" });
 
     const row = addField(added.definition, [1], { id: newFieldId(added.definition), key: newFieldKey(childrenOf(added.definition.fields[1]!)!), kind: "string" });
     expect(row.location).toEqual([1, 2]);
-    expect(fieldAt(row.definition, [1, 2])).toMatchObject({ id: "fld_c2", key: "newField" });
+    expect(fieldAt(row.definition, [1, 2])).toMatchObject({ id: expect.stringMatching(/^fld_c_[a-z0-9]{8}$/), key: "newField" });
+    expect(fieldAt(row.definition, [1, 2])!.id).not.toBe(fieldAt(row.definition, [2])!.id);
 
     const up = moveField(row.definition, [2], -1);
     expect(up.location).toEqual([1]);
