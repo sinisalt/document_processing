@@ -59,14 +59,21 @@ internal sealed class ValidateHandler(
             : null;
 
         // A type whose definition lists no rules is not validated by them: nothing vouches for its data, so it goes to
-        // review. The structural check runs whenever the definition lists it.
+        // review. The structural check runs whenever the definition lists it, its FIELD_REQUIRED part whenever the
+        // definition requires a field that nothing else checks (EffectiveType.RequiredOutsideSchemaStep).
         var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
         var resolved = config.Type;
         var type = resolved is { Rules.Count: > 0 } validated ? validated : null;
+        if (document.DocumentTypeVersionId is null && resolved?.VersionId is { } versionId)
+        {
+            // Reprocessed from Validate onto the published version (configMode: current): the document pins the version
+            // it is validated with (docs/11 §5.7), as Extract does, so corrections and approval keep resolving to it.
+            document.DocumentTypeVersionId = versionId;
+        }
 
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
-        if (document.CanonicalJson is { } json && resolved is not null && (type is not null || resolved.RunsValidateStep(ValidateStepKinds.Schema)))
+        if (document.CanonicalJson is { } json && resolved is not null && (type is not null || resolved.RunsValidateStep(ValidateStepKinds.Schema) || resolved.RequiredOutsideSchemaStep.Count > 0))
         {
             var run = await DocumentChecks.RunAsync(Db, document, resolved, tenant, Today(tenant), validator, cancellationToken).ConfigureAwait(false);
             result = type is null ? null : run.Result;

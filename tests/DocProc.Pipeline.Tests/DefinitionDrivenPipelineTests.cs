@@ -104,6 +104,54 @@ public sealed class DefinitionDrivenPipelineTests
     }
 
     [Fact]
+    public async Task Reprocessing_onto_the_published_version_keeps_what_the_reviewer_entered_and_pins_again()
+    {
+        await using var host = await StartAsync();
+        await host.AddReplayProviderAsync();
+        await SetConfigurableAsync(host, true);
+        await ForkAsync(host, "std.purchase-order", _ => { });
+        host.Llm.Enqueue(ClassifyPurchaseOrder);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bestellung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        var pin = document.DocumentTypeVersionId.ShouldNotBeNull();
+
+        // A reviewer's value, then what POST :reprocess with configMode current writes (from Extract): no pin.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            var tree = JsonNode.Parse(row.CanonicalJson!)!.AsObject();
+            tree["poNumber"] = JsonNode.Parse("""{"value":{"verbatim":"PO-2026-77","normalized":"PO-2026-77"},"status":"Corrected","confidence":1,"history":[]}""");
+            row.CanonicalJson = tree.ToJsonString();
+            row.Status = DocumentStatus.Matched;
+            row.DocumentTypeVersionId = null;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Extract), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+
+        var reprocessed = await host.DocumentAsync(document.Id);
+        reprocessed.Status.ShouldBe(DocumentStatus.NeedsReview);
+        var kept = JsonNode.Parse(reprocessed.CanonicalJson!)!.AsObject();
+        kept["poNumber"]!["status"]!.GetValue<string>().ShouldBe("Corrected");
+        kept["poNumber"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe("PO-2026-77");
+        reprocessed.DocumentNumber.ShouldBe("PO-2026-77");
+        reprocessed.DocumentTypeVersionId.ShouldBe(pin);
+
+        // From Validate with configMode current: Validate pins the version it validates with.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            row.Status = DocumentStatus.Extracted;
+            row.DocumentTypeVersionId = null;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Validate), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+        (await host.DocumentAsync(document.Id)).DocumentTypeVersionId.ShouldBe(pin);
+    }
+
+    [Fact]
     public async Task A_forked_invoice_asks_the_llm_for_its_added_field_and_stores_and_indexes_it()
     {
         await using var host = await StartAsync();
@@ -140,6 +188,29 @@ public sealed class DefinitionDrivenPipelineTests
 
         // The coded invoice rules still ran on the tree (the fork keeps them): the document went through validation.
         (await host.EventsAsync(document.Id)).Select(e => e.ToStatus).ShouldContain(DocumentStatus.Validated);
+    }
+
+    [Fact]
+    public async Task A_forked_invoice_whose_required_custom_field_is_missing_is_not_auto_approved()
+    {
+        // std.invoice lists no validate.schema; a field the tenant marks required is still checked (docs/11 §11).
+        await using var host = await StartAsync();
+        await SetConfigurableAsync(host, true);
+        await ForkAsync(host, "std.invoice", json => json["fields"]!.AsArray().Add(JsonNode.Parse("""
+            { "id": "fld_c_scr", "key": "supplierCustomerRef", "kind": "identifier", "required": true,
+              "label": { "en": "Our customer no. at supplier" } }
+            """)));
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.xml", "application/xml", PipelineTestHost.Fixture("peppol-bis3-invoice.xml"))]);
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.CanonicalSchemaVersion.ShouldBe(DefinitionTree.SchemaVersion);
+        document.Status.ShouldBe(DocumentStatus.NeedsReview);
+        var flag = document.Flags.Single(f => f.Code == FlagCodes.FieldRequired);
+        flag.Field.ShouldBe("supplierCustomerRef");
+        flag.Severity.ShouldBe(FlagSeverity.Blocking);
+        document.Flags.Where(f => f.Code == FlagCodes.FieldRequired).ShouldHaveSingleItem("the invoice's own required fields stay the coded rule's");
     }
 
     [Fact]

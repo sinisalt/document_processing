@@ -57,14 +57,13 @@ internal sealed class ExtractHandler(
         // The document is processed with one type version from here on (docs/11 §5.7): the version it is pinned to
         // (a retry, a reprocess of the same type), or the tenant's published version of its type, which it now pins.
         var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
-        var previousPin = document.DocumentTypeVersionId;
         document.DocumentTypeVersionId = config.Type?.VersionId;
         var configurable = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, cancellationToken).ConfigureAwait(false);
         var definitionDriven = CanonicalStorage.IsDefinitionDriven(config.Type, configurable);
 
         if (!document.Type.IsInvoiceFamily && definitionDriven)
         {
-            await StoreDefinitionTreeAsync(document, config.Type!, previousPin, cancellationToken).ConfigureAwait(false);
+            await StoreDefinitionTreeAsync(document, config.Type!, cancellationToken).ConfigureAwait(false);
             return StageOutcome.Advanced;
         }
 
@@ -146,14 +145,16 @@ internal sealed class ExtractHandler(
 
     /// <summary>
     /// A definition-driven type without an extraction path (docs/11 §5.6): the tree of the type version, empty, or the
-    /// tree the document already holds for this type (pinned before this run: a retry, or a reprocess after a reviewer
-    /// filled it), completed with the fields it lacks. The reviewer fills it in review; <c>UNSUPPORTED_TYPE</c> says so.
+    /// tree the document already holds for this type (a retry, or a reprocess after a reviewer filled it, onto the
+    /// pinned version or, with <c>configMode: current</c>, onto the published one), completed with the fields it
+    /// lacks. A tree is the document's type's unless <c>AppliedConfigJson</c> names another type; the Classify stage
+    /// drops a tree when it changes the type. The reviewer fills it in review; <c>UNSUPPORTED_TYPE</c> says so.
     /// </summary>
-    private async Task StoreDefinitionTreeAsync(Document document, EffectiveType type, Guid? previousPin, CancellationToken cancellationToken)
+    private async Task StoreDefinitionTreeAsync(Document document, EffectiveType type, CancellationToken cancellationToken)
     {
         var compiled = type.Compiled!;
         JsonObject? tree = null;
-        if (previousPin is not null && document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion && document.CanonicalJson is { } stored)
+        if (document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion && document.CanonicalJson is { } stored && IsTreeOf(document, type))
         {
             try
             {
@@ -180,6 +181,27 @@ internal sealed class ExtractHandler(
             parameters: FlagParams.Of(("type", document.Type.ToString()), (FlagParams.Reason, "definition")))]);
         Timeline.Transition(document, DocumentStatus.Extracted, new { type = document.Type, skipped = true, definition = new { key = type.TypeKey, version = type.Version }, kept });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether the stored tree was resolved for <paramref name="type"/>'s key (<c>AppliedConfigJson.typeKey</c>); a tree without a record of it is the document's type's.</summary>
+    private static bool IsTreeOf(Document document, EffectiveType type)
+    {
+        if (string.IsNullOrWhiteSpace(document.AppliedConfigJson))
+        {
+            return true;
+        }
+
+        try
+        {
+            return JsonNode.Parse(document.AppliedConfigJson) is not JsonObject applied
+                   || applied["typeKey"] is not JsonValue key
+                   || !key.TryGetValue<string>(out var typeKey)
+                   || string.Equals(typeKey, type.TypeKey, StringComparison.Ordinal);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return true;
+        }
     }
 
     /// <summary>What the extraction is run against: the type version and, for an invoice-family type with added fields, those fields (<c>x_custom</c>).</summary>

@@ -17,6 +17,7 @@ namespace DocProc.Pipeline.Support;
 /// <item><description>A component bound to a required field that has no value is not compared: the check is skipped and
 /// says so (<c>FIELD_REQUIRED</c> blocks already). It is skipped too when every component other than the supplier is
 /// empty, and when the key names the supplier but none is matched ("no supplier" is not a supplier).</description></item>
+/// <item><description>Only the document's own tenant's documents are candidates, whatever the scope of the context.</description></item>
 /// <item><description>Rejected and failed documents are never matches. (Sandbox runs and superseded documents arrive
 /// with later phases and are excluded then.)</description></item>
 /// </list>
@@ -48,8 +49,11 @@ public static class DuplicateKeyCheck
         var fields = key.Where(k => k != SupplierComponent).ToList();
         var numberField = fields.FirstOrDefault(f => f == roles.DocumentNumber);
         var indexedFields = fields.Where(f => f != numberField).ToList();
+        // Every query names the tenant: the check also runs in platform scope (an operator's correction without
+        // X-Tenant-Id), where neither the query filter nor row-level security restricts what is read.
+        var tenantId = document.TenantId;
         var own = await db.DocumentFieldIndex.AsNoTracking()
-            .Where(e => e.DocumentId == document.Id && indexedFields.Contains(e.FieldKey) && e.Ordinal == 0)
+            .Where(e => e.TenantId == tenantId && e.DocumentId == document.Id && indexedFields.Contains(e.FieldKey) && e.Ordinal == 0)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var ownValues = indexedFields.ToDictionary(f => f, f => own.FirstOrDefault(e => e.FieldKey == f) is { } e ? Value(e) : null, StringComparer.Ordinal);
         var ownNumber = numberField is null ? null : document.DocumentNumberNormalized;
@@ -71,7 +75,7 @@ public static class DuplicateKeyCheck
 
         var typeKey = document.Type;
         var candidates = db.Documents.AsNoTracking()
-            .Where(d => d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected);
+            .Where(d => d.TenantId == tenantId && d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected);
         if (bySupplier)
         {
             var supplierId = document.SupplierId;

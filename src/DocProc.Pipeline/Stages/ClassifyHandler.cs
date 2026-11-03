@@ -88,6 +88,13 @@ internal sealed class ClassifyHandler(
         {
             // A version of another type is no pin for this one; Extract pins the new type's version.
             document.DocumentTypeVersionId = null;
+            if (document.CanonicalSchemaVersion == DocProc.Application.Documents.DefinitionTree.SchemaVersion)
+            {
+                // A tree of the type's fields (docs/11 §5.6) describes a type the document no longer has; Extract
+                // starts the new type's tree, and keeps a tree it finds only for the same type.
+                document.CanonicalJson = null;
+                document.CanonicalSchemaVersion = null;
+            }
         }
 
         document.Type = outcome.Type;

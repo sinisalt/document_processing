@@ -77,7 +77,8 @@ public static class DocumentChecks
 
     /// <summary>
     /// The checks of the validate steps of <paramref name="type"/> over the stored tree of <paramref name="document"/>:
-    /// the structural check, the rule list (with the duplicate check of the type's key for a <c>duplicate</c> rule) and
+    /// the structural check (for a type without <c>validate.schema</c>, its <c>FIELD_REQUIRED</c> part for the fields
+    /// <see cref="EffectiveType.RequiredOutsideSchemaStep"/> names), the rule list (with the duplicate check of the type's key for a <c>duplicate</c> rule) and
     /// the coded duplicate check, each when the type runs it. Also what a correction re-validates inline (docs/11 §12.8).
     /// </summary>
     public static async Task<CheckRun> RunAsync(DocProcDbContext db, Document document, EffectiveType type, Tenant tenant, DateOnly today, DocumentValidator validator, CancellationToken cancellationToken)
@@ -93,6 +94,12 @@ public static class DocumentChecks
         if (type.RunsValidateStep(ValidateStepKinds.Schema) && compiled is not null && view.Values is { } values)
         {
             flags.AddRange(StructuralValidator.Validate(values, compiled));
+        }
+        else if (type.RequiredOutsideSchemaStep.Count > 0 && compiled is not null && view.Values is { } partial)
+        {
+            // Without validate.schema a field the tenant marked required is still checked (docs/11 §11): a copied
+            // invoice's required custom field must keep the document out of auto-approval.
+            flags.AddRange(StructuralValidator.ValidateRequired(partial, compiled, type.RequiredOutsideSchemaStep));
         }
 
         ValidationResult? result = null;
@@ -167,8 +174,10 @@ public static class DocumentChecks
             return Task.FromResult(false);
         }
 
+        var tenantId = document.TenantId;
         return db.Documents.AsNoTracking().AnyAsync(
-            d => d.Id != document.Id
+            d => d.TenantId == tenantId
+                 && d.Id != document.Id
                  && d.SupplierId == supplierId
                  && d.DocumentNumberNormalized == number
                  && d.Status != DocumentStatus.Failed

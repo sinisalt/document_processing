@@ -154,6 +154,45 @@ public sealed class DefinitionStorageTests
     }
 
     [Fact]
+    public void A_tenants_field_pattern_runs_without_backtracking_and_is_reported_like_a_schema_error()
+    {
+        var template = StandardTemplates.Find("std.price-list")!;
+        var definition = template with
+        {
+            Key = "PatternProbe",
+            Fields =
+            [
+                .. template.Fields,
+                new FieldDefinition { Id = "fld_c_probe", Key = "probe", Kind = FieldKinds.String, Pattern = "^(a+)+$" },
+                new FieldDefinition { Id = "fld_c_refs", Key = "refs", Kind = FieldKinds.Identifier, List = true, Pattern = "^R-[0-9]+$" },
+            ],
+        };
+        var compiled = Compile(definition);
+        compiled.JsonSchema["properties"]!["probe"]!["pattern"]!.GetValue<string>().ShouldBe("^(a+)+$", "the stored artifact keeps the keyword");
+        var tree = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        tree["probe"] = Envelope(JsonValue.Create(new string('a', 40) + "!"));
+        tree["refs"] = new JsonArray(Envelope(JsonValue.Create("R-1")), Envelope(JsonValue.Create("X-2")));
+        tree["currency"] = Envelope(JsonValue.Create("Euro"));
+        var values = DocumentDataView.Values(tree, compiled.Descriptors);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var flags = StructuralValidator.Validate(values, compiled);
+        watch.Stop();
+
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2), "a backtracking evaluator takes hours on this value");
+        var probe = flags.Single(f => f.Field == "probe");
+        probe.Code.ShouldBe(FlagCodes.FieldInvalid);
+        probe.Severity.ShouldBe(FlagSeverity.Warning, "an optional field");
+        probe.Params!["keyword"].ShouldBe("pattern");
+        flags.Single(f => f.Field == "refs[1]").Params!["keyword"].ShouldBe("pattern");
+        flags.ShouldNotContain(f => f.Field == "refs[0]");
+        flags.Single(f => f.Field == "currency").Params!["keyword"].ShouldBe("pattern", "the compiler's own currency pattern still applies");
+
+        tree["probe"] = Envelope(JsonValue.Create(new string('a', 40)));
+        StructuralValidator.Validate(DocumentDataView.Values(tree, compiled.Descriptors), compiled).ShouldNotContain(f => f.Field == "probe");
+    }
+
+    [Fact]
     public void The_field_index_holds_the_values_of_indexed_fields_normalised()
     {
         var compiled = Compile("std.price-list");

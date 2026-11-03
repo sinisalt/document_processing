@@ -290,6 +290,59 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
     }
 
     [Fact]
+    public async Task An_operators_correction_never_finds_a_duplicate_in_another_tenant()
+    {
+        // Tenant B holds a price list; tenant A's copied type keys duplicates without the supplier.
+        var tenantB = NewTenant("Dup B", configurable: true);
+        using (var adminB = factory.TenantAdminOf(tenantB))
+        {
+            (await adminB.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.price-list", mode = "adopt" } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        }
+
+        var ofB = await SeedEmptyAsync(tenantB, "price-list");
+        using (var reviewerB = Reviewer(tenantB))
+        {
+            (await Patch(reviewerB, ofB,
+                new FieldCorrection("priceListNumber", V("PL-SECRET-1"), null),
+                new FieldCorrection("validFrom", V("2026-11-01"), null),
+                new FieldCorrection("listScope", V("Full"), null))).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        var tenantA = NewTenant("Dup A", configurable: true);
+        using var adminA = factory.TenantAdminOf(tenantA);
+        var copy = await adminA.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.price-list", mode = "copy" } }, Ct);
+        copy.IsSuccessStatusCode.ShouldBeTrue(await copy.Content.ReadAsStringAsync(Ct));
+        var draftVersion = (await copy.Content.ReadFromJsonAsync<DocumentTypeDetail>(ApiFactory.Json, Ct))!.DraftVersion!.Value;
+        var draft = await adminA.GetAsync($"/api/v1/document-types/price-list/versions/{draftVersion}", Ct);
+        var definition = JsonNode.Parse((await draft.Content.ReadFromJsonAsync<DocumentTypeVersionDetail>(ApiFactory.Json, Ct))!.Definition.GetRawText())!.AsObject();
+        definition["roles"]!["duplicateKey"] = new JsonArray("validFrom", "listScope", "priceListNumber");
+        using var put = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/document-types/price-list/versions/{draftVersion}")
+        {
+            Content = new StringContent(definition.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+        };
+        put.Headers.IfMatch.Add(draft.Headers.ETag!);
+        (await adminA.SendAsync(put, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var published = await adminA.PostAsJsonAsync($"/api/v1/document-types/price-list/versions/{draftVersion}:publish", new { changeNote = "no supplier in the key" }, Ct);
+        published.StatusCode.ShouldBe(HttpStatusCode.OK, await published.Content.ReadAsStringAsync(Ct));
+
+        var ofA = await SeedEmptyAsync(tenantA, "price-list");
+        using var reviewerA = Reviewer(tenantA);
+        var own = (await (await Patch(reviewerA, ofA,
+            new FieldCorrection("priceListNumber", V("PL-SECRET-1"), null),
+            new FieldCorrection("validFrom", V("2026-11-01"), null),
+            new FieldCorrection("listScope", V("Full"), null))).Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!;
+        own.Flags.ShouldNotContain(f => f.Code == FlagCodes.RevisionOf || f.Code == FlagCodes.DuplicateSuspected);
+
+        // An operator works in platform scope (no X-Tenant-Id): the check still reads tenant A's documents only.
+        using var operatorClient = factory.ClientFor(new TokenSpec("ops", [Roles.Operator]));
+        var corrected = await Patch(operatorClient, ofA, new FieldCorrection("validUntil", V("2026-11-30"), "operator"));
+        corrected.StatusCode.ShouldBe(HttpStatusCode.OK, await corrected.Content.ReadAsStringAsync(Ct));
+        var detail = (await corrected.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!;
+        detail.Flags.ShouldNotContain(f => f.Code == FlagCodes.RevisionOf || f.Code == FlagCodes.DuplicateSuspected);
+        detail.Flags.ShouldNotContain(f => f.Params.Values.Contains(ofB.ToString()));
+    }
+
+    [Fact]
     public async Task Reprocess_keeps_the_pinned_type_version_unless_config_mode_is_current()
     {
         var tenant = NewTenant("Reprocess modes", configurable: true);

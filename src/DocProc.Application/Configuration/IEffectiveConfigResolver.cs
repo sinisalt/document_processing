@@ -75,6 +75,7 @@ public sealed record EffectiveType
         Roles = new RoleBindings(roles.DocumentNumber, roles.DocumentDate, roles.Currency, roles.Total, roles.ValidFrom, roles.ValidUntil, roles.LineItems);
         ValidateSteps = [.. definition.Processing.Validate.Select(s => s.Kind)];
         _compiled = new Lazy<CompiledDefinition?>(compile ?? (() => null));
+        _requiredOutsideSchemaStep = new Lazy<IReadOnlySet<string>>(ComputeRequiredOutsideSchemaStep);
     }
 
     /// <summary>
@@ -103,6 +104,36 @@ public sealed record EffectiveType
         return ValidateSteps.Count == 0
             ? kind is ValidateStepKinds.Rules or ValidateStepKinds.Duplicate
             : ValidateSteps.Contains(kind, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The required fields (definition paths) the validate stage checks for <c>FIELD_REQUIRED</c> although the
+    /// definition does not list <c>validate.schema</c> (docs/11 §11 layer 1), so that marking a field required always
+    /// has an effect: every required field the template the type comes from does not already require. The required
+    /// fields of a template without <c>validate.schema</c> (the invoice and credit note) are the coded
+    /// <c>invoice.required</c> rule's, which checks them already. Empty for an adopted type (its definition is the
+    /// template) and whenever the definition runs <c>validate.schema</c> itself; every required field of a type of the
+    /// tenant's own.
+    /// </summary>
+    public IReadOnlySet<string> RequiredOutsideSchemaStep => _requiredOutsideSchemaStep.Value;
+
+    private readonly Lazy<IReadOnlySet<string>> _requiredOutsideSchemaStep;
+
+    private HashSet<string> ComputeRequiredOutsideSchemaStep()
+    {
+        if (RunsValidateStep(ValidateStepKinds.Schema))
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var template = Origin == DefinitionOrigin.Custom ? null : StandardTemplates.Find(TemplateKey);
+        var covered = template is null || template.Processing.Validate.Any(s => s.Kind == ValidateStepKinds.Schema)
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : DefinitionPaths.Enumerate(template).Where(f => f.Field.Required && !f.Field.Deprecated).Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        return DefinitionPaths.Enumerate(Definition)
+            .Where(f => f.Field.Required && !f.Field.Deprecated && !covered.Contains(f.Path))
+            .Select(f => f.Path)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>The fields marked <c>indexed</c> (docs/11 §6.2 <c>DocumentFieldIndex</c>), in definition order.</summary>
