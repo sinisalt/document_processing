@@ -873,6 +873,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       pairs on a 10,000-line price list recounted the tree 2,500 times and took 84 s), and a correction carries a
       field's stored history over as it is instead of reading and writing it again (5,000 sets of one cell, each one
       rewriting a history one entry longer, took over 20 s); both now take about a second (`DefinitionPatcherRowsTests`);
+    - a running title printed above the header row of the mapping page is no longer read as a group heading on the
+      pages that print no header (docs/11 §8.6, lists that print the header on page 1 only): a repeated line whose copy
+      on the mapping page lies above the band read there is a running title and left out, and only a repeated line
+      without such a copy may open a page as a heading. Before, the third review's heading rule made the title the
+      category of every row from page 2 on (`ColumnTableEngineTests`);
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
@@ -888,10 +893,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the header row band cannot be redrawn by hand (the proposal's is used);
     - running lines are recognised by repetition only: a running title or a footer printed on one page only is read
       like any line (a heading, a continuation, a rejected line) until the reviewer leaves it out; on a document of one
-      page nothing repeats. A running title above the rows that reads as a group heading (one run of text, or printed
-      across a divider, with no price) for another category than the current one is read as that heading and listed
-      under the page's headings, because nothing but the reviewer tells it from a heading that opens every page;
-      "Leave out lines like …" beside it, or a top margin, leaves it out;
+      page nothing repeats. A running line above the rows that reads as a group heading (one run of text, or printed
+      across a divider, with no price) for another category than the current one, and that is not printed on the
+      mapping page above the band read there, is read as that heading and listed under the page's headings: a title
+      printed from page 2 on only, or a page-opening "Rotweine trocken, Fortsetzung", cannot be told from a heading
+      that opens every page by its place. "Leave out lines like …" beside it, or a top margin, leaves it out;
     - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's

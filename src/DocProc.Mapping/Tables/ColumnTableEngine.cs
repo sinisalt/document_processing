@@ -29,7 +29,9 @@ namespace DocProc.Mapping.Tables;
 /// printed at the same height with the same text (a number standing for any number) on at least half of the document's
 /// pages, two at least, is a running title, page number or footer and is left out, unless it reads as a row (a value in
 /// the row anchor column and a readable price) or, printed above the page's first row, as a group heading for another
-/// category than the current one (a list may open every page with the same heading). A row with a value only in the row anchor column, while the mapping
+/// category than the current one (a list may open every page with the same heading). A running line whose copy on the
+/// mapping page is printed above the band read there (a running title above the header row) is never a heading: the
+/// reviewer's own box leaves it out of the table. A row with a value only in the row anchor column, while the mapping
 /// fills other columns, is rejected (<see cref="RejectionReasons.AnchorOnly"/>), not taken for an article.</description></item>
 /// <item><description><b>The band read.</b> On the mapping page, the box below its header row; a box drawn only around
 /// the header row (nothing printed below the header inside it) reads on down to the bottom page margin, or the foot of the
@@ -240,6 +242,7 @@ public static partial class ColumnTableEngine
         private readonly bool _headerOnly;
         private readonly bool[] _leftOut;
         private readonly Dictionary<int, PageRepeats> _repeated;
+        private readonly double _mappingTop;
         private readonly CancellationToken _ct;
         private readonly List<TableRow> _rows = [];
         private readonly Dictionary<int, PageState> _reports = [];
@@ -295,6 +298,7 @@ public static partial class ColumnTableEngine
             _headerOnly = spec.HeaderRow is { } headerBand && !mapping.Words.Any(w =>
                 w.Box.CenterY > headerBand.Y1 && w.Box.CenterY <= spec.Region.Y1
                 && w.Box.CenterX >= spec.Region.X0 && w.Box.CenterX <= spec.Region.X1);
+            _mappingTop = Math.Max(spec.Region.Y0, spec.HeaderRow?.Y1 ?? spec.Region.Y0);
             _repeated = spec.SkipRepeatedLines ? RepeatedWords() : [];
         }
 
@@ -304,7 +308,8 @@ public static partial class ColumnTableEngine
         /// within <see cref="RepeatTolerance"/> of the same height on at least half of the document's pages, two at least.
         /// Lines between rows (continuation lines, headings inside the list) are never running lines, however alike they
         /// are. Every page of the document counts, not only the pages read, so the proposal on one page knows them too.
-        /// <see cref="PageRepeats.Above"/> holds the words of those printed above the page's first row.
+        /// <see cref="PageRepeats.Above"/> holds the words of those printed above the page's first row, and
+        /// <see cref="PageRepeats.OutsideMapping"/> those whose copy on the mapping page lies above the band read there.
         /// </summary>
         private Dictionary<int, PageRepeats> RepeatedWords()
         {
@@ -369,11 +374,14 @@ public static partial class ColumnTableEngine
                             continue;
                         }
 
+                        // Printed on the mapping page above the band read there (above its header row): a running title
+                        // the reviewer's box leaves out, never a heading that opens the page.
+                        var outsideMapping = same.Any(c => c.Page == _spec.Page && c.Line.Box.CenterY <= _mappingTop);
                         foreach (var candidate in same)
                         {
                             if (!repeated.TryGetValue(candidate.Page, out var words))
                             {
-                                repeated[candidate.Page] = words = new PageRepeats([], []);
+                                repeated[candidate.Page] = words = new PageRepeats([], [], []);
                             }
 
                             var indexes = candidate.Line.Words.Select(w => w.Index).ToList();
@@ -381,6 +389,11 @@ public static partial class ColumnTableEngine
                             if (candidate.Above)
                             {
                                 words.Above.UnionWith(indexes);
+                            }
+
+                            if (outsideMapping)
+                            {
+                                words.OutsideMapping.UnionWith(indexes);
                             }
                         }
                     }
@@ -567,12 +580,15 @@ public static partial class ColumnTableEngine
                 var headingLike = _spec.GroupHeader is not null && IsWithoutPrice(cells) && (spans || IsOneRun(line));
                 var continues = headingLike && !hasAnchor && !spans && _current is not null && _spec.Continuation == Continuation.AppendToPrevious && OnlyTextColumns(cells);
                 if (repeated is not null && line.Words.All(w => repeated.Words.Contains(w.Index)) && !ReadsAsRow(cells)
-                    && !(headingLike && !continues && line.Words.All(w => repeated.Above.Contains(w.Index)) && !string.Equals(_category?.Text, text, StringComparison.Ordinal)))
+                    && !(headingLike && !continues && line.Words.All(w => repeated.Above.Contains(w.Index) && !repeated.OutsideMapping.Contains(w.Index))
+                        && !string.Equals(_category?.Text, text, StringComparison.Ordinal)))
                 {
                     // A running title, page number or footer: left out, and listed by its text. Not a line above the page's
                     // first row that reads as a group heading for another category than the current one: a list may open
                     // every page with the same heading at the same height, and leaving it out would give the rows under it
-                    // the category of the previous page's last heading. That line is read as a heading and listed as one.
+                    // the category of the previous page's last heading. That line is read as a heading and listed as one,
+                    // unless its copy on the mapping page is printed above the band read there: a running title over the
+                    // header row (a list that prints its header on page 1 only reads the later pages from their top).
                     state.Repeated++;
                     if (state.RepeatedTexts.Count < MaxHeadingsListed)
                     {
@@ -971,8 +987,11 @@ public static partial class ColumnTableEngine
     /// <summary>A line outside the rows of its page that may be a running line: its <see cref="RepeatKey"/>, tokens, height, page, and whether it is printed above the page's first row.</summary>
     private sealed record Candidate(string Key, IReadOnlyList<string> Tokens, double Y, int Page, TextLine Line, bool Above);
 
-    /// <summary>The words of a page's running lines (their indexes), and of those printed above its first row.</summary>
-    private sealed record PageRepeats(HashSet<int> Words, HashSet<int> Above);
+    /// <summary>
+    /// The words of a page's running lines (their indexes), of those printed above its first row, and of those whose copy
+    /// on the mapping page lies above the band read there.
+    /// </summary>
+    private sealed record PageRepeats(HashSet<int> Words, HashSet<int> Above, HashSet<int> OutsideMapping);
 
     /// <summary>A row being read: its lines (possibly over a page break) and the words of each column.</summary>
     private sealed class RowBuilder(int page, (string Text, int Page, BoundingBox Box)? category, int columns)

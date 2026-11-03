@@ -647,13 +647,17 @@ public sealed class ColumnTableEngineTests
     [Fact]
     public void A_repeated_heading_of_the_current_category_is_left_out_and_listed_by_its_text()
     {
-        static WordPage Page(int n, string heading)
+        static WordPage Page(int n, string heading, bool titleOnPage1 = false)
         {
             var page = new PageBuilder(n);
             var y = n == 1 ? 135 : 55;
             if (n == 1)
             {
                 page.Header(100).Text(460, 120, "Rotweine trocken");
+                if (titleOnPage1)
+                {
+                    page.Text(460, 40, heading);
+                }
             }
             else
             {
@@ -663,8 +667,9 @@ public sealed class ColumnTableEngineTests
             return page.Article(y, $"{n}001", "Rot A", "1,00").Article(y + 15, $"{n}002", "Rot B", "2,00").Words();
         }
 
-        // Another text on pages 2 and 3 than page 1's heading: read as a heading on page 2; on page 3 it is the current
-        // category already, so it is left out as the running line it is, and the rows keep it.
+        // Another text on pages 2 and 3 than page 1's heading, and not printed on the mapping page: nothing tells it from
+        // a heading that opens the later pages, so it is read as a heading on page 2; on page 3 it is the current category
+        // already, so it is left out as the running line it is, and the rows keep it.
         var other = Read([.. Enumerable.Range(1, 3).Select(n => Page(n, "Rotweine trocken, Fortsetzung"))], PriceList.Spec(pages: [1, 2, 3], bottom: 990));
         other.Rows.Count.ShouldBe(6);
         other.Report.PerPage.Select(p => (string.Join(" | ", p.Headings!), p.RepeatedLines)).ShouldBe([("Rotweine trocken", 0), ("Rotweine trocken, Fortsetzung", 0), (string.Empty, 1)]);
@@ -676,6 +681,63 @@ public sealed class ColumnTableEngineTests
         same.Rows.ShouldAllBe(r => r.Cell("category")!.Text == "Rotweine trocken");
         same.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([0, 1, 1]);
         same.Report.PerPage.Skip(1).ShouldAllBe(p => p.RepeatedTexts!.Single() == "Rotweine trocken" && p.Headings!.Count == 0);
+
+        // Printed on the mapping page too, above its header row (outside the band read there): a running title, left out
+        // on every later page, and the rows keep the category of page 1's heading.
+        var title = Read([.. Enumerable.Range(1, 3).Select(n => Page(n, "Rotweine trocken, Fortsetzung", titleOnPage1: true))], PriceList.Spec(pages: [1, 2, 3], bottom: 990));
+        title.Rows.Count.ShouldBe(6);
+        title.Rows.ShouldAllBe(r => r.Cell("category")!.Text == "Rotweine trocken");
+        title.Report.PerPage.Select(p => (string.Join(" | ", p.Headings!), p.RepeatedLines)).ShouldBe([("Rotweine trocken", 0), (string.Empty, 1), (string.Empty, 1)]);
+    }
+
+    [Theory]
+    [InlineData(PriceList.Sku, Continuation.AppendToPrevious)]
+    [InlineData(PriceList.Sku, Continuation.None)]
+    [InlineData(380d, Continuation.AppendToPrevious)]
+    [InlineData(380d, Continuation.None)]
+    public void A_running_title_above_the_header_row_of_the_mapping_page_is_left_out_on_pages_without_a_header(double titleX, Continuation continuation)
+    {
+        // docs/11 §8.6 "lists that print it only on page 1": the title opens every page at the same height, in the
+        // article-number column or across a divider, with no top margin. On page 1 it is printed above the header row, so
+        // outside the band the mapping reads; on the other pages, read from their top, it is the same running title and
+        // not a group heading, so the rows keep the category of page 1's heading.
+        WordPage Page(int n)
+        {
+            var page = new PageBuilder(n).Text(titleX, 30, "Nordwind Preisliste 2027");
+            var y = 60d;
+            if (n == 1)
+            {
+                page.Header(100).Text(PriceList.Sku, 115, "Weißweine");
+                y = 130;
+            }
+
+            return page.Article(y, $"{n}001", $"Wein {n}a", "1,00").Article(y + 15, $"{n}002", $"Wein {n}b", "2,00").Words();
+        }
+
+        var result = Read([.. Enumerable.Range(1, 4).Select(Page)], PriceList.Spec(pages: [1, 2, 3, 4]) with { Continuation = continuation });
+
+        result.Report.RejectedRows.ShouldBe(0);
+        result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1002", "2001", "2002", "3001", "3002", "4001", "4002"]);
+        result.Rows.ShouldAllBe(r => r.Cell("category")!.Text == "Weißweine");
+        result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(Enumerable.Range(1, 4).SelectMany(n => new[] { $"Wein {n}a", $"Wein {n}b" }));
+        result.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([0, 1, 1, 1], "page 1 does not read above its header row");
+        result.Report.PerPage[0].Headings.ShouldBe(["Weißweine"]);
+        result.Report.PerPage.Skip(1).ShouldAllBe(p => p.Headings!.Count == 0 && p.RepeatedTexts!.Single() == "Nordwind Preisliste 2027");
+    }
+
+    [Fact]
+    public void A_heading_printed_inside_the_band_of_the_mapping_page_at_the_height_it_opens_every_page_is_still_read_as_a_heading()
+    {
+        // The header on every page, then "Rotweine trocken" right below it, then "Weißweine trocken" further down: the
+        // repeated heading's copy on the mapping page lies inside the band read, so on the other pages it is a heading.
+        WordPage Page(int n) => new PageBuilder(n).Header(100).Text(460, 120, "Rotweine trocken")
+            .Article(135, $"{n}001", "Rot A", "1,00").Text(460, 150, "Weißweine trocken").Article(165, $"{n}002", "Weiß A", "2,00").Words();
+
+        var result = Read([.. Enumerable.Range(1, 3).Select(Page)], PriceList.Spec(pages: [1, 2, 3]));
+
+        result.Rows.Count.ShouldBe(6);
+        result.Rows.ShouldAllBe(r => r.Cell("category")!.Text == (r.Cell("description")!.Text.StartsWith("Rot", StringComparison.Ordinal) ? "Rotweine trocken" : "Weißweine trocken"));
+        result.Report.PerPage.ShouldAllBe(p => p.Headings!.SequenceEqual(new[] { "Rotweine trocken", "Weißweine trocken" }) && p.RepeatedLines == 0);
     }
 
     [Fact]
