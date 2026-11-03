@@ -140,6 +140,13 @@ public sealed record DocumentDetail(
     /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
     /// </summary>
     public ApprovalBlock? ApprovalBlocked { get; init; }
+
+    /// <summary>
+    /// Whether the document's tenant has <c>configurableTypes</c> on (docs/11 §3 principle 6): the review screen offers the
+    /// review tools of P2 (the Map this document panel, set type, assign or create the supplier, split and join) only
+    /// then, so a tenant that is not on the feature reviews as before.
+    /// </summary>
+    public bool ConfigurableTypes { get; init; }
 }
 
 /// <summary>

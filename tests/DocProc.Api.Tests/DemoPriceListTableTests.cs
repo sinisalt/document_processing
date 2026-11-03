@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using DocProc.Api.Documents;
 using DocProc.Infrastructure.Pdf;
+using DocProc.Mapping.Tables;
 using Microsoft.Extensions.Options;
 
 namespace DocProc.Api.Tests;
@@ -47,14 +48,26 @@ public sealed class DemoPriceListTableTests(ApiFactory factory) : MapModeTestBas
         var header = await Read<PageWordsResponse>(await reviewer.GetAsync(Doc(id, "/pages/1/words?bbox=40,280,960,300"), Ct));
         header.Text.ShouldBe("Art.-Nr. Bezeichnung Gebinde Preis ab 10 ab 50");
         var box = new { x0 = 45, y0 = 280, x1 = 945, y1 = 935 };
-        var proposal = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box }, Ct));
+        // The portal asks for the proposal with group headings when the row has a category, as it previews (docs/09 step 6).
+        var proposal = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box, groupHeader = new { target = "category" } }, Ct));
         proposal.Proposed.ShouldBeTrue();
         proposal.Columns.Select(c => c.Header).ShouldBe(["Art.-Nr.", "Bezeichnung", "Gebinde", "Preis", "ab 10", "ab 50"]);
         proposal.Columns.Select(c => c.Field).ShouldBe(["supplierSku", "description", "packDescription", "price", null, null], "the proposal names every column from the template's labels");
         proposal.Columns.Select(c => c.TierMinQuantity).ShouldBe([null, null, null, null, 10m, 50m]);
         proposal.RowAnchor.ShouldBe("supplierSku");
-        // The proposal reads page 1 without group headings, so "Weißweine" is one row more; the mapping below names them.
-        proposal.Report.Rows.ShouldBe(23);
+        proposal.Report.Rows.ShouldBe(22, "page 1 has 22 articles; the heading Weißweine is a heading");
+        proposal.Report.RejectedRows.ShouldBe(0);
+        proposal.Report.PerPage.ShouldHaveSingleItem().GroupHeadings.ShouldBe(1);
+        proposal.Report.PerPage[0].Headings.ShouldBe(["Weißweine"]);
+        proposal.Rows[0].Cells.Single(c => c.Field == "supplierSku").Text.ShouldBe("104007");
+        proposal.Rows[0].Cells.Single(c => c.Field == "category").Text.ShouldBe("Weißweine");
+
+        // Without group headings (an API client that names none) the heading is not an article either: a value in the
+        // article-number column alone is a rejected line.
+        var plain = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box }, Ct));
+        plain.Report.Rows.ShouldBe(22);
+        plain.Report.PerPage[0].RejectedLines.ShouldHaveSingleItem().Reason.ShouldBe(RejectionReasons.AnchorOnly);
+        plain.Rows[0].Cells.Single(c => c.Field == "supplierSku").Text.ShouldBe("104007");
 
         // "Apply to all pages", as the portal's table tool sends it.
         var mapping = new
@@ -135,16 +148,33 @@ public sealed class DemoPriceListTableTests(ApiFactory factory) : MapModeTestBas
         // "(leave out)" for both tier columns, as the portal sends it: no field and no minimum quantity, the header kept.
         var leftOut = proposal.Columns.Select(c => c with { TierMinQuantity = null }).ToList();
         leftOut.Where(c => c.Field is null).Select(c => c.Header).ShouldBe(["ab 10", "ab 50"]);
-        object Mapping(string[]? skipRows) => new { page = 1, bBox = box, columns = leftOut, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" }, skipRows };
+        object Mapping(string[]? skipRows, string? repeatedLines = null) => new { page = 1, bBox = box, columns = leftOut, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" }, skipRows, repeatedLines };
 
-        var withFooters = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(null), Ct));
+        // The footer is printed at the same place on all 14 pages: left out by itself. Its second line, "Seite n von 14",
+        // stands in the "ab 50" column alone, which this mapping leaves out, so it counts as a left-out line.
+        var byDefault = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(null), Ct));
+        byDefault.Report.RejectedRows.ShouldBe(0, string.Join("; ", byDefault.Report.PerPage.SelectMany(p => p.RejectedLines).Select(r => $"p. {r.Page}: {r.Text} ({r.Reason}: {r.Message})")));
+        byDefault.Report.Rows.ShouldBe(412);
+        byDefault.Report.PerPage.Select(p => p.Rows).ShouldBe(RowsPerPage);
+        byDefault.Report.PerPage.ShouldAllBe(p => p.RepeatedLines == 1 && p.LeftOutLines == 1);
+        byDefault.Rows.ShouldAllBe(r => !r.Cells.Any(c => c.Text.Contains("Seite", StringComparison.Ordinal) || c.Text.Contains("Amtsgericht", StringComparison.Ordinal)));
+        byDefault.Rows.ShouldAllBe(r => r.Tiers.Count == 0, "a tier column left out yields no tiers");
+
+        // With the proposal's tier columns both footer lines are running lines (docs/09 "Demo: manual mapping", step 6).
+        var tiered = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box, columns = proposal.Columns, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" } }, Ct));
+        tiered.Report.RejectedRows.ShouldBe(0);
+        tiered.Report.Rows.ShouldBe(412);
+        tiered.Report.PerPage.ShouldAllBe(p => p.RepeatedLines == 2 && p.LeftOutLines == 0);
+
+        // Kept (repeatedLines: keep), the footer of every page is a line that is not a row.
+        var withFooters = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(null, "keep"), Ct));
         var footers = withFooters.Report.PerPage.SelectMany(p => p.RejectedLines).ToList();
         footers.Count.ShouldBe(14, "the footer of every page is a line that is not a row");
         footers.ShouldAllBe(r => !r.Message.Contains(" column 5 column", StringComparison.Ordinal) && !r.Message.Contains(" column 6 column", StringComparison.Ordinal));
         footers.Where(r => r.Reason == "continuationConflict").ShouldAllBe(r => r.Field != null || r.Message.Contains("in column ", StringComparison.Ordinal));
-        withFooters.Rows.ShouldAllBe(r => r.Tiers.Count == 0, "a tier column left out yields no tiers");
+        withFooters.Report.PerPage.ShouldAllBe(p => p.RepeatedLines == 0);
 
-        var skipped = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(FooterSkipLines), Ct));
+        var skipped = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(FooterSkipLines, "keep"), Ct));
         skipped.Report.RejectedRows.ShouldBe(0, string.Join("; ", skipped.Report.PerPage.SelectMany(p => p.RejectedLines).Select(r => $"p. {r.Page}: {r.Text} ({r.Reason}: {r.Message})")));
         skipped.Report.Rows.ShouldBe(412);
         skipped.Report.PerPage.Select(p => p.Rows).ShouldBe(RowsPerPage);

@@ -732,6 +732,27 @@ public sealed class DefinitionCompilerTests
         Publish(ReturnSlipJson(rules: """[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"^RMA-[0-9]+$"}}]""")).CanPublish.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// A pattern whose counted repetitions multiply (twenty characters, ten thousand automaton nodes under
+    /// NonBacktracking) is refused at publish, as a field's pattern, an extraction hint and a pattern rule's parameter:
+    /// the table tool and validation run it in the shared API and workers.
+    /// </summary>
+    [Fact]
+    public void A_pattern_that_unrolls_too_far_is_refused_wherever_a_definition_names_one()
+    {
+        const string Huge = @"(?:[^x]{0,99}\\d){0,99}x";
+        var field = ReturnSlipJson().Replace("{\"id\":\"fld_rn\",\"key\":\"returnNumber\",\"kind\":\"identifier\",\"required\":true,\"indexed\":true,", $"{{\"id\":\"fld_rn\",\"key\":\"returnNumber\",\"kind\":\"identifier\",\"required\":true,\"indexed\":true,\"pattern\":\"{Huge}\",", StringComparison.Ordinal);
+        var report = Publish(field);
+        report.CanPublish.ShouldBeFalse();
+        report.Problems.ShouldContain(p => p.Message.StartsWith("pattern repeats too much", StringComparison.Ordinal));
+
+        var rule = Publish(ReturnSlipJson(rules: $$$"""[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"{{{Huge}}}"} }]"""));
+        rule.CanPublish.ShouldBeFalse();
+        rule.Problems.ShouldContain(p => p.Where == "rules[0] (r_probe).params" && p.Message.StartsWith("pattern repeats too much", StringComparison.Ordinal));
+
+        Publish(ReturnSlipJson(rules: """[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"^RMA-[0-9]{4,12}$"}}]""")).CanPublish.ShouldBeTrue();
+    }
+
     // ------------------------------------------------------------------ price-list templates
 
     [Fact]

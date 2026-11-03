@@ -60,6 +60,7 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     validFrom: null,
     validUntil: null,
     lineCount: null,
+    configurableTypes: true,
     typeName: null,
     typeVersion: null,
     appliedConfig: null,
@@ -145,7 +146,7 @@ describe("table tool (useTableTool)", () => {
     const { result } = renderHook(() => useTableTool(document, formSpec, "lines", true), { wrapper });
     act(() => result.current.onRegion(1, { x0: 45, y0: 280, x1: 945, y1: 935 }));
     await waitFor(() => expect(result.current.state).not.toBeNull());
-    expect(client.POST).toHaveBeenLastCalledWith("/api/v1/documents/{id}/regions:table", { params: { path: { id: document.id } }, body: { page: 1, bBox: { x0: 45, y0: 280, x1: 945, y1: 935 }, path: "lines" } });
+    expect(client.POST).toHaveBeenLastCalledWith("/api/v1/documents/{id}/regions:table", { params: { path: { id: document.id } }, body: { page: 1, bBox: { x0: 45, y0: 280, x1: 945, y1: 935 }, path: "lines", groupHeader: { target: "category" } } });
     expect(result.current.state).toMatchObject({ page: 1, allPages: true, groupHeadingTarget: "category", rowAnchor: "supplierSku" });
     expect(result.current.reportKind).toBe("proposal");
     expect(result.current.drawing(1)?.dividers).toEqual([50, 150, 500]);

@@ -43,6 +43,15 @@ export function typeOptions(types: readonly DocumentTypeDetail[] | undefined, la
   return [...legacyTypeKeys.map((key) => ({ key })), ...own];
 }
 
+/**
+ * The catalogue name of a type that is not a legacy type (an adopted price list, a type of the tenant's own), from the
+ * options the type filter offers; undefined for a legacy type (named by its translation) or a type the catalogue does
+ * not list (a platform account has no catalogue).
+ */
+export function typeLabel(key: string, options: readonly TypeOption[]): string | undefined {
+  return options.find((option) => option.key === key)?.name;
+}
+
 /** An indexed field the inbox offers as a filter and a column, with the types that have it. */
 export interface IndexedFieldOption extends IndexedField {
   name: string;

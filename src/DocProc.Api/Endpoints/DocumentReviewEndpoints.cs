@@ -579,10 +579,38 @@ public static partial class DocumentEndpoints
             return new ApprovalBlock(ApprovalBlockCodes.NoDefinition, $"{document.Type} has no published definition this tenant can use; set another type, or publish this one, before approving.");
         }
 
-        return string.IsNullOrWhiteSpace(document.CanonicalJson)
-            ? new ApprovalBlock(ApprovalBlockCodes.NoData, "Nothing was captured for the document yet; fill its fields (or set its type with prefill) before approving it.")
-            : null;
+        // No tree, or a tree that holds no value (what :set-type with prefill none writes: every field Missing, every
+        // repeating group empty) is no data: approving it would publish an empty document.
+        return HoldsData(document)
+            ? null
+            : new ApprovalBlock(ApprovalBlockCodes.NoData, "Nothing was captured for the document yet: none of its fields holds a value. Fill its fields (or set its type with prefill) before approving it.");
     }
+
+    /// <summary>
+    /// Whether the stored canonical tree holds a value (<see cref="DefinitionTree.HoldsValue"/>); the coded invoice
+    /// record's <c>kind</c> is the record's own and does not count. A tree that does not parse counts as data: the gate
+    /// does not decide on what it cannot read.
+    /// </summary>
+    private static bool HoldsData(Document document)
+    {
+        if (string.IsNullOrWhiteSpace(document.CanonicalJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            var tree = JsonNode.Parse(document.CanonicalJson);
+            return DefinitionTree.HoldsValue(tree, document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion ? null : CodedRecordKeys);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>The members of the coded records that are not read from the document.</summary>
+    private static readonly string[] CodedRecordKeys = ["kind"];
 
     private static ProblemHttpResult ApprovalRefused(Document document, ApprovalBlock block) =>
         TypedResults.Problem(

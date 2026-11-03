@@ -35,6 +35,8 @@ builder.AddDocProcProcessingStack();
 // Development mode only: the demo invoices of fixtures/demo, ingested after the seed (docs/09 "Demo data").
 builder.AddDocProcDemoData();
 builder.Services.AddDocProcApiServices();
+// The table tool and region OCR run in this shared process: a time budget per read and a few reads at a time per tenant.
+DocProc.Api.Documents.TableToolOptions.AddTableToolLimits(builder.Services, builder.Configuration);
 
 var app = builder.Build();
 
@@ -60,6 +62,8 @@ app.UseClientAbortedRequests();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+// After authorization: the table tool's limiter partitions by the tenant the request resolved.
+app.UseRateLimiter();
 
 // Anonymous surface: probes, the OpenAPI document and the Scalar reference. Everything else needs a token (fallback policy).
 app.MapDefaultEndpoints();

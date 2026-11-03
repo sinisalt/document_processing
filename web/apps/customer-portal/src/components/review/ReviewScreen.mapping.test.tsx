@@ -76,6 +76,7 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     validFrom: null,
     validUntil: null,
     lineCount: 0,
+    configurableTypes: true,
     typeName: "Price list",
     typeVersion: 1,
     appliedConfig: null,
@@ -161,5 +162,22 @@ describe("review screen: map mode and the table tool", () => {
     const panel = await screen.findByTestId("map-document-panel");
     expect(within(panel).getByRole("heading", { name: "Map this document" })).toBeInTheDocument();
     expect(screen.queryByTestId("map-mode-toggle")).toBeNull();
+  });
+
+  // docs/11 principle 6: a tenant without configurableTypes reviews as before P2 (docs/09 "Demo: types as data", step 1).
+  it("offers none of the P2 tools to a tenant without configurable types", async () => {
+    renderScreen(documentOf({ type: "DeliveryNote", typeName: null, canonical: null, canonicalSchemaVersion: null, definition: null, configurableTypes: false }));
+    expect(await screen.findByText("This document type has no form to review yet: its fields can be reviewed once the type is set up under Settings > Document types.")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-document-panel")).toBeNull();
+    expect(screen.queryByTestId("more-actions")).toBeNull();
+    expect(screen.queryByTestId("map-mode-toggle")).toBeNull();
+  });
+
+  it("offers neither map mode nor the table tool on a form of a tenant without configurable types", async () => {
+    renderScreen(documentOf({ configurableTypes: false }));
+    expect(await screen.findByTestId("page-viewer")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-mode-toggle")).toBeNull();
+    expect(screen.queryByTestId("table-tab")).toBeNull();
+    expect(screen.queryByTestId("more-actions")).toBeNull();
   });
 });

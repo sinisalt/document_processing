@@ -454,12 +454,18 @@
       "rejectedHeading_one": "Seite {{page}}: {{count}} abgelehnte Zeile",
       "rejectedHeading_other": "Seite {{page}}: {{count}} abgelehnte Zeilen",
       "moreRejected_one": "und {{count}} weitere",
-      "moreRejected_other": "und {{count}} weitere"
+      "moreRejected_other": "und {{count}} weitere",
+      "headings": "Gruppenüberschriften auf Seite {{page}} (jede füllt die Kategorie der Zeilen darunter):",
+      "repeatedLines_one": "{{count}} Zeile, die auf den meisten Seiten an derselben Stelle steht (Kopf- oder Fußzeile, Seitenzahl), wurde ausgelassen.",
+      "repeatedLines_other": "{{count}} Zeilen, die auf den meisten Seiten an derselben Stelle stehen (Kopf- und Fußzeilen, Seitenzahlen), wurden ausgelassen.",
+      "leftOutLines_one": "{{count}} Zeile mit Text nur in ausgelassenen Spalten wurde übersprungen.",
+      "leftOutLines_other": "{{count}} Zeilen mit Text nur in ausgelassenen Spalten wurden übersprungen."
     },
     "reasons": {
       "unreadable": "nicht lesbar",
       "noAnchor": "kein Zeilenbeginn",
-      "continuationConflict": "Fortsetzung"
+      "continuationConflict": "Fortsetzung",
+      "anchorOnly": "nur eine Artikelnummer"
     },
     "reportStale": "Vorschau einer früheren Zuordnung (die Zuordnung hat sich seitdem geändert; lesen Sie die Seiten erneut):",
     "notRows": {

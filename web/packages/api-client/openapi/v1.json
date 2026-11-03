@@ -1225,7 +1225,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured.",
+        "summary": "Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. A few reads run at a time per tenant (429 beyond).",
         "operationId": "ReadDocumentRegion",
         "parameters": [
           {
@@ -1277,7 +1277,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report.",
+        "summary": "The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. One read has a time budget (422 TABLE_READ_TOO_SLOW past it), and a few run at a time per tenant (429 beyond).",
         "operationId": "ReadDocumentTable",
         "parameters": [
           {
@@ -4195,6 +4195,10 @@
                 "$ref": "#/components/schemas/ApprovalBlock"
               }
             ]
+          },
+          "configurableTypes": {
+            "type": "boolean",
+            "description": "Whether the document's tenant has `configurableTypes` on (docs/11 §3 principle 6): the review screen offers the\nreview tools of P2 (the Map this document panel, set type, assign or create the supplier, split and join) only\nthen, so a tenant that is not on the feature reviews as before."
           }
         },
         "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.\n`AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the\ntype version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract."
@@ -6507,9 +6511,15 @@
               "null",
               "string"
             ]
+          },
+          "repeatedLines": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
-        "description": "`POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box\ndrawn on `page` (word gaps and header words, each column named from the field labels its header matches), with\nthe rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,\n`2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's\nline items by default), `rowAnchor` the field that starts a row (the group's anchor by default),\n`repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or\n`none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band\nof the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,\nor the foot of the page). A column is a tier column only when it names `tierMinQuantity` (the proposal reads it\nfrom a header such as `ab 10`); one without a field or a quantity is left out. `write: true` writes the\nrows into the document as one correction (op `set` on `path`, the specification and report in its source)\nand stores the report (docs/11 §6.2 `DocumentTableReport`)."
+        "description": "`POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box\ndrawn on `page` (word gaps and header words, each column named from the field labels its header matches), with\nthe rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,\n`2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's\nline items by default), `rowAnchor` the field that starts a row (the group's anchor by default),\n`repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or\n`none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band\nof the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,\nor the foot of the page). `repeatedLines` `skip` (default) leaves out lines printed at the same height with\nthe same text on at least half of the document's pages (running titles, page numbers, footers; a number stands for any\nnumber) unless they read as a row, `keep` reads them. A column is a tier column only when it names\n`tierMinQuantity` (the proposal reads it from a header such as `ab 10`); one without a field or a quantity\nis left out, and its words count for nothing. `write: true` writes the\nrows into the document as one correction (op `set` on `path`, the specification and report in its source)\nand stores the report (docs/11 §6.2 `DocumentTableReport`)."
       },
       "ReadTableResponse": {
         "required": [
@@ -7359,9 +7369,36 @@
               "string"
             ],
             "format": "double"
+          },
+          "headings": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "repeatedLines": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "leftOutLines": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         },
-        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its\nfirst three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header\nrow, within the page margins; absent in a report stored before it was recorded)."
+        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its\nfirst three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header\nrow, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the\ngroup headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`\ncounts the lines left out as running titles, page numbers or footers, `leftOutLines` the lines with words only in\ncolumns the mapping leaves out (all three absent in a report stored before they were recorded)."
       },
       "TableRejectedLineDto": {
         "required": [
@@ -7401,7 +7438,7 @@
             ]
           }
         },
-        "description": "A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`), the message and the field."
+        "description": "A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`, `anchorOnly`), the message and the field."
       },
       "TableReportDto": {
         "required": [

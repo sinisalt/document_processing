@@ -26,6 +26,19 @@ public static class RejectionReasons
 
     /// <summary>A continuation line has a second value in a column that is not text.</summary>
     public const string ContinuationConflict = "continuationConflict";
+
+    /// <summary>
+    /// Only the row anchor column holds a value, although the mapping fills other columns: a page footer, a title or a
+    /// page number printed in that column, not an article.
+    /// </summary>
+    public const string AnchorOnly = "anchorOnly";
+}
+
+/// <summary>A pattern of the mapping (<c>skipRows</c>, <c>stopAt</c>) ran out of time on a line: the table is not read, rather than read as if it did not match.</summary>
+public sealed class TablePatternTimeoutException(string pattern, Exception? inner = null)
+    : TimeoutException($"The pattern '{pattern}' took too long on a line of the table; simplify it.", inner)
+{
+    public string Pattern { get; } = pattern;
 }
 
 /// <summary>A line (or a row of several lines) that did not become a row, with its text, its box and why.</summary>
@@ -51,7 +64,11 @@ public static class ColumnsFrom
 /// What the table yielded on one page (docs/11 §12.4 table report and page strip): rows that start on it, the rejected
 /// lines (with their text, at most <see cref="ColumnTableSpec.MaxRejectedListed"/> listed), whether its header row was
 /// found, the dividers used on it and where they came from, its first three rows as printed, and the band of the page
-/// read (<paramref name="Top"/> to <paramref name="Bottom"/>, in page units).
+/// read (<paramref name="Top"/> to <paramref name="Bottom"/>, in page units). <paramref name="Headings"/> are the texts of
+/// the group headings read on it (at most <see cref="ColumnTableEngine.MaxHeadingsListed"/>), so a running title or a
+/// footer taken for a heading shows; <paramref name="RepeatedLines"/> counts the lines left out as running titles,
+/// page numbers or footers (<see cref="ColumnTableSpec.SkipRepeatedLines"/>), and <paramref name="LeftOutLines"/> the
+/// lines with words only in columns the mapping leaves out.
 /// </summary>
 public sealed record TablePageReport(
     int Page,
@@ -66,7 +83,10 @@ public sealed record TablePageReport(
     string ColumnsFrom,
     IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows,
     double? Top = null,
-    double? Bottom = null);
+    double? Bottom = null,
+    IReadOnlyList<string>? Headings = null,
+    int RepeatedLines = 0,
+    int LeftOutLines = 0);
 
 /// <summary>
 /// The table report (docs/11 §8.6, §12.4): totals, the pages read, the pages that yielded no row, the page a

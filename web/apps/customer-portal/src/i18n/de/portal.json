@@ -251,7 +251,7 @@
       "approveBlocked": {
         "TYPE_REQUIRED": "Legen Sie zuerst den Typ dieses Dokuments fest: Ein unbekanntes Dokument hat keine Felder, die geliefert werden könnten.",
         "NO_DEFINITION": "Für diesen Typ ist keine Definition veröffentlicht; veröffentlichen Sie sie oder wählen Sie einen anderen Typ.",
-        "NO_DATA": "Es wurde noch nichts erfasst; füllen Sie zuerst die Felder aus."
+        "NO_DATA": "Es wurde noch nichts erfasst: Kein Feld hat einen Wert. Füllen Sie zuerst die Felder aus."
       },
       "shortcutApple": "⌘↵",
       "shortcutOther": "Strg+Enter",

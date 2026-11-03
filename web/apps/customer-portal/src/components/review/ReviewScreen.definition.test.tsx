@@ -71,6 +71,7 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     validFrom: null,
     validUntil: null,
     lineCount: 1,
+    configurableTypes: true,
     typeName: "Delivery note",
     typeVersion: 1,
     appliedConfig: null,

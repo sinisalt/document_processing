@@ -782,8 +782,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       (`skipRows`) and lines the table ends at (`stopAt`), each named by the text it starts with, in which any number
       stands for any number ("Seite 1 von 14" also leaves out "Seite 2 von 14"); a rejected line of the page strip
       offers "Leave out lines like this"; the part of the other pages that is read (`pageMargins`, in percent of the
-      page height). A running title of a list that prints its header on page 1 only no longer becomes a heading, and a
-      footer printed inside the box is no longer appended to the last row of every page or rejected on every page;
+      page height). Once the reviewer sets such skip lines or margins, a running title of a list that prints its header
+      on page 1 only no longer becomes a heading, and a footer printed inside the box is no longer appended to the last
+      row of every page or rejected on every page (what the defaults leave out by themselves is in the next list);
     - a box drawn only around the header row (docs/11 §12.4 step 1) reads every page down to the bottom page margin,
       or the foot of the page; before, it read no row on page 1 and dropped everything below the page-1 box on the
       other pages. Each page of the report names the band it read (`top`, `bottom`), which the page viewer draws;
@@ -796,6 +797,49 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - map mode's Enter moves on to a required composite (the price list's Supplier) whose members are not required
       one by one: an empty required party counts as its first member (`FieldSpec.inRequired`), tested against the form
       spec `std.price-list` compiles to.
+  - Fixed after the second review of P2:
+    - a column the reviewer leaves out (no field, no tier) counts for nothing in any row decision: its words are
+      dropped before the heading test, the continuation and conflict checks and the row's cells, and a line with words
+      only there (a wrapped line of that column) is skipped and counted (`leftOutLines`), not taken for a group heading
+      that filled the category of every row below it, nor a continuation conflict that rejected its row
+      (`ColumnTableEngineTests`);
+    - an empty tree is no data (docs/11 §11): the approval gate answers `NO_DATA` for a tree none of whose fields
+      holds a value (every envelope Missing, every repeating group empty or with rows of Missing fields; for the coded
+      invoice record its `kind` does not count), so the document `:set-type` with prefill none leaves can no longer be
+      approved and published empty; the portal's note reads "Nothing was captured yet: none of the fields holds a
+      value" (`ReviewActionEndpointsTests`, `DefinitionStorageTests`);
+    - running titles, page numbers and footers are left out by themselves (`repeatedLines: skip`, the default;
+      `keep` reads them): a line above the first or below the last row of its page, printed at the same height with the
+      same text on at least half of the document's pages (two at least; a number that is the page number or the page
+      count stands for any), unless it reads as a row. A row with a value in the anchor column only (a footer or title
+      printed there, or a heading read without group headings) is rejected as `anchorOnly`, not taken for an article.
+      Each page of the report lists its group headings (`headings`) and counts the lines left out (`repeatedLines`,
+      `leftOutLines`), and the page strip shows them for the page in view, with "Leave out lines like …" beside each
+      heading. The demo list's footer is left out on all 14 pages without a skip line. A title printed on one page only
+      is still read as a heading (nothing but the reviewer tells it from one) and is listed there;
+    - the P2 review tools are behind `configurableTypes` in the portal (docs/11 principle 6): the Map this document
+      panel, the More menu (set type, assign or create the supplier, split, join), map mode and the table tool. A tenant
+      without the switch sees the review screen as before P2, the empty state "This document type has no form to review
+      yet" included (docs/09 "Demo: types as data", step 1). `DocumentDetail.configurableTypes` tells the screen; the
+      endpoints themselves stay open to API clients of any tenant (nothing before P2 called them);
+    - the inbox names a catalogue type (a price list typed in review) by its catalogue name in the Type column, as the
+      filter does, instead of its key `price-list`;
+    - the proposal reads its page with the group headings the panel starts with (the portal sends `groupHeader`
+      when the row has a category), so the demo's proposal reads 22 rows on page 1, not 23 with "Weißweine" as an
+      article; without group headings the heading is a rejected `anchorOnly` line, not a row;
+    - the grid of a repeating group is named by the definition's label when the group is not called Lines (the price
+      list's "Articles · 412 rows", caption "Articles"); invoices, credit notes, delivery notes and purchase orders keep
+      "N line items";
+    - the table tool is bounded in the shared API: a `skipRows`, `stopAt`, tier header or field pattern whose counted
+      repetitions unroll to more than 500 atoms (`PatternSize`; `(?:[^§]{0,99}\d){0,99}§` is about ten thousand) is
+      refused with 400, at publish too for field patterns, extraction hints and `pattern` rules; a pattern that runs
+      out of time on a line stops the read with 400 instead of counting as "no match" on every line; one read runs
+      within `TableTool:ReadBudget` (10 s) and stops when the client goes away, 422 `TABLE_READ_TOO_SLOW` past the
+      budget; `regions:table` and `regions:read` run at most `TableTool:ConcurrentReadsPerTenant` (2) at a time per
+      tenant, `TableTool:QueuedReadsPerTenant` (4) waiting, 429 beyond (`TableToolLimitsTests`, `PatternSizeTests`);
+    - docs/09's split and join of the demo invoice: joined back, the invoice is read from its fixture only while no other
+      Bio-Hof Müller document is approved, because the extraction then carries the supplier's last approved document
+      as hints and its request changes (`DemoFixtureTests`).
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
@@ -809,8 +853,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - fixing a rejected row in place and `pageOverrides` from the UI: the reviewer moves the dividers of the mapping page
       and reads again; dividers set for one other page only (`pageOverrides`, which the API takes) have no UI yet, and
       the header row band cannot be redrawn by hand (the proposal's is used);
-    - the proposal reads its page without group headings, so a heading line counts as a row there (23 rows on page 1 of
-      the demo list); the mapping read with headings does not;
+    - running lines are recognised by repetition only: a running title or a footer printed on one page only is read
+      like any line (a heading, a continuation, a rejected line) until the reviewer leaves it out; on a document of one
+      page nothing repeats;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
       `column-table` (P4) are not implemented;

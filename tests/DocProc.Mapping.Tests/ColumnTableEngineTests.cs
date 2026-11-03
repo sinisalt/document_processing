@@ -17,6 +17,8 @@ public sealed class ColumnTableEngineTests
 {
     private static decimal Amount(TableCell? cell) => cell.ShouldNotBeNull().Value.ShouldNotBeNull().GetValue<decimal>();
 
+    private static TableResult Read(IReadOnlyList<WordPage> pages, ColumnTableSpec spec) => ColumnTableEngine.Extract(pages, spec, TestContext.Current.CancellationToken);
+
     [Fact]
     public void Reads_the_rows_of_the_mapping_page_with_values_by_kind_and_their_boxes()
     {
@@ -26,7 +28,7 @@ public sealed class ColumnTableEngineTests
             .Text(55, 960, "Seite 1 von 1")
             .Words();
 
-        var result = ColumnTableEngine.Extract([page], PriceList.Spec());
+        var result = Read([page], PriceList.Spec());
 
         result.Rows.Count.ShouldBe(2);
         var first = result.Rows[0];
@@ -72,7 +74,7 @@ public sealed class ColumnTableEngineTests
         var page4 = new PageBuilder(4).Header(60, shift: 10, scale: 0.95).Article(80, "4001", "Eta", "7,00", shift: 10, scale: 0.95);
 
         var spec = PriceList.Spec(pages: [1, 2, 3, 4]);
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words(), page3.Words(), page4.Words()], spec);
+        var result = Read([page1.Words(), page2.Words(), page3.Words(), page4.Words()], spec);
 
         result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1002", "2001", "2002", "3001", "3002", "4001"]);
         result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta"]);
@@ -106,7 +108,7 @@ public sealed class ColumnTableEngineTests
             .Line(80, (PriceList.Description, "Holzfass gereift"))
             .Article(95, "2001", "Riesling", "7,00");
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words()], PriceList.Spec(pages: [1, 2]));
+        var result = Read([page1.Words(), page2.Words()], PriceList.Spec(pages: [1, 2]));
 
         result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Grauburgunder trocken Baden, Kaiserstuhl", "Spätburgunder Holzfass gereift", "Riesling"]);
         result.Rows[1].Page.ShouldBe(1, "a row counts for the page it starts on");
@@ -127,7 +129,7 @@ public sealed class ColumnTableEngineTests
             .Text(470, 180, "Weißweine")
             .Article(195, "2001", "Albariño", "11,49");
 
-        var result = ColumnTableEngine.Extract([page.Words()], PriceList.Spec());
+        var result = Read([page.Words()], PriceList.Spec());
 
         result.Rows.Count.ShouldBe(3);
         result.Rows.Select(r => r.Cell("category")?.Text).ShouldBe(["Rotweine aus Spanien", "Rotweine aus Spanien", "Weißweine"]);
@@ -146,7 +148,7 @@ public sealed class ColumnTableEngineTests
             .Article(150, "1003", "Gamma", "3,00", tier10: "zwei")
             .Article(165, "1004", "Delta", "4,00");
 
-        var result = ColumnTableEngine.Extract([page.Words()], PriceList.Spec());
+        var result = Read([page.Words()], PriceList.Spec());
 
         result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1004"]);
         var p1 = result.Report.PerPage.ShouldHaveSingleItem();
@@ -169,7 +171,7 @@ public sealed class ColumnTableEngineTests
         };
         var page = new PageBuilder(1).Header(100).Article(120, "1001", "Alpha", "1,00").Article(135, "AB-12", "Beta", "2,00");
 
-        var result = ColumnTableEngine.Extract([page.Words()], PriceList.Spec() with { Fields = fields });
+        var result = Read([page.Words()], PriceList.Spec() with { Fields = fields });
 
         result.Rows.ShouldHaveSingleItem();
         result.Report.PerPage[0].RejectedLines.ShouldHaveSingleItem().Message.ShouldContain("pattern");
@@ -193,7 +195,7 @@ public sealed class ColumnTableEngineTests
             StopAt = [new Regex("Ende der Preisliste", RegexOptions.None, TimeSpan.FromMilliseconds(100))],
         };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words(), page3.Words()], spec);
+        var result = Read([page1.Words(), page2.Words(), page3.Words()], spec);
 
         result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "2001"]);
         result.Report.StoppedOnPage.ShouldBe(2);
@@ -210,7 +212,7 @@ public sealed class ColumnTableEngineTests
         var page3 = new PageBuilder(3).Header(60).Article(80, "3001", "Gamma", "3,00");
         var spec = PriceList.Spec(pages: [1, 2, 3]) with { PageMargins = new PageMargins(null, 900), Continuation = Continuation.None, GroupHeader = null };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2, page3.Words()], spec);
+        var result = Read([page1.Words(), page2, page3.Words()], spec);
 
         result.Report.PagesWithoutRows.ShouldBe([2]);
         result.Report.PerPage[1].HeaderFound.ShouldBeFalse();
@@ -228,7 +230,7 @@ public sealed class ColumnTableEngineTests
             .Text(PriceList.Description, 970, "Seite 2 von 2");
         var spec = PriceList.Spec(pages: [1, 2], bottom: 990) with { PageMargins = new PageMargins(60, 950) };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words()], spec);
+        var result = Read([page1.Words(), page2.Words()], spec);
 
         result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Alpha", "Beta"], "the letterhead and the footer are outside the margins, not continuation lines");
     }
@@ -240,7 +242,7 @@ public sealed class ColumnTableEngineTests
             .Article(120, "1001", "Alpha", "1,00")
             .Line(135, (PriceList.Description, "second line"));
 
-        var none = ColumnTableEngine.Extract([page.Words()], PriceList.Spec() with { GroupHeader = null, Continuation = Continuation.None });
+        var none = Read([page.Words()], PriceList.Spec() with { GroupHeader = null, Continuation = Continuation.None });
         none.Rows.ShouldHaveSingleItem().Cell("description")!.Text.ShouldBe("Alpha");
         none.Report.PerPage[0].RejectedLines.ShouldHaveSingleItem().Reason.ShouldBe(RejectionReasons.NoAnchor);
 
@@ -248,7 +250,7 @@ public sealed class ColumnTableEngineTests
             .Article(120, "1001", "Alpha", "1,00")
             .Line(135, (PriceList.Description, "Nachlass"), (PriceList.Price, "0,50"))
             .Article(150, "1002", "Beta", "2,00");
-        var result = ColumnTableEngine.Extract([conflict.Words()], PriceList.Spec());
+        var result = Read([conflict.Words()], PriceList.Spec());
         result.Rows.ShouldHaveSingleItem().Cell("supplierSku")!.Text.ShouldBe("1002");
         var rejected = result.Report.PerPage[0].RejectedLines.ShouldHaveSingleItem();
         rejected.Reason.ShouldBe(RejectionReasons.ContinuationConflict);
@@ -267,7 +269,7 @@ public sealed class ColumnTableEngineTests
         var shifted = PriceList.Dividers.Select(d => new ColumnBounds(d.X0 + 30, Math.Min(1000, d.X1 + 30))).ToList();
         var spec = PriceList.Spec(pages: [1, 2, 3]) with { PageOverrides = [new PageOverride(2, shifted)] };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words(), page3.Words()], spec);
+        var result = Read([page1.Words(), page2.Words(), page3.Words()], spec);
 
         result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Alpha", "Beta", "Gamma"]);
         result.Report.PerPage.Select(p => p.ColumnsFrom).ShouldBe([ColumnsFrom.Mapping, ColumnsFrom.Override, ColumnsFrom.Mapping]);
@@ -280,7 +282,7 @@ public sealed class ColumnTableEngineTests
         var page2 = new PageBuilder(2).Header(60).Article(80, "2001", "Beta", "2,00");
         var spec = PriceList.Spec(pages: [1, 2]) with { RepeatHeader = RepeatHeader.None, Continuation = Continuation.None, GroupHeader = null };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words()], spec);
+        var result = Read([page1.Words(), page2.Words()], spec);
 
         result.Rows.Count.ShouldBe(2);
         result.Report.PerPage[1].HeaderFound.ShouldBeFalse();
@@ -294,6 +296,9 @@ public sealed class ColumnTableEngineTests
         // tier prices, a page footer and a carry-over line on every page, one mapping drawn on page 1.
         var pages = new List<WordPage>();
         var sku = 100000;
+        // Group headings are numbered through the list (a heading that printed the page number on every page at the
+        // same height would be a running title).
+        var group = 0;
         for (var p = 1; p <= 14; p++)
         {
             var page = new PageBuilder(p);
@@ -315,7 +320,7 @@ public sealed class ColumnTableEngineTests
             {
                 if (r % 10 == 0)
                 {
-                    page.Text(PriceList.Sku + (p % 3), y, $"Gruppe {p}-{r / 10}");
+                    page.Text(PriceList.Sku + (p % 3), y, $"Gruppe {++group}");
                     y += 13;
                 }
 
@@ -340,7 +345,7 @@ public sealed class ColumnTableEngineTests
             PageMargins = new PageMargins(null, 950),
         };
 
-        var result = ColumnTableEngine.Extract(pages, spec);
+        var result = Read(pages, spec);
 
         result.Report.Rows.ShouldBe(412);
         result.Report.RejectedRows.ShouldBe(0);
@@ -360,12 +365,12 @@ public sealed class ColumnTableEngineTests
     public void A_mapping_without_a_column_for_the_row_anchor_or_its_tier_spec_is_refused()
     {
         var page = new PageBuilder(1).Header(100).Words();
-        Should.Throw<ArgumentException>(() => ColumnTableEngine.Extract([page], PriceList.Spec() with { RowAnchor = "gtin" }));
-        Should.Throw<ArgumentException>(() => ColumnTableEngine.Extract([page], PriceList.Spec() with { TierColumns = null }), "a tier column needs tierColumns");
+        Should.Throw<ArgumentException>(() => Read([page], PriceList.Spec() with { RowAnchor = "gtin" }));
+        Should.Throw<ArgumentException>(() => Read([page], PriceList.Spec() with { TierColumns = null }), "a tier column needs tierColumns");
         var untiered = PriceList.Spec() with { TierColumns = null };
         untiered = untiered with { Columns = [.. untiered.Columns.Select(c => c with { TierMinQuantity = null })] };
-        ColumnTableEngine.Extract([page], untiered).Rows.ShouldBeEmpty("without tierColumns a tier header is an ignored column");
-        Should.Throw<ArgumentException>(() => ColumnTableEngine.Extract([page], PriceList.Spec(page: 2)));
+        Read([page], untiered).Rows.ShouldBeEmpty("without tierColumns a tier header is an ignored column");
+        Should.Throw<ArgumentException>(() => Read([page], PriceList.Spec(page: 2)));
     }
 
     [Fact]
@@ -401,7 +406,7 @@ public sealed class ColumnTableEngineTests
             Columns = [.. proposal.Columns.Select(c => new TableColumn(c.X0, c.X1, c.Field, c.Header, c.TierMinQuantity))],
             HeaderRow = proposal.HeaderRow,
         };
-        var rows = ColumnTableEngine.Extract([page], spec).Rows;
+        var rows = Read([page], spec).Rows;
         rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Rioja Crianza", "Rioja Reserva DOCa lange zweite Zeile", "Cava Brut"]);
         rows.Select(r => r.Tiers.Count).ShouldBe([2, 2, 2]);
     }
@@ -436,36 +441,159 @@ public sealed class ColumnTableEngineTests
     {
         var page = new PageBuilder(1).Header(100).Article(120, "1001", "Alpha", "12,99", "11,50", "10,90").Words();
         var spec = PriceList.Spec(bottom: 200);
-        ColumnTableEngine.Extract([page], spec).Rows.ShouldHaveSingleItem().Tiers.Select(t => t.MinQuantity).ShouldBe([10m, 50m]);
+        Read([page], spec).Rows.ShouldHaveSingleItem().Tiers.Select(t => t.MinQuantity).ShouldBe([10m, 50m]);
 
         // "(leave out)" in the portal: no field and no minimum quantity; the header "ab 10" / "ab 50" is still printed and named.
         var leftOut = spec with { Columns = [.. spec.Columns.Select(c => c.Field is null ? c with { TierMinQuantity = null, Header = c.X0 < 900 ? "ab 10" : "ab 50" } : c)] };
-        var row = ColumnTableEngine.Extract([page], leftOut).Rows.ShouldHaveSingleItem();
+        var row = Read([page], leftOut).Rows.ShouldHaveSingleItem();
         row.Tiers.ShouldBeEmpty();
         row.Cell("price")!.Text.ShouldBe("12,99");
 
         // One left out, the other kept.
         var one = spec with { Columns = [.. spec.Columns.Select(c => c.TierMinQuantity == 50 ? c with { TierMinQuantity = null } : c)] };
-        ColumnTableEngine.Extract([page], one).Rows.ShouldHaveSingleItem().Tiers.Select(t => t.MinQuantity).ShouldBe([10m]);
+        Read([page], one).Rows.ShouldHaveSingleItem().Tiers.Select(t => t.MinQuantity).ShouldBe([10m]);
     }
 
     [Fact]
-    public void A_continuation_conflict_in_a_column_without_a_field_names_the_column_by_its_number()
+    public void A_continuation_conflict_in_a_tier_column_names_the_column_by_its_number_and_a_left_out_column_has_none()
     {
         var page = new PageBuilder(1).Header(100)
             .Article(120, "1001", "Alpha", "1,00", "0,90")
             .Line(135, (PriceList.Description, "Nachlass"), (PriceList.Tier10, "0,50"))
             .Article(150, "1002", "Beta", "2,00");
-        var spec = PriceList.Spec(bottom: 200) with { Columns = [.. PriceList.Spec().Columns.Select(c => c with { TierMinQuantity = null })] };
 
-        var rejected = ColumnTableEngine.Extract([page.Words()], spec).Report.PerPage[0].RejectedLines.ShouldHaveSingleItem();
-
+        // The tier column "ab 10" has no field: a second price in it on a continuation line is a conflict there.
+        var rejected = Read([page.Words()], PriceList.Spec(bottom: 200)).Report.PerPage[0].RejectedLines.ShouldHaveSingleItem();
         rejected.Reason.ShouldBe(RejectionReasons.ContinuationConflict);
         rejected.Message.ShouldBe("A continuation line has a second value in column 6.");
         rejected.Field.ShouldBeNull();
+
+        // Left out (no field, no tier), the column counts for nothing: the continuation line only adds its description.
+        var leftOut = PriceList.Spec(bottom: 200) with { Columns = [.. PriceList.Spec().Columns.Select(c => c with { TierMinQuantity = null })] };
+        var result = Read([page.Words()], leftOut);
+        result.Report.RejectedRows.ShouldBe(0);
+        result.Rows.Select(r => (r.Cell("supplierSku")!.Text, r.Cell("description")!.Text)).ShouldBe([("1001", "Alpha Nachlass"), ("1002", "Beta")]);
+
         var named = new PageBuilder(1).Header(100).Article(120, "1001", "Alpha", "1,00").Line(135, (PriceList.Description, "Nachlass"), (PriceList.Price, "0,50"));
-        ColumnTableEngine.Extract([named.Words()], PriceList.Spec(bottom: 200)).Report.PerPage[0].RejectedLines.ShouldHaveSingleItem()
+        Read([named.Words()], PriceList.Spec(bottom: 200)).Report.PerPage[0].RejectedLines.ShouldHaveSingleItem()
             .Message.ShouldBe("A continuation line has a second value in the price column.");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_wrapped_line_of_a_left_out_column_is_neither_a_heading_nor_a_continuation_nor_a_conflict(bool groupHeadings)
+    {
+        // The reviewer leaves the pack column out; row 1001 prints "Restposten" there and wraps "solange Vorrat" onto
+        // the next line, in that column only.
+        var page = new PageBuilder(1).Header(100)
+            .Article(120, "1001", "Alpha", "1,00", content: "Restposten")
+            .Line(135, (PriceList.Content, "solange Vorrat"))
+            .Article(150, "1002", "Beta", "2,00");
+        var spec = PriceList.Spec(bottom: 200) with
+        {
+            Columns = [.. PriceList.Spec().Columns.Select(c => c.Field == "packDescription" ? c with { Field = null } : c)],
+            GroupHeader = groupHeadings ? new GroupHeaderSpec("category") : null,
+        };
+
+        var result = Read([page.Words()], spec);
+
+        result.Report.RejectedRows.ShouldBe(0);
+        result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1002"]);
+        result.Rows.ShouldAllBe(r => r.Cell("category") == null, "the wrapped line is no heading");
+        result.Rows.ShouldAllBe(r => r.Cell("packDescription") == null);
+        result.Rows[0].Cell("description")!.Text.ShouldBe("Alpha");
+        var report = result.Report.PerPage.ShouldHaveSingleItem();
+        report.GroupHeadings.ShouldBe(0);
+        report.ContinuationLines.ShouldBe(0);
+        report.LeftOutLines.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_footer_printed_at_the_same_place_on_every_page_is_left_out_by_itself_with_a_box_around_the_header_only()
+    {
+        // A box drawn only around the header row reads to the foot of the page, footers included.
+        PageBuilder Page(int n, double footerX, double headerY, string sku) =>
+            new PageBuilder(n).Header(headerY).Article(headerY + 20, sku, "Alpha", "1,00").Article(headerY + 35, $"{sku}9", "Beta", "2,00").Text(footerX, 960, $"Seite {n} von 2");
+
+        foreach (var footerX in new[] { PriceList.Sku, 450d })
+        {
+            foreach (var headings in new[] { true, false })
+            {
+                var pages = new[] { Page(1, footerX, 100, "1001").Words(), Page(2, footerX, 60, "2001").Words() };
+                var spec = PriceList.Spec(pages: [1, 2], top: 95, bottom: 112) with { GroupHeader = headings ? new GroupHeaderSpec("category") : null };
+
+                var result = Read(pages, spec);
+
+                result.Report.RejectedRows.ShouldBe(0);
+                result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "10019", "2001", "20019"], $"footer at x={footerX}, headings {headings}");
+                result.Rows.ShouldAllBe(r => r.Cell("category") == null);
+                result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Alpha", "Beta", "Alpha", "Beta"]);
+                result.Rows.Select(r => r.Cell("packDescription")!.Text).ShouldAllBe(t => t == "6 x 0,75 l");
+                result.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([1, 1]);
+            }
+        }
+
+        // Off, the footer is read like any other line: in the article-number column it is a lone anchor value, rejected.
+        var keep = Read([Page(1, PriceList.Sku, 100, "1001").Words(), Page(2, PriceList.Sku, 60, "2001").Words()], PriceList.Spec(pages: [1, 2], top: 95, bottom: 112) with { GroupHeader = null, SkipRepeatedLines = false });
+        keep.Rows.Count.ShouldBe(4);
+        keep.Report.PerPage.Select(p => p.RejectedLines.ShouldHaveSingleItem().Reason).ShouldBe([RejectionReasons.AnchorOnly, RejectionReasons.AnchorOnly]);
+    }
+
+    [Fact]
+    public void A_value_only_in_the_anchor_column_is_rejected_not_taken_for_an_article()
+    {
+        // One page: nothing repeats, so the footer in the article-number column reaches the rows.
+        var page = new PageBuilder(1).Header(100).Article(120, "1001", "Alpha", "1,00").Text(PriceList.Sku, 960, "Seite 1 von 1").Words();
+
+        var result = Read([page], PriceList.Spec(top: 95, bottom: 112) with { GroupHeader = null });
+
+        result.Rows.ShouldHaveSingleItem().Cell("supplierSku")!.Text.ShouldBe("1001");
+        var rejected = result.Report.PerPage[0].RejectedLines.ShouldHaveSingleItem();
+        rejected.Reason.ShouldBe(RejectionReasons.AnchorOnly);
+        rejected.Text.ShouldBe("Seite 1 von 1");
+        rejected.Field.ShouldBe("supplierSku");
+
+        // A table that maps only the anchor column has nothing else to read: its rows are anchor values.
+        var only = PriceList.Spec(top: 95, bottom: 112) with { Columns = [.. PriceList.Spec().Columns.Select(c => c.Field == "supplierSku" ? c : c with { Field = null, TierMinQuantity = null })], GroupHeader = null };
+        Read([page], only).Rows.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void Lines_alike_between_rows_are_never_running_lines()
+    {
+        // Rows printed at a fixed pitch: the continuation line "zweite Zeile" sits at the same height on every page.
+        var pages = Enumerable.Range(1, 4).Select(n => new PageBuilder(n).Header(100)
+            .Article(120, $"{n}001", "Alpha", "1,00").Text(PriceList.Description, 135, "zweite Zeile")
+            .Article(150, $"{n}002", "Beta", "2,00").Words()).ToList();
+
+        var result = Read(pages, PriceList.Spec(pages: [1, 2, 3, 4], bottom: 940));
+
+        result.Rows.Count.ShouldBe(8);
+        result.Rows.Where(r => r.Cell("supplierSku")!.Text.EndsWith("001", StringComparison.Ordinal)).ShouldAllBe(r => r.Cell("description")!.Text == "Alpha zweite Zeile");
+        result.Report.PerPage.ShouldAllBe(p => p.RepeatedLines == 0);
+    }
+
+    [Fact]
+    public void Running_line_signatures_stand_a_number_for_the_page_number_or_the_page_count_only()
+    {
+        ColumnTableEngine.RepeatSignature("Seite 2 von 14", 2, 14).ShouldBe("seite # von #");
+        ColumnTableEngine.RepeatSignature("Seite  13 von 14", 13, 14).ShouldBe("seite # von #");
+        ColumnTableEngine.RepeatSignature("Warengruppe 12", 5, 14).ShouldBe("warengruppe 12");
+        ColumnTableEngine.RepeatSignature("Stand 01.11.2026", 3, 14).ShouldBe("stand 01.11.2026");
+    }
+
+    [Fact]
+    public void A_pattern_that_runs_out_of_time_stops_the_run_and_so_does_the_cancellation_token()
+    {
+        var page = new PageBuilder(1).Header(100).Article(120, "1001", "Alpha", "1,00").Text(PriceList.Description, 135, new string('a', 40) + "!").Words();
+        var slow = PriceList.Spec(bottom: 200) with { SkipRows = [new Regex("^(a+)+$", RegexOptions.None, TimeSpan.FromMilliseconds(1))] };
+
+        Should.Throw<TablePatternTimeoutException>(() => Read([page], slow)).Pattern.ShouldBe("^(a+)+$");
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        Should.Throw<OperationCanceledException>(() => ColumnTableEngine.Extract([page], PriceList.Spec(bottom: 200), cancelled.Token));
     }
 
     [Fact]
@@ -475,17 +603,17 @@ public sealed class ColumnTableEngineTests
         var page2 = new PageBuilder(2).Header(60).Article(80, "2001", "Gamma", "3,00").Article(960, "2002", "Delta", "4,00");
         var headerOnly = PriceList.Spec(pages: [1, 2], top: 95, bottom: 115) with { GroupHeader = null };
 
-        var result = ColumnTableEngine.Extract([page1.Words(), page2.Words()], headerOnly);
+        var result = Read([page1.Words(), page2.Words()], headerOnly);
 
         result.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1002", "2001", "2002"], "nothing is printed below the header inside the box, so the page is read to its foot");
         result.Report.PerPage.Select(p => p.Bottom).ShouldBe([1000d, 1000d]);
         result.Report.PerPage[0].Top.ShouldBe(111);
 
-        var margin = ColumnTableEngine.Extract([page1.Words(), page2.Words()], headerOnly with { PageMargins = new PageMargins(null, 900) });
+        var margin = Read([page1.Words(), page2.Words()], headerOnly with { PageMargins = new PageMargins(null, 900) });
         margin.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "1002", "2001"], "the bottom margin ends every page");
 
         // A box with rows in it still ends at its bottom on the mapping page, and on the other pages without a margin.
-        var boxed = ColumnTableEngine.Extract([page1.Words(), page2.Words()], PriceList.Spec(pages: [1, 2], bottom: 600) with { GroupHeader = null });
+        var boxed = Read([page1.Words(), page2.Words()], PriceList.Spec(pages: [1, 2], bottom: 600) with { GroupHeader = null });
         boxed.Rows.Select(r => r.Cell("supplierSku")!.Text).ShouldBe(["1001", "2001"]);
         boxed.Report.PerPage.Select(p => p.Bottom).ShouldBe([600d, 600d]);
     }
@@ -499,13 +627,18 @@ public sealed class ColumnTableEngineTests
         var page2 = new PageBuilder(2).Text(PriceList.Sku, 30, "Nordwind Preisliste 2027").Article(80, "2001", "Beta", "2,00").Text(PriceList.Description, 900, "Seite 2 von 2");
         var spec = PriceList.Spec(pages: [1, 2], bottom: 940);
 
-        var plain = ColumnTableEngine.Extract([page1.Words(), page2.Words()], spec);
-        plain.Rows.Single(r => r.Cell("supplierSku")!.Text == "2001").Cell("category")!.Text.ShouldBe("Nordwind Preisliste 2027", "without the reviewer's help the running title reads as a heading");
-        plain.Rows.Single(r => r.Cell("supplierSku")!.Text == "1001").Cell("description")!.Text.ShouldBe("Alpha Seite 1 von 2");
+        var plain = Read([page1.Words(), page2.Words()], spec);
+        // The footer is printed at the same place on both pages: left out by itself. The running title is printed on
+        // page 2 only, so nothing tells it from a heading but the reviewer: it reads as one, and the page report lists it.
+        plain.Rows.Single(r => r.Cell("supplierSku")!.Text == "1001").Cell("description")!.Text.ShouldBe("Alpha");
+        plain.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([1, 1]);
+        plain.Rows.Single(r => r.Cell("supplierSku")!.Text == "2001").Cell("category")!.Text.ShouldBe("Nordwind Preisliste 2027", "without the reviewer's help a title on one page reads as a heading");
+        plain.Report.PerPage[1].Headings.ShouldBe(["Nordwind Preisliste 2027"]);
+        plain.Report.PerPage[0].Headings.ShouldBe(["Weißweine"]);
 
         // What the portal sends for "Leave out lines that start with" "Seite 1 von 2" and a top margin of 5 %.
         var helped = spec with { SkipRows = [new Regex(@"^Seite\s+\d+\s+von\s+\d+", RegexOptions.NonBacktracking)], PageMargins = new PageMargins(50, null) };
-        var rows = ColumnTableEngine.Extract([page1.Words(), page2.Words()], helped).Rows;
+        var rows = Read([page1.Words(), page2.Words()], helped).Rows;
         rows.Select(r => (r.Cell("supplierSku")!.Text, r.Cell("description")!.Text, r.Cell("category")!.Text)).ShouldBe([("1001", "Alpha", "Weißweine"), ("2001", "Beta", "Weißweine")]);
     }
 

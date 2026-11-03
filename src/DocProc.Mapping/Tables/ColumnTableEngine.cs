@@ -23,15 +23,24 @@ namespace DocProc.Mapping.Tables;
 /// text (not spread over the columns), is a heading; it fills the heading field of the rows below it.</description></item>
 /// <item><description><b>Tier columns.</b> A column that names its minimum quantity (<see cref="TableColumn.TierMinQuantity"/>,
 /// which the proposal reads from a header such as <c>ab 10</c>) yields a tier entry per non-empty cell. A column without
-/// a field and without a minimum quantity is left out, whatever its header says.</description></item>
+/// a field and without a minimum quantity is left out, whatever its header says: its words take no part in any decision
+/// (a line with words only there is skipped, not a heading, a continuation or a conflict).</description></item>
+/// <item><description><b>Running lines.</b> With <see cref="ColumnTableSpec.SkipRepeatedLines"/> (the default) a line
+/// printed at the same height with the same text (a number standing for any number) on at least half of the document's
+/// pages, two at least, is a running title, page number or footer and is left out, unless it reads as a row (a value in
+/// the row anchor column and a readable price). A row with a value only in the row anchor column, while the mapping
+/// fills other columns, is rejected (<see cref="RejectionReasons.AnchorOnly"/>), not taken for an article.</description></item>
 /// <item><description><b>The band read.</b> On the mapping page, the box below its header row; a box drawn only around
 /// the header row (nothing printed below the header inside it) reads on down to the bottom page margin, or the foot of the
 /// page. On the other pages, from the top page margin (or the top of the page) to the bottom one (or the box's bottom,
 /// or the foot of the page for a box around the header only); a header row found there moves the top below it.</description></item>
 /// <item><description><b>Report.</b> Per page: rows, rejected lines with their text and reason, header found, the
-/// dividers used, the first three rows; pages without rows; where a <c>stopAt</c> line ended the table.</description></item>
+/// dividers used, the first three rows, the group headings read, the running lines left out; pages without rows; where
+/// a <c>stopAt</c> line ended the table.</description></item>
 /// </list>
-/// Linear in the number of words; deterministic.
+/// Linear in the number of words; deterministic. A <c>skipRows</c> or <c>stopAt</c> pattern that runs out of time on a
+/// line stops the run (<see cref="TablePatternTimeoutException"/>), and so does the cancellation token, which is checked
+/// on every line, so a caller can bound the whole run.
 /// </summary>
 public static partial class ColumnTableEngine
 {
@@ -44,12 +53,62 @@ public static partial class ColumnTableEngine
     /// <summary>The first rows of each page the report shows.</summary>
     public const int FirstRowsPerPage = 3;
 
-    public static TableResult Extract(IReadOnlyList<WordPage> pages, ColumnTableSpec spec)
+    /// <summary>The most group headings a page report lists with their text.</summary>
+    public const int MaxHeadingsListed = 20;
+
+    /// <summary>How far apart two lines may be printed, in page units, and still be the same running line of two pages.</summary>
+    public const double RepeatTolerance = 6;
+
+    /// <exception cref="TablePatternTimeoutException">A <c>skipRows</c> or <c>stopAt</c> pattern ran out of time on a line.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public static TableResult Extract(IReadOnlyList<WordPage> pages, ColumnTableSpec spec, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pages);
         ArgumentNullException.ThrowIfNull(spec);
-        var run = new Run(spec, pages);
+        var run = new Run(spec, pages, cancellationToken);
         return run.Execute();
+    }
+
+    /// <summary>
+    /// A line's text as compared across pages for running lines: lower case, white space collapsed, and a number that is
+    /// the page's own number or the page count one <c>#</c> (<c>Seite 2 von 14</c> on page 2 and <c>Seite 13 von 14</c> on
+    /// page 13 are both <c>seite # von #</c>); any other number stays, so <c>Warengruppe 12</c> and <c>Warengruppe 13</c>
+    /// are two texts.
+    /// </summary>
+    public static string RepeatSignature(string? text, int page, int pageCount)
+    {
+        var builder = new StringBuilder();
+        var source = text ?? string.Empty;
+        for (var i = 0; i < source.Length; i++)
+        {
+            var c = source[i];
+            if (char.IsAsciiDigit(c))
+            {
+                var end = i;
+                while (end < source.Length && char.IsAsciiDigit(source[end]))
+                {
+                    end++;
+                }
+
+                var digits = source[i..end];
+                var isPageNumber = digits.Length <= 6 && int.Parse(digits, CultureInfo.InvariantCulture) is var number && (number == page || number == pageCount);
+                builder.Append(isPageNumber ? "#" : digits);
+                i = end - 1;
+            }
+            else if (char.IsWhiteSpace(c))
+            {
+                if (builder.Length > 0 && builder[^1] != ' ')
+                {
+                    builder.Append(' ');
+                }
+            }
+            else
+            {
+                builder.Append(char.ToLowerInvariant(c));
+            }
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     /// <summary>A header text as compared across pages: letters and digits only, lower case (<c>Art.-Nr.</c> is <c>artnr</c>).</summary>
@@ -104,9 +163,11 @@ public static partial class ColumnTableEngine
                     return true;
                 }
             }
-            catch (RegexMatchTimeoutException)
+            catch (RegexMatchTimeoutException ex)
             {
-                // A pattern that runs out of time matches nothing.
+                // Not "no match": a pattern that runs out of time on one line would on the next, and the next, so the run
+                // stops here instead of spending the time limit on every line of every page.
+                throw new TablePatternTimeoutException(pattern.ToString(), ex);
             }
         }
 
@@ -124,14 +185,18 @@ public static partial class ColumnTableEngine
         private readonly double[] _mappingCentres;
         private readonly int _minAnchors;
         private readonly bool _headerOnly;
+        private readonly bool[] _leftOut;
+        private readonly Dictionary<int, HashSet<int>> _repeated;
+        private readonly CancellationToken _ct;
         private readonly List<TableRow> _rows = [];
         private readonly Dictionary<int, PageState> _reports = [];
         private RowBuilder? _current;
         private (string Text, int Page, BoundingBox Box)? _category;
 
-        public Run(ColumnTableSpec spec, IReadOnlyList<WordPage> pages)
+        public Run(ColumnTableSpec spec, IReadOnlyList<WordPage> pages, CancellationToken cancellationToken)
         {
             _spec = spec;
+            _ct = cancellationToken;
             _pages = pages.GroupBy(p => p.Number).ToDictionary(g => g.Key, g => g.First());
             if (spec.Columns.Count == 0)
             {
@@ -167,6 +232,9 @@ public static partial class ColumnTableEngine
                 }
             }
 
+            // A column without a field and without a tier is left out: its words count for nothing (docs/11 §12.4 step 3).
+            _leftOut = [.. Enumerable.Range(0, spec.Columns.Count).Select(i => spec.Columns[i].Field is null && _tiers[i] is null)];
+
             var anchors = _headers.Count(h => h.Length > 0);
             _minAnchors = spec.MinAnchors > 0 ? Math.Min(spec.MinAnchors, Math.Max(anchors, 1)) : Math.Min(3, anchors);
 
@@ -174,6 +242,92 @@ public static partial class ColumnTableEngine
             _headerOnly = spec.HeaderRow is { } headerBand && !mapping.Words.Any(w =>
                 w.Box.CenterY > headerBand.Y1 && w.Box.CenterY <= spec.Region.Y1
                 && w.Box.CenterX >= spec.Region.X0 && w.Box.CenterX <= spec.Region.X1);
+            _repeated = spec.SkipRepeatedLines ? RepeatedWords() : [];
+        }
+
+        /// <summary>
+        /// The words of running lines, by page (their indexes): lines above the first or below the last line of the page
+        /// that reads as a row (by the mapping's dividers), with the same <see cref="RepeatSignature"/> and printed within
+        /// <see cref="RepeatTolerance"/> of the same height on at least half of the document's pages, two at least. Lines
+        /// between rows (continuation lines, headings inside the list) are never running lines, however alike they are.
+        /// Every page of the document counts, not only the pages read, so the proposal on one page knows them too.
+        /// </summary>
+        private Dictionary<int, HashSet<int>> RepeatedWords()
+        {
+            var repeated = new Dictionary<int, HashSet<int>>();
+            if (_pages.Count < 2)
+            {
+                return repeated;
+            }
+
+            var threshold = Math.Max(2, (_pages.Count + 1) / 2);
+            var pageCount = _pages.Keys.Max();
+            var bounds = _spec.Columns.Select(c => new ColumnBounds(c.X0, c.X1)).ToList();
+            var candidates = new List<(string Signature, double Y, int Page, TextLine Line)>();
+            foreach (var page in _pages.Values)
+            {
+                var lines = PageGeometry.Lines(page.Words);
+                var rowLike = lines.Select(l =>
+                {
+                    _ct.ThrowIfCancellationRequested();
+                    var cells = Assign(l, bounds);
+                    for (var i = 0; i < cells.Length; i++)
+                    {
+                        if (_leftOut[i])
+                        {
+                            cells[i].Clear();
+                        }
+                    }
+
+                    return ReadsAsRow(cells);
+                }).ToList();
+                var first = rowLike.IndexOf(true);
+                var last = rowLike.LastIndexOf(true);
+                for (var l = 0; l < lines.Count; l++)
+                {
+                    if (first >= 0 && l >= first && l <= last)
+                    {
+                        continue;
+                    }
+
+                    var signature = RepeatSignature(lines[l].Text, page.Number, pageCount);
+                    if (signature.Length > 0)
+                    {
+                        candidates.Add((signature, lines[l].Box.CenterY, page.Number, lines[l]));
+                    }
+                }
+            }
+
+            foreach (var group in candidates.GroupBy(c => c.Signature, StringComparer.Ordinal))
+            {
+                var byHeight = group.OrderBy(c => c.Y).ToList();
+                for (var start = 0; start < byHeight.Count;)
+                {
+                    var end = start;
+                    while (end + 1 < byHeight.Count && byHeight[end + 1].Y - byHeight[start].Y <= RepeatTolerance)
+                    {
+                        end++;
+                    }
+
+                    var cluster = byHeight.GetRange(start, end - start + 1);
+                    if (cluster.Select(c => c.Page).Distinct().Count() >= threshold)
+                    {
+                        foreach (var (_, _, number, line) in cluster)
+                        {
+                            if (!repeated.TryGetValue(number, out var words))
+                            {
+                                repeated[number] = words = [];
+                            }
+
+                            words.UnionWith(line.Words.Select(w => w.Index));
+                        }
+                    }
+
+                    start = end + 1;
+                }
+            }
+
+            return repeated;
         }
 
         private int? IndexOf(string field)
@@ -280,8 +434,10 @@ public static partial class ColumnTableEngine
             var left = columns.Min(c => c.X0) - ColumnTolerance;
             var right = columns.Max(c => c.X1) + ColumnTolerance;
             var words = page.Words.Where(w => w.Box.CenterY > top && w.Box.CenterY <= bottom && w.Box.CenterX >= left && w.Box.CenterX <= right);
+            var repeated = _repeated.GetValueOrDefault(page.Number);
             foreach (var line in PageGeometry.Lines(words))
             {
+                _ct.ThrowIfCancellationRequested();
                 var text = line.Text;
                 if (AnyMatch(_spec.StopAt, text))
                 {
@@ -295,6 +451,29 @@ public static partial class ColumnTableEngine
                 }
 
                 var cells = Assign(line, columns);
+                var leftOutWords = false;
+                for (var i = 0; i < cells.Length; i++)
+                {
+                    if (_leftOut[i] && cells[i].Count > 0)
+                    {
+                        leftOutWords = true;
+                        cells[i].Clear();
+                    }
+                }
+
+                if (leftOutWords && cells.All(c => c.Count == 0))
+                {
+                    // Words only in columns the mapping leaves out (a wrapped line of such a column): nothing to read.
+                    state.LeftOut++;
+                    continue;
+                }
+
+                if (repeated is not null && line.Words.All(w => repeated.Contains(w.Index)) && !ReadsAsRow(cells))
+                {
+                    state.Repeated++;
+                    continue;
+                }
+
                 var hasAnchor = cells[_anchor].Count > 0;
                 var spans = Spans(line, columns);
                 if (_spec.GroupHeader is not null && IsWithoutPrice(cells) && (spans || IsOneRun(line)))
@@ -308,6 +487,10 @@ public static partial class ColumnTableEngine
                         Finish();
                         _category = (text, page.Number, line.Box);
                         state.GroupHeadings++;
+                        if (state.Headings.Count < MaxHeadingsListed)
+                        {
+                            state.Headings.Add(text);
+                        }
                     }
 
                     continue;
@@ -331,6 +514,32 @@ public static partial class ColumnTableEngine
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// A line that reads as a row by itself: a value in the row anchor column and, when the table has a price column,
+        /// a price there that reads as its kind (without one, a value in another column the mapping fills). Running lines
+        /// are looked for outside the rows only, and a line that reads as a row is never left out as one.
+        /// </summary>
+        private bool ReadsAsRow(List<IndexedWord>[] cells)
+        {
+            if (cells[_anchor].Count == 0)
+            {
+                return false;
+            }
+
+            if (_when is not { } when)
+            {
+                return cells.Where((c, i) => i != _anchor && !_leftOut[i]).Any(c => c.Count > 0);
+            }
+
+            if (cells[when].Count == 0 || _spec.Columns[when].Field is not { } key || !_spec.Fields.TryGetValue(key, out var field))
+            {
+                return false;
+            }
+
+            var text = PrintedValues.Collapse(string.Join(' ', cells[when].Select(w => w.Text)));
+            return PrintedValues.Parse(field.Kind, text, _spec.Locale, field.Options, field.Pattern).Ok;
         }
 
         private void Continue(int page, TextLine line, List<IndexedWord>[] cells, PageState state)
@@ -616,6 +825,15 @@ public static partial class ColumnTableEngine
                 }
             }
 
+            if (tiers.Count == 0 && cells.Count == 1 && cells[0].Field == _spec.RowAnchor
+                && _spec.Columns.Any(c => c.Field is not null && c.Field != _spec.RowAnchor))
+            {
+                // A page footer, a title or a page number printed in the anchor column reads as an anchor value; an article
+                // has more than that.
+                state.Reject(new RejectedLine(row.Page, text, row.Box, RejectionReasons.AnchorOnly, $"Only a value in the {_spec.RowAnchor} column ('{cells[0].Text}'): not a row (a page footer or a title?).", _spec.RowAnchor));
+                return;
+            }
+
             if (_spec.GroupHeader is { } heading && row.Category is { } category && cells.All(c => c.Field != heading.Target))
             {
                 var kind = _spec.Fields.TryGetValue(heading.Target, out var target) ? target.Kind : FieldKinds.String;
@@ -706,6 +924,12 @@ public static partial class ColumnTableEngine
 
         public int Continuations { get; set; }
 
+        public int Repeated { get; set; }
+
+        public int LeftOut { get; set; }
+
+        public List<string> Headings { get; } = [];
+
         public IReadOnlyList<ColumnBounds> Columns { get; set; } = [];
 
         public double Top { get; set; }
@@ -723,6 +947,6 @@ public static partial class ColumnTableEngine
         }
 
         public TablePageReport ToReport(int maxListed) =>
-            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows, Math.Round(Top, 2), Math.Round(Bottom, 2));
+            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows, Math.Round(Top, 2), Math.Round(Bottom, 2), [.. Headings], Repeated, LeftOut);
     }
 }

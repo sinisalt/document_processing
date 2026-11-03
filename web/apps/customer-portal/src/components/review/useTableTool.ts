@@ -47,13 +47,16 @@ export function useTableTool(document: DocumentDetail, formSpec: FormSpec | null
   const shownKind: TableReportKind | null = report ? kind : storedReport ? "stored" : null;
 
   const call = useCallback(
-    async (body: ReturnType<typeof tableRequest> | { page: number; bBox: Box; path?: string | null }) =>
+    async (body: ReturnType<typeof tableRequest> | { page: number; bBox: Box; path?: string | null; groupHeader?: { target: string } | null }) =>
       unwrap(await client.POST("/api/v1/documents/{id}/regions:table", { params: { path: { id: document.id } }, body: body as ReturnType<typeof tableRequest> })),
     [client, document.id],
   );
 
+  // The proposal reads its page with the group headings the panel starts with ("Group headings fill the category" is
+  // ticked when the row has a category), so a heading is not read as an article there either.
   const propose = useMutation({
-    mutationFn: async ({ page, box }: { page: number; box: Box }) => call({ page, bBox: box, path: groupPath }),
+    mutationFn: async ({ page, box }: { page: number; box: Box }) =>
+      call({ page, bBox: box, path: groupPath, groupHeader: rowFieldsOf(formSpec, groupPath ?? "").hasCategory ? { target: "category" } : null }),
     onMutate: () => setError(null),
     onSuccess: (answer, { page, box }) => {
       const hasCategory = rowFieldsOf(formSpec, answer.path).hasCategory;

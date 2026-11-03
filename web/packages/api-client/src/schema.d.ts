@@ -478,7 +478,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. */
+        /** Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. A few reads run at a time per tenant (429 beyond). */
         post: operations["ReadDocumentRegion"];
         delete?: never;
         options?: never;
@@ -495,7 +495,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. */
+        /** The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. One read has a time budget (422 TABLE_READ_TOO_SLOW past it), and a few run at a time per tenant (429 beyond). */
         post: operations["ReadDocumentTable"];
         delete?: never;
         options?: never;
@@ -1221,6 +1221,12 @@ export interface components {
             canonical: null | components["schemas"]["JsonElement"];
             /** Format: int32 */
             canonicalSchemaVersion: null | number | string;
+            /**
+             * @description Whether the document's tenant has `configurableTypes` on (docs/11 §3 principle 6): the review screen offers the
+             *     review tools of P2 (the Map this document panel, set type, assign or create the supplier, split and join) only
+             *     then, so a tenant that is not on the feature reviews as before.
+             */
+            configurableTypes?: boolean;
             costs: components["schemas"]["DocumentCostsDto"];
             /** Format: date-time */
             createdAt: string;
@@ -1846,8 +1852,11 @@ export interface components {
          *     `repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or
          *     `none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band
          *     of the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,
-         *     or the foot of the page). A column is a tier column only when it names `tierMinQuantity` (the proposal reads it
-         *     from a header such as `ab 10`); one without a field or a quantity is left out. `write: true` writes the
+         *     or the foot of the page). `repeatedLines` `skip` (default) leaves out lines printed at the same height with
+         *     the same text on at least half of the document's pages (running titles, page numbers, footers; a number stands for any
+         *     number) unless they read as a row, `keep` reads them. A column is a tier column only when it names
+         *     `tierMinQuantity` (the proposal reads it from a header such as `ab 10`); one without a field or a quantity
+         *     is left out, and its words count for nothing. `write: true` writes the
          *     rows into the document as one correction (op `set` on `path`, the specification and report in its source)
          *     and stores the report (docs/11 §6.2 `DocumentTableReport`).
          */
@@ -1867,6 +1876,7 @@ export interface components {
             pages?: null | string;
             path?: null | string;
             reason?: null | string;
+            repeatedLines?: null | string;
             repeatHeader?: null | string;
             rowAnchor?: null | string;
             skipRows?: null | string[];
@@ -2076,7 +2086,10 @@ export interface components {
          *     first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
          *     dividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its
          *     first three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header
-         *     row, within the page margins; absent in a report stored before it was recorded).
+         *     row, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the
+         *     group headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`
+         *     counts the lines left out as running titles, page numbers or footers, `leftOutLines` the lines with words only in
+         *     columns the mapping leaves out (all three absent in a report stored before they were recorded).
          */
         TablePageReportDto: {
             /** Format: double */
@@ -2091,11 +2104,16 @@ export interface components {
             /** Format: int32 */
             groupHeadings: number | string;
             headerFound: boolean;
+            headings?: null | string[];
+            /** Format: int32 */
+            leftOutLines?: null | number | string;
             /** Format: int32 */
             page: number | string;
             /** Format: int32 */
             rejected: number | string;
             rejectedLines: components["schemas"]["TableRejectedLineDto"][];
+            /** Format: int32 */
+            repeatedLines?: null | number | string;
             /** Format: int32 */
             rows: number | string;
             /** Format: int32 */
@@ -2103,7 +2121,7 @@ export interface components {
             /** Format: double */
             top?: null | number | string;
         };
-        /** @description A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`), the message and the field. */
+        /** @description A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`, `anchorOnly`), the message and the field. */
         TableRejectedLineDto: {
             bBox: components["schemas"]["SourceBox"];
             field: null | string;

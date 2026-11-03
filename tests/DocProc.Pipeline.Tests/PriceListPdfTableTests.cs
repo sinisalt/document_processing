@@ -139,7 +139,7 @@ public sealed class PriceListPdfTableTests
             Locale = ValueLocale.German,
         };
 
-        var result = ColumnTableEngine.Extract(pages, spec);
+        var result = ColumnTableEngine.Extract(pages, spec, TestContext.Current.CancellationToken);
 
         result.Report.RejectedRows.ShouldBe(0, string.Join("; ", result.Report.PerPage.SelectMany(p => p.RejectedLines).Select(r => $"{r.Page}: {r.Text} ({r.Message})")));
         result.Report.Rows.ShouldBe(total);

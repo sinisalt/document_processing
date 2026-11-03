@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using DocProc.Domain.Validation;
 
 namespace DocProc.Definitions;
 
@@ -228,12 +229,12 @@ public static partial class DefinitionChecker
 
         if (field.Pattern is { } pattern && !IsValidPattern(pattern))
         {
-            problems.Add(new(at, "pattern is not a valid regular expression."));
+            problems.Add(new(at, PatternSize.IsSmallEnough(pattern) ? "pattern is not a valid regular expression." : TooLarge("pattern")));
         }
 
         if (field.Extraction?.Pattern is { } hint && !IsValidPattern(hint))
         {
-            problems.Add(new(at, "extraction.pattern is not a valid regular expression."));
+            problems.Add(new(at, PatternSize.IsSmallEnough(hint) ? "extraction.pattern is not a valid regular expression." : TooLarge("extraction.pattern")));
         }
 
         if (field.VisibleWhen is { } visible && DefinitionPaths.Find(definition, visible.Field) is null)
@@ -452,12 +453,22 @@ public static partial class DefinitionChecker
         }
     }
 
+    /// <summary>The message for a pattern above <see cref="PatternSize.MaxUnrolled"/>.</summary>
+    internal static string TooLarge(string what) =>
+        $"{what} repeats too much: counted repetitions such as {{0,99}} are unrolled, and nested ones multiply; at most {PatternSize.MaxUnrolled} characters unrolled.";
+
     /// <summary>
-    /// Whether <paramref name="pattern"/> compiles the way the platform runs it (NonBacktracking, culture-invariant):
-    /// field patterns, extraction hints and the <c>pattern</c> rule's <c>params.pattern</c>.
+    /// Whether <paramref name="pattern"/> compiles the way the platform runs it (NonBacktracking, culture-invariant) and
+    /// stays within <see cref="PatternSize.MaxUnrolled"/>: field patterns, extraction hints and the <c>pattern</c> rule's
+    /// <c>params.pattern</c>.
     /// </summary>
     internal static bool IsValidPattern(string pattern)
     {
+        if (!PatternSize.IsSmallEnough(pattern))
+        {
+            return false;
+        }
+
         try
         {
             _ = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));

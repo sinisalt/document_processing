@@ -157,7 +157,15 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
         detail.ExtractionMethod.ShouldBe(ExtractionMethod.Manual);
         var canonical = JsonNode.Parse(detail.Canonical!.Value.GetRawText())!;
         canonical["validFrom"]!["status"]!.GetValue<string>().ShouldBe("Missing", "every field of the type is there, Missing");
-        detail.ApprovalBlocked.ShouldBeNull("the document has a definition and a tree now");
+        detail.ConfigurableTypes.ShouldBeTrue("the review screen offers the P2 tools");
+
+        // The empty tree holds no value: approving it would publish an empty price list (docs/11 §11), so it is refused.
+        detail.ApprovalBlocked.ShouldNotBeNull().Code.ShouldBe(DocumentEndpoints.ApprovalBlockCodes.NoData);
+        var empty = await reviewer.PostAsync(Doc(id, ":approve"), null, Ct);
+        empty.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await ProblemOf(empty)).GetProperty("code").GetString().ShouldBe(DocumentEndpoints.ApprovalBlockCodes.NoData);
+        factory.Query(db => db.Documents.Single(d => d.Id == id).Status).ShouldBe(DocumentStatus.NeedsReview);
+        factory.Query(db => db.OutboxMessages.Count(m => m.DocumentId == id)).ShouldBe(0, "nothing is published");
         var reviewerName = "rev-" + tenant.ToString("N")[..8];
         detail.Flags.ShouldContain(f => f.Code == FlagCodes.TypeUnknown && f.ResolvedAt != null && f.ResolvedBy == reviewerName);
         detail.Flags.Where(f => f.ResolvedAt == null).Select(f => f.Code).ShouldContain(FlagCodes.FieldRequired, "the inline check names the required fields");
@@ -178,6 +186,12 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
 
         // Setting the same type again with prefill none would only empty the form: refused.
         (await reviewer.PostAsJsonAsync(Doc(id, ":set-type"), new SetDocumentTypeRequest("price-list"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // A row added by hand with every field Missing is no value either.
+        var appended = await reviewer.PatchAsJsonAsync(Doc(id, "/fields"), new CorrectFieldsRequest([new FieldCorrection("lines", V(new { }), null, Op: "append")]), Ct);
+        appended.StatusCode.ShouldBe(HttpStatusCode.OK, await appended.Content.ReadAsStringAsync(Ct));
+        (await DetailOf(appended)).ApprovalBlocked.ShouldNotBeNull().Code.ShouldBe(DocumentEndpoints.ApprovalBlockCodes.NoData);
+        (await reviewer.PatchAsJsonAsync(Doc(id, "/fields"), new CorrectFieldsRequest([new FieldCorrection("lines[0]", null, null, Op: "remove")]), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // The reviewer fills a value and approves; the type, not the gate, decides now.
         (await reviewer.PatchAsJsonAsync(Doc(id, "/fields"), new CorrectFieldsRequest([new FieldCorrection("validFrom", V("2026-11-01"), null)]), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -260,7 +274,9 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
 
         // The gate is behind configurableTypes: this tenant approves an Unknown document exactly as before.
         var unknown = await SeedUnknownAsync(tenant);
-        (await reviewer.GetFromJsonAsync<DocumentDetail>(Doc(unknown), ApiFactory.Json, Ct))!.ApprovalBlocked.ShouldBeNull();
+        var legacyDetail = (await reviewer.GetFromJsonAsync<DocumentDetail>(Doc(unknown), ApiFactory.Json, Ct))!;
+        legacyDetail.ApprovalBlocked.ShouldBeNull();
+        legacyDetail.ConfigurableTypes.ShouldBeFalse("the review screen keeps its pre-P2 empty state for this tenant");
         (await reviewer.PostAsync(Doc(unknown, ":approve"), null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var id = await SeedUnknownAsync(tenant);
@@ -298,6 +314,16 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
         // A type the tenant has no definition of.
         var orphan = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Type = DocumentTypeKey.Parse("price-list"), Invoice = null, ReviewTask = true });
         (await ProblemOf(await reviewer.PostAsync(Doc(orphan.DocumentId, ":approve"), null, Ct))).GetProperty("code").GetString().ShouldBe(DocumentEndpoints.ApprovalBlockCodes.NoDefinition);
+
+        // An invoice typed in review with prefill none holds the empty record of its kind: its kind is the record's own,
+        // not captured, so it is no data either until a value is filled.
+        var typed = await SeedUnknownAsync(tenant);
+        var record = await DetailOf(await reviewer.PostAsJsonAsync(Doc(typed, ":set-type"), new SetDocumentTypeRequest("Invoice"), Ct));
+        record.CanonicalSchemaVersion.ShouldBe(CanonicalDocumentSerializer.SchemaVersion);
+        record.ApprovalBlocked.ShouldNotBeNull().Code.ShouldBe(DocumentEndpoints.ApprovalBlockCodes.NoData);
+        var filled = await reviewer.PatchAsJsonAsync(Doc(typed, "/fields"), new CorrectFieldsRequest([new FieldCorrection("invoiceNumber", V("RE-77"), null)]), Ct);
+        filled.StatusCode.ShouldBe(HttpStatusCode.OK, await filled.Content.ReadAsStringAsync(Ct));
+        (await DetailOf(filled)).ApprovalBlocked.ShouldBeNull();
 
         // An invoice with data approves as always.
         var invoice = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, ReviewTask = true });

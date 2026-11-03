@@ -19,14 +19,20 @@ export interface TablePageStripProps {
 
 /**
  * The table report as a page strip (docs/11 §12.4): the totals, then one chip per page read ("p. 1: 22 rows",
- * "p. 7: 2 rejected", "p. 12: no rows"), and the rejected lines of the current page with their text and reason.
+ * "p. 7: 2 rejected", "p. 12: no rows"), the rejected lines of the current page with their text and reason, the group
+ * headings read on it (a running title or a footer taken for a heading shows there, to be left out), and how many
+ * lines were left out by themselves (printed at the same place on most pages) or skipped (text only in left-out columns).
  */
 export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected, onSkipLine, className }: TablePageStripProps) {
   const { t } = useTranslation(REVIEW_NS);
   const totals = reportTotals(report);
   const entries = stripEntries(report);
   const rejectedHere = currentPage === undefined ? [] : (pageReport(report, currentPage)?.rejectedLines ?? []);
-  const rejectedCount = currentPage === undefined ? 0 : Number(pageReport(report, currentPage)?.rejected ?? 0);
+  const here = currentPage === undefined ? null : pageReport(report, currentPage);
+  const rejectedCount = Number(here?.rejected ?? 0);
+  const headings = here?.headings ?? [];
+  const repeated = Number(here?.repeatedLines ?? 0);
+  const leftOut = Number(here?.leftOutLines ?? 0);
   return (
     <section className={cn("flex flex-col gap-2", className)} aria-label={t("table.strip.label")} data-testid="table-page-strip">
       <p className="text-sm" data-testid="table-totals" data-rows={totals.rows} data-rejected={totals.rejected}>
@@ -91,6 +97,38 @@ export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected
           </ul>
           {rejectedCount > rejectedHere.length && <p className="mt-1 text-xs text-muted-foreground">{t("table.strip.moreRejected", { count: rejectedCount - rejectedHere.length })}</p>}
         </div>
+      )}
+      {headings.length > 0 && (
+        <div className="rounded-md border p-2" data-testid="table-headings">
+          <p className="mb-1 text-xs text-muted-foreground">{t("table.strip.headings", { page: currentPage })}</p>
+          <ul className="flex flex-col gap-1">
+            {headings.map((heading, index) => (
+              <li key={index} className="flex items-start gap-1">
+                <span className="min-w-0 flex-1 px-1 font-mono text-xs">{heading}</span>
+                {onSkipLine && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("table.notRows.skipThis", { text: heading })}
+                    title={t("table.notRows.skipThis", { text: heading })}
+                    onClick={() => onSkipLine(heading)}
+                    data-testid="table-skip-heading"
+                  >
+                    <EyeOff aria-hidden />
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(repeated > 0 || leftOut > 0) && (
+        <p className="text-xs text-muted-foreground" data-testid="table-left-out" data-repeated={repeated} data-left-out={leftOut}>
+          {repeated > 0 && t("table.strip.repeatedLines", { count: repeated })}
+          {repeated > 0 && leftOut > 0 && " "}
+          {leftOut > 0 && t("table.strip.leftOutLines", { count: leftOut })}
+        </p>
       )}
     </section>
   );

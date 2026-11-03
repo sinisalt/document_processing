@@ -292,7 +292,9 @@ public static class PublishChecks
 
             if (kind.Kind == "pattern" && parameters["pattern"] is JsonValue patternValue && patternValue.TryGetValue<string>(out var pattern) && !DefinitionChecker.IsValidPattern(pattern))
             {
-                yield return new DefinitionProblem(at, "pattern is not a valid regular expression (backreferences, lookarounds and atomic groups are not supported).");
+                yield return new DefinitionProblem(at, DocProc.Domain.Validation.PatternSize.IsSmallEnough(pattern)
+                    ? "pattern is not a valid regular expression (backreferences, lookarounds and atomic groups are not supported)."
+                    : DefinitionChecker.TooLarge("pattern"));
             }
 
             foreach (var name in kind.PathParams)

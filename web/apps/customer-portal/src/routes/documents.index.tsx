@@ -20,7 +20,7 @@ import {
 } from "@docproc/app-shell";
 import { useDocumentTypes } from "@docproc/review";
 import { UploadDialog } from "@/components/UploadDialog";
-import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
+import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeLabel, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
 
 const ALL = "__all__";
@@ -138,7 +138,8 @@ function InboxPage() {
           cell: (info) => <span className="font-medium">{info.getValue() ?? t("inbox.noNumber")}</span>,
         }),
         helper.accessor("supplierName", { header: t("inbox.columns.supplier"), cell: (info) => info.getValue() ?? <span className="text-muted-foreground">—</span> }),
-        helper.accessor("type", { header: t("inbox.columns.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
+        // A legacy type by its translation, any other (a price list typed in review) by its catalogue name.
+        helper.accessor("type", { header: t("inbox.columns.type"), cell: (info) => typeLabel(info.getValue(), typeChoices) ?? t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         helper.accessor("issueDate", { header: t("inbox.columns.issueDate"), cell: (info) => formatDate(info.getValue(), i18n.language), sortFn: "datetime" }),
         // The roles of docs/11 §6.2, hidden until picked under Columns (a price list also shows them in place of a total).
         helper.accessor("validFrom", { header: t("inbox.columns.validFrom"), cell: (info) => formatDate(info.getValue() ?? null, i18n.language), sortFn: "datetime" }),
@@ -188,7 +189,7 @@ function InboxPage() {
           sortFn: "datetime",
         }),
       ]),
-    [t, i18n.language, fieldColumns],
+    [t, i18n.language, fieldColumns, typeChoices],
   );
   const columns = phone ? phoneColumns : desktopColumns;
 

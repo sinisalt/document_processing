@@ -220,7 +220,8 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
           </div>
         )}
       </ConfirmDialog>
-      {isCorrectable(document.status) && (
+      {/* The review actions of P2 (docs/11 §12.1, §12.7) are new behaviour: offered with configurableTypes only. */}
+      {isCorrectable(document.status) && document.configurableTypes === true && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" disabled={hasUnsavedChanges} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} data-testid="more-actions">

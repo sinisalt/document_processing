@@ -20,6 +20,7 @@ using DocProc.Pipeline.Review;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace DocProc.Api.Endpoints;
 
@@ -45,13 +46,15 @@ public static partial class DocumentEndpoints
 
         documents.MapPost("/{id:guid}/regions:read", ReadRegionAsync)
             .RequireAuthorization(Policies.Review)
+            .RequireRateLimiting(TableCapture.RateLimitPolicy)
             .WithName("ReadDocumentRegion")
-            .WithSummary("Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured.");
+            .WithSummary("Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. A few reads run at a time per tenant (429 beyond).");
 
         documents.MapPost("/{id:guid}/regions:table", ReadTableAsync)
             .RequireAuthorization(Policies.Review)
+            .RequireRateLimiting(TableCapture.RateLimitPolicy)
             .WithName("ReadDocumentTable")
-            .WithSummary("The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report.");
+            .WithSummary("The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. One read has a time budget (422 TABLE_READ_TOO_SLOW past it), and a few run at a time per tenant (429 beyond).");
 
         documents.MapGet("/{id:guid}/table-reports", GetTableReportsAsync)
             .RequireAuthorization(Policies.Read)
@@ -201,10 +204,12 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IOptions<TableToolOptions> limits,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
     {
+        var budget = limits.Value.ReadBudget;
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: request.Write, ct);
         if (row is null)
         {
@@ -251,7 +256,7 @@ public static partial class DocumentEndpoints
         var pageCount = pages.Max(p => p.Number);
         if (request.Columns is not { Count: > 0 })
         {
-            return Propose(request, target, pages, pageCount, readLocale, errors);
+            return Propose(request, target, pages, pageCount, readLocale, errors, budget, ct);
         }
 
         var spec = TableCapture.Build(request, target, pageCount, readLocale, errors);
@@ -263,11 +268,19 @@ public static partial class DocumentEndpoints
         TableResult result;
         try
         {
-            result = ColumnTableEngine.Extract(pages, spec);
+            result = ReadWithin(pages, spec, budget, ct);
         }
         catch (ArgumentException ex)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["columns"] = [ex.Message] });
+        }
+        catch (TablePatternTimeoutException ex)
+        {
+            return PatternTooSlow(request, ex);
+        }
+        catch (TableReadTooSlowException)
+        {
+            return ReadTooSlow(budget);
         }
 
         var report = TableCapture.ToDto(result.Report);
@@ -378,9 +391,12 @@ public static partial class DocumentEndpoints
 
     /// <summary>
     /// <c>regions:table</c> without columns (docs/11 §12.4 step 2): dividers from the word gaps of the box, each column named
-    /// from the field whose label its header matches, and the rows they read on that page.
+    /// from the field whose label its header matches, and the rows they read on that page, with the request's group
+    /// headings (the portal sends <c>groupHeader: {target: "category"}</c> when the row has a category, as it does for
+    /// the preview), so a heading is not read as a row; a group header whose target a proposed column fills, or that the
+    /// row cannot take, is left out of the proposal's readout.
     /// </summary>
-    private static Results<Ok<ReadTableResponse>, ValidationProblem, ProblemHttpResult> Propose(ReadTableRequest request, TableCapture.Target target, List<WordPage> pages, int pageCount, ValueLocale locale, Dictionary<string, string[]> errors)
+    private static Results<Ok<ReadTableResponse>, ValidationProblem, ProblemHttpResult> Propose(ReadTableRequest request, TableCapture.Target target, List<WordPage> pages, int pageCount, ValueLocale locale, Dictionary<string, string[]> errors, TimeSpan budget, CancellationToken ct)
     {
         if (request.Write)
         {
@@ -404,6 +420,7 @@ public static partial class DocumentEndpoints
         }
 
         var tierPattern = TableCapture.TierPattern(request.TierColumns, errors);
+        TableCapture.CheckLinePatterns(request, errors);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -412,7 +429,13 @@ public static partial class DocumentEndpoints
         var proposal = ColumnProposer.Propose(page!, TableCapture.Box(request.BBox), request.HeaderRow is { } h ? (h.Y0, h.Y1) : null, TableCapture.Proposable(target), tierPattern, locale);
         var columns = proposal.Columns.Select(c => new TableColumnDto(c.X0, c.X1, c.Field, c.Header, c.TierMinQuantity)).ToList();
         var header = proposal.HeaderRow is { } ph ? new TableBandDto(ph.Y0, ph.Y1) : null;
-        var proposed = request with { Columns = columns, HeaderRow = header, Pages = null, Write = false };
+        var heading = request.GroupHeader is { } group
+                      && columns.All(c => c.Field != group.Target)
+                      && (group.When is null || columns.Any(c => c.Field == group.When))
+                      && target.RowFields.Any(f => f.Key == group.Target && f.IsEnvelope && f.Kind is DocProc.Definitions.FieldKinds.String or DocProc.Definitions.FieldKinds.Text)
+            ? group
+            : null;
+        var proposed = request with { Columns = columns, HeaderRow = header, Pages = null, Write = false, GroupHeader = heading };
         var anchor = TableCapture.DefaultAnchor(target, columns.Select(c => new TableColumn(c.X0, c.X1, c.Field)));
         var empty = new TableReportDto(0, 0, [request.Page], [request.Page], null, []);
         if (anchor is null || columns.Count == 0)
@@ -426,10 +449,67 @@ public static partial class DocumentEndpoints
             return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, empty, [], false, false, Locale: locale.Name));
         }
 
-        var result = ColumnTableEngine.Extract(pages, spec);
+        TableResult result;
+        try
+        {
+            result = ReadWithin(pages, spec, budget, ct);
+        }
+        catch (TablePatternTimeoutException ex)
+        {
+            return PatternTooSlow(request, ex);
+        }
+        catch (TableReadTooSlowException)
+        {
+            return ReadTooSlow(budget);
+        }
+
         var rows = result.Rows.Take(TableCapture.MaxRowsInResponse).Select(TableCapture.ToDto).ToList();
         return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, TableCapture.ToDto(result.Report), rows, result.Rows.Count > rows.Count, false, Locale: locale.Name));
     }
+
+    /// <summary>
+    /// The table engine run within <paramref name="budget"/> (all pages and patterns together) and while the client waits:
+    /// a client that goes away cancels it, and a run past the budget ends in <see cref="TableReadTooSlowException"/>.
+    /// </summary>
+    private static TableResult ReadWithin(IReadOnlyList<WordPage> pages, ColumnTableSpec spec, TimeSpan budget, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (budget > TimeSpan.Zero)
+        {
+            deadline.CancelAfter(budget);
+        }
+        else
+        {
+            deadline.Cancel();
+        }
+        try
+        {
+            return ColumnTableEngine.Extract(pages, spec, deadline.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TableReadTooSlowException();
+        }
+    }
+
+    private static ProblemHttpResult ReadTooSlow(TimeSpan budget) =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: "Table read too slow",
+            detail: $"Reading the table took longer than {budget.TotalSeconds:0.#} s; read fewer pages, or use fewer or simpler skip and stop patterns.",
+            extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = TableCapture.TooSlow });
+
+    /// <summary>A <c>skipRows</c> or <c>stopAt</c> pattern that ran out of time on a line: refused under its key.</summary>
+    private static ValidationProblem PatternTooSlow(ReadTableRequest request, TablePatternTimeoutException ex)
+    {
+        var key = request.SkipRows?.ToList().IndexOf(ex.Pattern) is >= 0 and var skip ? $"skipRows[{skip}]"
+            : request.StopAt?.ToList().IndexOf(ex.Pattern) is >= 0 and var stop ? $"stopAt[{stop}]"
+            : "skipRows";
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = [ex.Message] });
+    }
+
+    /// <summary>A table read that ran past <see cref="TableToolOptions.ReadBudget"/>.</summary>
+    private sealed class TableReadTooSlowException : Exception;
 
     private static async Task<Results<Ok<IReadOnlyList<DocumentTableReportDto>>, ProblemHttpResult>> GetTableReportsAsync(Guid id, [FromServices] DocProcDbContext db, CancellationToken ct)
     {

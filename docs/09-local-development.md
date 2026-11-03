@@ -435,9 +435,12 @@ curl -s "http://localhost:5100/api/v1/documents/$DOC/table-reports" -H "$H" | jq
 a scanned page without a text layer has no words (`source: none`).
 
 With `configurableTypes` on, `:approve` refuses an Unknown document, one whose type has no published
-definition, and one with no data (`409 Cannot approve` with `code`), and the review screen shows the reason
-under a disabled Approve button (`DocumentDetail.approvalBlocked`); a tenant without the switch approves as
-before. A part joined into another document is `Cancelled` (status filter `Cancelled`, shown only under "All").
+definition, and one with no data: no tree, or a tree none of whose fields holds a value, as `:set-type` with prefill
+none leaves it (`409 Cannot approve` with `code`), and the review screen shows the reason under a disabled Approve
+button (`DocumentDetail.approvalBlocked`); a tenant without the switch approves as before. The review screen offers
+the tools of P2 (Map this document, the More menu with set type, supplier, split and join, map mode and the table
+tool) only with `configurableTypes` on (`DocumentDetail.configurableTypes`); a tenant without it reviews as before
+P2, while the endpoints answer API clients of any tenant. A part joined into another document is `Cancelled` (status filter `Cancelled`, shown only under "All").
 
 ### Demo data
 
@@ -646,11 +649,12 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    6), so the LLM splitter is asked and keeps the pages together; no keyword rule knows a price list, so the LLM
    classifier is asked, whose types have none either. The document arrives as `Other`, not `Unknown` (the correction
    in docs/11 §23), in Needs review with `UNSUPPORTED_TYPE` and `SUPPLIER_UNMATCHED`; Approve is disabled with
-   "Nothing was captured yet; fill the fields before approving."
+   "Nothing was captured yet: none of the fields holds a value. Fill the fields before approving."
 3. **Map this document.** Open it from the inbox ("(no number)", type Other). The Fields tab shows the Map this
    document panel: Type = Price list, Start with = Empty, Set type. The form of Price list v1 appears with every field
    empty, the blocking `FIELD_REQUIRED` flags of Valid from, Supplier and Currency, and map mode on (Map in the page
-   viewer's toolbar; M switches it on and off).
+   viewer's toolbar; M switches it on and off). Approve stays disabled with the same note: a form whose fields are all
+   empty is no data (docs/11 §11), until the first value is saved in step 4.
 4. **Header values from the page.** Click Valid from in the form, then click "01.01.2027" on the page: the preview above
    the page reads `“01.01.2027” → 2027-01-01` (editable); Enter assigns it and moves to the next empty required field,
    Tab skips, Esc drops the selection. Likewise Price list no. ← "PL-2027-01" (click it first: it is not required) and
@@ -666,17 +670,22 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    columns Article no., Description, Pack as printed, Price, Tier price from 10 and Tier price from 50 and draws the
    dividers on the page (drag one to move it, or move it with the arrow keys; double-click inside the box to add one;
    the merge button beside a column removes the divider before it). "Apply to all pages" and "Group headings fill the
-   category" are ticked. Read all pages: the page strip shows `412 rows, 0 rejected, 14 pages read`, p. 1: 22 rows and
-   p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured again at its header. Write 412
-   rows: one correction ("412 rows written as one correction."), the rows in the Articles grid (100 a page) with their
-   category and tier prices, and the report kept as the Table tab's page strip (also after a reload).
-   Lines inside the box that are not rows go under "Lines that are not rows": a box drawn down to the foot of the page
-   holds the footer of every page (14 rejected lines); "Leave out lines like this" beside a rejected line, or typing
-   "Seite 1 von 14" and "Nordwind Großhandel GmbH · Amtsgericht" under "Leave out lines that start with" (a number
-   stands for any number), reads 412 rows and none rejected again; "On the other pages, read the part of the page
-   from … to … %" cuts off running titles and footers by position instead. A box drawn only around the header row
-   reads every page down to its foot (or the bottom margin). Choosing "(leave out)" for a tier column leaves its prices
-   out of the rows.
+   category" are ticked, and the proposal reads page 1 with them: `Proposal (page 1 only): 22 rows`, the heading
+   "Weißweine" listed under "Group headings on page 1". Read all pages: the page strip shows `412 rows, 0 rejected, 14
+   pages read`, p. 1: 22 rows and p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured
+   again at its header. Write 412 rows: one correction ("412 rows written as one correction."), the rows in the grid
+   "Articles · 412 rows" (100 a page) with their category and tier prices, and the report kept as the Table tab's page
+   strip (also after a reload).
+   A box drawn down to the foot of the page holds the footer of every page. It is printed at the same place on all 14
+   pages, so it is left out by itself: still `412 rows, 0 rejected`, and each page says "2 lines printed at the same
+   place on most pages (running titles, page numbers, footers) were left out." Lines inside the box that are not rows
+   and do not repeat go under "Lines that are not rows" with their reason; "Leave out lines like …" beside a rejected
+   line (or beside a heading under "Group headings on page n", where a title printed on one page only shows up) adds a
+   skip line for that kind of line only, so a footer of two different lines needs two clicks; typing the start of a
+   line under "Leave out lines that start with" (a number stands for any number) does the same, and "On the other
+   pages, read the part of the page from … to … %" cuts off running titles and footers by position instead. A box
+   drawn only around the header row reads every page down to its foot (or the bottom margin). Choosing "(leave out)"
+   for a tier column leaves its prices out of the rows, and its words out of every decision.
    A reprocess from Classify (Reprocess, From stage = Classify) keeps the type set in review, and with it the rows.
 7. **Approve by hand.** Approve: no open flag is left, and the document is Approved. Price lists are always reviewed in
    this phase (`review.autoApprove: false`, docs/11 §5.8).
@@ -693,7 +702,10 @@ The same through the API (`$H` as under "Document types", `$DOC` the price list)
 The other review actions of P2 work on the demo data as well. More > Split into documents on the two-page invoice
 2026-131, with page 2 starting a document: the parts are read again and end `Failed` on a replay miss (their pages have
 no fixture); then More > Join parts on page 1 joins page 2 back, and the document is the whole file again, read from its
-fixture as before. A value typed into the wrong field of the delivery note moves to the right one when the handle beside
+fixture as before, as long as no other Bio-Hof Müller document is approved. Once one is (the e-invoice 2026-118, or
+the delivery note of "Demo: types as data", step 7), the extraction carries that supplier's last approved document as
+hints, its request no longer matches the fixture and the joined invoice ends `Failed` on a replay miss too; do the
+split and join first, or on a fresh stack (`DemoFixtureTests` holds both). A value typed into the wrong field of the delivery note moves to the right one when the handle beside
 its label is dragged onto that field (or with the arrows button beside it, "Move value to"): one `move` correction.
 Region OCR (a box without words, on a scan) says "No OCR is configured on this server": no OCR provider ships yet
 (docs/07).
@@ -802,6 +814,15 @@ LLM. With both at 0.6 the LLM is asked exactly for `Unknown`. Raising the pipeli
 also sends weak but typed keyword answers to the LLM, and the keyword answer stands when the LLM returns `Unknown`.
 A pipeline threshold below the classifier's changes nothing, because every answer under the classifier's threshold
 is already `Unknown`.
+
+**Table tool** (`TableToolOptions`; API only). The table tool and region OCR (docs/11 §12.3, §12.4) run in the API
+every tenant shares.
+
+| Key | Default | What it does |
+|---|---|---|
+| `TableTool:ReadBudget` | `00:00:10` | How long one `regions:table` read (proposal, preview or write) may take over all its pages and patterns; past it the request answers 422 `TABLE_READ_TOO_SLOW`. A read also stops when the client goes away. `00:00:00` refuses every read (tests). |
+| `TableTool:ConcurrentReadsPerTenant` | 2 | `regions:table` and `regions:read` requests running at once per tenant (per user in platform scope). At least 1. |
+| `TableTool:QueuedReadsPerTenant` | 4 | Further requests that wait for a free slot; more answer 429. Not negative. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

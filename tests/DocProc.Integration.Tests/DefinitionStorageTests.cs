@@ -51,6 +51,33 @@ public sealed class DefinitionStorageTests
         empty.Where(p => p.Value is JsonObject).ShouldAllBe(p => p.Value!["status"]!.GetValue<string>() == "Missing");
     }
 
+    /// <summary>The approval gate's "no canonical data" (docs/11 §11): the empty tree, and rows of Missing fields, hold no value.</summary>
+    [Fact]
+    public void An_empty_tree_holds_no_value_until_a_field_or_a_row_field_has_one()
+    {
+        var compiled = Compile("std.price-list");
+        var tree = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        DefinitionTree.HoldsValue(tree).ShouldBeFalse();
+        DefinitionTree.HoldsValue(null).ShouldBeFalse();
+
+        tree["lines"] = new JsonArray(DefinitionTree.EmptyRow(compiled.Descriptors, "lines"));
+        DefinitionTree.HoldsValue(tree).ShouldBeFalse("a row of Missing fields is no value");
+
+        tree["lines"] = new JsonArray(Row(compiled, row => row["description"] = Envelope(JsonValue.Create("Kaffee"))));
+        DefinitionTree.HoldsValue(tree).ShouldBeTrue();
+
+        var header = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        header["currency"] = Envelope(JsonValue.Create("EUR"));
+        DefinitionTree.HoldsValue(header).ShouldBeTrue();
+
+        // The coded invoice record typed in review: only its kind is set, and the kind is the record's own.
+        var record = JsonSerializer.SerializeToNode(new Invoice { Kind = FieldValue<InvoiceKind>.Inferred(InvoiceKind.Invoice, FieldSource.Human, 1) }, CanonicalJson.Options);
+        DefinitionTree.HoldsValue(record).ShouldBeTrue("the kind is an envelope with a value");
+        DefinitionTree.HoldsValue(record, ["kind"]).ShouldBeFalse();
+        var numbered = JsonSerializer.SerializeToNode(new Invoice { Kind = FieldValue<InvoiceKind>.Inferred(InvoiceKind.Invoice, FieldSource.Human, 1), InvoiceNumber = FieldValue.Extracted(DocumentIdentifier.Create("RE-1")) }, CanonicalJson.Options);
+        DefinitionTree.HoldsValue(numbered, ["kind"]).ShouldBeTrue();
+    }
+
     [Fact]
     public void Completing_a_tree_keeps_its_values_and_adds_the_fields_a_version_added()
     {

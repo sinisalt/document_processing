@@ -160,6 +160,15 @@ describe("generated form of a price list", () => {
     expect(input(`lines[${PAGE_SIZE}].supplierSku`)).toHaveValue(`A-${PAGE_SIZE}`);
   });
 
+  it("names the grid after the definition's label of the group (Articles), not the invoice family's line items", () => {
+    render(<Harness spec={templates.priceList} canonical={{ currency: extracted("EUR"), lines: [row(1), row(2)], ext: {} }} />);
+    const grid = screen.getByTestId("line-item-grid");
+    expect(within(grid).getByText("Articles · 2 rows")).toBeInTheDocument();
+    expect(within(grid).getByRole("table", { name: "Articles" })).toBeInTheDocument();
+    expect(screen.queryByText(/line items/)).toBeNull();
+    expect(screen.getByLabelText("Articles 1, Price")).toBeInTheDocument();
+  });
+
   it("edits, adds and removes supplier-specific attributes", () => {
     const onStructuralChange = vi.fn();
     render(<Harness spec={templates.priceList} canonical={{ lines: [], ext: { storeNo: extracted("0815") } }} onStructuralChange={onStructuralChange} />);

@@ -308,7 +308,11 @@ public static partial class DocumentEndpoints
     {
         var document = row.Document;
         var (definition, type) = await DefinitionOfAsync(document, configs, features, ct);
-        var detail = DocumentQueries.ToDetail(row, definition) with { ApprovalBlocked = await ApprovalBlockAsync(document, configs, features, ct) };
+        var detail = DocumentQueries.ToDetail(row, definition) with
+        {
+            ApprovalBlocked = await ApprovalBlockAsync(document, configs, features, ct),
+            ConfigurableTypes = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct),
+        };
         if (type?.Compiled is not { } compiled || !Correctable.Contains(document.Status))
         {
             return detail;

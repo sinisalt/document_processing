@@ -62,6 +62,29 @@ describe("TablePageStrip", () => {
     fireEvent.click(within(rejected).getByText("104 Wein 1,2x"));
     expect(onPickRejected).toHaveBeenCalledWith(expect.objectContaining({ page: 2, reason: "unreadable" }));
   });
+
+  it("lists the headings of the current page and the lines left out by themselves", () => {
+    const onSkipLine = vi.fn();
+    const withHeadings: TableReport = {
+      ...report,
+      perPage: [{ ...report.perPage[0]!, headings: ["Nordwind Preisliste 2027 Fortsetzung"], repeatedLines: 2, leftOutLines: 1 }, ...report.perPage.slice(1)],
+    };
+    render(<TablePageStrip report={withHeadings} currentPage={1} onSkipLine={onSkipLine} />);
+    const headings = screen.getByTestId("table-headings");
+    expect(headings).toHaveTextContent("Group headings on page 1");
+    expect(headings).toHaveTextContent("Nordwind Preisliste 2027 Fortsetzung");
+    fireEvent.click(within(headings).getByRole("button", { name: "Leave out lines like “Nordwind Preisliste 2027 Fortsetzung”" }));
+    expect(onSkipLine).toHaveBeenCalledWith("Nordwind Preisliste 2027 Fortsetzung");
+    const leftOut = screen.getByTestId("table-left-out");
+    expect(leftOut).toHaveTextContent("2 lines printed at the same place on most pages (running titles, page numbers, footers) were left out.");
+    expect(leftOut).toHaveTextContent("1 line with text only in columns left out was skipped.");
+  });
+
+  it("shows neither for a page without them, or a report stored before they were recorded", () => {
+    render(<TablePageStrip report={report} currentPage={1} />);
+    expect(screen.queryByTestId("table-headings")).toBeNull();
+    expect(screen.queryByTestId("table-left-out")).toBeNull();
+  });
 });
 
 const state: TableToolState = {

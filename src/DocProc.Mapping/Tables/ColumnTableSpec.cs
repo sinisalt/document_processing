@@ -117,4 +117,11 @@ public sealed record ColumnTableSpec
 
     /// <summary>The most rejected lines a page report lists with their text (the count is always complete).</summary>
     public int MaxRejectedListed { get; init; } = 50;
+
+    /// <summary>
+    /// Leave out running titles, page numbers and footers by themselves (docs/11 §12.4 step 3, on by default): a line printed
+    /// at the same height on at least half of the document's pages (two at least) with the same text, a number standing
+    /// for any number, is not table content, unless it holds the column headers. Off reads such lines like any other.
+    /// </summary>
+    public bool SkipRepeatedLines { get; init; } = true;
 }

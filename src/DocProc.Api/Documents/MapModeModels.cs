@@ -76,8 +76,11 @@ public sealed record TablePageOverrideDto(int Page, IReadOnlyList<TableColumnBou
 /// <c>repeatHeader</c> <c>auto</c> (default) or <c>none</c>, <c>continuation</c> <c>appendToPrevious</c> (default) or
 /// <c>none</c>, <c>skipRows</c> and <c>stopAt</c> regular expressions over a line's text, <c>pageMargins</c> the band
 /// of the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,
-/// or the foot of the page). A column is a tier column only when it names <c>tierMinQuantity</c> (the proposal reads it
-/// from a header such as <c>ab 10</c>); one without a field or a quantity is left out. <c>write: true</c> writes the
+/// or the foot of the page). <c>repeatedLines</c> <c>skip</c> (default) leaves out lines printed at the same height with
+/// the same text on at least half of the document's pages (running titles, page numbers, footers; a number stands for any
+/// number) unless they read as a row, <c>keep</c> reads them. A column is a tier column only when it names
+/// <c>tierMinQuantity</c> (the proposal reads it from a header such as <c>ab 10</c>); one without a field or a quantity
+/// is left out, and its words count for nothing. <c>write: true</c> writes the
 /// rows into the document as one correction (op <c>set</c> on <c>path</c>, the specification and report in its source)
 /// and stores the report (docs/11 §6.2 <c>DocumentTableReport</c>).
 /// </summary>
@@ -100,7 +103,8 @@ public sealed record ReadTableRequest(
     IReadOnlyList<TablePageOverrideDto>? PageOverrides = null,
     string? Locale = null,
     bool Write = false,
-    string? Reason = null);
+    string? Reason = null,
+    string? RepeatedLines = null);
 
 /// <summary>A value of a row: field, printed text, the value read (shape of a correction), its page and box.</summary>
 public sealed record TableCellDto(string Field, string Text, JsonElement? Value, int Page, SourceBox BBox);
@@ -111,7 +115,7 @@ public sealed record TableTierDto(decimal MinQuantity, TableCellDto Price);
 /// <summary>A row the table read: the page it starts on, its box there, its values and tiers.</summary>
 public sealed record TableRowDto(int Page, SourceBox BBox, IReadOnlyList<TableCellDto> Cells, IReadOnlyList<TableTierDto> Tiers);
 
-/// <summary>A line that did not become a row: its text, box, a reason code (<c>unreadable</c>, <c>noAnchor</c>, <c>continuationConflict</c>), the message and the field.</summary>
+/// <summary>A line that did not become a row: its text, box, a reason code (<c>unreadable</c>, <c>noAnchor</c>, <c>continuationConflict</c>, <c>anchorOnly</c>), the message and the field.</summary>
 public sealed record TableRejectedLineDto(int Page, string Text, SourceBox BBox, string Reason, string Message, string? Field);
 
 /// <summary>
@@ -119,7 +123,10 @@ public sealed record TableRejectedLineDto(int Page, string Text, SourceBox BBox,
 /// first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
 /// dividers used and where they came from (<c>mapping</c>, <c>header</c>, <c>previousHeader</c>, <c>override</c>), its
 /// first three rows as printed, and the band of the page read (<c>top</c> to <c>bottom</c>, page units: below the header
-/// row, within the page margins; absent in a report stored before it was recorded).
+/// row, within the page margins; absent in a report stored before it was recorded). <c>headings</c> are the texts of the
+/// group headings read on the page (the first 20), so a running title or footer taken for one shows; <c>repeatedLines</c>
+/// counts the lines left out as running titles, page numbers or footers, <c>leftOutLines</c> the lines with words only in
+/// columns the mapping leaves out (all three absent in a report stored before they were recorded).
 /// </summary>
 public sealed record TablePageReportDto(
     int Page,
@@ -134,7 +141,10 @@ public sealed record TablePageReportDto(
     string ColumnsFrom,
     IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows,
     double? Top = null,
-    double? Bottom = null);
+    double? Bottom = null,
+    IReadOnlyList<string>? Headings = null,
+    int? RepeatedLines = null,
+    int? LeftOutLines = null);
 
 /// <summary>The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page.</summary>
 public sealed record TableReportDto(int Rows, int RejectedRows, IReadOnlyList<int> Pages, IReadOnlyList<int> PagesWithoutRows, int? StoppedOnPage, IReadOnlyList<TablePageReportDto> PerPage);

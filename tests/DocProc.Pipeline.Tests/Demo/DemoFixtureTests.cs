@@ -12,6 +12,7 @@ using DocProc.Llm.Providers;
 using DocProc.Pipeline.Demo;
 using DocProc.Pipeline.Intake;
 using DocProc.Pipeline.Queue;
+using DocProc.Pipeline.Review;
 using DocProc.Pipeline.Support;
 using DocProc.Pipeline.Tests.Pdf;
 using Microsoft.Data.Sqlite;
@@ -181,6 +182,106 @@ public sealed class DemoFixtureTests
         {
             Assert.Skip(OtherPlatformExplanation);
         }
+    }
+
+    /// <summary>
+    /// docs/09 "Demo: manual mapping", the split and join of the invoice 2026-131: joined back, the document is the whole
+    /// file again and its extraction is the request of the upload, which the committed fixture answers. That holds only
+    /// while no other Bio-Hof Müller document is approved: the extraction then carries the supplier's hints (its last
+    /// approved document and that document's article numbers), so the request, and its hash, change and the replay
+    /// store has no answer for it (the joined invoice ends Failed in the compose stack).
+    /// </summary>
+    [Fact]
+    public async Task Joined_back_the_demo_invoice_is_read_from_its_fixture_until_a_document_of_its_supplier_is_approved()
+    {
+        var committed = Path.Combine(RepositoryRoot(), "fixtures", "demo", "llm-replay");
+        var work = Path.Combine(Path.GetTempPath(), "docproc-demo-join", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        var capture = new DemoAnswersProvider();
+        try
+        {
+            using var host = await DemoStack.StartAsync(work, capture);
+            var queue = host.Services.GetRequiredService<InProcessPipelineQueue>();
+            await WaitIdleAsync(queue);
+            Guid invoiceId;
+            Guid tenantId;
+            await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+            {
+                var invoice = await db.Documents.AsNoTracking().SingleAsync(d => d.IngestionItem!.FileName == DemoPdfs.InvoiceFileName, Ct);
+                (invoiceId, tenantId) = (invoice.Id, invoice.TenantId);
+            }
+
+            string LastExtractionHash() => RequestHasher.Hash(capture.Requests.Last(r => r.DocumentId == invoiceId && r.Stage == LlmStage.Extract));
+            var uploaded = LastExtractionHash();
+            File.Exists(Path.Combine(committed, uploaded + ".json")).ShouldBeTrue("the upload's extraction is the committed fixture");
+
+            await SplitAndJoinAsync(host, invoiceId, tenantId);
+            LastExtractionHash().ShouldBe(uploaded, "joined back, the invoice is read with the request of the upload");
+
+            // A reviewer approves the Bio-Hof e-invoice 2026-118 (or the delivery note of "Demo: types as data", step 7).
+            await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+            {
+                var other = await db.Documents.SingleAsync(d => d.IngestionItem!.FileName == "BioHof-Mueller_Rechnung_2026-118.xml", Ct);
+                other.SupplierId.ShouldNotBeNull();
+                (await db.Documents.AsNoTracking().SingleAsync(d => d.Id == invoiceId, Ct)).SupplierId.ShouldBe(other.SupplierId);
+                other.Status = DocumentStatus.Approved;
+                other.ApprovedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(Ct);
+            }
+
+            await SplitAndJoinAsync(host, invoiceId, tenantId);
+            var hinted = LastExtractionHash();
+            hinted.ShouldNotBe(uploaded, "the request now carries the supplier's last approved document");
+            File.Exists(Path.Combine(committed, hinted + ".json")).ShouldBeFalse("no fixture answers it: a replay miss in the compose stack");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(work))
+            {
+                Directory.Delete(work, recursive: true);
+            }
+        }
+    }
+
+    private static async Task WaitIdleAsync(InProcessPipelineQueue queue)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        cts.CancelAfter(TimeSpan.FromMinutes(2));
+        await queue.WaitForIdleAsync(cts.Token);
+    }
+
+    /// <summary>What More > Split into documents (page 2 starts a document) and then Join parts on page 1 do (<c>:split</c>, <c>:join</c>).</summary>
+    private static async Task SplitAndJoinAsync(IHost host, Guid id, Guid tenantId)
+    {
+        var queue = host.Services.GetRequiredService<InProcessPipelineQueue>();
+        var store = host.Services.GetRequiredService<IContainerBlobStore>();
+        var pdf = host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DocProc.Infrastructure.Pdf.PdfProcessingOptions>>().Value;
+        IReadOnlyList<ReviewPartOutcome> parts;
+        await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+        {
+            var document = await db.Documents.Include(d => d.Flags).SingleAsync(d => d.Id == id, Ct);
+            parts = await ReviewPartitioning.SplitAsync(db, store, pdf, document, [new ReviewSplitPart([1], null, null), new ReviewSplitPart([2], null, null)], "tenant-a-reviewer", DateTimeOffset.UtcNow, Ct);
+            await db.SaveChangesAsync(Ct);
+        }
+
+        foreach (var part in parts)
+        {
+            await queue.EnqueueAsync(new ProcessDocument(tenantId, part.DocumentId, part.Stage), Ct);
+        }
+
+        await WaitIdleAsync(queue);
+        await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+        {
+            var target = await db.Documents.Include(d => d.Flags).SingleAsync(d => d.Id == id, Ct);
+            var otherId = parts.Single(p => p.DocumentId != id).DocumentId;
+            var other = await db.Documents.Include(d => d.Flags).SingleAsync(d => d.Id == otherId, Ct);
+            var joined = await ReviewPartitioning.JoinAsync(db, store, pdf, target, [other], "tenant-a-reviewer", DateTimeOffset.UtcNow, Ct);
+            await db.SaveChangesAsync(Ct);
+            await queue.EnqueueAsync(new ProcessDocument(tenantId, joined.DocumentId, joined.Stage), Ct);
+        }
+
+        await WaitIdleAsync(queue);
     }
 
     [Fact]

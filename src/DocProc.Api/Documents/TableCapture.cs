@@ -6,6 +6,7 @@ using DocProc.Application.Configuration;
 using DocProc.Definitions;
 using DocProc.Definitions.Compilation;
 using DocProc.Domain.Fields;
+using DocProc.Domain.Validation;
 using DocProc.Mapping.Tables;
 using DocProc.Mapping.Values;
 
@@ -21,6 +22,12 @@ public static partial class TableCapture
     public const int MaxColumns = 40;
     public const int MaxPatterns = 20;
     public const int MaxPatternLength = 200;
+
+    /// <summary>The problem code of a table read that ran past its time budget (<see cref="TableToolOptions.ReadBudget"/>) or whose pattern ran out of time.</summary>
+    public const string TooSlow = "TABLE_READ_TOO_SLOW";
+
+    /// <summary>The rate limiting policy of <c>regions:table</c> and <c>regions:read</c>: a few reads at a time per tenant (<see cref="TableToolOptions"/>).</summary>
+    public const string RateLimitPolicy = "table-tool";
 
     /// <summary>The most rows a response lists (the report always counts them all).</summary>
     public const int MaxRowsInResponse = 1000;
@@ -100,6 +107,14 @@ public static partial class TableCapture
     /// <summary>The tier header pattern of the request, or the default one.</summary>
     public static Regex TierPattern(TableTierColumnsDto? tiers, Dictionary<string, string[]> errors) =>
         Pattern(tiers?.HeaderPattern ?? DefaultTierPattern, "tierColumns.headerPattern", errors, ignoreCase: true) ?? DefaultTier();
+
+    /// <summary>Checks the request's <c>skipRows</c> and <c>stopAt</c> as <see cref="Build"/> does (for the proposal, which builds its mapping itself).</summary>
+    public static void CheckLinePatterns(ReadTableRequest request, Dictionary<string, string[]> errors)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _ = Patterns(request.SkipRows, "skipRows", errors);
+        _ = Patterns(request.StopAt, "stopAt", errors);
+    }
 
     /// <summary>The engine's mapping for a request with columns; null with <paramref name="errors"/> filled when the request does not fit.</summary>
     public static ColumnTableSpec? Build(ReadTableRequest request, Target target, int pageCount, ValueLocale locale, Dictionary<string, string[]> errors)
@@ -202,6 +217,7 @@ public static partial class TableCapture
         var pages = Pages(request.Pages, request.Page, pageCount, errors);
         var repeat = Choice(request.RepeatHeader, RepeatHeader.Auto, "repeatHeader", errors, ("auto", RepeatHeader.Auto), ("none", RepeatHeader.None));
         var continuation = Choice(request.Continuation, Continuation.AppendToPrevious, "continuation", errors, ("appendToPrevious", Continuation.AppendToPrevious), ("none", Continuation.None));
+        var skipRepeated = Choice(request.RepeatedLines, true, "repeatedLines", errors, ("skip", true), ("keep", false));
         if (request.MinAnchors is < 0 or > MaxColumns)
         {
             errors["minAnchors"] = [$"From 0 (the default: three, or fewer headers) to {MaxColumns}."];
@@ -297,6 +313,7 @@ public static partial class TableCapture
             PageMargins = margins,
             PageOverrides = overrides,
             Locale = locale,
+            SkipRepeatedLines = skipRepeated,
         };
     }
 
@@ -442,13 +459,21 @@ public static partial class TableCapture
 
     /// <summary>
     /// A pattern as the platform runs patterns (NonBacktracking, culture-invariant, a time limit per match), or null with
-    /// the error; at most <see cref="MaxPatternLength"/> characters.
+    /// the error; at most <see cref="MaxPatternLength"/> characters, and at most <see cref="PatternSize.MaxUnrolled"/>
+    /// once its counted repetitions are unrolled (a short pattern with nested <c>{0,99}</c> would cost the shared API
+    /// seconds of CPU and hundreds of megabytes per line). Field patterns of the type version come through here too.
     /// </summary>
     private static Regex? Pattern(string? pattern, string key, Dictionary<string, string[]> errors, bool ignoreCase = false)
     {
         if (string.IsNullOrEmpty(pattern) || pattern.Length > MaxPatternLength)
         {
             errors[key] = [$"A pattern of 1 to {MaxPatternLength} characters."];
+            return null;
+        }
+
+        if (!PatternSize.IsSmallEnough(pattern))
+        {
+            errors[key] = [$"The pattern repeats too much: counted repetitions such as {{0,99}} are unrolled, and nested ones multiply; at most {PatternSize.MaxUnrolled} characters unrolled."];
             return null;
         }
 
@@ -506,7 +531,10 @@ public static partial class TableCapture
                     p.ColumnsFrom,
                     p.FirstRows,
                     p.Top,
-                    p.Bottom)),
+                    p.Bottom,
+                    p.Headings ?? [],
+                    p.RepeatedLines,
+                    p.LeftOutLines)),
             ]);
     }
 

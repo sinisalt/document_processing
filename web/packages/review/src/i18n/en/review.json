@@ -454,12 +454,18 @@
       "rejectedHeading_one": "Page {{page}}: {{count}} rejected line",
       "rejectedHeading_other": "Page {{page}}: {{count}} rejected lines",
       "moreRejected_one": "and {{count}} more",
-      "moreRejected_other": "and {{count}} more"
+      "moreRejected_other": "and {{count}} more",
+      "headings": "Group headings on page {{page}} (each fills the category of the rows below it):",
+      "repeatedLines_one": "{{count}} line printed at the same place on most pages (a running title, page number or footer) was left out.",
+      "repeatedLines_other": "{{count}} lines printed at the same place on most pages (running titles, page numbers, footers) were left out.",
+      "leftOutLines_one": "{{count}} line with text only in columns left out was skipped.",
+      "leftOutLines_other": "{{count}} lines with text only in columns left out were skipped."
     },
     "reasons": {
       "unreadable": "unreadable",
       "noAnchor": "no row start",
-      "continuationConflict": "continuation"
+      "continuationConflict": "continuation",
+      "anchorOnly": "only an article number"
     },
     "reportStale": "Preview of an earlier mapping (the mapping changed since; read the pages again):",
     "notRows": {

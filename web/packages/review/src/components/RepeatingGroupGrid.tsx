@@ -76,8 +76,10 @@ function widthOf(column: GridColumn): string {
 export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshold, onHighlight, flaggedPaths = [], onStructuralChange, busy = false }: RepeatingGroupGridProps) {
   const { t, i18n } = useTranslation(REVIEW_NS);
   const label = useFieldLabel(layout);
-  const isLines = node.field.key === "lines";
   const group = groupLabel(t, i18n.language, node.field);
+  // The invoice family's wording ("3 line items", "Line 2, Quantity") for a group called Lines; any other group (a
+  // price list's Articles) is named by its own label ("Articles · 412 rows"), as the definition labels it.
+  const isLines = node.field.key === "lines" && group === t("sections.lines");
   const watched = useWatch<FieldValues>({ name: formName(node.path) });
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [page, setPage] = useState(0);
@@ -222,7 +224,7 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
   const lowConfidence = (row: Record<string, unknown>) => columns.some((column) => isLowConfidence(row?.[column.key] as FieldValue | undefined, threshold));
 
   return (
-    <div className="flex flex-col gap-2" data-testid={isLines ? "line-item-grid" : "repeating-group"} data-group={node.path}>
+    <div className="flex flex-col gap-2" data-testid={node.field.key === "lines" ? "line-item-grid" : "repeating-group"} data-group={node.path}>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold">{isLines ? t("lines.title", { count: rows.length }) : `${group} · ${t("grid.title", { count: rows.length })}`}</span>
         {node.arithmetic &&

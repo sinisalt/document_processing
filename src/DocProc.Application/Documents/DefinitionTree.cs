@@ -135,6 +135,38 @@ public static class DefinitionTree
         return added;
     }
 
+    /// <summary>
+    /// Whether a canonical tree holds any value (docs/11 §11, the approval gate's "no canonical data"): an envelope with a
+    /// value (not Missing, not Unreadable) or a bare member with a value anywhere in it, rows and bags included. The tree
+    /// <see cref="CreateEmpty"/> writes (every field Missing, every list, group and bag empty) holds none, and neither
+    /// does a tree whose rows hold only Missing fields. Top-level keys in <paramref name="ignoredRootKeys"/> are not looked
+    /// at (the coded invoice record's <c>kind</c>, which is the record's own and not read from the document).
+    /// </summary>
+    public static bool HoldsValue(JsonNode? tree, IReadOnlyCollection<string>? ignoredRootKeys = null)
+    {
+        if (tree is JsonObject root && !IsEnvelope(root) && ignoredRootKeys is { Count: > 0 })
+        {
+            return root.Any(p => !ignoredRootKeys.Contains(p.Key) && Holds(p.Value));
+        }
+
+        return Holds(tree);
+
+        static bool Holds(JsonNode? node) => node switch
+        {
+            null => false,
+            JsonObject envelope when IsEnvelope(envelope) => ValueOf(envelope) is { } value && value.GetValueKind() != JsonValueKind.Null,
+            JsonObject group => group.Any(p => Holds(p.Value)),
+            JsonArray items => items.Any(Holds),
+            JsonValue value => value.GetValueKind() switch
+            {
+                JsonValueKind.Null or JsonValueKind.Undefined => false,
+                JsonValueKind.String => !string.IsNullOrWhiteSpace(value.GetValue<string>()),
+                _ => true,
+            },
+            _ => false,
+        };
+    }
+
     /// <summary>Whether <paramref name="node"/> is a <c>FieldValue</c> envelope: an object with a string <c>status</c> naming a <see cref="FieldStatus"/>.</summary>
     public static bool IsEnvelope(JsonNode? node) =>
         node is JsonObject envelope

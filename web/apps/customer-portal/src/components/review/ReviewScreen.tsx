@@ -134,7 +134,8 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
 
   // Map mode and the table tool (docs/11 §12.3, §12.4). Map mode starts on for a document whose fields hold no value
   // yet (a type just set in review); the choice, the field it fills and the table drawn survive the screen's remounts.
-  const mapAvailable = editable && pageCount > 0;
+  // Like every review tool of P2 they need the tenant's configurableTypes (docs/11 principle 6).
+  const mapAvailable = editable && pageCount > 0 && document.configurableTypes === true;
   const groupPath = useMemo(() => (layout?.structural ? defaultTablePath(formSpec) : null), [layout, formSpec]);
   const tableAvailable = mapAvailable && groupPath !== null;
   const noValues = useMemo(() => specs.length > 0 && specs.every((spec) => rawValueOf(canonical, spec) === undefined), [specs, canonical]);
@@ -543,8 +544,9 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                           </div>
                         )}
                       </form>
-                    ) : canReview && isCorrectable(document.status) ? (
-                      // docs/11 §12.1: a document without a form or data gets the "Map this document" panel.
+                    ) : canReview && isCorrectable(document.status) && document.configurableTypes === true ? (
+                      // docs/11 §12.1: a document without a form or data gets the "Map this document" panel, on a tenant
+                      // with configurableTypes (principle 6); any other tenant keeps the empty state it had before P2.
                       <MapDocumentPanel document={document} locale={locale} hasForm={!!formSpec} />
                     ) : (
                       <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : formSpec ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />

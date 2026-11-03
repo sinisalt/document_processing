@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DocumentTypeDetail } from "@docproc/review";
-import { fieldFilterQuery, indexedFieldOptions, statusFilterOf, typeOptions } from "./inbox";
+import { fieldFilterQuery, indexedFieldOptions, statusFilterOf, typeLabel, typeOptions } from "./inbox";
 
 const type = (key: string, name: Record<string, string>, indexedFields: DocumentTypeDetail["indexedFields"]) => ({ key, name, indexedFields }) as unknown as DocumentTypeDetail;
 
@@ -20,6 +20,13 @@ describe("inbox type filter", () => {
     expect(typeOptions(types, "de").find((o) => o.key === "price-list")?.name).toBe("Preisliste");
     // Without the catalogue (a platform account, a failed request) the legacy types remain.
     expect(typeOptions(undefined, "en")).toHaveLength(8);
+  });
+
+  it("names a catalogue type in the Type column by its catalogue name, and leaves a legacy type to its translation", () => {
+    expect(typeLabel("price-list", typeOptions(types, "en"))).toBe("Price list");
+    expect(typeLabel("price-list", typeOptions(types, "de"))).toBe("Preisliste");
+    expect(typeLabel("Invoice", typeOptions(types, "en"))).toBeUndefined();
+    expect(typeLabel("price-list", typeOptions(undefined, "en"))).toBeUndefined();
   });
 });
 
