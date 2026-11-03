@@ -400,7 +400,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       delivery note, read before the switch, showed the generated form, `DeliveryNote` was forked with `tour` and
       `supplierCustomerRef`, the note reprocessed onto v2 from the dialog, filled (number, round, customer number, a
       row), approved, and found by `?field.tour=Rosenheim Nord`; the METRO credit note stayed on v1 (version 1 tree).
-      No browser console errors and no 5xx after the fixes above.
+      No browser console errors and no 5xx after the fixes above; the API log still holds one EF Core "error
+      occurred using the connection" line from the moment of the upload (EF Core logs a cancelled query's
+      `SqlException` itself, outside the exception handler; no request failed).
   - Left for the rest of P1:
     - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
       nor are a row's `ext` bag and composites inside rows; the grid pages instead of virtualising (docs/11 §12.2); the
