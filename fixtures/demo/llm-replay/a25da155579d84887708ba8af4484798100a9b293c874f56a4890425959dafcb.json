@@ -1,0 +1,151 @@
+{
+  "header": {
+    "stage": "Extract",
+    "promptVersion": "extract-invoice@1",
+    "schema": "invoice_extraction@1\u002Bx.58a31050",
+    "taskTextHash": "51fc09aefda629d2d387b4e666c8978b7fba42de9bd6639e5e0d23d875181456",
+    "model": "claude-opus-5-5",
+    "recordedAt": "2026-10-30T12:00:00+00:00"
+  },
+  "model": "claude-opus-5-5",
+  "stopReason": "end_turn",
+  "providerRequestId": "replay-demo-extract-gs-2026-0918-x-custom",
+  "latencyMs": 6830,
+  "usage": {
+    "inputTokens": 2410,
+    "outputTokens": 1105,
+    "cacheReadTokens": 2950,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0
+  },
+  "json": {
+    "kind": "CreditNote",
+    "invoiceNumber": "GS-2026-0918",
+    "issueDate": "2026-11-02",
+    "deliveryDate": "2026-10-27",
+    "servicePeriodFrom": null,
+    "servicePeriodTo": null,
+    "dueDate": "2026-12-02",
+    "currency": "EUR",
+    "supplier": {
+      "name": "Getr\u00E4nke Hoffmann GmbH",
+      "vatId": "DE298765432",
+      "taxId": "156/118/40233",
+      "registrationNumber": "HRB 21877",
+      "addressLine1": "Brauhausweg 9",
+      "addressLine2": null,
+      "postalCode": "83026",
+      "city": "Rosenheim",
+      "countryCode": "DE",
+      "email": "rechnung@getraenke-hoffmann.de",
+      "phone": "08031 4077-0",
+      "iban": "DE61 7115 0000 0020 4711 08",
+      "bic": "BYLADEM1ROS"
+    },
+    "customer": {
+      "name": "Gasthaus zur Post GmbH",
+      "vatId": null,
+      "taxId": null,
+      "registrationNumber": null,
+      "addressLine1": "Hauptstra\u00DFe 12",
+      "addressLine2": null,
+      "postalCode": "83022",
+      "city": "Rosenheim",
+      "countryCode": "DE",
+      "email": null,
+      "phone": null,
+      "iban": null,
+      "bic": null
+    },
+    "orderReferences": [],
+    "deliveryNoteReferences": [],
+    "originalInvoiceReference": "RE-2026-55318",
+    "subtotalNet": 93.20,
+    "taxBreakdown": [
+      {
+        "ratePercent": 19,
+        "taxableAmount": 93.20,
+        "taxAmount": 17.71,
+        "categoryCode": "S"
+      }
+    ],
+    "totalTax": 17.71,
+    "totalGross": 110.91,
+    "amountDue": 110.91,
+    "rounding": null,
+    "chargesAndAllowances": [],
+    "paymentTerms": {
+      "dueDate": "2026-12-02",
+      "discountPercent": null,
+      "discountUntil": null,
+      "paymentReference": null,
+      "iban": null,
+      "bic": null,
+      "rawText": "Den Betrag verrechnen wir mit unserer n\u00E4chsten Lieferung, andernfalls wird er sp\u00E4testens nach 30 Tagen ausgezahlt."
+    },
+    "notes": "F\u00FCr das am 27.10.2026 (Tour 7) zur\u00FCckgenommene Leergut.",
+    "lines": [
+      {
+        "lineNumber": 1,
+        "supplierSku": null,
+        "gtin": null,
+        "description": "Leergut Kasten 20 x 0,5 l Glas",
+        "quantity": 14,
+        "unit": "Kiste",
+        "packSize": null,
+        "unitPrice": 3.10,
+        "discountPercent": null,
+        "discountAmount": null,
+        "lineNet": 43.40,
+        "taxRatePercent": 19,
+        "lineGross": null,
+        "depositAmount": null,
+        "lotNumber": null,
+        "bestBefore": null,
+        "page": 1
+      },
+      {
+        "lineNumber": 2,
+        "supplierSku": null,
+        "gtin": null,
+        "description": "Leergut Kasten 12 x 1,0 l Glas",
+        "quantity": 6,
+        "unit": "Kiste",
+        "packSize": null,
+        "unitPrice": 3.30,
+        "discountPercent": null,
+        "discountAmount": null,
+        "lineNet": 19.80,
+        "taxRatePercent": 19,
+        "lineGross": null,
+        "depositAmount": null,
+        "lotNumber": null,
+        "bestBefore": null,
+        "page": 1
+      },
+      {
+        "lineNumber": 3,
+        "supplierSku": null,
+        "gtin": null,
+        "description": "Leergut Fass 30 l Edelstahl",
+        "quantity": 1,
+        "unit": "Stk",
+        "packSize": null,
+        "unitPrice": 30.00,
+        "discountPercent": null,
+        "discountAmount": null,
+        "lineNet": 30.00,
+        "taxRatePercent": 19,
+        "lineGross": null,
+        "depositAmount": null,
+        "lotNumber": null,
+        "bestBefore": null,
+        "page": 1
+      }
+    ],
+    "unreadableRegions": [],
+    "x_custom": {
+      "supplierCustomerRef": "104 220815"
+    }
+  }
+}

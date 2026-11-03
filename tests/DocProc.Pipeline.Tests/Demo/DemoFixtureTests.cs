@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
+using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Catalogue;
@@ -9,7 +10,9 @@ using DocProc.Llm;
 using DocProc.Llm.Gateway;
 using DocProc.Llm.Providers;
 using DocProc.Pipeline.Demo;
+using DocProc.Pipeline.Intake;
 using DocProc.Pipeline.Queue;
+using DocProc.Pipeline.Support;
 using DocProc.Pipeline.Tests.Pdf;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -87,7 +90,7 @@ public sealed class DemoFixtureTests
 
                 // docs/09 "Document types": the tenant forks Invoice with the demo custom field and reprocesses the PDF
                 // invoice with configMode current; the x_custom extraction it then sends has a fixture of its own.
-                await ForkInvoiceWithCustomFieldAsync(host, invoice.TenantId);
+                await ForkWithFieldAsync(host, invoice.TenantId, "std.invoice", "Invoice", CustomFieldPath());
                 await ReprocessFromExtractWithCurrentConfigAsync(host, invoice);
                 await host.Services.GetRequiredService<InProcessPipelineQueue>().WaitForIdleAsync(cts.Token);
                 var custom = capture.Requests.Where(r => r.DocumentId == invoice.Id && r.Stage == LlmStage.Extract).ToList();
@@ -101,6 +104,34 @@ public sealed class DemoFixtureTests
                 }
 
                 requests.Add((DemoPdfs.InvoiceFileName, custom[1]));
+
+                // docs/09 "Demo: types as data": the tenant forks CreditNote in place with the custom field of docs/11
+                // §5.3 and uploads the Getränke Hoffmann credit note, which is classified by its keywords and extracted
+                // with x_custom at once; that extraction is the fourth fixture.
+                await ForkWithFieldAsync(host, invoice.TenantId, "std.credit-note", "CreditNote", CreditNoteFieldPath());
+                var before = capture.Requests.Count;
+                var creditNoteId = await UploadAsync(host, invoice.TenantId, CreditNotePath());
+                await host.Services.GetRequiredService<InProcessPipelineQueue>().WaitForIdleAsync(cts.Token);
+                var creditNoteRequests = capture.Requests.Skip(before).ToList();
+                creditNoteRequests.Select(r => r.Stage).ShouldBe([LlmStage.Extract], "the credit note costs one LLM call: keywords classify it ('Gutschrift'), the extraction asks for the custom field");
+                creditNoteRequests[0].DocumentId.ShouldBe(creditNoteId);
+                creditNoteRequests[0].OutputSchema!.Version.ShouldStartWith("1+x.");
+                await using (var after = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+                {
+                    var creditNote = await after.Documents.AsNoTracking().Include(d => d.Flags).SingleAsync(d => d.Id == creditNoteId, Ct);
+                    creditNote.Type.ShouldBe(DocumentTypeKey.CreditNote);
+                    creditNote.TypeSource.ShouldBe(TypeSource.Rule);
+                    creditNote.DocumentNumber.ShouldBe(DemoAnswers.CreditNoteNumber);
+                    creditNote.CanonicalSchemaVersion.ShouldBe(2);
+                    creditNote.Status.ShouldBe(DocumentStatus.NeedsReview, "the worked-out due date is not printed, so LOW_CONFIDENCE sends the credit note to review");
+                    creditNote.Flags.Select(f => f.Code).ShouldContain("LOW_CONFIDENCE");
+                    var scr = JsonNode.Parse(creditNote.CanonicalJson!)!["supplierCustomerRef"]!;
+                    scr["value"]!["verbatim"]!.GetValue<string>().ShouldBe(DemoPdfs.CreditNoteCustomerNumber);
+                    scr["source"].ShouldNotBeNull("the value has LLM provenance located in the text layer");
+                    (await after.DocumentFieldIndex.AsNoTracking().CountAsync(i => i.DocumentId == creditNoteId && i.FieldKey == "supplierCustomerRef", Ct)).ShouldBe(1);
+                }
+
+                requests.Add((DemoPdfs.CreditNoteFileName, creditNoteRequests[0]));
 
                 var generated = Path.Combine(work, "llm-replay");
                 var store = new FileReplayStore(generated, new FakeTimeProvider(RecordedAt));
@@ -165,17 +196,25 @@ public sealed class DemoFixtureTests
     [Fact]
     public void Demo_pdfs_are_committed_and_regenerated_only_on_request()
     {
-        var folder = Path.Combine(RepositoryRoot(), "fixtures", "demo", "tenant-a");
-        if (Environment.GetEnvironmentVariable(RegeneratePdfsVariable) == "1")
+        var demo = Path.Combine(RepositoryRoot(), "fixtures", "demo");
+        (string Path, Func<byte[]> Draw)[] pdfs =
+        [
+            (Path.Combine(demo, "tenant-a", DemoPdfs.InvoiceFileName), DemoPdfs.Invoice),
+            (Path.Combine(demo, "tenant-a", DemoPdfs.DeliveryNoteFileName), DemoPdfs.DeliveryNote),
+            (CreditNotePath(), DemoPdfs.CreditNote),
+        ];
+
+        // "1" redraws every PDF; a file name redraws only that one, so adding a demo PDF leaves the others' bytes alone.
+        var regenerate = Environment.GetEnvironmentVariable(RegeneratePdfsVariable);
+        foreach (var (path, draw) in pdfs.Where(p => regenerate == "1" || regenerate == Path.GetFileName(p.Path)))
         {
-            File.WriteAllBytes(Path.Combine(folder, DemoPdfs.InvoiceFileName), DemoPdfs.Invoice());
-            File.WriteAllBytes(Path.Combine(folder, DemoPdfs.DeliveryNoteFileName), DemoPdfs.DeliveryNote());
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, draw());
         }
 
-        foreach (var name in new[] { DemoPdfs.InvoiceFileName, DemoPdfs.DeliveryNoteFileName })
+        foreach (var (path, _) in pdfs)
         {
-            var path = Path.Combine(folder, name);
-            File.Exists(path).ShouldBeTrue($"{path} is missing; run the tests once with {RegeneratePdfsVariable}=1 and then {UpdateVariable}=1, and commit both.");
+            File.Exists(path).ShouldBeTrue($"{path} is missing; run the tests once with {RegeneratePdfsVariable}={Path.GetFileName(path)} and then {UpdateVariable}=1, and commit both.");
             File.ReadAllBytes(path).AsSpan(0, 5).SequenceEqual("%PDF-"u8).ShouldBeTrue($"{path} is not a PDF.");
         }
     }
@@ -183,8 +222,17 @@ public sealed class DemoFixtureTests
     /// <summary>The demo custom field of docs/09 "Document types" (<c>fixtures/demo/types</c>), as the curl steps there add it.</summary>
     internal static string CustomFieldPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "types", "invoice-customer-number.field.json");
 
-    /// <summary>What <c>POST /document-types {from: std.invoice, copy}</c>, the draft <c>PUT</c> with the field appended and <c>:publish</c> do.</summary>
-    private static async Task ForkInvoiceWithCustomFieldAsync(IHost host, Guid tenantId)
+    /// <summary>The custom field of docs/11 §5.3 that docs/09 "Demo: types as data" adds to the tenant's fork of CreditNote.</summary>
+    internal static string CreditNoteFieldPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "types", "credit-note-supplier-customer-ref.field.json");
+
+    /// <summary>The credit note that demo uploads (not ingested by the demo data: <c>uploads/</c> is no tenant folder).</summary>
+    internal static string CreditNotePath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", DemoPdfs.CreditNoteFileName);
+
+    /// <summary>
+    /// What <c>POST /document-types {from: template, copy}</c> (in place, under the adopted legacy key), the draft
+    /// <c>PUT</c> with the field appended and <c>:publish</c> do; switches <c>configurableTypes</c> on first.
+    /// </summary>
+    private static async Task ForkWithFieldAsync(IHost host, Guid tenantId, string template, string key, string fieldPath)
     {
         await using var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
         var tenant = await db.Tenants.SingleAsync(t => t.Id == tenantId, Ct);
@@ -192,15 +240,37 @@ public sealed class DemoFixtureTests
         await db.SaveChangesAsync(Ct);
 
         var catalogue = new DocumentTypeCatalogue(db, TimeProvider.System);
-        var copied = await catalogue.CopyAsync(tenantId, "std.invoice", null, "tenant-a-admin", Ct);
+        var copied = await catalogue.CopyAsync(tenantId, template, null, "tenant-a-admin", Ct);
         copied.Status.ShouldBe(CatalogueStatus.Ok, copied.Detail);
+        copied.Value!.Definition.Key.ShouldBe(key);
         var draft = copied.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
         var definition = JsonNode.Parse(draft.DefinitionJson)!.AsObject();
-        definition["fields"]!.AsArray().Add(JsonNode.Parse(await File.ReadAllTextAsync(CustomFieldPath(), Ct)));
-        var saved = await catalogue.SaveDraftAsync(tenantId, "Invoice", draft.Version, definition.ToJsonString(), draft.Revision, "tenant-a-admin", Ct);
+        definition["fields"]!.AsArray().Add(JsonNode.Parse(await File.ReadAllTextAsync(fieldPath, Ct)));
+        var saved = await catalogue.SaveDraftAsync(tenantId, key, draft.Version, definition.ToJsonString(), draft.Revision, "tenant-a-admin", Ct);
         saved.Status.ShouldBe(CatalogueStatus.Ok, saved.Detail);
-        var published = await catalogue.PublishAsync(tenantId, "Invoice", draft.Version, null, "Customer number at supplier", "tenant-a-admin", Ct);
+        var published = await catalogue.PublishAsync(tenantId, key, draft.Version, null, "Customer number at supplier", "tenant-a-admin", Ct);
         published.Status.ShouldBe(CatalogueStatus.Ok, published.Detail);
+    }
+
+    /// <summary>What <c>POST /ingestions</c> with one file does (the same <see cref="UploadIntake"/>); answers the new document's id.</summary>
+    private static async Task<Guid> UploadAsync(IHost host, Guid tenantId, string path)
+    {
+        await using var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
+        var channel = await db.IngestionChannels.AsNoTracking().Where(c => c.TenantId == tenantId && c.Type == ChannelType.ApiUpload).OrderBy(c => c.CreatedAt).FirstAsync(Ct);
+        var bytes = await File.ReadAllBytesAsync(path, Ct);
+        var upload = new UploadFile(Path.GetFileName(path), "application/pdf", ItemKinds.Detect("application/pdf", Path.GetFileName(path)), () => new MemoryStream(bytes, writable: false));
+        var blobs = host.Services.GetRequiredService<IBlobStore>();
+        var stored = await UploadIntake.StoreAsync(blobs, tenantId, [upload], Ct);
+        var ingestion = UploadIntake.CreateIngestion(tenantId, channel.Id, SourceMetadata.Upload("tenant-a-admin@gasthaus-zur-post.example"), stored, DateTimeOffset.UtcNow);
+        db.Ingestions.Add(ingestion);
+        await db.SaveChangesAsync(Ct);
+        await host.Services.GetRequiredService<InProcessPipelineQueue>().EnqueueAsync(new ProcessIngestion(tenantId, ingestion.Id), Ct);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        cts.CancelAfter(TimeSpan.FromMinutes(2));
+        await host.Services.GetRequiredService<InProcessPipelineQueue>().WaitForIdleAsync(cts.Token);
+        await using var read = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
+        return await read.Documents.AsNoTracking().Where(d => d.IngestionItem!.IngestionId == ingestion.Id).Select(d => d.Id).SingleAsync(Ct);
     }
 
     /// <summary>What <c>POST /documents/{id}:reprocess {fromStage: Extract, configMode: current}</c> does.</summary>

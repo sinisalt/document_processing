@@ -25,7 +25,11 @@ internal static class KeywordMatcher
         {
             foreach (Match match in rule.Pattern.Matches(page.Text))
             {
-                hits.Add(ToHit(page, rule, match));
+                // "rechnung@lieferant.de" or "www.lieferschein-online.de" name a mailbox or a site, not the document.
+                if (!IsInAddress(page, match.Index))
+                {
+                    hits.Add(ToHit(page, rule, match));
+                }
             }
         }
 
@@ -39,6 +43,15 @@ internal static class KeywordMatcher
         hits.RemoveAll(h => h.Rule.Kind == KeywordKind.Title && labelled.Contains((h.Rule.Type, h.WordIndex)));
 
         return hits;
+    }
+
+    /// <summary>Whether the word holding the character at <paramref name="charIndex"/> is an e-mail address or a web address.</summary>
+    internal static bool IsInAddress(IndexedPageText page, int charIndex)
+    {
+        var word = page.Page.Words[page.WordIndexAt(charIndex)].Text;
+        return word.Contains('@', StringComparison.Ordinal)
+               || word.Contains("://", StringComparison.Ordinal)
+               || word.StartsWith("www.", StringComparison.OrdinalIgnoreCase);
     }
 
     private static KeywordHit ToHit(IndexedPageText page, KeywordRule rule, Match match)

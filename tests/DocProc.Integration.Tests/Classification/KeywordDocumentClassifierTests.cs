@@ -66,6 +66,26 @@ public class KeywordDocumentClassifierTests
     }
 
     [Fact]
+    public void A_mailbox_or_web_address_in_the_letterhead_is_no_title()
+    {
+        // Found by the P1 demo (docs/09 "Demo: types as data"): a supplier's billing mailbox "rechnung@..." in the
+        // letterhead scored as the header title "Rechnung" and pulled a credit note below the keyword threshold.
+        var layer = TextLayers.Layer(TextLayers.Page(
+            1,
+            (60, "Getränke Hoffmann GmbH"),
+            (76, "Brauhausweg 9 · 83026 Rosenheim · rechnung@getraenke-hoffmann.de · https://rechnung.getraenke-hoffmann.de · www.lieferschein-portal.de"),
+            (150, "Gutschrift-Nr. GS-2026-0918"),
+            (178, "zu Rechnung RE-2026-55318"),
+            (232, "Gutschrift"),
+            (300, "Gutschriftsbetrag 110,91 EUR")));
+
+        var outcome = _classifier.Classify(layer);
+
+        outcome.Type.ShouldBe(DocumentTypeKey.CreditNote);
+        outcome.Confidence.ShouldBeGreaterThanOrEqualTo(0.8);
+    }
+
+    [Fact]
     public void English_delivery_note_is_detected_with_its_language()
     {
         var layer = TextLayers.Layer(TextLayers.Page(
