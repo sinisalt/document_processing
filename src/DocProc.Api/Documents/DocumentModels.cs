@@ -177,6 +177,12 @@ public sealed record SplitPartResult(Guid DocumentId, IReadOnlyList<int> Pages, 
 
 public sealed record SplitDocumentResponse(IReadOnlyList<SplitPartResult> Parts);
 
+/// <summary>
+/// One document of an attachment (<c>GET /documents/{id}/parts</c>, docs/11 §12.7): its pages within the attachment
+/// (1-based, inclusive), status, type and number; a part cancelled by a join names the document it was joined into.
+/// </summary>
+public sealed record DocumentPartDto(Guid DocumentId, int PageStart, int PageEnd, int PageCount, DocumentStatus Status, string Type, string? DocumentNumber, Guid? JoinedIntoDocumentId);
+
 /// <summary><c>POST /documents/{id}:join</c> (docs/11 §12.7): the other parts of the same attachment to join into this one.</summary>
 public sealed record JoinDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
 

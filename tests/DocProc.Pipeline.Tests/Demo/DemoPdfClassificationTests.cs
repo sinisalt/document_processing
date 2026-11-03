@@ -41,4 +41,18 @@ public sealed class DemoPdfClassificationTests
         (await ClassifyAsync(TenantA(DemoPdfs.InvoiceFileName))).Type.ShouldBe(DocumentTypeKey.Invoice);
         (await ClassifyAsync(TenantA(DemoPdfs.DeliveryNoteFileName))).Type.ShouldBe(DocumentTypeKey.Unknown);
     }
+
+    [Fact]
+    public async Task The_price_list_is_left_to_the_llm_by_the_keywords_and_too_long_for_the_heuristic_splitter()
+    {
+        // docs/09 "Demo: manual mapping": no keyword rule knows a price list (the tenant keyword set comes in P5).
+        var path = DemoFixtureTests.PriceListPath();
+        (await ClassifyAsync(path)).Type.ShouldBe(DocumentTypeKey.Unknown);
+
+        var processor = new PdfPigPdfProcessor(Options.Create(new PdfProcessingOptions()));
+        await using var stream = File.OpenRead(path);
+        var layer = await processor.ExtractTextAsync(stream, TestContext.Current.CancellationToken);
+        layer.Pages.Count.ShouldBe(DemoPriceList.PageCount);
+        layer.Pages.Count.ShouldBeGreaterThan(new DocProc.Infrastructure.Classification.HeuristicSplitterOptions().MaxConfidentPageCount, "so the split stage asks the (replayed) LLM splitter");
+    }
 }

@@ -127,9 +127,48 @@ internal static class DemoAnswers
         { "documentType": "DeliveryNote", "confidence": 0.91, "language": "de", "supplierNameHint": "Bio-Hof Müller" }
         """;
 
+    /// <summary>
+    /// The Nordwind price list of the P2 demo (<see cref="Pdf.DemoPriceList"/>, docs/09 "Demo: manual mapping"): 14 pages are
+    /// more than the heuristic splitter decides on its own (<c>MaxConfidentPageCount</c>), so the split stage asks the LLM,
+    /// which keeps the list together.
+    /// </summary>
+    public const string PriceListSplit = """
+        { "documents": [ { "startPage": 1, "endPage": 14, "documentType": "Other", "reason": "One price list: the same running header and column header on every page, pages numbered 1 to 14." } ] }
+        """;
+
+    /// <summary>
+    /// The price list's classification: the classifier's types (docs/06) have no price list, so a good model answers
+    /// <c>Other</c>; the document then has no form until a reviewer gives it a type (docs/11 §12.1).
+    /// </summary>
+    public const string PriceListClassification = """
+        { "documentType": "Other", "confidence": 0.88, "language": "de", "supplierNameHint": "Nordwind Großhandel GmbH" }
+        """;
+
+    /// <summary>Whether the request is about the demo price list: its text (classification excerpt or split page texts) names the list.</summary>
+    public static bool IsPriceList(LlmRequest request) =>
+        request.Prompt.Task.Contains("Preisliste 2027", StringComparison.Ordinal);
+
     /// <summary>The recorded result for a request of the given stage, as a provider would have returned it.</summary>
     public static LlmResult For(LlmRequest request) => request.Stage switch
     {
+        LlmStage.Split when IsPriceList(request) => new LlmResult
+        {
+            Json = PriceListSplit,
+            Usage = new LlmUsage(InputTokens: 6120, OutputTokens: 61),
+            Model = request.Model,
+            StopReason = StopReasons.EndTurn,
+            ProviderRequestId = "replay-demo-split-nordwind-preisliste-2027",
+            Latency = TimeSpan.FromMilliseconds(1940),
+        },
+        LlmStage.Classify when IsPriceList(request) => new LlmResult
+        {
+            Json = PriceListClassification,
+            Usage = new LlmUsage(InputTokens: 1710, OutputTokens: 41),
+            Model = request.Model,
+            StopReason = StopReasons.EndTurn,
+            ProviderRequestId = "replay-demo-classify-nordwind-preisliste-2027",
+            Latency = TimeSpan.FromMilliseconds(910),
+        },
         LlmStage.Extract when request.OutputSchema?.Version.StartsWith("1+x.", StringComparison.Ordinal) == true
                               && IsCreditNote(request) => new LlmResult
         {
@@ -168,6 +207,6 @@ internal static class DemoAnswers
             Latency = TimeSpan.FromMilliseconds(850),
         },
         _ => throw new InvalidOperationException(
-            $"The demo data sent an unexpected {request.Stage} request (prompt {request.Prompt.CacheKey}). Only the invoice extraction (with and without the demo custom field), the credit note extraction with its custom field and the delivery-note classification have demo answers; adjust the demo PDFs or add an answer to DemoAnswers."),
+            $"The demo data sent an unexpected {request.Stage} request (prompt {request.Prompt.CacheKey}). Only the invoice extraction (with and without the demo custom field), the credit note extraction with its custom field, the delivery-note classification and the price list's split and classification have demo answers; adjust the demo PDFs or add an answer to DemoAnswers."),
     };
 }

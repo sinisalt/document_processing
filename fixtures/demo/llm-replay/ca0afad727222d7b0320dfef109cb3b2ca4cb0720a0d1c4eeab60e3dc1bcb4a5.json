@@ -1,0 +1,31 @@
+{
+  "header": {
+    "stage": "Split",
+    "promptVersion": "split-document@1",
+    "schema": "document_split@1",
+    "taskTextHash": "13b88e68d9fae0646a813b32e3d63c1decca5160f20680efbf1ae06751818533",
+    "model": "claude-haiku-5-5",
+    "recordedAt": "2026-10-30T12:00:00+00:00"
+  },
+  "model": "claude-haiku-5-5",
+  "stopReason": "end_turn",
+  "providerRequestId": "replay-demo-split-nordwind-preisliste-2027",
+  "latencyMs": 1940,
+  "usage": {
+    "inputTokens": 6120,
+    "outputTokens": 61,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0
+  },
+  "json": {
+    "documents": [
+      {
+        "startPage": 1,
+        "endPage": 14,
+        "documentType": "Other",
+        "reason": "One price list: the same running header and column header on every page, pages numbered 1 to 14."
+      }
+    ]
+  }
+}

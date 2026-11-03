@@ -452,6 +452,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The documents of the same attachment as this one, in page order (docs/11 §12.7): what a reviewer can join it with, and the parts a split or a join left, cancelled ones with the document they were joined into. */
+        get: operations["GetDocumentParts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/regions:read": {
         parameters: {
             query?: never;
@@ -1297,6 +1314,25 @@ export interface components {
             /** Format: date-time */
             receivedAt: string;
             sourceFrom: null | string;
+        };
+        /**
+         * @description One document of an attachment (`GET /documents/{id}/parts`, docs/11 §12.7): its pages within the attachment
+         *     (1-based, inclusive), status, type and number; a part cancelled by a join names the document it was joined into.
+         */
+        DocumentPartDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentNumber: null | string;
+            /** Format: uuid */
+            joinedIntoDocumentId: null | string;
+            /** Format: int32 */
+            pageCount: number | string;
+            /** Format: int32 */
+            pageEnd: number | string;
+            /** Format: int32 */
+            pageStart: number | string;
+            status: components["schemas"]["DocumentStatus"];
+            type: string;
         };
         /**
          * @description Document lifecycle states (docs/03-pipeline.md "Document state machine").
@@ -2205,6 +2241,7 @@ export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
 export type SchemaDocumentEventDto = components['schemas']['DocumentEventDto'];
 export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
 export type SchemaDocumentIngestionRef = components['schemas']['DocumentIngestionRef'];
+export type SchemaDocumentPartDto = components['schemas']['DocumentPartDto'];
 export type SchemaDocumentStatus = components['schemas']['DocumentStatus'];
 export type SchemaDocumentSummary = components['schemas']['DocumentSummary'];
 export type SchemaDocumentTableReportDto = components['schemas']['DocumentTableReportDto'];
@@ -3256,6 +3293,28 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentParts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPartDto"][];
                 };
             };
         };

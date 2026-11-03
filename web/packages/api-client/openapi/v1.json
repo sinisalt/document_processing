@@ -1067,6 +1067,41 @@
         }
       }
     },
+    "/api/v1/documents/{id}/parts": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The documents of the same attachment as this one, in page order (docs/11 §12.7): what a reviewer can join it with, and the parts a split or a join left, cancelled ones with the document they were joined into.",
+        "operationId": "GetDocumentParts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentPartDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{id}:join": {
       "post": {
         "tags": [
@@ -4325,6 +4360,69 @@
           }
         },
         "description": "Where the document came from: the ingestion and the attachment it was split from."
+      },
+      "DocumentPartDto": {
+        "required": [
+          "documentId",
+          "pageStart",
+          "pageEnd",
+          "pageCount",
+          "status",
+          "type",
+          "documentNumber",
+          "joinedIntoDocumentId"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pageStart": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageEnd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "type": {
+            "type": "string"
+          },
+          "documentNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "joinedIntoDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        },
+        "description": "One document of an attachment (`GET /documents/{id}/parts`, docs/11 §12.7): its pages within the attachment\n(1-based, inclusive), status, type and number; a part cancelled by a join names the document it was joined into."
       },
       "DocumentStatus": {
         "enum": [

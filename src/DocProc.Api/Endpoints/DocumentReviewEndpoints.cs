@@ -74,6 +74,11 @@ public static partial class DocumentEndpoints
             .WithName("SplitDocument")
             .WithSummary("Splits a document in review into several documents by page (docs/11 §12.7): the first part keeps the id, the others are new documents of the same attachment; each is classified again, or extracted for the type a part names. 202.");
 
+        documents.MapGet("/{id:guid}/parts", PartsAsync)
+            .RequireAuthorization(Policies.Read)
+            .WithName("GetDocumentParts")
+            .WithSummary("The documents of the same attachment as this one, in page order (docs/11 §12.7): what a reviewer can join it with, and the parts a split or a join left, cancelled ones with the document they were joined into.");
+
         documents.MapPost("/{id:guid}:join", JoinAsync)
             .RequireAuthorization(Policies.Review)
             .WithName("JoinDocuments")
@@ -459,6 +464,23 @@ public static partial class DocumentEndpoints
         }
 
         return TypedResults.Accepted($"/api/v1/documents/{id}", new SplitDocumentResponse([.. outcomes.Select(o => new SplitPartResult(o.DocumentId, o.Pages, o.Type?.Value, o.Status))]));
+    }
+
+    private static async Task<Results<Ok<IReadOnlyList<DocumentPartDto>>, ProblemHttpResult>> PartsAsync(Guid id, [FromServices] DocProcDbContext db, CancellationToken ct)
+    {
+        var document = await db.Documents.AsNoTracking().Where(d => d.Id == id).Select(d => new { d.TenantId, d.IngestionItemId }).SingleOrDefaultAsync(ct);
+        if (document is null)
+        {
+            return NotFound(id);
+        }
+
+        var parts = await db.Documents.AsNoTracking()
+            .Where(d => d.TenantId == document.TenantId && d.IngestionItemId == document.IngestionItemId)
+            .OrderBy(d => d.PageStart).ThenBy(d => d.CreatedAt)
+            .Select(d => new { d.Id, d.PageStart, d.PageEnd, d.PageCount, d.Status, d.Type, d.DocumentNumber, d.JoinedIntoDocumentId })
+            .ToListAsync(ct);
+        IReadOnlyList<DocumentPartDto> result = [.. parts.Select(p => new DocumentPartDto(p.Id, p.PageStart, p.PageEnd, p.PageCount, p.Status, p.Type.ToString(), p.DocumentNumber, p.JoinedIntoDocumentId))];
+        return TypedResults.Ok(result);
     }
 
     private static async Task<Results<Accepted<DocumentDetail>, ValidationProblem, ProblemHttpResult>> JoinAsync(

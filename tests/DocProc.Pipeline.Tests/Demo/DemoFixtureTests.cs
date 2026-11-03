@@ -133,6 +133,31 @@ public sealed class DemoFixtureTests
 
                 requests.Add((DemoPdfs.CreditNoteFileName, creditNoteRequests[0]));
 
+                // docs/09 "Demo: manual mapping" (the P2 demo of docs/11 §23): the tenant has adopted std.price-list and
+                // uploads the 14-page Nordwind price list. 14 pages are more than the heuristic splitter decides alone,
+                // so the split stage asks the LLM (one document); no keyword rule knows a price list, so the classifier
+                // asks the LLM, whose types have none either ("Other"). It arrives in review without a form.
+                await AdoptAsync(host, invoice.TenantId, "std.price-list");
+                before = capture.Requests.Count;
+                var priceListId = await UploadAsync(host, invoice.TenantId, PriceListPath());
+                await host.Services.GetRequiredService<InProcessPipelineQueue>().WaitForIdleAsync(cts.Token);
+                var priceListRequests = capture.Requests.Skip(before).ToList();
+                priceListRequests.Select(r => r.Stage).ShouldBe([LlmStage.Split, LlmStage.Classify], "the price list costs a split call (too long for the heuristics) and a classification call, and no extraction");
+                priceListRequests.ShouldAllBe(r => r.DocumentId == priceListId);
+                await using (var after = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+                {
+                    var priceList = await after.Documents.AsNoTracking().Include(d => d.Flags).SingleAsync(d => d.Id == priceListId, Ct);
+                    priceList.PageCount.ShouldBe(DemoPriceList.PageCount, "the LLM splitter keeps the 14 pages together");
+                    priceList.Type.ShouldBe(DocumentTypeKey.Other);
+                    priceList.TypeSource.ShouldBe(TypeSource.Llm);
+                    priceList.CanonicalJson.ShouldBeNull();
+                    priceList.Status.ShouldBe(DocumentStatus.NeedsReview);
+                    priceList.Flags.Select(f => f.Code).ShouldContain("UNSUPPORTED_TYPE");
+                    (await after.Documents.CountAsync(d => d.IngestionItemId == priceList.IngestionItemId, Ct)).ShouldBe(1);
+                }
+
+                requests.AddRange(priceListRequests.Select(r => (DemoPriceList.FileName, r)));
+
                 var generated = Path.Combine(work, "llm-replay");
                 var store = new FileReplayStore(generated, new FakeTimeProvider(RecordedAt));
                 foreach (var (_, request) in requests)
@@ -202,6 +227,7 @@ public sealed class DemoFixtureTests
             (Path.Combine(demo, "tenant-a", DemoPdfs.InvoiceFileName), DemoPdfs.Invoice),
             (Path.Combine(demo, "tenant-a", DemoPdfs.DeliveryNoteFileName), DemoPdfs.DeliveryNote),
             (CreditNotePath(), DemoPdfs.CreditNote),
+            (PriceListPath(), DemoPriceList.Pdf),
         ];
 
         // "1" redraws every PDF; a file name redraws only that one, so adding a demo PDF leaves the others' bytes alone.
@@ -227,6 +253,18 @@ public sealed class DemoFixtureTests
 
     /// <summary>The credit note that demo uploads (not ingested by the demo data: <c>uploads/</c> is no tenant folder).</summary>
     internal static string CreditNotePath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", DemoPdfs.CreditNoteFileName);
+
+    /// <summary>The Nordwind price list the P2 demo uploads (docs/09 "Demo: manual mapping"; not ingested by the demo data).</summary>
+    internal static string PriceListPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", DemoPriceList.FileName);
+
+    /// <summary>What <c>POST /document-types {from: template, mode: adopt}</c> does (configurableTypes is already on).</summary>
+    private static async Task AdoptAsync(IHost host, Guid tenantId, string template)
+    {
+        await using var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
+        var catalogue = new DocumentTypeCatalogue(db, TimeProvider.System);
+        var adopted = await catalogue.AdoptAsync(tenantId, template, null, "tenant-a-admin", Ct);
+        adopted.Status.ShouldBe(CatalogueStatus.Created, adopted.Detail);
+    }
 
     /// <summary>
     /// What <c>POST /document-types {from: template, copy}</c> (in place, under the adopted legacy key), the draft
@@ -332,9 +370,12 @@ public sealed class DemoFixtureTests
             "and commit fixtures/demo/llm-replay; review the answers in tests/DocProc.Pipeline.Tests/Demo/DemoAnswers.cs if the contract changed.");
     }
 
-    /// <summary>A classification fixture: its request carries the first page as a PNG, whose bytes depend on the PDFium build.</summary>
+    /// <summary>
+    /// A classification or split fixture: its request carries rendered pages as PNGs (the first page, the page
+    /// thumbnails), whose bytes depend on the PDFium build.
+    /// </summary>
     private static bool IsRenderedPageFixture(string content) =>
-        JsonNode.Parse(content)?["header"]?["stage"]?.GetValue<string>() == nameof(LlmStage.Classify);
+        JsonNode.Parse(content)?["header"]?["stage"]?.GetValue<string>() is nameof(LlmStage.Classify) or nameof(LlmStage.Split);
 
     private static Dictionary<string, string> ReadFixtures(string directory) =>
         Directory.EnumerateFiles(directory, "*.json").ToDictionary(p => Path.GetFileName(p), p => File.ReadAllText(p).ReplaceLineEndings("\n"), StringComparer.Ordinal);
