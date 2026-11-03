@@ -60,7 +60,7 @@ public sealed record FieldDescriptor
     /// The keys the same field (by <see cref="FieldId"/>, under the same parent) had in the type's earlier published
     /// versions, when it was renamed (docs/11 §5.7): a tree stored for such a version holds its value under one of them,
     /// and completing the tree for this version carries the value over (<c>DefinitionTree.Complete</c>). Null when the
-    /// key never changed. Set at publish (<see cref="DescriptorIndex.WithFormerKeys"/>), not by the compiler.
+    /// key never changed. Set at publish (<see cref="DescriptorIndex.WithFormerKeys(IEnumerable{FieldKeySlot})"/>), not by the compiler.
     /// </summary>
     public IReadOnlyList<string>? FormerKeys { get; init; }
 
@@ -68,6 +68,12 @@ public sealed record FieldDescriptor
     [JsonIgnore]
     public bool IsEnvelope => Provenance && Kind is not (FieldKinds.Array or FieldKinds.Object);
 }
+
+/// <summary>
+/// The key a field had under its parent in one version of a type (docs/11 §5.7): its stable id, the id of the field it
+/// is a row field or member of (null at the top), its key there, and the version.
+/// </summary>
+public sealed record FieldKeySlot(string FieldId, string? ParentId, string Key, int Version);
 
 /// <summary>A member of a composite value and its kind.</summary>
 public sealed record MemberDescriptor(string Key, string Kind);
@@ -127,22 +133,26 @@ public sealed partial class DescriptorIndex
     public DescriptorIndex WithFormerKeys(IEnumerable<TypeDefinition> earlier)
     {
         ArgumentNullException.ThrowIfNull(earlier);
-        var former = new Dictionary<(string FieldId, string? ParentId), HashSet<string>>();
-        foreach (var definition in earlier)
-        {
-            var fields = DefinitionPaths.Enumerate(definition).ToList();
-            var idsByPath = fields.GroupBy(f => f.Path, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Field.Id, StringComparer.Ordinal);
-            foreach (var (path, field) in fields)
-            {
-                var slot = (field.Id, ParentPath(path) is { } parent ? idsByPath.GetValueOrDefault(parent) : null);
-                if (!former.TryGetValue(slot, out var keys))
-                {
-                    keys = new HashSet<string>(StringComparer.Ordinal);
-                    former[slot] = keys;
-                }
+        return WithFormerKeys(earlier.SelectMany(KeySlotsOf));
+    }
 
-                keys.Add(field.Key);
+    /// <summary>
+    /// This index with <see cref="FieldDescriptor.FormerKeys"/> set from the key slots of the type's earlier published
+    /// versions (<see cref="KeySlotsOf"/>), so a caller can read the versions one at a time and keep only their slots.
+    /// </summary>
+    public DescriptorIndex WithFormerKeys(IEnumerable<FieldKeySlot> earlier)
+    {
+        ArgumentNullException.ThrowIfNull(earlier);
+        var former = new Dictionary<(string FieldId, string? ParentId), HashSet<string>>();
+        foreach (var slot in earlier)
+        {
+            if (!former.TryGetValue((slot.FieldId, slot.ParentId), out var keys))
+            {
+                keys = new HashSet<string>(StringComparer.Ordinal);
+                former[(slot.FieldId, slot.ParentId)] = keys;
             }
+
+            keys.Add(slot.Key);
         }
 
         return new DescriptorIndex(Fields.Select(field =>
@@ -153,6 +163,19 @@ public sealed partial class DescriptorIndex
                 : [];
             return field with { FormerKeys = keys.Count > 0 ? keys : null };
         }));
+    }
+
+    /// <summary>
+    /// Every field of <paramref name="definition"/> as the key it has under its parent (the parent's field id, or null
+    /// at the top): what <see cref="WithFormerKeys(IEnumerable{FieldKeySlot})"/> and the publish check on reused keys
+    /// need of an earlier version, without the rest of its definition.
+    /// </summary>
+    public static IReadOnlyList<FieldKeySlot> KeySlotsOf(TypeDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var fields = DefinitionPaths.Enumerate(definition).ToList();
+        var idsByPath = fields.GroupBy(f => f.Path, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Field.Id, StringComparer.Ordinal);
+        return [.. fields.Select(f => new FieldKeySlot(f.Field.Id, ParentPath(f.Path) is { } parent ? idsByPath.GetValueOrDefault(parent) : null, f.Field.Key, definition.Version))];
     }
 
     /// <summary>The definition path of the field a path is a row field or member of (<c>lines</c> for <c>lines[*].lineNet</c>), or null at the top.</summary>

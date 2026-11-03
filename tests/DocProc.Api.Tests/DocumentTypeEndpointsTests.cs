@@ -402,6 +402,90 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "return-slip").Revision).ShouldBe(0);
     }
 
+    /// <summary>
+    /// A type published several times: the list, the type and the templates answer from version summaries (the catalogue
+    /// loads the definition of the one version the indexed fields come from, never the compiled artifacts), one version
+    /// is read in full on its own; publishing reads the keys of every earlier version, so a field renamed twice names
+    /// both former keys, and a field may not take another field's earlier key. A <c>pattern</c> rule the engine cannot
+    /// run and sibling keys that differ only by case are refused at publish.
+    /// </summary>
+    [Fact]
+    public async Task A_type_with_many_versions_lists_summaries_and_publishing_knows_every_earlier_key()
+    {
+        var tenant = factory.CreateTenant("Many versions");
+        SetFeatures(tenant, configurable: true, custom: true);
+        using var admin = factory.TenantAdminOf(tenant);
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = JsonNode.Parse(ReturnSlip()) }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await admin.PostAsync("/api/v1/document-types/return-slip/versions/1:publish", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        async Task<HttpResponseMessage> PublishNext(int version, Action<JsonObject> edit, int revision = 0)
+        {
+            if (revision == 0)
+            {
+                (await admin.PostAsync("/api/v1/document-types/return-slip/versions", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+            }
+
+            var draft = JsonNode.Parse((await admin.GetFromJsonAsync<DocumentTypeVersionDetail>($"/api/v1/document-types/return-slip/versions/{version}", ApiFactory.Json, Ct))!.Definition.GetRawText())!.AsObject();
+            edit(draft);
+            (await Put(admin, "return-slip", version, draft, ifMatch: $"\"{revision}\"")).StatusCode.ShouldBe(HttpStatusCode.OK);
+            return await admin.PostAsync($"/api/v1/document-types/return-slip/versions/{version}:publish", null, Ct);
+        }
+
+        static JsonNode FieldOf(JsonObject definition, string id) => definition["fields"]!.AsArray().Single(f => f!["id"]!.GetValue<string>() == id)!;
+
+        void RenameDate(JsonObject d, string key)
+        {
+            FieldOf(d, "fld_rd")["key"] = key;
+            d["roles"]!["documentDate"] = key;
+        }
+
+        (await PublishNext(2, d => RenameDate(d, "returnedOn"))).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Version 3: a lookahead in a pattern rule, a key only differing by case, and the date's first key on another field.
+        var refused = await PublishNext(3, d =>
+        {
+            RenameDate(d, "dateOfReturn");
+            d["rules"]!.AsArray().Add(JsonNode.Parse("""{ "id": "r_rma", "kind": "pattern", "params": { "path": "returnNumber", "pattern": "(?=RMA)RMA-[0-9]+" } }"""));
+            d["fields"]!.AsArray().Add(JsonNode.Parse("""{ "id": "fld_rn2", "key": "returnnumber", "kind": "identifier" }"""));
+            d["fields"]!.AsArray().Add(JsonNode.Parse("""{ "id": "fld_new", "key": "returnDate", "kind": "text" }"""));
+        });
+        refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var report = (await refused.Content.ReadFromJsonAsync<PublishReportDto>(ApiFactory.Json, Ct))!;
+        report.Problems.ShouldContain(p => p.Where == "rules[2] (r_rma).params" && p.Message.Contains("not a valid regular expression", StringComparison.Ordinal));
+        report.Problems.ShouldContain(p => p.Message.Contains("differs from the key 'returnNumber' at this level only by case", StringComparison.Ordinal));
+        report.Problems.ShouldContain(p => p.Where == "returnDate" && p.Message.Contains("'fld_rd' (now 'dateOfReturn') had in version 1", StringComparison.Ordinal));
+
+        var fixedV3 = await PublishNext(3, d =>
+        {
+            d["rules"]!.AsArray().Remove(d["rules"]!.AsArray().Single(r => r!["id"]!.GetValue<string>() == "r_rma"));
+            d["fields"]!.AsArray().Remove(FieldOf(d, "fld_rn2"));
+            d["fields"]!.AsArray().Remove(FieldOf(d, "fld_new"));
+        }, revision: 1);
+        fixedV3.StatusCode.ShouldBe(HttpStatusCode.OK, await fixedV3.Content.ReadAsStringAsync(Ct));
+        var descriptors = factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Version == 3).DescriptorsJson).ShouldNotBeNull();
+        descriptors.ShouldContain("\"formerKeys\":[\"returnDate\",\"returnedOn\"]");
+
+        // The answers are the same as before; the catalogue reads the versions as summaries.
+        var type = (await admin.GetFromJsonAsync<DocumentTypeDetail>("/api/v1/document-types/return-slip", ApiFactory.Json, Ct))!;
+        type.Versions.Select(v => (v.Version, v.State)).ShouldBe([(1, "Deprecated"), (2, "Deprecated"), (3, "Published")]);
+        type.IndexedFields.Select(f => f.Path).ShouldBe(["returnNumber"]);
+        (await admin.GetFromJsonAsync<List<DocumentTypeDetail>>("/api/v1/document-types", ApiFactory.Json, Ct))!.Single().Versions.Count.ShouldBe(3);
+        (await admin.GetFromJsonAsync<List<DocumentTypeVersionSummary>>("/api/v1/document-types/return-slip/versions", ApiFactory.Json, Ct))!.Select(v => v.Version).ShouldBe([1, 2, 3]);
+        var v1 = (await admin.GetFromJsonAsync<DocumentTypeVersionDetail>("/api/v1/document-types/return-slip/versions/1?include=descriptors", ApiFactory.Json, Ct))!;
+        v1.Definition.GetProperty("fields")[1].GetProperty("key").GetString().ShouldBe("returnDate");
+        v1.Descriptors.ShouldNotBeNull();
+
+        await using var db = factory.PlatformDb();
+        var catalogue = new DocumentTypeCatalogue(db, factory.Clock);
+        var listed = (await catalogue.ListAsync(tenant, Ct)).Single();
+        listed.Versions.Where(v => v.Version < 3).ShouldAllBe(v => v.DefinitionJson == null, "only the version the indexed fields come from is read");
+        listed.IndexedFieldsVersion.ShouldNotBeNull().Version.ShouldBe(3);
+        listed.IndexedFieldsVersion.DefinitionJson.ShouldNotBeNull();
+        (await catalogue.ListKeysAsync(tenant, Ct)).ShouldBe([new CatalogueTypeKey("return-slip", DefinitionOrigin.Custom, "std.generic")]);
+        (await catalogue.FindKeyAsync(tenant, "nope", Ct)).ShouldBeNull();
+        (await catalogue.FindVersionAsync(tenant, "return-slip", 2, Ct)).ShouldNotBeNull().CompiledJsonSchema.ShouldNotBeNull();
+    }
+
     private static object Adopt(string template) => new { from = new { template, mode = "adopt" } };
 
     private static Task<HttpResponseMessage> Put(HttpClient client, string key, int version, JsonObject definition, string? ifMatch)

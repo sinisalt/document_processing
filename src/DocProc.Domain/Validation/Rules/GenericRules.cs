@@ -100,6 +100,12 @@ public static class GenericRules
         {
             regex = null!;
         }
+        catch (NotSupportedException)
+        {
+            // A construct NonBacktracking cannot run (backreference, lookaround, atomic group). The publish checks refuse
+            // it; a version published before they did must not crash validation, so it fails the rule instead.
+            regex = null!;
+        }
 
         if (regex is null)
         {

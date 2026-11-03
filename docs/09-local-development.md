@@ -336,7 +336,12 @@ renaming or retyping one of them is refused, because the coded extraction and ru
 group or table of such a fork is filled in review, not asked of the LLM. Only an invoice or credit note
 with its `invoice.totals` rule is approved without a reviewer in P1: on any other type
 `processing.review.autoApprove` has no effect yet, and the report says so. A field renamed in a new version
-keeps its value in documents moved onto that version.
+keeps its value in documents moved onto that version (reprocessed from Extract or Validate with
+`configMode: "current"`, or corrected after the move); a field moved into another group or table does
+not, and the report says so. Publish refuses a field that takes a key another field of the type had in
+an earlier version (old documents hold that field's value under it), sibling keys that differ only by
+case (`refNo` and `refno`), and a `pattern` rule or field pattern the non-backtracking engine cannot run
+(backreferences, lookarounds, atomic groups).
 
 **A custom field, end to end (demo data).** The demo PDF invoice of Bio-Hof Müller prints
 "Kundennummer 0815". Fork `Invoice` in place, add the field of
@@ -377,7 +382,8 @@ empty tree of its type version (`canonicalSchemaVersion` 2) as `canonical`, whic
 stores, and a stored tree that lacks fields its version has is answered completed with them; nothing is
 written by a read. Indexed fields are filtered with `?field.<path>=value` on `GET /documents`, compared
 as the index stores them (identifiers trimmed, repeated spaces collapsed and upper-cased, so
-`104 220815` is found as `104 220815` but not as `104220815`); `validFrom`, `validUntil`, `lineCount`
+`104 220815` is found as `104 220815` but not as `104220815`; a number of 10^17 or more is compared as
+text only, the index holds no number that large); `validFrom`, `validUntil`, `lineCount`
 and the open review task's `reviewPriority` are in every inbox row.
 
 ### Demo data

@@ -36,7 +36,11 @@ public sealed record DocumentTypeVersionSummary(
     string? PublishedBy,
     string? ChangeNote)
 {
-    internal static DocumentTypeVersionSummary From(DocumentTypeVersion v) => new(
+    internal static DocumentTypeVersionSummary From(DocumentTypeVersion v) => From(new CatalogueVersion(
+        v.Id, v.DefinitionId, v.Version, v.State, v.Revision, v.ContentHash, v.LlmSchemaName, v.LlmSchemaVersion,
+        v.CreatedAt, v.CreatedBy, v.UpdatedAt, v.PublishedAt, v.PublishedBy, v.ChangeNote));
+
+    internal static DocumentTypeVersionSummary From(CatalogueVersion v) => new(
         v.Version,
         v.State.ToString(),
         v.Revision,
@@ -57,13 +61,13 @@ public sealed record DocumentTypeVersionSummary(
 public sealed record IndexedFieldDto(string Path, string Kind, IReadOnlyDictionary<string, string>? Label)
 {
     /// <summary>
-    /// The indexed fields of a definition, depth first: the published version's, else (a type not published yet) the
-    /// latest version's. A definition that does not parse lists none.
+    /// The indexed fields of a type, depth first: the published version's, else (a type not published yet) the latest
+    /// version's (<see cref="CatalogueType.IndexedFieldsVersion"/>, the one version whose definition the catalogue
+    /// loads for a list). A definition that does not parse lists none.
     /// </summary>
-    internal static IReadOnlyList<IndexedFieldDto> Of(IReadOnlyList<DocumentTypeVersion> versions)
+    internal static IReadOnlyList<IndexedFieldDto> Of(CatalogueType type)
     {
-        var version = versions.Where(v => v.State == DocumentTypeVersionState.Published).MaxBy(v => v.Version) ?? versions.MaxBy(v => v.Version);
-        if (version is null)
+        if (type.IndexedFieldsVersion is not { DefinitionJson: { } json })
         {
             return [];
         }
@@ -71,7 +75,7 @@ public sealed record IndexedFieldDto(string Path, string Kind, IReadOnlyDictiona
         TypeDefinition definition;
         try
         {
-            definition = DefinitionSerializer.Parse(version.DefinitionJson);
+            definition = DefinitionSerializer.Parse(json);
         }
         catch (DefinitionFormatException)
         {
@@ -141,7 +145,7 @@ public sealed record DocumentTypeDetail(
             d.CreatedAt,
             d.UpdatedAt,
             [.. type.Versions.Select(DocumentTypeVersionSummary.From)],
-            IndexedFieldDto.Of(type.Versions));
+            IndexedFieldDto.Of(type));
     }
 }
 
@@ -261,7 +265,8 @@ public static class DocumentTypeEndpoints
 
     private static async Task<Results<Ok<IReadOnlyList<DocumentTemplateSummary>>, ProblemHttpResult>> ListTemplatesAsync(ITenantContext tenant, [FromServices] DocumentTypeCatalogue catalogue, CancellationToken ct)
     {
-        IReadOnlyList<CatalogueType> types = tenant.TenantId is { } tenantId ? await catalogue.ListAsync(tenantId, ct) : [];
+        // Only the keys and their templates: the versions (and their definitions) are not needed for AdoptedAs.
+        IReadOnlyList<CatalogueTypeKey> types = tenant.TenantId is { } tenantId ? await catalogue.ListKeysAsync(tenantId, ct) : [];
         IReadOnlyList<DocumentTemplateSummary> templates =
         [
             .. StandardTemplates.All.Select(t => new DocumentTemplateSummary(
@@ -271,7 +276,7 @@ public static class DocumentTypeEndpoints
                 t.Description,
                 t.LegacyKey,
                 DocumentTypeCatalogue.DefaultKey(t),
-                [.. types.Where(x => x.BaseTemplate == t.Key).Select(x => x.Definition.Key)])),
+                [.. types.Where(x => x.BaseTemplate == t.Key).Select(x => x.Key)])),
         ];
         return TypedResults.Ok(templates);
     }
@@ -329,8 +334,7 @@ public static class DocumentTypeEndpoints
             return problem;
         }
 
-        var type = await catalogue.FindAsync(tenant.TenantId!.Value, key, ct);
-        var row = type?.Versions.SingleOrDefault(v => v.Version == version);
+        var row = await catalogue.FindVersionAsync(tenant.TenantId!.Value, key, version, ct);
         if (row is null)
         {
             return VersionNotFound(key, version);
@@ -576,7 +580,7 @@ public static class DocumentTypeEndpoints
 
     /// <summary>A type of the tenant's own (origin Custom) also needs <c>customTypes</c> to be edited or published (docs/07 P1 part A).</summary>
     private static async Task<ProblemHttpResult?> RequireCustomTypesForOwnTypeAsync(ITenantFeatures features, DocumentTypeCatalogue catalogue, Guid tenantId, string key, CancellationToken ct) =>
-        (await catalogue.FindAsync(tenantId, key, ct))?.Definition.Origin == DefinitionOrigin.Custom
+        (await catalogue.FindKeyAsync(tenantId, key, ct))?.Origin == DefinitionOrigin.Custom
             ? await RequireFeatureAsync(features, tenantId, TenantFeature.CustomTypes, ct)
             : null;
 

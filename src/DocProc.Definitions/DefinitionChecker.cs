@@ -79,7 +79,10 @@ public static partial class DefinitionChecker
         HashSet<string> ids,
         List<DefinitionProblem> problems)
     {
-        var keys = new HashSet<string>(StringComparer.Ordinal);
+        // Sibling keys are unique ignoring case: the field index (DocumentFieldIndex.FieldKey) and the ?field.<key>= filter
+        // compare keys under the database's collation, case-insensitive on SQL Server by default, so refNo and refno
+        // would share index rows.
+        var keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < fields.Count; i++)
         {
             var field = fields[i];
@@ -97,9 +100,11 @@ public static partial class DefinitionChecker
             {
                 problems.Add(new(at, $"key '{field.Key}' is not a valid field key (a lower-case letter, then letters, digits or '_')."));
             }
-            else if (!keys.Add(field.Key))
+            else if (!keys.TryAdd(field.Key, field.Key))
             {
-                problems.Add(new(at, $"key '{field.Key}' is declared twice at this level."));
+                problems.Add(new(at, keys[field.Key] == field.Key
+                    ? $"key '{field.Key}' is declared twice at this level."
+                    : $"key '{field.Key}' differs from the key '{keys[field.Key]}' at this level only by case; keys are unique ignoring case."));
             }
 
             if (!FieldKinds.All.Contains(field.Kind))
@@ -447,11 +452,15 @@ public static partial class DefinitionChecker
         }
     }
 
-    private static bool IsValidPattern(string pattern)
+    /// <summary>
+    /// Whether <paramref name="pattern"/> compiles the way the platform runs it (NonBacktracking, culture-invariant):
+    /// field patterns, extraction hints and the <c>pattern</c> rule's <c>params.pattern</c>.
+    /// </summary>
+    internal static bool IsValidPattern(string pattern)
     {
         try
         {
-            _ = new Regex(pattern, RegexOptions.NonBacktracking, TimeSpan.FromSeconds(1));
+            _ = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             return true;
         }
         catch (ArgumentException)

@@ -192,14 +192,7 @@ public static partial class DocumentEndpoints
         // it (strings and identifiers normalised, numbers and dates by value); several filters must all hold.
         foreach (var filter in fieldFilters)
         {
-            var fieldKey = filter.Key;
-            var text = filter.Text;
-            var number = filter.Number;
-            var date = filter.Date;
-            query = query.Where(d => d.FieldIndex.Any(e => e.FieldKey == fieldKey
-                                                           && (e.StringValue == text
-                                                               || (number != null && e.NumberValue == number)
-                                                               || (date != null && e.DateValue == date))));
+            query = filter.Apply(query);
         }
 
         if (!string.IsNullOrWhiteSpace(q))
@@ -995,15 +988,12 @@ public static partial class DocumentEndpoints
         return values;
     }
 
-    /// <summary>One <c>?field.&lt;key&gt;=value</c> filter: the field's definition path and the value in each form the index stores.</summary>
-    private sealed record FieldFilter(string Key, string Text, decimal? Number, DateOnly? Date);
-
     /// <summary>The prefix of the indexed-field filters of the document list (docs/11 §18).</summary>
     public const string FieldFilterPrefix = "field.";
 
-    private static List<FieldFilter> ParseFieldFilters(IQueryCollection query, Dictionary<string, string[]> errors)
+    private static List<DocumentFieldFilter> ParseFieldFilters(IQueryCollection query, Dictionary<string, string[]> errors)
     {
-        var filters = new List<FieldFilter>();
+        var filters = new List<DocumentFieldFilter>();
         foreach (var (name, values) in query)
         {
             if (!name.StartsWith(FieldFilterPrefix, StringComparison.OrdinalIgnoreCase))
@@ -1025,9 +1015,9 @@ public static partial class DocumentEndpoints
                 continue;
             }
 
-            decimal? number = decimal.TryParse(raw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
-            DateOnly? date = DateOnly.TryParseExact(raw, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d) ? d : null;
-            filters.Add(new FieldFilter(key, DocumentFieldIndexWriter.Normalize(raw), number, date));
+            // A number larger than the index holds is compared as text only (DocumentFieldFilter.Of), not sent as a
+            // decimal(28,8) parameter it would overflow on SQL Server.
+            filters.Add(DocumentFieldFilter.Of(key, raw));
         }
 
         return filters;

@@ -123,9 +123,10 @@ public static class StructuralValidator
         {
             return new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, PatternTimeout);
         }
-        catch (ArgumentException)
+        catch (Exception e) when (e is ArgumentException or NotSupportedException)
         {
-            // The publish checks refuse such a pattern; one that still does not compile matches nothing.
+            // The publish checks refuse such a pattern (a syntax error, or a construct NonBacktracking cannot run); one
+            // that still does not compile matches nothing.
             return null;
         }
     }

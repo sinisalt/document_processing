@@ -1,5 +1,6 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
+using DocProc.Application.Documents;
 using DocProc.Definitions.Compilation;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
@@ -71,6 +72,11 @@ internal sealed class ValidateHandler(
             document.DocumentTypeVersionId = versionId;
         }
 
+        if (resolved is not null)
+        {
+            await CompleteStoredTreeAsync(document, resolved, cancellationToken).ConfigureAwait(false);
+        }
+
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
         if (document.CanonicalJson is { } json && resolved is not null && (type is not null || resolved.RunsValidateStep(ValidateStepKinds.Schema) || resolved.RequiredOutsideSchemaStep.Count > 0))
@@ -135,6 +141,42 @@ internal sealed class ValidateHandler(
         Timeline.Transition(document, DocumentStatus.NeedsReview, new { reason }, DocumentEventTypes.ReviewRequested);
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Stopped;
+    }
+
+    /// <summary>
+    /// Completes a stored definition tree (<c>CanonicalSchemaVersion</c> 2) with the fields of the version it is validated
+    /// with, before the checks read it: a document reprocessed from Validate onto a newer version (<c>configMode:
+    /// current</c>, docs/11 §5.7) gains the fields that version added and keeps the value of a renamed field
+    /// (<see cref="Definitions.Compilation.FieldDescriptor.FormerKeys"/>) under its new key, as the Extract stage does.
+    /// When anything changed the moved tree is stored, with the role columns and the field index rewritten from it, so
+    /// the checks, the review form, the values view and the output all read the same tree. A tree that is already
+    /// complete (every document on the version it was extracted with) is left exactly as it is.
+    /// </summary>
+    private async Task CompleteStoredTreeAsync(Document document, EffectiveType type, CancellationToken cancellationToken)
+    {
+        if (document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion || type.Compiled is not { } compiled || string.IsNullOrWhiteSpace(document.CanonicalJson))
+        {
+            return;
+        }
+
+        System.Text.Json.Nodes.JsonObject? tree;
+        try
+        {
+            tree = System.Text.Json.Nodes.JsonNode.Parse(document.CanonicalJson) as System.Text.Json.Nodes.JsonObject;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return; // The checks report what they can read of it; the tree is not rewritten.
+        }
+
+        if (tree is null || !DefinitionTree.Complete(tree, compiled.Descriptors))
+        {
+            return;
+        }
+
+        document.CanonicalJson = tree.ToJsonString(Domain.Documents.CanonicalJson.Options);
+        DocumentRoleColumns.Refresh(document, type.Roles);
+        await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Today in the tenant's time zone, so an invoice dated tomorrow in Berlin is not "in the future" at 23:30 UTC.</summary>

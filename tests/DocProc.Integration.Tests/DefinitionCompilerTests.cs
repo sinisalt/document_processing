@@ -573,6 +573,95 @@ public sealed class DefinitionCompilerTests
             .Warnings.ShouldNotContain(w => w.Message.Contains("moves to", StringComparison.Ordinal), "a rename in place keeps its value");
     }
 
+    /// <summary>
+    /// A version that gives a field's earlier key to another field (docs/11 §5.7): a tree stored under the earlier
+    /// version holds the renamed field's value under that key, so completing it would put the value into the new field
+    /// (a string in a date field) and leave the renamed one Missing. Refused while the earlier field still exists; a
+    /// key of a removed field may be taken again, with a warning.
+    /// </summary>
+    [Fact]
+    public void A_field_that_takes_the_former_key_of_another_field_is_refused()
+    {
+        var v1 = DefinitionSerializer.Parse(ReturnSlipJson());
+        var renamedAndReused = ReturnSlipJson(version: 2)
+            .Replace("{\"id\":\"fld_dn\",\"key\":\"deliveryNoteReference\",\"kind\":\"identifier\"},", "{\"id\":\"fld_dn\",\"key\":\"ourRef\",\"kind\":\"identifier\"},{\"id\":\"fld_new\",\"key\":\"deliveryNoteReference\",\"kind\":\"date\"},", StringComparison.Ordinal);
+
+        var refused = PublishChecks.Run(new PublishCheckInput { DefinitionJson = renamedAndReused, Published = v1 });
+        refused.CanPublish.ShouldBeFalse();
+        refused.Problems.ShouldContain(p => p.Where == "deliveryNoteReference" && p.Message.Contains("'fld_dn' (now 'ourRef') had in version 1", StringComparison.Ordinal));
+
+        // Also when the key was the field's in a version before the published one (v1 deprecated, v2 published).
+        var v2 = DefinitionSerializer.Parse(ReturnSlipJson(version: 2).Replace("\"key\":\"deliveryNoteReference\"", "\"key\":\"ourRef\"", StringComparison.Ordinal));
+        var v3 = renamedAndReused.Replace("\"version\":2", "\"version\":3", StringComparison.Ordinal);
+        PublishChecks.Run(new PublishCheckInput { DefinitionJson = v3, Published = v2 }).CanPublish.ShouldBeTrue("without the earlier versions the check cannot know");
+        var withHistory = PublishChecks.Run(new PublishCheckInput { DefinitionJson = v3, Published = v2, EarlierKeys = DescriptorIndex.KeySlotsOf(v1) });
+        withHistory.CanPublish.ShouldBeFalse();
+        withHistory.Problems.ShouldContain(p => p.Where == "deliveryNoteReference" && p.Message.Contains("version 1", StringComparison.Ordinal));
+
+        // The key of a removed field may be taken by a new one; the report says what old documents show.
+        var reusedRemoved = ReturnSlipJson(version: 2, withoutDeliveryNote: true)
+            .Replace("{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},", "{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},{\"id\":\"fld_new\",\"key\":\"deliveryNoteReference\",\"kind\":\"date\"},", StringComparison.Ordinal);
+        var warned = PublishChecks.Run(new PublishCheckInput { DefinitionJson = reusedRemoved, Published = v1 });
+        warned.CanPublish.ShouldBeTrue(string.Join("\n", warned.Problems));
+        warned.Warnings.ShouldContain(w => w.Where == "deliveryNoteReference" && w.Message.Contains("'fld_dn' that version 1 had and this version removes", StringComparison.Ordinal));
+
+        // A rename alone, and a rename back to the earlier key, are fine.
+        PublishChecks.Run(new PublishCheckInput { DefinitionJson = ReturnSlipJson(version: 3), Published = v2, EarlierKeys = DescriptorIndex.KeySlotsOf(v1) }).CanPublish.ShouldBeTrue();
+        PublishChecks.Run(new PublishCheckInput { DefinitionJson = ReturnSlipJson(version: 2, returnDateKey: "returnedOn"), Published = v1 }).Problems.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void The_former_keys_from_key_slots_are_those_from_the_definitions()
+    {
+        var v1 = DefinitionSerializer.Parse(ReturnSlipJson());
+        var v2 = DefinitionSerializer.Parse(ReturnSlipJson(version: 2, returnDateKey: "returnedOn"));
+        var v3 = DefinitionSchemaCompiler.Compile(DefinitionSerializer.Parse(ReturnSlipJson(version: 3, returnDateKey: "dateOfReturn"))).Compiled!.Descriptors;
+
+        DescriptorIndex.KeySlotsOf(v1).ShouldContain(new FieldKeySlot("fld_i_reason", "fld_items", "reason", 1));
+        DescriptorIndex.KeySlotsOf(v1).ShouldContain(new FieldKeySlot("fld_rd", null, "returnDate", 1));
+        v3.WithFormerKeys([.. DescriptorIndex.KeySlotsOf(v1), .. DescriptorIndex.KeySlotsOf(v2)]).ToJson().ShouldBe(v3.WithFormerKeys([v1, v2]).ToJson());
+    }
+
+    /// <summary>
+    /// The field index stores keys under the database's collation, case-insensitive on SQL Server by default: refNo and
+    /// refno would share index rows (a primary key violation on every save). Sibling keys are unique ignoring case.
+    /// </summary>
+    [Fact]
+    public void Sibling_field_keys_that_differ_only_by_case_are_refused()
+    {
+        var top = ReturnSlipJson().Replace("{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},", "{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},{\"id\":\"fld_a\",\"key\":\"refNo\",\"kind\":\"identifier\",\"indexed\":true},{\"id\":\"fld_b\",\"key\":\"refno\",\"kind\":\"identifier\",\"indexed\":true},", StringComparison.Ordinal);
+        var report = Publish(top);
+        report.CanPublish.ShouldBeFalse();
+        report.Problems.ShouldContain(p => p.Message.Contains("key 'refno' differs from the key 'refNo' at this level only by case", StringComparison.Ordinal));
+
+        var row = ReturnSlipJson().Replace("{\"id\":\"fld_i_qty\",\"key\":\"quantity\",\"kind\":\"decimal\",\"min\":0},", "{\"id\":\"fld_i_qty\",\"key\":\"quantity\",\"kind\":\"decimal\",\"min\":0},{\"id\":\"fld_i_q2\",\"key\":\"quantitY\",\"kind\":\"decimal\"},", StringComparison.Ordinal);
+        Publish(row).Problems.ShouldContain(p => p.Message.Contains("only by case", StringComparison.Ordinal));
+
+        // The same key in different groups is fine, and so is an exact duplicate reported as before.
+        Publish(ReturnSlipJson()).CanPublish.ShouldBeTrue();
+        var twice = ReturnSlipJson().Replace("{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},", "{\"id\":\"fld_sup\",\"key\":\"supplier\",\"kind\":\"party\"},{\"id\":\"fld_c\",\"key\":\"supplier\",\"kind\":\"party\"},", StringComparison.Ordinal);
+        Publish(twice).Problems.ShouldContain(p => p.Message.Contains("key 'supplier' is declared twice at this level", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A <c>pattern</c> rule's <c>params.pattern</c> is compiled at publish the way the rule runs it (NonBacktracking):
+    /// a construct that engine cannot run passed the parameter schema and then threw on every validation of the type.
+    /// </summary>
+    [Theory]
+    [InlineData(@"(a)\\1")]
+    [InlineData("(?=P)PL")]
+    [InlineData("(?<=P)L")]
+    [InlineData("(?>PL)")]
+    [InlineData("(")]
+    public void A_pattern_rule_whose_pattern_the_engine_cannot_run_is_refused(string pattern)
+    {
+        var report = Publish(ReturnSlipJson(rules: $$$"""[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"{{{pattern}}}"} }]"""));
+
+        report.CanPublish.ShouldBeFalse();
+        report.Problems.ShouldContain(p => p.Where == "rules[0] (r_probe).params" && p.Message.Contains("pattern is not a valid regular expression", StringComparison.Ordinal));
+        Publish(ReturnSlipJson(rules: """[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"^RMA-[0-9]+$"}}]""")).CanPublish.ShouldBeTrue();
+    }
+
     // ------------------------------------------------------------------ price-list templates
 
     [Fact]

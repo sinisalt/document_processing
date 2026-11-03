@@ -116,6 +116,24 @@ public sealed class GenericRuleTests
         Run(Values(), Rule("enumMember", """{"path":"lines[*].unit","codeList":"uom"}""")).ShouldHaveSingleItem().Field.ShouldBe("lines[1].unit");
     }
 
+    /// <summary>
+    /// A construct NonBacktracking cannot run (backreference, lookahead, lookbehind, atomic group) is refused at publish;
+    /// a version published before that was checked fails the rule (RULE_FAILED, invalidPattern) instead of throwing
+    /// NotSupportedException out of the validation, which answered 500 to every correction of the type.
+    /// </summary>
+    [Theory]
+    [InlineData(@"(a)\\1")]
+    [InlineData("(?=P)PL")]
+    [InlineData("(?<=P)L")]
+    [InlineData("(?>PL)")]
+    public void A_pattern_rule_with_a_construct_NonBacktracking_cannot_run_fails_the_rule(string pattern)
+    {
+        var flag = Run(Values(), Rule("pattern", $$"""{"path":"priceListNumber","pattern":"{{pattern}}"}""")).ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.RuleFailed);
+        flag.Params!["reason"].ShouldBe("invalidPattern");
+        flag.Field.ShouldBe("priceListNumber");
+    }
+
     [Fact]
     public void Lookup_exists_uses_the_platform_uom_list_with_codes_names_and_printed_aliases()
     {

@@ -192,6 +192,31 @@ public sealed class DefinitionStorageTests
         StructuralValidator.Validate(DocumentDataView.Values(tree, compiled.Descriptors), compiled).ShouldNotContain(f => f.Field == "probe");
     }
 
+    /// <summary>
+    /// A field pattern NonBacktracking cannot run (a version stored before the publish checks refused it) matches
+    /// nothing, as a syntax error does, instead of throwing NotSupportedException out of the structural check.
+    /// </summary>
+    [Theory]
+    [InlineData(@"^(a)\1$")]
+    [InlineData("^(?=P)PL$")]
+    [InlineData("^P(?<=P)L$")]
+    [InlineData("^(?>PL)$")]
+    public void A_field_pattern_NonBacktracking_cannot_run_matches_nothing_instead_of_throwing(string pattern)
+    {
+        var template = StandardTemplates.Find("std.price-list")!;
+        var compiled = Compile(template with
+        {
+            Key = "PatternProbe",
+            Fields = [.. template.Fields, new FieldDefinition { Id = "fld_c_probe", Key = "probe", Kind = FieldKinds.String, Pattern = pattern }],
+        });
+        var tree = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        tree["probe"] = Envelope(JsonValue.Create("PL"));
+
+        var flags = StructuralValidator.Validate(DocumentDataView.Values(tree, compiled.Descriptors), compiled);
+
+        flags.Single(f => f.Field == "probe").Params!["keyword"].ShouldBe("pattern");
+    }
+
     [Fact]
     public void The_field_index_holds_the_values_of_indexed_fields_normalised()
     {

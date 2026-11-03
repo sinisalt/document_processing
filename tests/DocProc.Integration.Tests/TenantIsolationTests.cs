@@ -75,6 +75,38 @@ public sealed class TenantIsolationTests(SqlServerFixture sqlServer) : IClassFix
         await Should.ThrowAsync<DbUpdateException>(() => asB.SaveChangesAsync(ct));
     }
 
+    /// <summary>
+    /// The document list's <c>?field.&lt;key&gt;=value</c> filter on SQL Server (docs/11 §18): a value that parses as a
+    /// number too large for the decimal(28,8) index column is compared as text only, so the query answers (an empty page,
+    /// or the document whose text value it is) instead of throwing OverflowException or ArgumentException, which the list
+    /// endpoint answered with 500. An indexed number still matches by value.
+    /// </summary>
+    [Theory]
+    [InlineData("99999999999999999999999")]
+    [InlineData("123456789012345678901.5")]
+    [InlineData("-99999999999999999999.5")]
+    public async Task A_field_filter_with_a_number_the_index_cannot_hold_compares_as_text_and_does_not_fail(string raw)
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        await using var asA = NewContext(TenantContext.ForTenant(TenantA));
+        var mine = await asA.Documents.Select(d => d.Id).FirstAsync(ct);
+        asA.DocumentFieldIndex.Add(new DocumentFieldIndexEntry { TenantId = TenantA, DocumentId = mine, FieldKey = "amount", Ordinal = 0, NumberValue = 12.5m });
+        asA.DocumentFieldIndex.Add(new DocumentFieldIndexEntry { TenantId = TenantA, DocumentId = mine, FieldKey = "reference", Ordinal = 0, StringValue = DocumentFieldIndexWriter.Normalize(raw) });
+        await asA.SaveChangesAsync(ct);
+
+        var filter = DocumentFieldFilter.Of("amount", raw);
+        filter.Number.ShouldBeNull("it is out of the index's range");
+        (await filter.Apply(asA.Documents).CountAsync(ct)).ShouldBe(0);
+        (await DocumentFieldFilter.Of("reference", raw).Apply(asA.Documents).Select(d => d.Id).ToListAsync(ct)).ShouldBe([mine], "a long identifier still matches as text");
+
+        (await DocumentFieldFilter.Of("amount", "12.50").Apply(asA.Documents).Select(d => d.Id).ToListAsync(ct)).ShouldBe([mine], "an indexed number matches by value");
+        DocumentFieldFilter.Of("amount", "99999999999999999.5").Number.ShouldBe(99999999999999999.5m, "below the bound it is a number");
+        (await DocumentFieldFilter.Of("amount", "99999999999999999.5").Apply(asA.Documents).CountAsync(ct)).ShouldBe(0, "and the column holds it as a parameter");
+        DocumentFieldFilter.Of("amount", "100000000000000000").Number.ShouldBeNull("the bound itself is outside");
+        (await DocumentFieldFilter.Of("amount", "0.123456789012").Apply(asA.Documents).CountAsync(ct)).ShouldBe(0, "more decimals than the column are fine");
+    }
+
     [Fact]
     public async Task Row_level_security_blocks_cross_tenant_reads_and_writes_even_without_ef_filters()
     {

@@ -468,6 +468,33 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       fake clock woke too (it swept and published one first); the tests that sweep by hand run without the loop;
     - docs/09: the demo's step 1 shows the read-only catalogue as `tenant-a-admin` (a reviewer has no Settings), and
       step 7 gives the delivery note's `supplierCustomerRef` its labels.
+  - Fixed after the third P1 review:
+    - a document reprocessed from Validate with `configMode: current` onto a version that renamed a field kept the
+      value under the old key: only Extract, the detail and PATCH completed the tree, and the checks read the stored
+      tree by key, so a required renamed field raised `FIELD_REQUIRED` while the form showed the value, and an
+      approved document kept the old key in its values view and output. The Validate stage now completes a stored
+      version 2 tree with the version's fields before the checks and stores it when anything moved or was added, with
+      the role columns and the field index rewritten from it; a complete tree is left as it is;
+    - publish refuses a field that takes a key another field (another id) had under the same parent in an earlier
+      published version while that field still exists (renamed): completing an old tree put that field's value into
+      the new field (a string in a date field) and left the renamed one empty. Taking the key of a removed field is
+      allowed with a warning (old documents show the removed field's value as the new field's);
+    - a `pattern` rule's `params.pattern` is compiled at publish as the rule runs it (NonBacktracking); a backreference,
+      lookaround or atomic group passed publish and then threw `NotSupportedException` in every validation of the type
+      (every PATCH of such a document answered 500 after saving). The rule and `StructuralValidator` also treat such a
+      pattern of a version published before as invalid (`RULE_FAILED {reason: invalidPattern}`; a field pattern matches
+      nothing) instead of throwing;
+    - sibling field keys must differ by more than case (`refNo` and `refno`): on SQL Server's case-insensitive
+      collation both fields' index rows share the `DocumentFieldIndex` key, so every save of such a document failed;
+    - the `?field.<path>=` filter compares a number of 10^17 or more as text only (`DocumentFieldFilter`; the index
+      holds no larger number): such a value overflowed the decimal(28,8) parameter on SQL Server and the list answered
+      500 to any reader;
+    - the catalogue reads version summaries: `GET /document-types`, `/document-types/{key}`, `/versions`,
+      `/document-templates` (only keys and templates) and the writes' checks no longer load every version's definition
+      and compiled artifacts (up to several MB each, for as many versions as a type was published); the definition of
+      the one version the indexed fields come from is read, `GET …/versions/{v}` reads that version alone, and publish
+      reads the earlier versions' keys one definition at a time. `PublishedDefinitionCache` is bounded by the size of
+      the stored JSON it holds (64 M characters) as well as by its 2048 entries.
   - Left for the rest of P1:
     - restructuring the invoice family (docs/11 §5.1): coded invoice kinds that declare the roles and kinds they need,
       a publish report that disables them ("invoice.totals disabled: role `net` missing") and the generic `sumEquals`
@@ -475,7 +502,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - auto-approval for a type outside the invoice family needs `review.requirePassedRules` (P5); until then such a
       type always goes to review, whatever its `review.autoApprove` says;
     - a version published before `FormerKeys` existed, or a row compiled again because it stored no artifacts, carries
-      no earlier keys: a document moved across a rename made then still finds the renamed field Missing;
+      no earlier keys: a document moved across a rename made then still finds the renamed field Missing; a version
+      published before the reused-key check that gave a renamed field's old key to another field still hands an old
+      tree's value to that other field (a tree records no field ids);
+    - the number of versions a type may have, and the definition bytes a tenant may store, are not capped (the lists
+      read summaries; each draft is capped at 1 MiB);
     - the ETag on `DocumentDetail.definition` (docs/11 §18) and the client-side Ajv hints over the compiled JSON Schema
       (§5.5 artifact 1, §11): the review form checks nothing before the save, the server's inline re-validation answers;
     - invoice compatibility from the definition (docs/11 §9.1 `Definition.IsInvoiceCompatible`): the Extract stage,

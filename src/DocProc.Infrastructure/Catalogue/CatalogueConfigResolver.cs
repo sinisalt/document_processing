@@ -13,13 +13,38 @@ namespace DocProc.Infrastructure.Catalogue;
 /// <summary>
 /// The parsed definitions of published (immutable) type versions, by version id, for the life of the process, with
 /// their artifacts: the ones the version stored when it was published (docs/11 §5.5), compiled again only for a row
-/// without them. A version never changes once published, so an entry never goes stale; the cache is bounded by
-/// clearing it.
+/// without them. A version never changes once published, so an entry never goes stale. The cache is shared by every
+/// tenant of the process and bounded by clearing it: at <see cref="MaxEntries"/> entries, or when the stored JSON of its
+/// entries (the definition and the artifacts, in characters) would pass the size budget, since one version may hold
+/// several megabytes.
 /// </summary>
 public sealed class PublishedDefinitionCache
 {
-    private const int MaxEntries = 2048;
+    public const int MaxEntries = 2048;
+
+    /// <summary>The default size budget: the characters of stored JSON the cached versions may hold together (about 128 MB as strings).</summary>
+    public const long DefaultMaxCharacters = 64L * 1024 * 1024;
+
     private readonly ConcurrentDictionary<Guid, Entry> _definitions = new();
+    private readonly long _maxCharacters;
+    private long _characters;
+
+    public PublishedDefinitionCache()
+        : this(DefaultMaxCharacters)
+    {
+    }
+
+    public PublishedDefinitionCache(long maxCharacters)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxCharacters);
+        _maxCharacters = maxCharacters;
+    }
+
+    /// <summary>How many versions are cached.</summary>
+    public int Count => _definitions.Count;
+
+    /// <summary>The characters of stored JSON the cached versions were read from.</summary>
+    public long Characters => Interlocked.Read(ref _characters);
 
     public bool TryGet(Guid versionId, [NotNullWhen(true)] out TypeDefinition? definition)
     {
@@ -27,15 +52,42 @@ public sealed class PublishedDefinitionCache
         return definition is not null;
     }
 
-    public TypeDefinition Add(Guid versionId, TypeDefinition definition, StoredArtifacts? stored = null)
+    /// <summary>
+    /// Caches <paramref name="definition"/> of the published version <paramref name="versionId"/>;
+    /// <paramref name="characters"/> is the length of the stored JSON it was read from (its weight in the size budget).
+    /// </summary>
+    public TypeDefinition Add(Guid versionId, TypeDefinition definition, StoredArtifacts? stored = null, long characters = 0)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (_definitions.Count >= MaxEntries)
+        if (_definitions.TryGetValue(versionId, out var cached))
         {
-            _definitions.Clear();
+            return cached.Definition;
         }
 
-        return _definitions.GetOrAdd(versionId, _ => new Entry(definition, stored)).Definition;
+        if (_definitions.Count >= MaxEntries || Interlocked.Read(ref _characters) + characters > _maxCharacters)
+        {
+            _definitions.Clear();
+            Interlocked.Exchange(ref _characters, 0);
+        }
+
+        var entry = new Entry(definition, stored);
+        var added = _definitions.GetOrAdd(versionId, entry);
+        if (ReferenceEquals(added, entry))
+        {
+            Interlocked.Add(ref _characters, Math.Max(0, characters));
+        }
+
+        return added.Definition;
+    }
+
+    /// <summary>The characters of stored JSON of one version row, its weight in the size budget.</summary>
+    public static long SizeOf(string definitionJson, StoredArtifacts? stored)
+    {
+        ArgumentNullException.ThrowIfNull(definitionJson);
+        return definitionJson.Length
+               + (stored is null
+                   ? 0L
+                   : (long)(stored.JsonSchema?.Length ?? 0) + (stored.LlmSchema?.Length ?? 0) + (stored.FormSpec?.Length ?? 0) + (stored.Descriptors?.Length ?? 0));
     }
 
     /// <summary>
@@ -120,7 +172,7 @@ public sealed class CatalogueConfigResolver(DocProcDbContext db, ITenantFeatures
             .Select(v => new { v.DefinitionJson, v.CompiledJsonSchema, v.CompiledLlmSchema, v.LlmSchemaName, v.LlmSchemaVersion, v.LlmSchemaHash, v.FormSpecJson, v.DescriptorsJson, v.ContentHash })
             .SingleAsync(cancellationToken).ConfigureAwait(false);
         var stored = new StoredArtifacts(row.CompiledJsonSchema, row.CompiledLlmSchema, row.LlmSchemaName, row.LlmSchemaVersion, row.LlmSchemaHash, row.FormSpecJson, row.DescriptorsJson, row.ContentHash);
-        return cache.Add(versionId, DefinitionSerializer.Parse(row.DefinitionJson), stored);
+        return cache.Add(versionId, DefinitionSerializer.Parse(row.DefinitionJson), stored, PublishedDefinitionCache.SizeOf(row.DefinitionJson, stored));
     }
 
     private static IQueryable<Row> Select(IQueryable<DocumentTypeVersion> versions) =>

@@ -35,6 +35,12 @@ public sealed record PublishCheckInput
     /// <summary>Everything outside the definition that refers to the published version's fields.</summary>
     public IReadOnlyList<DependentReference> Dependents { get; init; } = [];
 
+    /// <summary>
+    /// The keys the fields of the type's earlier published (and deprecated) versions had (<see cref="DescriptorIndex.KeySlotsOf"/>);
+    /// the published version's are added from <see cref="Published"/>. A key one field had is not given to another.
+    /// </summary>
+    public IReadOnlyList<FieldKeySlot> EarlierKeys { get; init; } = [];
+
     public CompileOptions CompileOptions { get; init; } = CompileOptions.Default;
 
     /// <summary>The LLM project's portability check over a compiled LLM schema (<c>SchemaPortability.Check</c>); null skips it.</summary>
@@ -151,7 +157,53 @@ public static class PublishChecks
             }
         }
 
+        var earlierKeys = input.Published is { } current ? [.. input.EarlierKeys, .. DescriptorIndex.KeySlotsOf(current)] : input.EarlierKeys;
+        CheckReusedKeys(definition, earlierKeys, problems, warnings);
+
         return new PublishReport(definition, problems.Count == 0 ? compiled : null, problems, warnings, changes, blocking);
+    }
+
+    /// <summary>
+    /// The key-level twin of "ids are never reused" (docs/11 §5.2, §5.7): a tree stored under an earlier version holds
+    /// each value under the key its field had then, and completing it for this version moves a renamed field's value
+    /// by its former key (<see cref="FieldDescriptor.FormerKeys"/>). A field that takes the earlier key of another field
+    /// of this version would receive that field's value and leave the renamed field empty, so it is refused. A field
+    /// that takes the key of a field this version no longer has is allowed, with a warning: documents stored under the
+    /// earlier version show the removed field's value as its.
+    /// </summary>
+    private static void CheckReusedKeys(TypeDefinition definition, IReadOnlyList<FieldKeySlot> earlier, List<DefinitionProblem> problems, List<DefinitionProblem> warnings)
+    {
+        if (earlier.Count == 0)
+        {
+            return;
+        }
+
+        var candidate = DefinitionPaths.Enumerate(definition).ToList();
+        var paths = candidate.GroupBy(f => f.Field.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Path, StringComparer.Ordinal);
+        var byKey = earlier.GroupBy(s => (s.ParentId, s.Key)).ToDictionary(g => g.Key, g => g.ToList());
+        foreach (var (path, field) in candidate)
+        {
+            if (!byKey.TryGetValue((ParentIdOf(definition, path), field.Key), out var slots))
+            {
+                continue;
+            }
+
+            foreach (var other in slots.Where(s => s.FieldId != field.Id).GroupBy(s => s.FieldId, StringComparer.Ordinal).Select(g => g.MaxBy(s => s.Version)!))
+            {
+                if (paths.TryGetValue(other.FieldId, out var otherPath))
+                {
+                    problems.Add(new DefinitionProblem(
+                        path,
+                        $"takes the key '{field.Key}', which the field '{other.FieldId}' (now '{otherPath}') had in version {other.Version}; documents stored under that version hold its value under '{field.Key}', so on this version the value would land in this field and '{otherPath}' would start empty. Give this field another key; a key a field had is not given to another field."));
+                }
+                else
+                {
+                    warnings.Add(new DefinitionProblem(
+                        path,
+                        $"takes the key '{field.Key}' of the field '{other.FieldId}' that version {other.Version} had and this version removes; documents stored under that version show the removed field's value as this field's."));
+                }
+            }
+        }
     }
 
     /// <summary>The id of the field <paramref name="path"/> is a row field or member of, or null at the top.</summary>
@@ -234,6 +286,11 @@ public static class PublishChecks
                 var messages = (result.Details ?? []).Where(d => d.Errors is { Count: > 0 }).SelectMany(d => d.Errors!.Select(e => $"{(d.InstanceLocation.ToString() is { Length: > 0 } l ? l + ": " : string.Empty)}{e.Value}")).Distinct().ToList();
                 yield return new DefinitionProblem(at, $"do not fit the kind '{kind.Kind}': {(messages.Count > 0 ? string.Join("; ", messages) : "invalid")}.");
                 continue;
+            }
+
+            if (kind.Kind == "pattern" && parameters["pattern"] is JsonValue patternValue && patternValue.TryGetValue<string>(out var pattern) && !DefinitionChecker.IsValidPattern(pattern))
+            {
+                yield return new DefinitionProblem(at, "pattern is not a valid regular expression (backreferences, lookarounds and atomic groups are not supported).");
             }
 
             foreach (var name in kind.PathParams)

@@ -46,7 +46,7 @@ public sealed class DefinitionDrivenPipelineTests
         copied.Status.ShouldBe(CatalogueStatus.Ok, copied.Detail);
         var type = copied.Value!;
         var draft = type.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
-        var json = JsonNode.Parse(draft.DefinitionJson)!.AsObject();
+        var json = JsonNode.Parse(draft.DefinitionJson.ShouldNotBeNull())!.AsObject();
         edit(json);
         var saved = await catalogue.SaveDraftAsync(PipelineTestHost.TenantA, type.Definition.Key, draft.Version, json.ToJsonString(), draft.Revision, "admin", CancellationToken.None);
         saved.Status.ShouldBe(CatalogueStatus.Ok, saved.Detail);
@@ -240,6 +240,91 @@ public sealed class DefinitionDrivenPipelineTests
         flag.Field.ShouldBe("supplierCustomerRef");
         flag.Severity.ShouldBe(FlagSeverity.Blocking);
         document.Flags.Where(f => f.Code == FlagCodes.FieldRequired).ShouldHaveSingleItem("the invoice's own required fields stay the coded rule's");
+    }
+
+    /// <summary>
+    /// docs/11 §5.7: reprocessed from Validate with <c>configMode: current</c> onto a version that renamed a field (same id,
+    /// new key), the document's stored tree is completed by the Validate stage before the checks run, so the required
+    /// renamed field keeps its value under the new key: no FIELD_REQUIRED, the tree and the field index store the new
+    /// key, and the old key is gone. Before, only Extract and the review form moved the value, and the checks read the
+    /// stored tree by key.
+    /// </summary>
+    [Fact]
+    public async Task Reprocessing_from_validate_onto_a_version_that_renamed_a_required_field_keeps_its_value_under_the_new_key()
+    {
+        await using var host = await StartAsync();
+        await SetConfigurableAsync(host, true);
+        await ForkAsync(host, "std.invoice", json => json["fields"]!.AsArray().Add(JsonNode.Parse("""
+            { "id": "fld_c_scr", "key": "supplierCustomerRef", "kind": "identifier", "required": true, "indexed": true,
+              "label": { "en": "Our customer no. at supplier" } }
+            """)));
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.xml", "application/xml", PipelineTestHost.Fixture("peppol-bis3-invoice.xml"))]);
+        await host.RunUntilIdleAsync();
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.FieldRequired && f.Field == "supplierCustomerRef");
+        var v2 = document.DocumentTypeVersionId.ShouldNotBeNull();
+
+        // A reviewer's value under the key of version 2.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            var tree = JsonNode.Parse(row.CanonicalJson!)!.AsObject();
+            tree["supplierCustomerRef"] = JsonNode.Parse("""{"value":{"verbatim":"0815","normalized":"0815"},"status":"Corrected","confidence":1,"history":[]}""");
+            row.CanonicalJson = tree.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+
+        // Version 3 renames the field (same id); the publish checks accept it.
+        await NewVersionAsync(host, "Invoice", json => json["fields"]!.AsArray().Single(f => f!["id"]!.GetValue<string>() == "fld_c_scr")!["key"] = "ourCustomerNo");
+
+        // What POST :reprocess { fromStage: Validate, configMode: current } writes: Extracted, no pin, Validate enqueued.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            row.Status = DocumentStatus.Extracted;
+            row.DocumentTypeVersionId = null;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Validate), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+
+        var moved = await host.DocumentAsync(document.Id);
+        moved.DocumentTypeVersionId.ShouldNotBeNull().ShouldNotBe(v2, "Validate pins the published version 3");
+        moved.Flags.ShouldNotContain(f => f.Code == FlagCodes.FieldRequired && f.ResolvedAt == null, "the renamed field has its value");
+        var stored = JsonNode.Parse(moved.CanonicalJson!)!.AsObject();
+        stored["ourCustomerNo"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe("0815");
+        stored.ContainsKey("supplierCustomerRef").ShouldBeFalse("the value moved, it is not kept twice");
+        moved.DocumentNumber.ShouldBe(document.DocumentNumber, "the role columns are rewritten from the same tree");
+        var index = await host.WithDbAsync(db => db.DocumentFieldIndex.Where(e => e.DocumentId == document.Id && e.FieldKey != "invoiceNumber").Select(e => new { e.FieldKey, e.StringValue }).ToListAsync());
+        index.Select(e => (e.FieldKey, e.StringValue)).ShouldBe([("ourCustomerNo", "0815")]);
+
+        // Validated again with nothing to move, the stored tree is left exactly as it is.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            row.Status = DocumentStatus.Extracted;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Validate), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+        (await host.DocumentAsync(document.Id)).CanonicalJson.ShouldBe(moved.CanonicalJson);
+    }
+
+    /// <summary>Starts the next version of <paramref name="key"/> as a draft, lets <paramref name="edit"/> change it and publishes it.</summary>
+    private static async Task NewVersionAsync(PipelineTestHost host, string key, Action<JsonObject> edit)
+    {
+        using var scope = host.CreateTenantScope(PipelineTestHost.TenantA);
+        var catalogue = scope.ServiceProvider.GetRequiredService<DocumentTypeCatalogue>();
+        var created = await catalogue.CreateDraftAsync(PipelineTestHost.TenantA, key, "admin", CancellationToken.None);
+        created.Status.ShouldBe(CatalogueStatus.Created, created.Detail);
+        var draft = created.Value!;
+        var json = JsonNode.Parse(draft.DefinitionJson)!.AsObject();
+        edit(json);
+        var saved = await catalogue.SaveDraftAsync(PipelineTestHost.TenantA, key, draft.Version, json.ToJsonString(), draft.Revision, "admin", CancellationToken.None);
+        saved.Status.ShouldBe(CatalogueStatus.Ok, saved.Detail);
+        var published = await catalogue.PublishAsync(PipelineTestHost.TenantA, key, draft.Version, null, "test", "admin", CancellationToken.None);
+        published.Status.ShouldBe(CatalogueStatus.Ok, published.Detail + string.Join("; ", published.Report?.Problems.Select(p => p.Message) ?? []));
+        published.Report!.Warnings.ShouldNotContain(w => w.Message.Contains("moves to", StringComparison.Ordinal), "a rename in place keeps its value");
     }
 
     [Fact]

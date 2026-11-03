@@ -244,7 +244,7 @@ public sealed class DemoFixtureTests
         copied.Status.ShouldBe(CatalogueStatus.Ok, copied.Detail);
         copied.Value!.Definition.Key.ShouldBe(key);
         var draft = copied.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
-        var definition = JsonNode.Parse(draft.DefinitionJson)!.AsObject();
+        var definition = JsonNode.Parse(draft.DefinitionJson.ShouldNotBeNull())!.AsObject();
         definition["fields"]!.AsArray().Add(JsonNode.Parse(await File.ReadAllTextAsync(fieldPath, Ct)));
         var saved = await catalogue.SaveDraftAsync(tenantId, key, draft.Version, definition.ToJsonString(), draft.Revision, "tenant-a-admin", Ct);
         saved.Status.ShouldBe(CatalogueStatus.Ok, saved.Detail);

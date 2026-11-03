@@ -161,7 +161,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
             var fork = await catalogue.CopyAsync(TenantA, "std.credit-note", null, "admin-a", ct);
             fork.Status.ShouldBe(CatalogueStatus.Ok);
             var draft = fork.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
-            var edited = DefinitionSerializer.Parse(draft.DefinitionJson);
+            var edited = DefinitionSerializer.Parse(draft.DefinitionJson.ShouldNotBeNull());
             edited = edited with { Fields = [.. edited.Fields, new FieldDefinition { Id = "fld_c_scr", Key = "supplierCustomerRef", Kind = FieldKinds.Identifier, Indexed = true }] };
             (await catalogue.SaveDraftAsync(TenantA, "CreditNote", draft.Version, DefinitionSerializer.Write(edited), draft.Revision, "admin-a", ct)).Status.ShouldBe(CatalogueStatus.Ok);
             var published = await catalogue.PublishAsync(TenantA, "CreditNote", draft.Version, ifMatch: null, "custom field", "admin-a", ct);

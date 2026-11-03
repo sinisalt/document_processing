@@ -167,8 +167,17 @@ public static class DocumentFieldIndexWriter
     private static string? Text(JsonNode? node) =>
         node is JsonValue value && value.GetValueKind() == JsonValueKind.String && value.GetValue<string>() is { Length: > 0 } text ? text : null;
 
+    /// <summary>
+    /// The bound (exclusive) on the absolute value of an indexed number: well inside the column's decimal(28,8), so a
+    /// stored value and a filter value compared with it never overflow the column on SQL Server.
+    /// </summary>
+    public const decimal MaxIndexedNumber = 100_000_000_000_000_000m;
+
+    /// <summary>Whether <paramref name="number"/> can be an indexed number (and so whether a filter needs to compare it as one).</summary>
+    public static bool IsIndexableNumber(decimal number) => Math.Abs(number) < MaxIndexedNumber;
+
     private static decimal? Number(JsonNode? node) =>
-        node is JsonValue value && value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<decimal>(out var number) && Math.Abs(number) < 100_000_000_000_000_000_000m / 1000 ? number : null;
+        node is JsonValue value && value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<decimal>(out var number) && IsIndexableNumber(number) ? number : null;
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 }
