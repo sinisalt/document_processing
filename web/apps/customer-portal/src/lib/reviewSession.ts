@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { TableToolState } from "@docproc/review";
 
 /**
@@ -41,7 +41,11 @@ export function clearReviewSessions(): void {
   sessions.clear();
 }
 
-/** A state of the review screen that outlives the screen's remounts for the same document (null included). */
+/**
+ * A state of the review screen that outlives the screen's remounts for the same document (null included). The setter
+ * writes the session at once: a save that answers with a new version remounts the screen in the same render, before
+ * an effect of the old one would have run.
+ */
 export function useSessionState<K extends keyof ReviewSession>(documentId: string, key: K, initial: Exclude<ReviewSession[K], undefined> | (() => Exclude<ReviewSession[K], undefined>)) {
   type Value = Exclude<ReviewSession[K], undefined>;
   const [value, setValue] = useState<Value>(() => {
@@ -49,8 +53,12 @@ export function useSessionState<K extends keyof ReviewSession>(documentId: strin
     if (key in stored && stored[key] !== undefined) return stored[key] as Value;
     return typeof initial === "function" ? (initial as () => Value)() : initial;
   });
-  useEffect(() => {
-    writeReviewSession(documentId, { [key]: value } as ReviewSession);
-  }, [documentId, key, value]);
-  return [value, setValue] as const;
+  const set = useCallback(
+    (next: Value) => {
+      writeReviewSession(documentId, { [key]: next } as ReviewSession);
+      setValue(next);
+    },
+    [documentId, key],
+  );
+  return [value, set] as const;
 }

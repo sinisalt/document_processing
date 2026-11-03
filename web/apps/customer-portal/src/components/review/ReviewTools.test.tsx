@@ -169,6 +169,8 @@ describe("table tool (useTableTool)", () => {
     client.POST.mockResolvedValueOnce(ok({ path: "lines", proposed: false, columns, headerRow: null, rowAnchor: "supplierSku", report: report(412), rows: [], rowsTruncated: false, written: true, document: written }));
     act(() => result.current.onWrite());
     await waitFor(() => expect(result.current.state).toBeNull());
+    // Written at once: the screen remounts for the new version in the same render.
+    expect(readReviewSession(document.id).table).toBeNull();
     expect(client.POST.mock.calls[2]![1].body).toMatchObject({ write: true, reason: "Table captured in review" });
     expect(queryClient.getQueryData(["documents", "detail", document.id])).toEqual(written);
     expect(toast.success).toHaveBeenCalledWith("412 rows written as one correction.");
