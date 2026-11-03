@@ -308,6 +308,42 @@ A draft is edited with `PUT /api/v1/document-types/{key}/versions/{v}` (the body
 published with `POST …/versions/{v}:publish` (422 with the report when a check fails). The
 publish-time checks and their report are those of docs/11 §5.7.
 
+**A custom field, end to end (demo data).** The demo PDF invoice of Bio-Hof Müller prints
+"Kundennummer 0815". Fork `Invoice` in place, add the field of
+`fixtures/demo/types/invoice-customer-number.field.json`, publish, and reprocess the invoice with
+`configMode: "current"` (a reprocess otherwise keeps the type version the document is pinned to). The
+LLM is asked for the field in `x_custom` (schema `invoice_extraction@1+x.<hash8>`), answered from the
+third replay fixture, and the document is stored as a definition-driven tree
+(`canonicalSchemaVersion` 2) with the field indexed, so the inbox finds it:
+
+```bash
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.invoice","mode":"copy"}}' | jq '{key, draftVersion}'
+ETAG=$(curl -s -D - -o /tmp/invoice-v2.json http://localhost:5100/api/v1/document-types/Invoice/versions/2 -H "$H" | awk 'tolower($1)=="etag:"{print $2}' | tr -d '\r')
+jq --slurpfile f fixtures/demo/types/invoice-customer-number.field.json '.definition | .fields += $f' /tmp/invoice-v2.json \
+  | curl -s -X PUT http://localhost:5100/api/v1/document-types/Invoice/versions/2 -H "$H" -H "if-match: $ETAG" -H 'content-type: application/json' -d @- | jq .state
+curl -s -X POST http://localhost:5100/api/v1/document-types/Invoice/versions/2:publish -H "$H" -H 'content-type: application/json' -d '{}' | jq .publishedVersion
+DOC=$(curl -s "http://localhost:5100/api/v1/documents?q=2026-131" -H "$H" | jq -r '.items[0].id')
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:reprocess" -H "$H" -H 'content-type: application/json' -d '{"fromStage":"Extract","configMode":"current"}' | jq .status
+sleep 5
+curl -s "http://localhost:5100/api/v1/documents?field.supplierCustomerRef=0815" -H "$H" | jq '.items[] | {documentNumber, status}'
+curl -s "http://localhost:5100/api/v1/documents/$DOC" -H "$H" | jq '{canonicalSchemaVersion, typeVersion, ref: .canonical.supplierCustomerRef.value}'
+```
+
+The fixture matches only this exact field (its description and labels are part of the LLM schema and
+therefore of the request hash) on a demo database where the PDF invoice is still as the demo data
+left it; another field, or another PDF, gets a replay miss and ends `Failed` as described under
+"Demo data".
+
+Documents of a definition-driven type (docs/11 §5.6) are stored and corrected by their type
+version: with `configurableTypes` on, a purchase order or delivery note gets the empty tree of its
+type in Extract (`UNSUPPORTED_TYPE` with `reason: definition` says it is filled in review), and a
+price list adopted from the catalogue is checked by `validate.schema` and its rules. `PATCH
+/documents/{id}/fields` then takes `append` (a row, with an object of its values, or a list entry)
+and `remove` (a row, a list entry or an `ext` key) besides `set`, re-validates the document at once
+and answers with the new flags. Indexed fields are filtered with `?field.<path>=value` on
+`GET /documents`; `validFrom`, `validUntil`, `lineCount` and the open review task's
+`reviewPriority` are in every inbox row.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
@@ -384,7 +420,9 @@ stage sends (the PDF for extraction, the rendered first page PNG for classificat
 `DemoFixtureTests.Llm_replay_fixtures_answer_exactly_the_requests_the_demo_pdfs_produce` boots the processing
 stack with the API's `appsettings.json` and `appsettings.Development.json`, lets the demo data run with a capturing
 provider in place of the replay store, hashes every request the real stages send and compares the resulting files
-with the committed ones. After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
+with the committed ones. It then forks tenant A's `Invoice` with the demo custom field (`fixtures/demo/types`, see
+"Document types" above) and reprocesses the PDF invoice with `configMode: "current"`, which adds the third fixture:
+the extraction with `x_custom`. After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
 demo PDF it fails and says so; regenerate and commit:
 
 ```bash

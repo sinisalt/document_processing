@@ -6,7 +6,10 @@ Documents the API ingests in the dependency-free development mode (`Persistence:
 - `tenant-a/`: Gasthaus zur Post GmbH (METRO, Getränke Hoffmann and Bio-Hof Müller invoices, a METRO credit note,
   a Bio-Hof Müller PDF invoice and delivery note)
 - `tenant-b/`: Pizzeria Napoli d.o.o. (an XRechnung from Konzum plus)
-- `llm-replay/`: `FileReplayStore` fixtures that answer the two PDFs' LLM calls without an API key
+- `llm-replay/`: `FileReplayStore` fixtures that answer the two PDFs' LLM calls without an API key, plus the
+  invoice's extraction with the demo custom field
+- `types/`: the demo custom field (`invoice-customer-number.field.json`) that docs/09 "Document types" adds to a
+  fork of `Invoice`; its exact text keys the third replay fixture
 
 What each file is for, how the replay fixtures are regenerated (`UPDATE_DEMO_FIXTURES=1`) and how to reset the
 database: docs/09-local-development.md, "Demo data". Do not edit the PDFs or the replay files by hand; their bytes

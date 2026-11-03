@@ -168,7 +168,8 @@ for a developer machine, not secrets; override them in `.env` (see `.env.example
 start, since SQL Server keeps the password it was created with.
 
 **LLM keys.** Without a key the stack still processes e-invoice XML (UBL, CII, XRechnung) end to
-end, and the demo PDFs are answered from their replay fixtures; any other PDF ends `Failed` until a
+end, and the demo PDFs are answered from their replay fixtures (so is the demo PDF invoice after the
+custom-field steps of docs/09 "Document types"); any other PDF ends `Failed` until a
 provider is configured. To use a real provider, copy `.env.example` to `.env` (git-ignored) and set
 `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` together with `OPENAI_MODEL`, then `docker compose up -d`.
 The one-shot `llm-setup` service makes the platform configurations follow `.env` through the admin

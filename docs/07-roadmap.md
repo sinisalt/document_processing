@@ -236,8 +236,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
     `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
     (docs/11 §21 step 1).
-- **P1, types as data and custom fields – in progress.** Part A, the type catalogue backend, is done; the
-  generated review form, the patcher, the type editor and the validation work of P1 are not.
+- **P1, types as data and custom fields – in progress.** Part A (the type catalogue backend) and part B (pipeline,
+  storage and rules) are done; the generated review form and the type editor (the web part) are not.
   - Done (part A):
     - the `DocumentTypeKey` string switch in one change: the `DocumentType` enum is gone, `DocumentTypeKey` (a
       `readonly record struct`) and `WellKnownTypeKeys` replace it; `Documents.Type` keeps its `nvarchar(64)` column and
@@ -276,18 +276,66 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       without a row the embedded templates answer. Extract pins `Documents.DocumentTypeVersionId`, Classify clears the
       pin when the type changes, Validate resolves it, corrections record it, and the list columns are refreshed with
       the resolved role bindings (no caller of `RoleBindings.ForLegacyType` or `StandardRuleSets` is left in `src`).
+  - Done (part B), every new behaviour behind `configurableTypes` except where noted:
+    - canonical storage of docs/11 §5.6 (`DefinitionTree`, `CanonicalStorage`): a definition-driven document is stored
+      as the `FieldValue` tree of its type version with generic leaves, `CanonicalSchemaVersion` 2. With the switch on, a
+      purchase order, a delivery note, an adopted price list or a type of the tenant's own gets the empty tree of its
+      version in Extract (every field Missing; a tree a reviewer filled is kept and completed with fields a newer version
+      added), with `UNSUPPORTED_TYPE` `reason: definition`; a fork of `Invoice` or `CreditNote` is extracted as before and
+      its tree completed with the added fields. An adopted invoice or credit note stays a version 1 tree. Custom fields
+      and the `ext` bags (header and row) are paths of the tree; the values view (`DocumentDataView`: plain values,
+      `roles`, `meta`, `supplier`) is what the structural check and the generic rules read;
+    - `DefinitionPatcher` (docs/11 §12.8) over the descriptor index, used by `PATCH /documents/{id}/fields` for
+      definition-driven documents (version 2, or a definition-driven type without a tree yet): `set` by field kind with
+      the reviewers' shorthands and the history push, creating missing fields, `append` (rows with values, list entries)
+      and `remove` (rows, list entries, `ext` keys); `move`, `setType`, `split` and `join` are refused with the P0
+      message. The patch re-validates the document inline and refreshes the list columns and the field index. Every other
+      document keeps the coded `CanonicalPatcher` exactly as before;
+    - `validate.schema` (`StructuralValidator`: JsonSchema.Net over the values view and the compiled JSON Schema,
+      `FIELD_REQUIRED` blocking, `FIELD_INVALID` blocking on a required field and a warning otherwise, JSON Pointer to the
+      path grammar) and evaluators for the P1 generic kinds (`GenericRules`: `required`, `pattern`, `range`,
+      `enumMember`, `dateOrder`, `datePlausibility`, `lookupExists` over the platform `uom` list, `duplicate` with
+      `onMatch` block or revision (`DUPLICATE_SUSPECTED`, `REVISION_OF`) on the type's `duplicateKey` read from the
+      document number column and `DocumentFieldIndex`, `confidence` over every envelope, `customerMatch` on the
+      `customerParty` role), registered in `RuleRegistry.Default`; a rule's `severity` and `message` apply to its flags,
+      which carry `ruleId`, `ruleKind` and `typeKey`. The validate stage runs the steps `processing.validate` lists
+      through `IEffectiveConfigResolver`; the coded duplicate check is skipped when a `duplicate` rule replaces it. New
+      flag codes `FIELD_REQUIRED`, `FIELD_INVALID`, `RULE_FAILED`, `REVISION_OF` and the `X_<RULEID>` codes;
+    - `x_custom` in the invoice LLM call (docs/11 §9.1): a fork of an invoice-family type with added header fields sends
+      its compiled schema (`invoice_extraction@1+x.<hash8>`) and stores the answers as fields with LLM provenance
+      (`CustomFieldMapper`); without added fields the request is byte for byte today's. A third demo replay fixture
+      answers the demo PDF invoice under the demo custom field (docs/09 "Document types");
+    - `POST /documents/{id}:reprocess` takes `configMode` (`pinned`, the default, or `current`, which drops the pin);
+    - `DocumentFieldIndex` (strict tenant table under the new frozen `PolicyV5`, migration `FieldIndexAndInboxColumns`),
+      written with the list columns by the Extract stage and by corrections for every field marked `indexed` (for every
+      tenant: the standard templates index the document number), and the list filter `?field.<path>=value`;
+    - `Documents.ValidFrom`, `ValidUntil`, `LineCount` (from the roles `validFrom`, `validUntil` and the rows of
+      `lineItems`) and `AppliedConfigJson` (type version, template, LLM schema sent); `ReviewTasks.Priority` from
+      `review.priority`, the review queue sorted urgent, high, normal; `DocumentSummary` gains `validFrom`,
+      `validUntil`, `lineCount`, `reviewPriority`, `reviewDueAt`, `ReviewTaskDto` gains `priority`, `DocumentDetail`
+      gains `validFrom`, `validUntil`, `lineCount`, `typeName`, `typeVersion` and `definition {key, version, versionId,
+      name, formSpec}` (for definition-driven documents and for every document of a tenant with `configurableTypes`);
+      the portal inbox shows a price list's validity and row count instead of a total and an urgent or high badge, and
+      the new flag codes are translated;
+    - run in the compose stack (SQL Server, Keycloak tokens): the demo documents end as docs/09 says; with the switch
+      on, tenant A forks `Invoice` with the demo custom field, the PDF invoice reprocessed with `configMode: current` is
+      answered from the replay fixture and stored as a version 2 tree with the customer number `0815`, found by
+      `?field.supplierCustomerRef=0815` (tenant B finds nothing); the delivery note gets the tree of its type and is
+      filled with `set`, `append` and `remove` (`move` refused), while an adopted invoice still refuses `append`.
   - Left for the rest of P1:
-    - the generic P1 rule kinds are declared but have no evaluators yet: a rule of such a kind does not run, which keeps
-      the document out of auto-approval (`ValidationResult.RulesNotRun`); `validate.schema`, `DocumentFieldIndex`, the
-      duplicate check with `onMatch` and the retirement of `invoice.required`/`invoice.datePlausibility`/`invoice.confidence`
-      come with them;
-    - the `DefinitionPatcher` (descriptor resolver, append and remove), the generated review form in `packages/review`,
-      forms for PurchaseOrder and DeliveryNote, the document types editor, `x_custom` in the invoice LLM call (the
-      compiled schema exists; the extractor does not send it yet), the `ext` bags at run time;
-    - `LookupTables` (the `uom` code list for `lookupExists`), `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`,
-      `ReviewTasks.Priority` and `TenantSettings.TimeZone` (none of their columns exists yet), the inbox columns;
-    - `DocumentSummary`/`DocumentDetail` `typeName` and `typeVersion` and `definition {key, version, formSpec}`;
-    - the type-key in the web apps is still the legacy list in the filters; types from the API come with the editor.
+    - the web part: the generated review form in `packages/review` (so PurchaseOrder, DeliveryNote, price lists and
+      custom fields are shown and edited in review; the API side is ready), the document types editor, the inbox filter
+      and columns for indexed custom fields, and the type list in the filters from the API;
+    - retiring `invoice.required`, `invoice.datePlausibility` and `invoice.confidence` from the std templates in favour of
+      `validate.schema` and the generic kinds (needs template v2 of the invoice family with the flag parity test); the
+      invoice family still runs the eight coded rules;
+    - `LookupTables`/`LookupEntry` (docs/11 §6.1): `lookupExists` and `enumMember` read the platform `uom` list built in
+      code (`CodeLists.Platform`); tenant aliases need the tables;
+    - `review.dueBy` (setting `SlaDueAt`) and `?sort=reviewDue`; `DocumentSummary.typeName`/`typeVersion`; the
+      `DescriptorFieldSchemaResolver` behind `IFieldSchemaResolver` (the descriptor patcher is a separate class instead);
+      the remaining `AppliedConfigJson` parts (supplier, layout, identification) come with P4;
+    - the API routes `:diff`, `:approve`, `:upgrade-base`, `:upgrade-documents`, `/rule-kinds`, `/step-kinds`,
+      `resolved-pipeline`, four-eyes approval and the config audit log (from part A's list).
 - **P2 to P6** – not started.
 
 ## Risks and open questions

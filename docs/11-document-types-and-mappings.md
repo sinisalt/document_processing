@@ -643,6 +643,7 @@ When a tenant fallback rule decided the type, `identification` holds `{"scope": 
 - Columns: `TenantId`, `DocumentId`, `FieldKey nvarchar(200)`, `Ordinal int`, `StringValue nvarchar(400)?` (normalised), `NumberValue decimal(28,8)?`, `DateValue date?`.
 - PK `(DocumentId, FieldKey, Ordinal)`; indexes `(TenantId, FieldKey, StringValue)` and `(TenantId, FieldKey, DateValue)`.
 - Written by the `RoleProjector` for fields marked `indexed`. It works the same on SQL Server and on SQLite in dev.
+- Correction (P1): the Application layer cannot see the entity, so `DocumentFieldIndexWriter` (`src/DocProc.Infrastructure/Persistence`) writes the rows from the stored tree, next to `DocumentRoleColumns` and in the same save (the Extract stage and every correction). `FieldKey` is the field's definition path (`supplierCustomerRef`, `lines[*].supplierSku`), and identifiers are indexed by their normalised form.
 
 **Correction** (extended)
 - `Op nvarchar(16)`: `set | append | remove | move | setType | split | join`.
@@ -658,6 +659,7 @@ When a tenant fallback rule decided the type, `identification` holds `{"scope": 
 **ReviewTask** (extended)
 - `Priority {Normal, High, Urgent}` (default Normal), from the type's `review.priority`.
 - The existing `SlaDueAt` is set from `review.dueBy` when present: the end of that date in the tenant time zone (`TenantSettings.TimeZone`), or the normal SLA when that is earlier. The queue sorts by `Priority`, then `SlaDueAt`.
+- Correction (P1): the tenant time zone this document calls `TenantSettings.TimeZone` already exists as `Tenants.TimeZone` (required since `InitialCreate`, `timeZone` in the tenant and settings API), and the validate stage already takes "today" from it; P1 adds no setting. The same holds for every other mention of `TenantSettings.TimeZone` (§5.6, §13.1, §18 "Settings", §21 step 1).
 
 **OutboxMessage**
 - Adds `FannedOutAt datetimeoffset?` (like every other timestamp of the table; added in P0). It is a concurrency token, so two publishers cannot both hand the same row on. That guards only a row that exists: for a settlement without one (decided before P0), the publish stage inserts the row and claims the document in the same save (`DocumentOutbox.AddMissing` marks the document's `Version` modified), so of two publishers that both found no row only the first commits; the index `(DocumentId, EventType)` is not unique, because a document settled again gets a row per settlement. Until bindings exist (P3) the publish stage sets it itself: handing the row on is the publish. `DeliveredAt` is deprecated: it is never set today, and deliveries track their own state.
@@ -1424,6 +1426,7 @@ What changes:
 - The patcher can edit taxBreakdown rows and charges, because they are declared groups with FieldValue leaves.
 - After every patch it validates inline (structural checks plus rules), returns the flags, and refreshes the RoleProjector.
 - The 409 "Nothing to correct" (`DocumentEndpoints.cs:540-544`) applies only to documents with no type.
+- Correction (P1): `CreateEmpty` is `DefinitionTree.CreateEmpty` in `src/DocProc.Application/Documents` (the Extract stage needs it as well as the patcher), and the descriptor patcher is its own class (`DefinitionPatcher`) beside the coded `CanonicalPatcher` rather than a second `IFieldSchemaResolver`: the resolver's schema nodes carry CLR types, which a generic leaf does not have. A document is patched by its definition when it is stored as version 2, or when its type is definition-driven (§5.6) and it has no tree yet; every other document keeps the coded patcher.
 
 ### 12.9 Identify mode: "this identifies the type"
 
@@ -2019,7 +2022,7 @@ Each schema change comes with the phase of section 23 that first uses it (correc
    - The nullable-tenant RLS function and the policy re-creation (section 6.10), then the history-table filters and the strict tables' update block.
    - Every data statement runs in platform scope and through `EXEC`, so both migration paths reach the rows behind the policy and the idempotent script compiles (`RowLevelSecurity.InPlatformScope`).
    - The rest comes with the phase that first uses it:
-     - P1: `Documents.DocumentTypeVersionId`, `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`; `Corrections.DocumentTypeVersionId`; `ReviewTasks.Priority` (default Normal); the type catalogue tables; `TenantSettings.TimeZone` with the price-list templates (existing tenants get the time zone their batch schedules already use, otherwise UTC, and are asked to confirm it).
+     - P1: `Documents.DocumentTypeVersionId`, `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`; `Corrections.DocumentTypeVersionId`; `ReviewTasks.Priority` (default Normal); the type catalogue tables; `TenantSettings.TimeZone` with the price-list templates (existing tenants get the time zone their batch schedules already use, otherwise UTC, and are asked to confirm it). Correction (P1): there is no `TenantSettings.TimeZone` to add, `Tenants.TimeZone` exists (§6.2); `DocumentFieldIndex` is the other P1 table (migration `FieldIndexAndInboxColumns`, with `PolicyV5`).
      - P2: `DocumentTableReports`. P3: the output and delivery tables.
      - P4: `Documents.SupplierMatchMethod`, `SupplierSourceRuleId`, `SupplierLayoutVersionId`, `ReceivingEntityId`, `IsSandbox`; the `IngestionItems` and `IngestionChannels` routing columns (step 6); `Suppliers.AttributesJson`, `SettingsJson`, `GroupId` (step 5); `TenantSettings.Layouts.RequiredByDefault` (false) and `LayoutActivation` (the recommended option of decision 2).
      - P5: `Documents.IdentificationRuleVersionId` and `SupersededByDocumentId`.
