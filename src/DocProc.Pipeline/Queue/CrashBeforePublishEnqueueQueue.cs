@@ -45,6 +45,8 @@ public sealed partial class CrashBeforePublishEnqueueQueue : IPipelineQueue
         return _inner.EnqueueAsync(message, delay, cancellationToken);
     }
 
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken) => _inner.EnqueueAsync(message, delay, cancellationToken);
+
     private void CrashIfArmed(ProcessDocument message)
     {
         ArgumentNullException.ThrowIfNull(message);

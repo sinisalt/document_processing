@@ -108,6 +108,34 @@ public enum ApiKeyScope
 {
     Ingest,
     Read,
+
+    /// <summary><c>deliveries:read</c> (docs/11 §13.3): a pull destination's feed (P3).</summary>
+    DeliveriesRead,
+}
+
+/// <summary>The names an API key's scopes have in the API (<see cref="Application.Security.ApiKeyScopes"/>).</summary>
+public static class ApiKeyScopeNames
+{
+    public static string Name(ApiKeyScope scope) => scope switch
+    {
+        ApiKeyScope.Ingest => Application.Security.ApiKeyScopes.Ingest,
+        ApiKeyScope.Read => Application.Security.ApiKeyScopes.Read,
+        ApiKeyScope.DeliveriesRead => Application.Security.ApiKeyScopes.DeliveriesRead,
+        _ => scope.ToString().ToLowerInvariant(),
+    };
+
+    public static ApiKeyScope Parse(string name)
+    {
+        foreach (var scope in Enum.GetValues<ApiKeyScope>())
+        {
+            if (string.Equals(Name(scope), name, StringComparison.OrdinalIgnoreCase))
+            {
+                return scope;
+            }
+        }
+
+        throw new ArgumentException($"Unknown API key scope '{name}'.", nameof(name));
+    }
 }
 
 /// <summary>Machine credential for ingest/read; only the hash is stored (docs/01 "Identity").</summary>
@@ -124,6 +152,10 @@ public sealed class ApiKey : ITenantScoped
     public required string Hash { get; set; }
 
     public List<ApiKeyScope> Scopes { get; set; } = [];
+
+    /// <summary>The one destination a <see cref="ApiKeyScope.DeliveriesRead"/> key may read the feed of; null for every pull destination of the tenant.</summary>
+    public Guid? DestinationId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }

@@ -89,6 +89,7 @@ describe("portal i18n resources", () => {
   "RULE_FAILED",
   "REVISION_OF",
   "CHECKS_SKIPPED",
+  "DELIVERY_FAILED",
       ].map((code) => `flagCodes.${code}`),
       ...["ApiUpload", "Mailbox", "WatchedFolder", "PortalUpload"].flatMap((type) => [`settings.channels.types.${type}`, `settings.channels.configHints.${type}`]),
       ...["Anthropic", "AnthropicFoundry", "OpenAi", "AzureOpenAi", "OpenAiCompatible"].map((kind) => `settings.ai.kinds.${kind}`),

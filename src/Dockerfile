@@ -54,9 +54,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_RUNTIME_VERSION} AS runtime-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-# The file-backed secret store (Secrets:Path) lives in a volume both hosts mount at /data/secrets. Creating the folder
-# here, owned by the non-root user, makes a fresh named volume inherit that owner and the owner-only mode.
-RUN mkdir -p /data/secrets && chown -R "$APP_UID:$APP_UID" /data && chmod 700 /data/secrets
+# The file-backed secret store (Secrets:Path) lives in a volume both hosts mount at /data/secrets, the file drop of
+# the blob delivery transport (Delivery:DropRoot) in one at /data/outbound. Creating the folders here, owned by the
+# non-root user, makes a fresh named volume inherit that owner (and the secrets their owner-only mode).
+RUN mkdir -p /data/secrets /data/outbound && chown -R "$APP_UID:$APP_UID" /data && chmod 700 /data/secrets
 WORKDIR /app
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     Secrets__Path=/data/secrets

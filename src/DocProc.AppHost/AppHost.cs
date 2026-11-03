@@ -58,7 +58,8 @@ var mail = builder.AddContainer("mail", "greenmail/standalone", "2.1.15")
     .WithLifetime(ContainerLifetime.Persistent);
 
 // WireMock as the receiving ERP of the delivery demos (docs/11 §23, docs/09 "Mock ERP"): the stub mappings in
-// docker/mock-erp answer erp-ap and article-prices calls, and can be told to fail with 503. Nothing sends to it before P3.
+// docker/mock-erp answer erp-ap and article-prices calls, and can be told to fail with 503. The hosts reach it over
+// plain http through Delivery:DevelopmentHosts (docs/11 §13.3).
 builder.AddContainer("mock-erp", "wiremock/wiremock", "3.13.1")
     .WithHttpEndpoint(port: 8086, targetPort: 8080, name: "http")
     .WithBindMount(Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "docker", "mock-erp")), "/home/wiremock", isReadOnly: true)
@@ -80,6 +81,7 @@ var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithEnvironment("Authentication__Oidc__RequireHttpsMetadata", "false")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
     .WithEnvironment("Secrets__Path", secretsPath)
+    .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086") // mock-erp over http (docs/11 §13.3, Development only)
     .WithHttpHealthCheck("/health/ready")
     .WithExternalHttpEndpoints();
 
@@ -93,6 +95,7 @@ builder.AddProject<Projects.DocProc_Worker>("worker")
     .WithEnvironment("Secrets__Path", secretsPath)
     .WithEnvironment("Mail__ImapHost", mail.GetEndpoint("imap").Property(EndpointProperty.Host))
     .WithEnvironment("Mail__ImapPort", mail.GetEndpoint("imap").Property(EndpointProperty.Port))
+    .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086")
     .WaitFor(api); // the API applies migrations first
 
 builder.Build().Run();

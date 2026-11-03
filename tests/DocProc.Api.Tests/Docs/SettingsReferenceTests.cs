@@ -33,6 +33,7 @@ public sealed class SettingsReferenceTests
         { HeuristicSplitterOptions.SectionName, typeof(HeuristicSplitterOptions) },
         { OutputOptions.SectionName, typeof(OutputOptions) },
         { JsonataRendererOptions.SectionName, typeof(JsonataRendererOptions) },
+        { DocProc.Infrastructure.Outputs.Delivery.DeliveryOptions.SectionName, typeof(DocProc.Infrastructure.Outputs.Delivery.DeliveryOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Replay", typeof(LlmReplayOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Extraction", typeof(LlmExtractionOptions) },
     };

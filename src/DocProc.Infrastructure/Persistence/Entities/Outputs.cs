@@ -61,6 +61,13 @@ public sealed class OutputDestination : ITenantScoped, IVersioned
 
     public string? LastTestResult { get; set; }
 
+    /// <summary>
+    /// The last sequence number a <c>pull</c> destination's feed handed out (docs/11 §13.3, P3 part B): every delivery
+    /// that enters the feed takes the next one in the transaction that publishes it, so the feed's order is the order
+    /// its entries were committed in and a reader's <c>after</c> cursor never skips one committed later.
+    /// </summary>
+    public long FeedSequence { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public required string CreatedBy { get; set; }
@@ -208,6 +215,13 @@ public static class OutputEvents
     public const string NeedsReview = "document.needs_review";
 
     public static readonly IReadOnlyList<string> All = [Approved, Rejected, Updated, NeedsReview];
+
+    /// <summary>
+    /// The events a binding fires on in this build (P3): the settlements the publish stage fans out. <see cref="Updated"/>
+    /// is the event a re-approval under <see cref="OnReapproval.Update"/> renders with, not a trigger of its own;
+    /// <see cref="NeedsReview"/> comes later.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Fired = [Approved, Rejected];
 }
 
 public enum OutputBindingMode
@@ -334,6 +348,22 @@ public sealed class OutboxDelivery : ITenantScoped, IVersioned
     public Guid MappingVersionId { get; set; }
 
     public required string IdempotencyKey { get; set; }
+
+    /// <summary>
+    /// The event the payload was rendered for (<c>meta.event</c>): <c>document.approved</c>, <c>document.rejected</c>,
+    /// or <c>document.updated</c> for a re-approval under <see cref="OnReapproval.Update"/>, which an http destination
+    /// sends with its update method and URL.
+    /// </summary>
+    public string Event { get; set; } = OutputEvents.Approved;
+
+    /// <summary>The delivery this one sends again (<c>POST /deliveries/{id}:redeliver</c>); null for a fan-out's own.</summary>
+    public Guid? RedeliveryOfId { get; set; }
+
+    /// <summary>
+    /// The entry's place in a <c>pull</c> destination's feed (<see cref="OutputDestination.FeedSequence"/>), set when
+    /// the delivery is published to it; the feed's <c>after</c> cursor. Null for other transports and before then.
+    /// </summary>
+    public long? FeedSequence { get; set; }
 
     public DeliveryStatus Status { get; set; } = DeliveryStatus.Pending;
 

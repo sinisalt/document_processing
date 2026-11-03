@@ -160,5 +160,7 @@ public class IngestOwnershipTests
         }
 
         public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => throw new InvalidOperationException("stage 1 never delays a document");
+
+        public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken) => throw new InvalidOperationException("stage 1 never queues a delivery");
     }
 }

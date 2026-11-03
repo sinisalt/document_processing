@@ -60,7 +60,8 @@
     "FIELD_INVALID": "Ungültiger Wert",
     "RULE_FAILED": "Regel verletzt",
     "REVISION_OF": "Neufassung eines früheren Dokuments",
-    "CHECKS_SKIPPED": "Prüfungen übersprungen"
+    "CHECKS_SKIPPED": "Prüfungen übersprungen",
+    "DELIVERY_FAILED": "Zustellung fehlgeschlagen"
   },
   "stages": {
     "Normalize": "Normalisieren",
@@ -85,7 +86,11 @@
       "type_set": "Typ festgelegt",
       "supplier_assigned": "Lieferant zugeordnet",
       "split": "In Dokumente aufgeteilt",
-      "joined": "Zusammengeführt"
+      "joined": "Zusammengeführt",
+      "delivery_succeeded": "Zugestellt",
+      "delivery_failed": "Zustellung fehlgeschlagen",
+      "delivery_skipped": "Zustellung übersprungen",
+      "redelivery_requested": "Erneute Zustellung angefordert"
     }
   },
   "inbox": {

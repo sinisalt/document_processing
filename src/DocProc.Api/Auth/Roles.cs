@@ -22,7 +22,7 @@ public static class Roles
 
 /// <summary>
 /// Authorization policies. Human roles come from the token; machine clients hold API-key scopes instead and only ever
-/// satisfy <see cref="Ingest"/> and <see cref="Read"/>. Endpoints reference these names, never roles or scopes directly.
+/// satisfy <see cref="Ingest"/>, <see cref="Read"/> and <see cref="DeliveriesRead"/>. Endpoints reference these names, never roles or scopes directly.
 /// </summary>
 public static class Policies
 {
@@ -47,6 +47,12 @@ public static class Policies
     /// </summary>
     public const string IntegrationAdmin = "IntegrationAdmin";
 
+    /// <summary>
+    /// Read a pull destination's feed and acknowledge it (docs/11 §13.3): integration admins, and API keys with the
+    /// <c>deliveries:read</c> scope (restricted to one destination when the key names one).
+    /// </summary>
+    public const string DeliveriesRead = "DeliveriesRead";
+
     /// <summary>Review, correct, approve, reject documents.</summary>
     public const string Review = "Review";
 
@@ -63,6 +69,7 @@ public static class Policies
         [TenantAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [ConfigAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [IntegrationAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
+        [DeliveriesRead] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [Review] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer],
         [Ingest] = [Roles.SuperAdmin, Roles.TenantAdmin, Roles.Reviewer],
         [Read] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer],
@@ -73,6 +80,7 @@ public static class Policies
     {
         [Ingest] = ApiKeyScopes.Ingest,
         [Read] = ApiKeyScopes.Read,
+        [DeliveriesRead] = ApiKeyScopes.DeliveriesRead,
     };
 
     public static IEnumerable<string> All => RolesByPolicy.Keys;

@@ -840,6 +840,14 @@ New file `Outputs.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P3).
 - `RecipeStateJson` (step reached, captured variables), `LastStatusCode`, `LastError`.
 - `PayloadBlobKey` (`BlobContainers.Exports`), `PayloadSha256`, `ContentType`, `CreatedAt`, `DeliveredAt`.
 - Indexes `(Status, NextAttemptAt)` and `(DocumentId)`.
+- Correction (P3, part B): three columns this list did not have and the delivery semantics need. `Event` (the
+  `meta.event` the payload was rendered for: `document.approved`, `document.rejected`, or `document.updated` for a
+  re-approval under `OnReapproval: Update`, 13.6, which an http destination sends with its update method and URL);
+  `RedeliveryOfId` (the delivery a `:redeliver` sends again; its key is the original's plus `:r<n>`, since the
+  `{documentId}:{version}:{bindingId}` of the original is unique); `FeedSequence` with an index
+  `(DestinationId, FeedSequence)` (a pull feed's cursor, 13.3), numbered by a counter `OutputDestination.FeedSequence`.
+  `ApiKey.DestinationId` restricts a `deliveries:read` key to one destination (section 16 said "optionally restricted
+  to a destination" without a place for it). Migration `DeliveryFeedAndRedelivery`; no table is added.
 
 **DeliveryAttempt**: `DeliveryId`, `Step`, `At`, `DurationMs`, `StatusCode`, `ErrorClass`, `ResponseExcerpt` (4 KB, with sensitive values masked).
 
@@ -1618,6 +1626,31 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
 - **sftp** (SSH.NET, P6): same path and file-name templates.
 - **email** (P6): the payload as an attachment.
 - **pull**: the payload is stored. Clients read `GET /api/v1/feeds/{destinationId}?after=` and acknowledge with `POST /feeds/{destinationId}:ack`, using the API key scope `deliveries:read`, restricted to that destination.
+- Correction (P3, part B): what the list left open, as built.
+  - Headers: also `X-DocProc-Event` (the delivery's event). `hmacSha256` sends `X-DocProc-Timestamp` (Unix seconds)
+    and `X-DocProc-Signature: sha256=<hex HMAC-SHA256 with the secret's UTF-8 bytes over timestamp + "." + the exact
+    body bytes>`; the config may not set any of these headers.
+  - URL and file-name templates read the delivery's snapshot, not the live document, so a retry or a redelivery
+    addresses the same place: `{{meta.documentId}}`, `{{meta.version}}`, `{{meta.event}}`, `{{meta.typeKey}}`,
+    `{{meta.deliveryId}}` and `{{output.<path>}}` (a value of the rendered payload, such as the `priceListId` of
+    13.10's update URL); each value is one escaped URL segment, a missing one a permanent failure. Values-view paths
+    such as 13.4's `{{supplier.vatId}}` belong to the recipes (P6). A config naming another placeholder is refused.
+  - `OnReapproval: Update` needs a method and a URL nobody configured (13.6 says "a different method such as PUT",
+    13.10 a `PUT …/article-prices/{priceListId}`): the http config takes `updateMethod` (default PUT) and
+    `updateUrlTemplate` (default `urlTemplate`).
+  - Multipart: `multipart: {parts: [{name, mapping: "self"}, {name, content: "original"}]}` in the http config; the
+    original is the document's file as ingested (for a split part, the whole attachment).
+  - `responseMapping` runs in the renderer like every expression; its string or number becomes the external id with
+    status `Accepted` (callbacks and polling, 13.8, come later). A mapping that finds nothing does not fail the delivery.
+  - The blob drop writes below a host root (`Delivery:DropRoot`), in `<root>/<tenantId>/<path>/`, never overwriting:
+    a file of that name with the same bytes counts as delivered (a retry after the rename), one with other bytes is a
+    permanent failure. The mapping version's `FileNameTemplate` wins over the destination's.
+  - The pull feed: a delivery enters the feed when its attempt runs, taking the destination's next sequence number in
+    the transaction that increments the counter, so entries are numbered in commit order and a reader's `after` never
+    skips one committed later; it then waits as `Sending` until acknowledged (`Delivered`). `GET` without `after`
+    starts at the oldest entry not acknowledged; `:ack` takes `{upTo}` and/or `{deliveryIds}` and is idempotent. Both
+    routes also accept an integration admin's token. `retentionDays` is stored but not enforced yet.
+  - `Delivery:DevelopmentHosts` entries are `host` or `host:port`.
 
 ### 13.4 Multi-call recipes
 
@@ -1648,6 +1681,21 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
 - `PublishSweeperHostedService` finds settled documents whose current settlement has no handed-on row: either no row of its event type written at or after the settlement, or only rows with `FannedOutAt` null. These are one condition, not two lists: a null `FannedOutAt` row of an earlier settlement (a rejection that was reprocessed) is not a lost publish, so the sweeper never looks at rows of documents that are no longer settled. It fixes lost publishes for every tenant; before P0 only demo tenants were resumed (`DemoDataHostedService.cs:215-298`). It runs next to the runner (`Pipeline:PublishSweepInterval`, first sweep one interval after start), leaves settlements younger than `Pipeline:PublishSweepGrace` to the normal nudge and ignores those older than `Pipeline:PublishSweepLookback`, so a first start on an old database does not republish history. It queues `ProcessDocument(Publish)` with `Origin = "publish-sweeper"`; the publish stage is idempotent per settlement and records `recoveredBy: "publish-sweeper"` in its timeline entry, which is how the P0 demo shows the recovered approval. Two publishers of one settlement (the nudge and a sweep, or the sweepers of the API and the worker, which both run one in compose) cannot both publish it: an existing row is claimed through its `FannedOutAt` token, and a missing row (a decision from before P0) is inserted together with an update of the document under its `Version` token (section 6.2).
 - **Known effect until Service Bus lands.** In the Production topology the API runs no runner (`Pipeline:RunInProcess` defaults to false there), so the nudge of an approve or reject goes to an in-process queue nothing reads. Every human decision is then published by the worker's sweeper, at least `Pipeline:PublishSweepGrace` later, with the sweeper's warning and `recoveredBy: "publish-sweeper"`. Nothing is lost, but there "recovered" is the normal case; the signal means a lost message only where the deciding host runs a runner (Development, compose, the AppHost, and auto-approvals in the worker). The durable transport removes the effect (docs/03 "Queue modes").
 - The platform mapping `std.event` renders today's thin `DocumentEventMessage`, for receivers that want only the event.
+- Correction (P3, part B): the fan-out as built.
+  - It runs only for a tenant with the `outputs` switch; without it the publish stage is unchanged.
+  - Events: a binding fires on `document.approved` (approvals and auto-approvals) and `document.rejected`, the
+    settlements the outbox carries. `document.updated` is not a trigger: it is the `meta.event` of a re-approval
+    under `OnReapproval: Update`; `document.needs_review` has no outbox row and comes later. The binding API refuses both.
+  - Scope: type, supplier and channel; a binding scoped to a group or receiving entity matches nothing until P4. A
+    binding whose `Condition` is not `true` gets a `Skipped` delivery whose `LastError` says "not applicable" (what
+    13.10's Deliveries tab lists); exclusive-group losers and bindings without a published mapping version get no
+    row, only an entry in the publish stage's timeline details (`deliveries`). Within a group, of equal specificity
+    the higher `Priority` wins, then the name.
+  - A render that fails for good (`$required`, a schema violation, an empty output) adds the delivery dead-lettered,
+    with an attempt of class `permanent:render`, `DELIVERY_FAILED` and a timeline event; nothing is sent. The renderer
+    being unavailable fails the publish stage, nothing saved, which the runner retries and then the publish sweeper.
+  - The nudge `ProcessDelivery(TenantId, DeliveryId, DestinationId, DocumentId, Attempt)` carries the destination and
+    document, the key the runner serialises deliveries on, and the attempt it expects to make, so copies are dropped.
 
 ### 13.6 Delivery semantics
 
@@ -1662,6 +1710,27 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
 - **Re-approval** after a reprocess follows the binding's `OnReapproval`: `Resend` (new revision, new idempotency key, the default), `Skip`, or `Update` (`UpdateMappingId`, a different method such as PUT, and `meta.event = document.updated`).
 - `POST /deliveries/{id}:redeliver {mode: "snapshot"|"rerender", mappingVersion?}`.
 - Every attempt writes a `DeliveryAttempt` row and a timeline event `delivery_succeeded` or `delivery_failed`. These appear in the document's Deliveries tab and in `GET /documents/{id}/events`.
+- Correction (P3, part B): as built.
+  - The handler is `DeliveryProcessor` (`src/DocProc.Infrastructure/Outputs/Delivery`), run by the runner for a
+    `ProcessDelivery`. Statuses: `Failed` waits for its next attempt (`NextAttemptAt`); `DeadLettered` is never
+    retried by itself (a permanent failure, the 15th attempt or 72 h); `Sending` is an attempt in flight, held for the
+    transport's timeout plus `Delivery:SendLease`, or a feed entry waiting for its acknowledgement; `Cancelled` is a
+    delivery a redelivery replaced, or one whose destination was disabled.
+  - A receiver's `Retry-After` replaces the backoff (at least 1 s, at most `Delivery:MaxRetryAfter`) rather than
+    lengthening it; the schedule's waits get up to 10 % jitter either way.
+  - The delivery sweeper claims a due row with an optimistic `Version` check on SQL Server and SQLite alike, not with
+    `UPDLOCK, READPAST`: a sweep moves the row's `NextAttemptAt` on under its token before it queues it, so the
+    sweepers of the API and the worker queue it once, and the processor drops a message whose attempt the row has
+    already made. It also picks up `Sending` rows whose lease ran out (a process that died mid-send) as `Failed`.
+  - Ordering: `KeyedWorkGate` serialises one process's deliveries of a document to a destination; the skip rule
+    applies per binding and destination (two bindings to one destination are different receivers' shapes), and a
+    redelivery is never skipped.
+  - Re-approval needs an earlier revision of the document fanned out for the binding: `Skip` skips when one was or
+    will be sent; `Update` updates only when one reached the receiver (or is being sent), else the receiver has
+    nothing to update and gets a plain approval. Under `Resend` and `Update` older revisions still waiting are skipped.
+  - `DELIVERY_FAILED` is raised once per document and resolved when no delivery of the document is dead-lettered any
+    more (a redelivery cancels the dead letter and then succeeds). Redelivery creates a new delivery
+    (`RedeliveryOfId`); `mode: rerender` renders in the API and answers 422 or 503 when that fails.
 
 ### 13.7 Batches
 

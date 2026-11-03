@@ -120,28 +120,37 @@ public static class TenantEndpointGuard
     /// A client like <see cref="HttpClient"/>; <paramref name="resolve"/> replaces DNS (tests that need a name to
     /// resolve to a given address), null uses <see cref="Dns.GetHostAddressesAsync(string, CancellationToken)"/>.
     /// </summary>
-    public static HttpClient CreateClient(Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null)
+    public static HttpClient CreateClient(Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null) => CreateExemptingClient(resolve, exempt: null);
+
+    /// <summary>
+    /// A client like <see cref="HttpClient"/>, except for the hosts <paramref name="exempt"/> names (by host and port):
+    /// those may be reached over plain http at any address. Only the delivery path passes it, for the
+    /// <c>Delivery:DevelopmentHosts</c> of a Development host (docs/11 §13.3, the demos' <c>mock-erp</c>); null keeps
+    /// the guard whole.
+    /// </summary>
+    public static HttpClient CreateExemptingClient(Func<string, CancellationToken, Task<IPAddress[]>>? resolve, Func<string, int, bool>? exempt)
     {
         resolve ??= Dns.GetHostAddressesAsync;
         var handler = new SocketsHttpHandler
         {
-            ConnectCallback = (context, cancellationToken) => ConnectAsync(context, resolve, cancellationToken),
+            ConnectCallback = (context, cancellationToken) => ConnectAsync(context, resolve, exempt, cancellationToken),
             UseProxy = false, // a proxy would connect on our behalf, after the check
             AllowAutoRedirect = false,
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         };
 
         // The adapters time every request themselves; HttpClient's own 100 s default would cut long calls short.
-        return new HttpClient(new HttpsOnlyHandler(handler)) { Timeout = Timeout.InfiniteTimeSpan };
+        return new HttpClient(new HttpsOnlyHandler(handler, exempt)) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
-    private static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, Func<string, CancellationToken, Task<IPAddress[]>> resolve, CancellationToken cancellationToken)
+    private static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, Func<string, CancellationToken, Task<IPAddress[]>> resolve, Func<string, int, bool>? exempt, CancellationToken cancellationToken)
     {
         var host = Unbracket(context.DnsEndPoint.Host);
         var addresses = IPAddress.TryParse(host, out var literal)
             ? [literal]
             : await resolve(host, cancellationToken).ConfigureAwait(false);
-        if (addresses.Length == 0 || addresses.Any(IsBlocked))
+        var exempted = exempt?.Invoke(host, context.DnsEndPoint.Port) == true;
+        if (addresses.Length == 0 || (!exempted && addresses.Any(IsBlocked)))
         {
             throw new BlockedEndpointException();
         }
@@ -197,17 +206,22 @@ public static class TenantEndpointGuard
     }
 
     /// <summary>Refuses any request that is not https before a connection is made.</summary>
-    private sealed class HttpsOnlyHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    private sealed class HttpsOnlyHandler(HttpMessageHandler inner, Func<string, int, bool>? exempt) : DelegatingHandler(inner)
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            request.RequestUri is { } uri && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            Allowed(request.RequestUri)
                 ? base.SendAsync(request, cancellationToken)
                 : throw new BlockedEndpointException();
 
         protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            request.RequestUri is { } uri && string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            Allowed(request.RequestUri)
                 ? base.Send(request, cancellationToken)
                 : throw new BlockedEndpointException();
+
+        private bool Allowed(Uri? uri) =>
+            uri is not null
+            && (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) && exempt?.Invoke(Unbracket(uri.Host), uri.Port) == true));
     }
 }
 

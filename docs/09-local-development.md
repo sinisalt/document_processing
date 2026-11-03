@@ -66,18 +66,21 @@ same ports while it runs, so stop one before starting the other. Its containers 
 (`ContainerLifetime.Persistent`) but do not hold those ports: Aspire proxies every endpoint, so each
 container publishes a random host port, and the fixed one belongs to the AppHost's proxy, which
 stops with `dotnet run`. Nothing is external: the
-default network and four named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`)
+default network and five named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`, and `outbound`, the
+file drop of `blob` destinations that the API and the worker share at `/data/outbound`)
 belong to the project, and `down -v` removes them.
 
 **Mock ERP.** `mock-erp` is WireMock 3 with the stub mappings in `docker/mock-erp/mappings`, the
-receiving system that the delivery demos of docs/11 §23 send to from P3 on (nothing sends to it in
-P0). Both the AppHost and compose run it on host port 8086 with the folder mounted read-only, so a
+receiving system that the delivery demos of docs/11 §23 send to from P3 on. Both the AppHost and compose run it on host port 8086 with the folder mounted read-only, so a
 change to a stub needs a restart of the container (`docker compose restart mock-erp`).
 
 | Request | Answer |
 |---|---|
 | `POST /api/ap/invoices` (`erp-ap`) with a JSON body | 201 `{"erpId":"AP-<8 digits>","status":"accepted","idempotencyKey":<the Idempotency-Key header>,"receivedAt":...}` |
+| `POST /api/ap/invoices` as `multipart/form-data` (a destination's `multipart` parts: the payload and the original file) | 201, the same body with `"withAttachment":true` |
 | `POST /api/article-prices` with a JSON body | 202 `{"importId":"AP-IMP-<8 digits>","status":"queued",...}` |
+| `PUT /api/article-prices/<priceListId>` with a JSON body (a re-approval under `OnReapproval: Update`) | 200 `{"importId":"AP-UPD-<8 digits>","status":"updated","priceListId":<from the path>,...}`; with `X-Mock-Erp-Fail: 503` a 503 |
+| `POST /oauth/token` with `grant_type=client_credentials` | 200 `{"access_token":"mock-erp-token","token_type":"Bearer","expires_in":3600}` (any client id and secret), for `oauth2ClientCredentials` destinations |
 | either endpoint with another content type | 415 |
 | either endpoint with the header `X-Mock-Erp-Fail: 503` | 503 with `Retry-After: 1`, that request only |
 | `POST /__control/<erp-ap\|article-prices>/fail-next` | the next call of that endpoint answers 503 (`Retry-After: 1`), the one after succeeds again: the "forced 503, retried, then success" of the P3 demo |
@@ -88,9 +91,10 @@ The failure modes are WireMock scenarios named after the endpoint, so `POST /__a
 resets both. `ComposeParityTests` holds the compose service to the AppHost (image, arguments, mount,
 port) and checks that every endpoint has its success and 503 stubs; `MockErpStubTests`
 (`tests/DocProc.Integration.Tests`, Docker) runs the compose file's image over the folder and
-exercises each answer. In P3 the http transport sends through `TenantEndpointGuard`, which accepts
-only https to public hosts; reaching `http://mock-erp:8080` from a tenant destination therefore needs
-the development allowance that docs/11 §13.3 plans for it.
+exercises each answer. The http transport sends through `TenantEndpointGuard`, which accepts only
+https to public hosts; `Delivery:DevelopmentHosts` (honoured in the Development environment only) lets a tenant
+destination reach `http://mock-erp:8080` in compose and `http://localhost:8086` under the AppHost, which set it to
+those (docs/11 §13.3).
 
 Every long-running service has `restart: unless-stopped`; only the one-shot helpers
 (`servicebus-ready`, `llm-setup`) have `restart: "no"` (`ComposeParityTests` checks both). A
@@ -470,6 +474,40 @@ curl -s -X PATCH "http://localhost:5100/api/v1/suppliers/$SUPPLIER" -H "$H" -H '
 
 A render that takes more than 2 s of processor time, allocates past its 1 GB heap or writes more than 5 MB fails with
 `timeLimit`, `memoryLimit` or `sizeLimit` in `errors`, and the host starts a fresh renderer for the next one.
+
+**Delivery (P3 part B).** With the switch on, every approval, auto-approval and rejection the publish stage hands on
+is fanned out to the tenant's bindings (docs/11 §13.5): each binding whose scope and condition hold renders its
+mapping now, the snapshot goes to the `exports` container, and the delivery is sent by the runner of the host that
+published (`ProcessDelivery`), retried with backoff on 408, 425, 429, 5xx and network errors (the receiver's
+`Retry-After` replaces the wait), and dead-lettered with a `DELIVERY_FAILED` flag after 15 attempts, 72 h or any
+other 4xx. The document's timeline shows `document.delivery_succeeded`, `document.delivery_failed` and
+`document.delivery_skipped`; `GET /api/v1/deliveries?documentId=` lists them with their attempts. The delivery
+sweeper sends what a crash left behind (`Delivery:SweepInterval`, `Delivery:SweepGrace`). Against the mock ERP of the
+compose stack, with `$H` holding a tenant admin's Keycloak token as in "Demo: types as data" below (under the AppHost
+the destination URL is `http://localhost:8086/...`; a plain `dotnet run` has no mock ERP) and `$DOC` an approved
+invoice of the tenant (an e-invoice XML uploaded to `POST /api/v1/ingestions` is auto-approved):
+
+```bash
+# A destination at mock-erp (plain http, allowed by Delivery:DevelopmentHosts), the copy of generic-ap-json, a binding.
+DEST=$(curl -s -X POST http://localhost:5100/api/v1/destinations -H "$H" -H 'content-type: application/json' \
+  -d '{"name":"erp-ap","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/ap/invoices","responseMapping":"erpId"}}' | jq -r .id)
+curl -s -X POST http://localhost:5100/api/v1/output-mappings -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"generic-ap-json"},"key":"erp-ap-import"}' > /dev/null
+curl -s -X POST http://localhost:5100/api/v1/output-mappings/erp-ap-import/versions/1:publish -H "$H" -H 'content-type: application/json' -d '{}' > /dev/null
+curl -s -X POST http://localhost:5100/api/v1/output-bindings -H "$H" -H 'content-type: application/json' \
+  -d "{\"name\":\"ap-invoices\",\"documentTypeKey\":\"Invoice\",\"mappingKey\":\"erp-ap-import\",\"destinationId\":\"$DEST\"}" | jq .id
+# Make the next call fail once, approve an invoice in review (or wait for an auto-approval), and watch it retry.
+curl -s -X POST http://localhost:8086/__control/erp-ap/fail-next
+curl -s "http://localhost:5100/api/v1/deliveries?documentId=$DOC" -H "$H" | jq '.items[] | {status, attempts, lastStatusCode, lastError}'
+curl -s http://localhost:8086/__admin/requests | jq '.requests[] | {url: .request.url, key: .request.headers["Idempotency-Key"]}'
+# Send a delivery again: from its snapshot, or rendered again (mode rerender, optionally mappingVersion).
+curl -s -X POST "http://localhost:5100/api/v1/deliveries/$DELIVERY:redeliver" -H "$H" -H 'content-type: application/json' -d '{"mode":"snapshot"}' | jq .
+```
+
+A `blob` destination (`{"path":"ap","fileNameTemplate":"{{meta.documentId}}-{{meta.version}}.json"}`) writes below
+`Delivery:DropRoot/<tenantId>/` (`/data/outbound` in compose: `docker compose exec worker ls -R /data/outbound`). A
+`pull` destination keeps its deliveries in a feed that a receiving system polls with an API key of scope
+`deliveries:read` (optionally restricted to the destination): `GET /api/v1/feeds/<id>?after=<sequence>` and
+`POST /api/v1/feeds/<id>:ack {"upTo": <sequence>}` (docs/05).
 
 ### Demo data
 
@@ -871,6 +909,16 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Outputs:Renderer:HeapHardLimitBytes` | 1073741824 (1 GiB) | The renderer's GC heap (`DOTNET_GCHeapHardLimit`); a render past it is `memoryLimit` and the process is replaced. |
 | `Outputs:Renderer:RendererPath` | `DocProc.Outputs.Renderer.dll` next to the host | The renderer assembly. |
 | `Outputs:Renderer:DotnetHostPath` | the running runtime's `dotnet` | The `dotnet` host that runs it. |
+| `Delivery:RetrySchedule` | empty: 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h | The waits between attempts of a delivery (docs/11 §13.6), each with up to 10 % jitter; the last entry repeats. |
+| `Delivery:MaxAttempts` | 15 | Attempts before a retryable failure is dead-lettered (`DELIVERY_FAILED`). |
+| `Delivery:MaxAge` | `3.00:00:00` | How long after its creation a delivery is still retried. |
+| `Delivery:MaxRetryAfter` | `12:00:00` | The longest `Retry-After` of a receiver that is honoured (the shortest is 1 s). |
+| `Delivery:SweepInterval` | `00:00:30` | How often the delivery sweeper looks for deliveries whose message was lost (a crash after the fan-out's commit, a retry waiting in a process that ended). Zero turns it off. |
+| `Delivery:SweepGrace` | `00:01:00` | How long past its due time a delivery is left to its own message before the sweeper queues it. |
+| `Delivery:SweepBatchSize` | 100 | The most deliveries one sweep queues. |
+| `Delivery:SendLease` | `00:02:00` | How long an attempt holds its delivery on top of the transport's timeout; a process that died mid-send leaves it to the sweeper after that. |
+| `Delivery:DropRoot` | `data/outbound` (content root); `/data/outbound` in compose | The root folder of `blob` destinations' file drop; each tenant writes below `<root>/<tenantId>`. |
+| `Delivery:DevelopmentHosts` | empty; `mock-erp:8080` in compose, `localhost:8086` under the AppHost | `host` or `host:port` entries http destinations may reach over plain http at any address, past `TenantEndpointGuard`. Honoured in the Development environment only. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

@@ -9,7 +9,13 @@ public static class ApiKeyScopes
     public const string Ingest = "ingest";
     public const string Read = "read";
 
-    public static readonly IReadOnlyList<string> All = [Ingest, Read];
+    /// <summary>
+    /// Read a pull destination's feed and acknowledge its entries (docs/11 §13.3, §16), optionally restricted to one
+    /// destination (the key's <c>destinationId</c>).
+    /// </summary>
+    public const string DeliveriesRead = "deliveries:read";
+
+    public static readonly IReadOnlyList<string> All = [Ingest, Read, DeliveriesRead];
 
     public static bool IsKnown(string scope) => All.Contains(scope, StringComparer.Ordinal);
 }
@@ -65,8 +71,11 @@ public static class ApiKeys
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 
-/// <summary>The caller behind a valid key.</summary>
-public sealed record ApiKeyIdentity(Guid KeyId, Guid TenantId, string Name, string Prefix, IReadOnlyList<string> Scopes);
+/// <summary>The caller behind a valid key; <see cref="DestinationId"/> restricts its <c>deliveries:read</c> scope to one destination.</summary>
+public sealed record ApiKeyIdentity(Guid KeyId, Guid TenantId, string Name, string Prefix, IReadOnlyList<string> Scopes)
+{
+    public Guid? DestinationId { get; init; }
+}
 
 /// <summary>Looks a presented key up; null for unknown, revoked, or belonging to a tenant that is not active.</summary>
 public interface IApiKeyValidator

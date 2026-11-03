@@ -75,6 +75,74 @@ export interface paths {
         patch: operations["UpdateChannel"];
         trace?: never;
     };
+    "/api/v1/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's deliveries, newest first, filtered by document, destination and status. */
+        get: operations["ListDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One delivery with its attempts and the external id. */
+        get: operations["GetDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}:redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a delivery again as a new delivery, from its snapshot or rendered again; a dead letter it replaces is cancelled. */
+        post: operations["RedeliverDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The payload snapshot the delivery sends. */
+        get: operations["GetDeliveryPayload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/destinations": {
         parameters: {
             query?: never;
@@ -585,6 +653,40 @@ export interface paths {
         get: operations["GetDocumentText"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feeds/{destinationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The entries of a pull destination's feed after the cursor (without one: from the oldest entry not acknowledged). */
+        get: operations["ReadFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feeds/{destinationId}:ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledges feed entries, which marks their deliveries delivered. */
+        post: operations["AcknowledgeFeed"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1292,6 +1394,11 @@ export interface components {
         ApiKeySummary: {
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: uuid
+             * @description The pull destination a `deliveries:read` key is restricted to; null for all of the tenant's.
+             */
+            destinationId?: null | string;
             /** Format: uuid */
             id: string;
             isActive?: boolean;
@@ -1358,7 +1465,10 @@ export interface components {
             rawText?: null | string;
             words?: null | (number | string)[][];
         };
+        /** @description Guid? CreateApiKeyRequest.DestinationId restricts a `deliveries:read` key to one pull destination (docs/11 §13.3). */
         CreateApiKeyRequest: {
+            /** Format: uuid */
+            destinationId?: null | string;
             name: string;
             scopes: string[];
         };
@@ -1377,6 +1487,8 @@ export interface components {
         CreatedApiKey: {
             /** Format: date-time */
             createdAt: string;
+            /** Format: uuid */
+            destinationId?: null | string;
             /** Format: uuid */
             id: string;
             key: string;
@@ -1487,6 +1599,64 @@ export interface components {
         DefinitionProblemDto: {
             message: string;
             where: string;
+        };
+        /** @description One attempt at a delivery: when, how long, the status code, the error class and the response excerpt (4 KB, secrets masked). */
+        DeliveryAttemptDto: {
+            /** Format: date-time */
+            at: string;
+            /** Format: int32 */
+            durationMs: number | string;
+            errorClass: null | string;
+            responseExcerpt: null | string;
+            /** Format: int32 */
+            statusCode: null | number | string;
+            step: null | string;
+        };
+        /** @description A delivery with its attempts and the document's external id at its destination. */
+        DeliveryDetail: {
+            attempts: components["schemas"]["DeliveryAttemptDto"][];
+            delivery: components["schemas"]["DeliverySummary"];
+            externalRef: null | components["schemas"]["ExternalRefDto"];
+        };
+        /** @description One delivery as the API shows it (docs/11 §13.6): what was rendered with what, for which binding and destination, and where it stands. */
+        DeliverySummary: {
+            /** Format: int32 */
+            attempts: number | string;
+            /** Format: uuid */
+            bindingId: string;
+            bindingName: null | string;
+            contentType: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            deliveredAt: null | string;
+            /** Format: uuid */
+            destinationId: string;
+            destinationName: null | string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: int32 */
+            documentVersion: number | string;
+            event: string;
+            /** Format: int64 */
+            feedSequence: null | number | string;
+            /** Format: uuid */
+            id: string;
+            idempotencyKey: string;
+            lastError: null | string;
+            /** Format: int32 */
+            lastStatusCode: null | number | string;
+            /** Format: int32 */
+            mappingVersion: null | number | string;
+            /** Format: uuid */
+            mappingVersionId: string;
+            /** Format: date-time */
+            nextAttemptAt: null | string;
+            payloadSha256: null | string;
+            /** Format: uuid */
+            redeliveryOfId: null | string;
+            status: string;
+            transport: null | string;
         };
         DependentReferenceDto: {
             fieldId: null | string;
@@ -1843,8 +2013,61 @@ export interface components {
             /** Format: int32 */
             version: number | string;
         };
+        /** @description The receiving system's id of the document at the delivery's destination (`responseMapping`). */
+        ExternalRefDto: {
+            externalId: string;
+            message: null | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @enum {unknown} */
         ExtractionMethod: "StructuredXml" | "Profile" | "Llm" | "Manual" | null;
+        /**
+         * @description `POST /feeds/{destinationId}:ack`: acknowledges every entry up to and including long? FeedAckRequest.UpTo, and/or the
+         *     listed IReadOnlyList&lt;Guid&gt;? FeedAckRequest.DeliveryIds. Acknowledging an entry twice is not an error.
+         */
+        FeedAckRequest: {
+            deliveryIds: null | string[];
+            /** Format: int64 */
+            upTo: null | number | string;
+        };
+        /** @description How many entries this call acknowledged, and whether entries up to `upTo` are left for another call. */
+        FeedAckResponse: {
+            /** Format: int32 */
+            acknowledged: number | string;
+            more: boolean;
+        };
+        /**
+         * @description One entry of a pull feed (docs/11 §13.3): its long FeedEntry.Sequence (the `after` cursor), the delivery, and
+         *     the payload, as JSON in JsonElement? FeedEntry.Payload or, for any other content type, base64 in string? FeedEntry.PayloadBase64.
+         */
+        FeedEntry: {
+            acknowledged: boolean;
+            contentType: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            deliveryId: string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: int32 */
+            documentVersion: number | string;
+            event: string;
+            idempotencyKey: string;
+            payload: null | components["schemas"]["JsonElement"];
+            payloadBase64: null | string;
+            payloadSha256: null | string;
+            /** Format: int64 */
+            sequence: number | string;
+        };
+        /** @description A page of a feed: the entries after the cursor, long FeedPage.Next to pass as `after` next time, and whether more are waiting. */
+        FeedPage: {
+            hasMore: boolean;
+            items: components["schemas"]["FeedEntry"][];
+            /** Format: int64 */
+            next: number | string;
+        };
         FieldChangeDto: {
             change: string;
             fieldId: string;
@@ -2259,6 +2482,11 @@ export interface components {
             version: number | string;
         };
         /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfDeliverySummary: {
+            items: components["schemas"]["DeliverySummary"][];
+            nextCursor: null | string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
         PageOfDocumentSummary: {
             items: components["schemas"]["DocumentSummary"][];
             nextCursor: null | string;
@@ -2478,6 +2706,16 @@ export interface components {
             rows: components["schemas"]["TableRowDto"][];
             rowsTruncated: boolean;
             written: boolean;
+        };
+        /**
+         * @description `POST /deliveries/{id}:redeliver` (docs/11 §13.6): `snapshot` (the default) sends the stored payload
+         *     again; `rerender` renders the document again, with int? RedeliverRequest.MappingVersion of the binding's mapping or the
+         *     version the binding follows now.
+         */
+        RedeliverRequest: {
+            /** Format: int32 */
+            mappingVersion: null | number | string;
+            mode: null | string;
         };
         RejectDocumentRequest: {
             reason: string;
@@ -2872,6 +3110,9 @@ export type SchemaCreateOutputMappingRequest = components['schemas']['CreateOutp
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
 export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
+export type SchemaDeliveryAttemptDto = components['schemas']['DeliveryAttemptDto'];
+export type SchemaDeliveryDetail = components['schemas']['DeliveryDetail'];
+export type SchemaDeliverySummary = components['schemas']['DeliverySummary'];
 export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
 export type SchemaDestinationResponse = components['schemas']['DestinationResponse'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
@@ -2890,7 +3131,12 @@ export type SchemaDocumentTypeKey = components['schemas']['DocumentTypeKey'];
 export type SchemaDocumentTypeSource = components['schemas']['DocumentTypeSource'];
 export type SchemaDocumentTypeVersionDetail = components['schemas']['DocumentTypeVersionDetail'];
 export type SchemaDocumentTypeVersionSummary = components['schemas']['DocumentTypeVersionSummary'];
+export type SchemaExternalRefDto = components['schemas']['ExternalRefDto'];
 export type SchemaExtractionMethod = components['schemas']['ExtractionMethod'];
+export type SchemaFeedAckRequest = components['schemas']['FeedAckRequest'];
+export type SchemaFeedAckResponse = components['schemas']['FeedAckResponse'];
+export type SchemaFeedEntry = components['schemas']['FeedEntry'];
+export type SchemaFeedPage = components['schemas']['FeedPage'];
 export type SchemaFieldChangeDto = components['schemas']['FieldChangeDto'];
 export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
@@ -2928,6 +3174,7 @@ export type SchemaOutputMappingVersionSummary = components['schemas']['OutputMap
 export type SchemaOutputPreviewRequest = components['schemas']['OutputPreviewRequest'];
 export type SchemaOutputPreviewResponse = components['schemas']['OutputPreviewResponse'];
 export type SchemaOutputTemplateSummary = components['schemas']['OutputTemplateSummary'];
+export type SchemaPageOfDeliverySummary = components['schemas']['PageOfDeliverySummary'];
 export type SchemaPageOfDocumentSummary = components['schemas']['PageOfDocumentSummary'];
 export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestionSummary'];
 export type SchemaPageOfReviewTaskDto = components['schemas']['PageOfReviewTaskDto'];
@@ -2948,6 +3195,7 @@ export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntr
 export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
 export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
 export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
+export type SchemaRedeliverRequest = components['schemas']['RedeliverRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaRenderErrorDto = components['schemas']['RenderErrorDto'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
@@ -3184,6 +3432,118 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListDeliveries: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                destinationId?: string;
+                documentId?: string;
+                limit?: number | string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfDeliverySummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryDetail"];
+                };
+            };
+        };
+    };
+    RedeliverDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["RedeliverRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliverySummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDeliveryPayload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4253,6 +4613,75 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ReadFeed: {
+        parameters: {
+            query?: {
+                after?: number | string;
+                limit?: number | string;
+            };
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    AcknowledgeFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedAckRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAckResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };

@@ -32,6 +32,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid?>("DestinationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Hash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -1591,6 +1594,16 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<int>("DocumentVersion")
                         .HasColumnType("int");
 
+                    b.Property<string>("Event")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasDefaultValue("document.approved");
+
+                    b.Property<long?>("FeedSequence")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1624,6 +1637,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<string>("RecipeStateJson")
                         .HasColumnType("json");
 
+                    b.Property<Guid?>("RedeliveryOfId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -1640,8 +1656,6 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BindingId");
 
-                    b.HasIndex("DestinationId");
-
                     b.HasIndex("DocumentId");
 
                     b.HasIndex("IdempotencyKey")
@@ -1651,7 +1665,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OutboxMessageId");
 
+                    b.HasIndex("RedeliveryOfId");
+
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("DestinationId", "FeedSequence");
 
                     b.HasIndex("Status", "NextAttemptAt");
 
@@ -1833,6 +1851,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<long>("FeedSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
 
                     b.Property<DateTimeOffset?>("LastTestAt")
                         .HasColumnType("datetimeoffset");
@@ -2608,6 +2631,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasForeignKey("OutboxMessageId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.OutboxDelivery", null)
+                        .WithMany()
+                        .HasForeignKey("RedeliveryOfId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("Binding");
 

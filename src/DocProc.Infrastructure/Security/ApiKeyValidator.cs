@@ -46,6 +46,9 @@ public sealed class ApiKeyValidator(ISystemDbContextFactory contexts, TimeProvid
             match.Key.TenantId,
             match.Key.Name,
             match.Key.Prefix,
-            match.Key.Scopes.Select(s => s.ToString().ToLowerInvariant()).ToList());
+            match.Key.Scopes.Select(ApiKeyScopeNames.Name).ToList())
+        {
+            DestinationId = match.Key.DestinationId,
+        };
     }
 }

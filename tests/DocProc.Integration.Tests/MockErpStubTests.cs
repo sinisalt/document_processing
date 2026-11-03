@@ -3,6 +3,11 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Text.Json.Nodes;
+using DocProc.Infrastructure.Outputs;
+using DocProc.Infrastructure.Outputs.Delivery;
+using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Infrastructure.Security;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
@@ -141,6 +146,79 @@ public sealed partial class MockErpStubTests : IAsyncLifetime
         journal.GetProperty("requests").EnumerateArray()
             .Select(r => r.GetProperty("request").GetProperty("body").GetString())
             .ShouldContain(b => b != null && b.Contains("RE-JOURNAL", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The http transport against the stubs the P3 demo uses (docs/11 §13.3, §23): the Development allowance lets it
+    /// reach mock-erp over plain http, a forced 503 is retryable with the stub's Retry-After and the next call goes
+    /// through, the responseMapping captures the ERP's id, an update is a PUT to the price list's URL, the invoice goes
+    /// with its original file as multipart, and the oauth stub hands out the token the bearer header then carries.
+    /// </summary>
+    [Fact]
+    public async Task The_http_transport_delivers_to_the_stubs_the_demo_uses()
+    {
+        SkipUnlessRunning();
+        var ct = TestContext.Current.CancellationToken;
+        (await Control("erp-ap", "reset")).ShouldBe(HttpStatusCode.OK);
+        (await Control("article-prices", "reset")).ShouldBe(HttpStatusCode.OK);
+        var baseUrl = Http.BaseAddress!.ToString().TrimEnd('/');
+        var policy = new DeliveryEndpointPolicy([$"{Http.BaseAddress.Host}:{Http.BaseAddress.Port}"]);
+        using var client = new DeliveryHttpClient(policy);
+        using var renderer = new JsonataRenderer(Microsoft.Extensions.Options.Options.Create(new JsonataRendererOptions { PoolSize = 1 }));
+        var secrets = new InMemorySecretStore();
+        var transport = new HttpDeliveryTransport(client, secrets, new OAuthTokenCache(client, TimeProvider.System), renderer, TimeProvider.System);
+        var tenant = Guid.NewGuid();
+
+        DeliveryContext Context(JsonObject config, string payload, string eventType = OutputEvents.Approved, OriginalFile? original = null)
+        {
+            var delivery = new OutboxDelivery { Id = Guid.CreateVersion7(), TenantId = tenant, DocumentId = Guid.CreateVersion7(), DocumentVersion = 3, IdempotencyKey = $"doc:{Guid.NewGuid():N}", Event = eventType };
+            var destination = new OutputDestination { Id = Guid.CreateVersion7(), TenantId = tenant, Name = "mock-erp", Transport = OutputTransports.Http, CreatedBy = "test", SecretRef = $"tenant/{tenant:D}/destination/x/1" };
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            var values = new DeliveryTemplateValues(delivery.DocumentId, 3, eventType, "price-list", delivery.Id, JsonNode.Parse(payload));
+            return new DeliveryContext(delivery, destination, config, bytes, "application/json", values, null, _ => Task.FromResult(original));
+        }
+
+        var invoices = new JsonObject { ["urlTemplate"] = baseUrl + "/api/ap/invoices", ["responseMapping"] = "erpId" };
+        (await Control("erp-ap", "fail-next")).ShouldBe(HttpStatusCode.OK);
+        var first = await transport.SendAsync(Context(invoices, """{"header":{"docNo":"RE-1"}}"""), ct);
+        first.Kind.ShouldBe(DeliveryOutcomeKind.Retryable);
+        first.StatusCode.ShouldBe(503);
+        first.RetryAfter.ShouldBe(TimeSpan.FromSeconds(1));
+        var retry = await transport.SendAsync(Context(invoices, """{"header":{"docNo":"RE-1"}}"""), ct);
+        retry.Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        retry.StatusCode.ShouldBe(201);
+        retry.ExternalId.ShouldNotBeNull().ShouldStartWith("AP-");
+
+        var prices = new JsonObject { ["urlTemplate"] = baseUrl + "/api/article-prices", ["updateUrlTemplate"] = baseUrl + "/api/article-prices/{{output.header.priceListId}}", ["responseMapping"] = "priceListId" };
+        var update = await transport.SendAsync(Context(prices, """{"header":{"priceListId":"PL-2027-01"},"prices":[]}""", OutputEvents.Updated), ct);
+        update.StatusCode.ShouldBe(200);
+        update.ExternalId.ShouldBe("PL-2027-01", "the stub echoes the price list of the PUT's path");
+        (await transport.SendAsync(Context(prices, """{"header":{"priceListId":"PL-2027-01"},"prices":[]}"""), ct)).StatusCode.ShouldBe(202);
+
+        var multipart = new JsonObject
+        {
+            ["urlTemplate"] = baseUrl + "/api/ap/invoices",
+            ["responseMapping"] = "withAttachment ? erpId : undefined",
+            ["multipart"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["name"] = "data", ["mapping"] = "self" }, new JsonObject { ["name"] = "file", ["content"] = "original" }) },
+        };
+        var withFile = await transport.SendAsync(Context(multipart, """{"header":{"docNo":"RE-2"}}""", original: new OriginalFile(Encoding.ASCII.GetBytes("%PDF-1.7"), "re-2.pdf", "application/pdf")), ct);
+        withFile.StatusCode.ShouldBe(201);
+        withFile.ExternalId.ShouldNotBeNull().ShouldStartWith("AP-");
+
+        var oauth = new JsonObject
+        {
+            ["urlTemplate"] = baseUrl + "/api/ap/invoices",
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = baseUrl + "/oauth/token", ["clientId"] = "docproc" },
+        };
+        var context = Context(oauth, """{"header":{"docNo":"RE-3"}}""");
+        await secrets.SetAsync(context.Destination.SecretRef!, "mock-secret", ct);
+        (await transport.SendAsync(context, ct)).StatusCode.ShouldBe(201);
+
+        var journal = await Http.GetFromJsonAsync<JsonElement>(new Uri("/__admin/requests", UriKind.Relative), ct);
+        var sent = journal.GetProperty("requests").EnumerateArray().Select(r => r.GetProperty("request")).ToList();
+        sent.ShouldContain(r => r.GetProperty("method").GetString() == "PUT" && r.GetProperty("url").GetString() == "/api/article-prices/PL-2027-01");
+        sent.Any(r => r.GetProperty("headers").TryGetProperty("Authorization", out var auth) && auth.GetString() == "Bearer mock-erp-token").ShouldBeTrue("the bearer token of the oauth stub");
+        sent.Any(r => r.GetProperty("headers").TryGetProperty("X-DocProc-Revision", out var revision) && revision.GetString() == "3").ShouldBeTrue("the revision header");
     }
 
     private void SkipUnlessRunning()

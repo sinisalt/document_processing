@@ -45,6 +45,11 @@ x-host-environment: &host-environment
   # EF Core logs every SQL statement at Information (the first start's migrations alone are thousands of lines), which
   # buries the start-up messages in `docker compose logs api`. Information brings them back (docs/09).
   Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Warning
+  # Deliveries (docs/11 §13.3): the demos' mock-erp answers plain http at a private address, which the endpoint guard
+  # refuses; this Development-only allowance lets http destinations reach it (docs/09 "Outputs"). The file drop of
+  # blob destinations goes to the shared outbound volume.
+  Delivery__DevelopmentHosts__0: mock-erp:8080
+  Delivery__DropRoot: /data/outbound
 
 services:
   # SQL Server 2025 (amd64 only; Docker Desktop / OrbStack on Apple Silicon emulate it with Rosetta). Also the store
@@ -227,6 +232,7 @@ services:
       Authentication__Oidc__RequireHttpsMetadata: "false"
     volumes:
       - secrets:/data/secrets
+      - outbound:/data/outbound
     ports:
       - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5100:8080"
     healthcheck:
@@ -260,6 +266,7 @@ services:
       Mail__ImapPort: "3143"
     volumes:
       - secrets:/data/secrets
+      - outbound:/data/outbound
     depends_on:
       api:
         condition: service_healthy
@@ -339,3 +346,4 @@ volumes:
   azurite-data:
   keycloak-data:
   secrets:
+  outbound:

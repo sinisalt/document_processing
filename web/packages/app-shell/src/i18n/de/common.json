@@ -257,6 +257,9 @@
     "CHECKS_SKIPPED": {
       "patternBudget_one": "{{count}} Musterprüfung wurde übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
       "patternBudget_other": "{{count}} Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen."
+    },
+    "DELIVERY_FAILED": {
+      "default": "Die Zustellung an {{destination}} ist endgültig fehlgeschlagen: {{error}}. Ein Integrations-Admin kann sie erneut senden."
     }
   },
   "apiErrors": {

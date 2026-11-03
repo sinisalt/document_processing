@@ -1,6 +1,7 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Support;
@@ -13,8 +14,9 @@ namespace DocProc.Pipeline.Stages;
 /// Stage 9 (docs/03 "Publish and learn"), the outbox half. The decision that settles a document (approve, reject,
 /// auto-approval) writes its <see cref="OutboxMessage"/> in its own transaction (docs/11 §13.5), so the message that
 /// queues this stage is only a nudge: the stage hands the current settlement's row on by setting
-/// <see cref="OutboxMessage.FannedOutAt"/> and records the publish in the timeline. With no destinations yet (P3)
-/// handing on is the publish itself. A settlement without a row (one decided before the decision wrote it) gets one
+/// <see cref="OutboxMessage.FannedOutAt"/> and records the publish in the timeline. For a tenant with the
+/// <c>outputs</c> switch the same save adds the deliveries of its bindings (<see cref="DeliveryFanOut"/>, docs/11
+/// §13.5), which are queued after the commit; without it handing on is the publish itself, as before P3. A settlement without a row (one decided before the decision wrote it) gets one
 /// here, as before. Idempotent per settlement: a row already handed on means the message is dropped, two publishers
 /// racing for the same row are told apart by its concurrency token, and two that both found no row by the document's
 /// (<see cref="DocumentOutbox.AddMissing"/>); the loser's save fails and its message is dropped. A message from the
@@ -23,6 +25,8 @@ namespace DocProc.Pipeline.Stages;
 internal sealed class PublishHandler(
     DocProcDbContext db,
     DocumentTimeline timeline,
+    DeliveryFanOut fanOut,
+    IPipelineQueue queue,
     ILogger<PublishHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     public override PipelineStage Stage => PipelineStage.Publish;
@@ -59,8 +63,19 @@ internal sealed class PublishHandler(
             Logger.LogWarning("Document {DocumentId}: {EventType} was settled at {SettledAt} but never published; published by the publish sweeper.", document.Id, eventType, DocumentOutbox.SettledAt(document.ApprovedAt, document.UpdatedAt));
         }
 
-        Timeline.Record(document, DocumentEventTypes.StageCompleted, document.Status, document.Status, new { stage = PipelineStage.Publish, eventType, outboxMessageId = outbox.Id, recoveredBy });
+        // The fan-out (docs/11 §13.5) renders and adds the deliveries of the tenant's bindings, so they commit with the
+        // hand-on; a tenant without the outputs switch has none and publishes exactly as before.
+        var fan = await fanOut.FanOutAsync(document, outbox, cancellationToken).ConfigureAwait(false);
+        var deliveries = fan.Entries.Count == 0 ? null : fan.Entries;
+        Timeline.Record(document, DocumentEventTypes.StageCompleted, document.Status, document.Status, new { stage = PipelineStage.Publish, eventType, outboxMessageId = outbox.Id, recoveredBy, deliveries });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // The nudge: lost with the process, the delivery sweeper finds the row (docs/11 §13.6).
+        foreach (var delivery in fan.ToSend)
+        {
+            await queue.EnqueueAsync(new ProcessDelivery(delivery.TenantId, delivery.Id, delivery.DestinationId, delivery.DocumentId), TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+        }
+
         return StageOutcome.Stopped;
     }
 

@@ -1,4 +1,5 @@
 using DocProc.Application.Pipeline;
+using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using DocProc.Pipeline.Queue;
 using DocProc.Pipeline.Stages;
@@ -95,6 +96,10 @@ public sealed class PipelineRunnerHostedService(
                     await ProcessDocumentAsync(scope.ServiceProvider, document.Message, cancellationToken).ConfigureAwait(false);
                     break;
 
+                case DeliveryWorkItem delivery:
+                    await ProcessDeliveryAsync(scope.ServiceProvider, delivery.Message, cancellationToken).ConfigureAwait(false);
+                    break;
+
                 default:
                     logger.LogError("Unknown pipeline work item {ItemType}; dropped.", item.GetType().Name);
                     break;
@@ -126,6 +131,25 @@ public sealed class PipelineRunnerHostedService(
         }
     }
 
+    /// <summary>
+    /// One delivery attempt (docs/11 §13.6). The processor records every outcome on the row itself; a retry is queued
+    /// here after its backoff. An exception (the database is gone) is only logged: the row stays due, or claimed
+    /// until its lease runs out, and the delivery sweeper queues it again.
+    /// </summary>
+    private async Task ProcessDeliveryAsync(IServiceProvider services, ProcessDelivery message, CancellationToken cancellationToken)
+    {
+        var run = await services.GetRequiredService<DeliveryProcessor>().ProcessAsync(message, cancellationToken).ConfigureAwait(false);
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Delivery {DeliveryId} (attempt {Attempt}): {Result}.", message.DeliveryId, message.Attempt, run.Result);
+        }
+
+        if (run.Retry is { } retry)
+        {
+            await queue.EnqueueAsync(retry, run.RetryDelay, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task HandleFailureAsync(PipelineWorkItem item, Exception exception, CancellationToken cancellationToken)
     {
         try
@@ -142,6 +166,10 @@ public sealed class PipelineRunnerHostedService(
 
                 case IngestionWorkItem { Message: var message }:
                     await ApplyAsync(recorder, message, exception, cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case DeliveryWorkItem { Message: var message }:
+                    logger.LogError(exception, "Delivery {DeliveryId} (attempt {Attempt}) failed outside its transport; the delivery sweeper queues it again.", message.DeliveryId, message.Attempt);
                     break;
             }
         }

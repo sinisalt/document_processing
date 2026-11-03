@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence.Entities;
 
 namespace DocProc.Infrastructure.Outputs;
@@ -25,7 +26,7 @@ public static class HttpAuthTypes
 /// The configuration of a destination per transport (docs/11 §13.3), checked when it is saved: what each transport
 /// takes, with clear errors, and nothing that looks like a credential (the secret is stored apart, write-only).
 /// <list type="bullet">
-/// <item><description><c>http</c>: <c>{method (POST, PUT, PATCH), urlTemplate (absolute http(s), <c>{{...}}</c> placeholders), headers {name: value}, timeoutSeconds (1-120), successCodes [200-299...], auth {type, headerName?, username?, tokenUrl?, clientId?, scope?}, responseMapping? (JSONata)}</c>;</description></item>
+/// <item><description><c>http</c>: <c>{method (POST, PUT, PATCH), urlTemplate (absolute http(s), <c>{{...}}</c> placeholders), updateMethod?, updateUrlTemplate? (what a re-approval under <c>OnReapproval: Update</c> sends with; default PUT and urlTemplate), headers {name: value}, timeoutSeconds (1-120), successCodes [200-299...], auth {type, headerName?, username?, tokenUrl?, clientId?, scope?}, responseMapping? (JSONata), multipart? {parts}}</c>;</description></item>
 /// <item><description><c>blob</c>: <c>{path (relative, no <c>..</c>), fileNameTemplate}</c>;</description></item>
 /// <item><description><c>pull</c>: <c>{retentionDays?}</c>.</description></item>
 /// </list>
@@ -42,7 +43,7 @@ public static partial class DestinationConfig
     private static readonly HashSet<string> CredentialHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key", "Api-Key", "X-Auth-Token",
-        "Idempotency-Key", "X-DocProc-Document-Id", "X-DocProc-Revision", "Host", "Content-Length", "Transfer-Encoding",
+        "Idempotency-Key", "X-DocProc-Document-Id", "X-DocProc-Revision", "X-DocProc-Event", "X-DocProc-Timestamp", "X-DocProc-Signature", "Host", "Content-Length", "Transfer-Encoding",
     };
 
     private static readonly HashSet<string> HttpMethods = new(StringComparer.Ordinal) { "POST", "PUT", "PATCH" };
@@ -90,20 +91,20 @@ public static partial class DestinationConfig
 
     private static void Http(JsonObject config, List<(string, string)> problems)
     {
-        Known(config, ["method", "urlTemplate", "headers", "timeoutSeconds", "successCodes", "auth", "responseMapping"], problems);
+        Known(config, ["method", "urlTemplate", "updateMethod", "updateUrlTemplate", "headers", "timeoutSeconds", "successCodes", "auth", "responseMapping", "multipart"], problems);
         if (Text(config["method"]) is { } method && !HttpMethods.Contains(method))
         {
             problems.Add(("config.method", "method is POST, PUT or PATCH."));
         }
 
-        if (Text(config["urlTemplate"]) is not { Length: > 0 } url || url.Length > MaxTemplateLength)
+        if (config["updateMethod"] is { } updateMethod && (Text(updateMethod) is not { } update || !HttpMethods.Contains(update)))
         {
-            problems.Add(("config.urlTemplate", $"urlTemplate is required: an absolute http or https URL of at most {MaxTemplateLength} characters ({{{{...}}}} placeholders allowed)."));
+            problems.Add(("config.updateMethod", "updateMethod (what a re-approval under OnReapproval Update sends with) is POST, PUT or PATCH."));
         }
-        else if (!Uri.TryCreate(Placeholder().Replace(url, "x"), UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo))
-        {
-            problems.Add(("config.urlTemplate", "urlTemplate is an absolute http or https URL without user name or password (credentials go to the secret)."));
-        }
+
+        Url(config, "urlTemplate", required: true, problems);
+        Url(config, "updateUrlTemplate", required: false, problems);
+        Multipart(config, problems);
 
         if (config["headers"] is { } headers)
         {
@@ -173,6 +174,69 @@ public static partial class DestinationConfig
         }
     }
 
+    private static void Url(JsonObject config, string name, bool required, List<(string, string)> problems)
+    {
+        if (config[name] is null && !required)
+        {
+            return;
+        }
+
+        if (Text(config[name]) is not { Length: > 0 } url || url.Length > MaxTemplateLength)
+        {
+            problems.Add(($"config.{name}", $"{name} is {(required ? "required: " : string.Empty)}an absolute http or https URL of at most {MaxTemplateLength} characters ({{{{...}}}} placeholders allowed)."));
+        }
+        else if (!Uri.TryCreate(Placeholder().Replace(url, "x"), UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            problems.Add(($"config.{name}", $"{name} is an absolute http or https URL without user name or password (credentials go to the secret)."));
+        }
+        else if (Placeholder().Matches(url).Any(m => !DeliveryTemplates.IsKnownPlaceholder(m.Value)))
+        {
+            problems.Add(($"config.{name}", $"{name} has a placeholder this build does not know; placeholders are {DeliveryTemplates.Describe}."));
+        }
+    }
+
+    /// <summary>
+    /// <c>multipart: {parts: [{name, mapping: "self"} | {name, content: "original"}]}</c> (docs/11 §13.3): the body
+    /// as multipart/form-data, with the rendered payload and the document's original file as parts.
+    /// </summary>
+    private static void Multipart(JsonObject config, List<(string, string)> problems)
+    {
+        if (config["multipart"] is not { } multipart)
+        {
+            return;
+        }
+
+        if (multipart is not JsonObject block || block["parts"] is not JsonArray parts || parts.Count is 0 or > 10 || block.Count != 1)
+        {
+            problems.Add(("config.multipart", "multipart is {parts: [...]} with 1 to 10 parts."));
+            return;
+        }
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var where = $"config.multipart.parts[{i}]";
+            if (parts[i] is not JsonObject part || Text(part["name"]) is not { } name || !HeaderName().IsMatch(name) || !names.Add(name))
+            {
+                problems.Add((where, "A part is an object with a unique token name."));
+                continue;
+            }
+
+            var mapping = Text(part["mapping"]);
+            var content = Text(part["content"]);
+            var known = part.All(p => p.Key is "name" or "mapping" or "content");
+            if (!known || (mapping, content) is not (("self", null) or (null, "original")))
+            {
+                problems.Add((where, "A part is {name, mapping: \"self\"} (the rendered payload) or {name, content: \"original\"} (the document's original file)."));
+            }
+        }
+
+        if (!parts.OfType<JsonObject>().Any(p => Text(p["mapping"]) == "self"))
+        {
+            problems.Add(("config.multipart.parts", "One part carries the rendered payload ({mapping: \"self\"})."));
+        }
+    }
+
     private static void Blob(JsonObject config, List<(string, string)> problems)
     {
         Known(config, ["path", "fileNameTemplate"], problems);
@@ -184,6 +248,10 @@ public static partial class DestinationConfig
         if (Text(config["fileNameTemplate"]) is not { Length: > 0 and <= 400 } name || name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal))
         {
             problems.Add(("config.fileNameTemplate", "fileNameTemplate is a file name of at most 400 characters without '/', '\\' or '..' ({{...}} placeholders allowed)."));
+        }
+        else if (Placeholder().Matches(name).Any(m => !DeliveryTemplates.IsKnownPlaceholder(m.Value)))
+        {
+            problems.Add(("config.fileNameTemplate", $"fileNameTemplate has a placeholder this build does not know; placeholders are {DeliveryTemplates.Describe}."));
         }
     }
 

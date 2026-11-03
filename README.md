@@ -280,23 +280,25 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 | Role | Scope | Policies satisfied |
 |---|---|---|
-| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, IntegrationAdmin, Review, Ingest, Read |
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, Review, Ingest, Read |
 | Operator | platform | Platform, Review, Read |
-| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, IntegrationAdmin, Review, Ingest, Read |
+| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, Review, Ingest, Read |
 | Reviewer | own tenant | Review, Ingest, Read |
 | Viewer | own tenant | Read |
-| API key (`ingest`, `read`) | own tenant | Ingest and/or Read |
+| API key (`ingest`, `read`, `deliveries:read`) | own tenant | Ingest, Read and/or DeliveriesRead |
 
 Machine clients use tenant **API keys** instead of OIDC: `X-Api-Key: dpk_…` (or
-`Authorization: ApiKey dpk_…`). A key has the scopes `ingest` and/or `read`, authenticates as its
-tenant, satisfies only the Ingest and Read policies, and cannot use `X-Tenant-Id`. Tenant admins
+`Authorization: ApiKey dpk_…`). A key has the scopes `ingest`, `read` and/or `deliveries:read` (a pull
+destination's feed, docs/11 §13.3; a key created with `destinationId` reads that destination's feed only),
+authenticates as its tenant, satisfies only the Ingest, Read and DeliveriesRead policies, and cannot use
+`X-Tenant-Id`. Tenant admins
 manage keys at `/api/v1/api-keys` (create returns the secret once; the database keeps a SHA-256
 hash and the display prefix; revoke is idempotent). Keys of suspended tenants stop working.
 
 `GET /api/v1/me` returns the caller's identity, roles or scopes, resolved tenant scope and the
 policies they satisfy, which the front ends use to show or hide actions. ConfigAdmin (document
-types and lookup tables, docs/11 §16) and IntegrationAdmin (destinations, output mappings and bindings) are
-policies, not roles: TenantAdmin and SuperAdmin satisfy them. Get a local token from
+types and lookup tables, docs/11 §16), IntegrationAdmin (destinations, output mappings, bindings and redelivery)
+and DeliveriesRead (the pull feeds) are policies, not roles: TenantAdmin and SuperAdmin satisfy them. Get a local token from
 Keycloak:
 
 ```bash

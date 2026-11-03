@@ -137,5 +137,11 @@ public sealed class CrashBeforePublishEnqueueQueueTests : IDisposable
             Messages.Add(message);
             return Task.CompletedTask;
         }
+
+        public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken)
+        {
+            Messages.Add(message);
+            return Task.CompletedTask;
+        }
     }
 }

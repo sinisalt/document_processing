@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 in progress (part A done)
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 in progress (parts A and B done)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -944,10 +944,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       §19 moves them into `packages/review` with the shared review of the admin console (P6); the admin console's
       document page has none of the P2 actions;
     - the Identify mode, the New layout panel and "Remember for supplier" (P4).
-- **P3, track B: output mappings and delivery – part A done (data model, values view, renderer, templates, API);
-  part B (fan-out, delivery, transports, retries) and the Integrations UI are open.** Every new route needs the tenant's
-  `outputs` switch; a tenant without it behaves exactly as before (approve, publish stage and outbox, sweeper, mock-erp
-  stubs unchanged; nothing renders or delivers yet for anyone).
+- **P3, track B: output mappings and delivery – part A done (data model, values view, renderer, templates, API),
+  part B done (fan-out, delivery, transports, retries, feeds); the Integrations UI, the Deliveries tab and the P3
+  demo are open.** Every new route needs the tenant's `outputs` switch; a tenant without it behaves exactly as before
+  (approve, publish stage and outbox, publish sweeper unchanged: the fan-out does not run, nothing renders or
+  delivers; the mock-erp stubs of P0 answer as before, with new stubs beside them).
   - Done (part A):
     - the spike of docs/11 §13.1 (result recorded there as "Correction (P3, the spike)"): Jsonata.Net.Native 3.0.0 has
       the functions, depth and tail-recursion caps and no I/O, but cannot stop a running evaluation (an exponential
@@ -991,12 +992,78 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the `article-price-import` mapping of §13.10 renders the price list of that section to its output (one
       correction: a missing GTIN gives `"ean": null`), and a 10,000-row list of the longest shape renders under 5 MB
       and within the limit (about 1 s of processor time).
-  - Left for part B and later:
-    - the fan-out in `PublishHandler` (bindings, exclusive groups, conditions), the snapshots in `BlobContainers.Exports`,
-      `ProcessDelivery`, `DeliverySweeper`, the http transport (auth variants, `responseMapping`, multipart, the
-      `Delivery:DevelopmentHosts` allowance for mock-erp), blob drop, pull feed (`/feeds`), retries, dead letter,
-      ordering, OnReapproval, redeliver, `/deliveries`, `:test` of a destination, the Integrations UI and the
-      Deliveries tab, the P3 demo;
+  - Done (part B, docs/11 §13.3 to §13.6 with the corrections recorded there):
+    - the fan-out in the publish stage (`DeliveryFanOut`): for a tenant with the switch, every approval, auto-approval
+      and rejection the stage hands on goes to the bindings whose events, scope (type, supplier, channel) and
+      condition match, one per exclusive group (most specific, then priority); each renders now with the mapping
+      version it follows and the values view of the event, is checked against the target schema, snapshotted in
+      `BlobContainers.Exports` and added as an `OutboxDelivery` in the save that sets `FannedOutAt`, then nudged
+      (`ProcessDelivery`); a false condition gives a `Skipped` "not applicable" delivery, a permanent render failure
+      a dead letter, an unavailable renderer a retry of the publish stage;
+    - `ProcessDelivery` (`DeliveryProcessor`, run by the runner): the attempt check against copies, the claim under
+      the row's token with a lease, the transports, the attempt log (4 KB excerpts, secret and token masked),
+      `document.delivery_succeeded`, `document.delivery_failed` and `document.delivery_skipped` timeline events, the
+      `DELIVERY_FAILED` flag of a dead letter (resolved when none is left), the external id of `responseMapping`;
+    - retries with backoff and jitter (1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h; `Retry-After` replaces it),
+      classification (2xx delivered; network, timeout, 408, 425, 429, 5xx retryable; other 4xx, a refused address, a
+      missing secret, a template without a value permanent), dead letter after 15 attempts or 72 h;
+    - the delivery sweeper (`DeliverySweeperHostedService`, next to the runner): due rows whose message was lost (a
+      crash after the commit, a retry that waited in a process that ended) and attempts cut off mid-send, claimed
+      once under the row's token;
+    - ordering: deliveries of one document to one destination run one after the other in a process; an older
+      revision still waiting is skipped once a newer one exists for the binding (at the fan-out and again at send);
+    - `OnReapproval` Resend (new revision, new key), Skip (a `Skipped` delivery), Update (the update mapping,
+      `meta.event = document.updated`, the destination's `updateMethod`/`updateUrlTemplate`);
+    - transports: http through `TenantEndpointGuard` (auth none, apiKeyHeader, basic, bearer, oauth2ClientCredentials
+      with a token cache dropped on 401, hmacSha256; `Idempotency-Key`, `X-DocProc-Document-Id`, `X-DocProc-Revision`,
+      `X-DocProc-Event`; multipart with the original file; `responseMapping`), with the Development-only
+      `Delivery:DevelopmentHosts` allowance set to mock-erp in compose and the AppHost; the blob drop (write, then
+      rename, below `Delivery:DropRoot/<tenant>`, never overwriting); the pull feed (sequence numbers in commit order,
+      `GET /feeds/{id}?after=`, `POST /feeds/{id}:ack`, the API key scope `deliveries:read` optionally restricted to
+      one destination);
+    - the API: `GET /deliveries` (filters, cursor), `GET /deliveries/{id}` with attempts and external id,
+      `GET /deliveries/{id}/payload`, `POST /deliveries/{id}:redeliver` (snapshot or rerender), the feeds, the
+      `DeliveriesRead` policy (mirrored in the web app shell); bindings refuse `document.updated` and
+      `document.needs_review` as events;
+    - migration `DeliveryFeedAndRedelivery` (`OutboxDeliveries.Event`, `RedeliveryOfId`, `FeedSequence`,
+      `OutputDestinations.FeedSequence`, `ApiKeys.DestinationId`); its Down takes the `deliveries:read` scope out of
+      the keys (the build before reads it as a nameless number) and revokes keys left without a scope;
+      `TypeCatalogueSqlTests` migrates down past it with part B's rows in place and up again;
+    - mock-erp: `PUT /api/article-prices/{priceListId}` (the update), multipart on `POST /api/ap/invoices`,
+      `POST /oauth/token`; the `fail-next` scenario of P0 is the demo's 503-then-200; the compose stack mounts an
+      `outbound` volume for the file drop;
+    - tests: the transports against a fake receiver on loopback (every auth variant, classification, Retry-After,
+      timeout, guard, multipart, update, file drop), the pipeline (fan-out, retry, dead letter, attempt limit, lost
+      nudge and the sweeper, an attempt cut off mid-send, ordering, the three re-approval modes, condition and
+      exclusive group, render failure, blob and pull destinations, tenant isolation, a tenant without the switch
+      unchanged), the API (deliveries, redeliver, feeds and keys, isolation), SQL Server (the feed counter under
+      row-level security, the down/up), and the http transport against the real mock-erp image;
+    - the compose stack, through the API (the curl session of docs/09 "Outputs"): with a forced 503 on erp-ap, an
+      auto-approved e-invoice of tenant A was rendered by a copy of `generic-ap-json` in the worker's renderer
+      process, failed once, was retried after the stub's `Retry-After` and delivered (two requests in the mock-erp
+      journal with one idempotency key and the revision header, the ERP id stored as the external id), entered a
+      pull feed, read and acknowledged with a `deliveries:read` key restricted to that feed (403 for another), and
+      was redelivered from its snapshot (`:r1`);
+    - a fix to part A found by that run: the API and worker images did not build (`dotnet publish -a` failed with
+      NETSDK1152, the renderer's `runtimeconfig.json` and `deps.json` built twice, with and without the RID); the
+      renderer project is RID-agnostic now (`IsRidAgnostic`), so it is built once and runs as `dotnet` plus its dll
+      next to the host in the images as well.
+  - Left for later:
+    - the Integrations UI (destinations with `:test`, mappings editor, bindings, delivery log) and the document's
+      Deliveries tab (docs/11 §19), `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads
+      `GET /deliveries?documentId=`), the API key UI for `deliveries:read`, and the P3 demo of docs/11 §23 (the
+      price list rendered by `article-price-import` in the Integrations UI and delivered to mock-erp; part B's compose
+      run above went through the API with an e-invoice, not through the UI with the price list);
+    - `:test` of a destination; the pull destination's `retentionDays` (stored, not enforced); masking of a type's
+      `sensitive` fields in response excerpts (§16; only the destination's secret and token are masked);
+    - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
+      them later; `RecipeJson` stays unused;
+    - `document.needs_review` bindings; group and receiving-entity scopes (P4);
+    - the delivery gate is per process: two hosts (API and worker in compose) can each send one document's
+      deliveries to one destination at the same time; the claim under the row's token keeps one delivery from being
+      sent twice, but the order between two revisions across hosts rests on the skip rule;
+    - in the Production topology the API runs no runner, so a redelivery's nudge is not read; the worker's delivery
+      sweeper sends it after `Delivery:SweepGrace` (as with the publish nudge, docs/11 §13.5);
     - `OutputBatch` and `OutboxDelivery.BatchId` (batches, P6), recipes (`RecipeJson` is a column, the API takes none),
       `fieldmap` and `liquid` engines, callbacks (`CallbackConfigJson` is a column), `sftp` and `email` transports;
     - lookup tables: CSV upload, `Source` Import and Sync, aliases per entry (an alias is another entry), the platform

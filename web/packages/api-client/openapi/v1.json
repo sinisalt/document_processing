@@ -3532,6 +3532,314 @@
         }
       }
     },
+    "/api/v1/deliveries": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The tenant's deliveries, newest first, filtered by document, destination and status.",
+        "operationId": "ListDeliveries",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "destinationId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfDeliverySummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/deliveries/{id}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One delivery with its attempts and the external id.",
+        "operationId": "GetDelivery",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/deliveries/{id}/payload": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The payload snapshot the delivery sends.",
+        "operationId": "GetDeliveryPayload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/deliveries/{id}:redeliver": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Sends a delivery again as a new delivery, from its snapshot or rendered again; a dead letter it replaces is cancelled.",
+        "operationId": "RedeliverDelivery",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RedeliverRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverySummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feeds/{destinationId}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The entries of a pull destination's feed after the cursor (without one: from the oldest entry not acknowledged).",
+        "operationId": "ReadFeed",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feeds/{destinationId}:ack": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Acknowledges feed entries, which marks their deliveries delivered.",
+        "operationId": "AcknowledgeFeed",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedAckResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/lookup-tables": {
       "get": {
         "tags": [
@@ -4259,6 +4567,14 @@
           },
           "isActive": {
             "type": "boolean"
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The pull destination a `deliveries:read` key is restricted to; null for all of the tenant's.",
+            "format": "uuid"
           }
         }
       },
@@ -4464,8 +4780,16 @@
             "items": {
               "type": "string"
             }
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
-        }
+        },
+        "description": "Guid? CreateApiKeyRequest.DestinationId restricts a `deliveries:read` key to one pull destination (docs/11 §13.3)."
       },
       "CreateChannelRequest": {
         "required": [
@@ -4996,6 +5320,13 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         },
         "description": "Returned once, on creation: string CreatedApiKey.Key is never retrievable again."
@@ -5014,6 +5345,253 @@
             "type": "string"
           }
         }
+      },
+      "DeliveryAttemptDto": {
+        "required": [
+          "at",
+          "durationMs",
+          "statusCode",
+          "errorClass",
+          "responseExcerpt",
+          "step"
+        ],
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "statusCode": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errorClass": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "responseExcerpt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "step": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One attempt at a delivery: when, how long, the status code, the error class and the response excerpt (4 KB, secrets masked)."
+      },
+      "DeliveryDetail": {
+        "required": [
+          "delivery",
+          "attempts",
+          "externalRef"
+        ],
+        "type": "object",
+        "properties": {
+          "delivery": {
+            "$ref": "#/components/schemas/DeliverySummary"
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryAttemptDto"
+            }
+          },
+          "externalRef": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalRefDto"
+              }
+            ]
+          }
+        },
+        "description": "A delivery with its attempts and the document's external id at its destination."
+      },
+      "DeliverySummary": {
+        "required": [
+          "id",
+          "documentId",
+          "documentVersion",
+          "event",
+          "bindingId",
+          "bindingName",
+          "destinationId",
+          "destinationName",
+          "transport",
+          "mappingVersionId",
+          "mappingVersion",
+          "idempotencyKey",
+          "status",
+          "attempts",
+          "nextAttemptAt",
+          "lastStatusCode",
+          "lastError",
+          "contentType",
+          "payloadSha256",
+          "feedSequence",
+          "redeliveryOfId",
+          "createdAt",
+          "deliveredAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "event": {
+            "type": "string"
+          },
+          "bindingId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bindingName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "destinationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destinationName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "transport": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mappingVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mappingVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "attempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "nextAttemptAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastStatusCode": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "payloadSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "feedSequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "redeliveryOfId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deliveredAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "description": "One delivery as the API shows it (docs/11 §13.6): what was rendered with what, for which binding and destination, and where it stands."
       },
       "DependentReferenceDto": {
         "required": [
@@ -6339,6 +6917,34 @@
         },
         "description": "One version of a tenant's type, without its JSON."
       },
+      "ExternalRefDto": {
+        "required": [
+          "externalId",
+          "status",
+          "message",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "The receiving system's id of the document at the delivery's destination (`responseMapping`)."
+      },
       "ExtractionMethod": {
         "enum": [
           "StructuredXml",
@@ -6347,6 +6953,169 @@
           "Manual",
           null
         ]
+      },
+      "FeedAckRequest": {
+        "required": [
+          "upTo",
+          "deliveryIds"
+        ],
+        "type": "object",
+        "properties": {
+          "upTo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "deliveryIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "`POST /feeds/{destinationId}:ack`: acknowledges every entry up to and including long? FeedAckRequest.UpTo, and/or the\nlisted IReadOnlyList&lt;Guid&gt;? FeedAckRequest.DeliveryIds. Acknowledging an entry twice is not an error."
+      },
+      "FeedAckResponse": {
+        "required": [
+          "acknowledged",
+          "more"
+        ],
+        "type": "object",
+        "properties": {
+          "acknowledged": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "description": "How many entries this call acknowledged, and whether entries up to `upTo` are left for another call."
+      },
+      "FeedEntry": {
+        "required": [
+          "sequence",
+          "deliveryId",
+          "documentId",
+          "documentVersion",
+          "event",
+          "idempotencyKey",
+          "contentType",
+          "payloadSha256",
+          "createdAt",
+          "acknowledged",
+          "payload",
+          "payloadBase64"
+        ],
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "deliveryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "event": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "payloadSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "acknowledged": {
+            "type": "boolean"
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "payloadBase64": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One entry of a pull feed (docs/11 §13.3): its long FeedEntry.Sequence (the `after` cursor), the delivery, and\nthe payload, as JSON in JsonElement? FeedEntry.Payload or, for any other content type, base64 in string? FeedEntry.PayloadBase64."
+      },
+      "FeedPage": {
+        "required": [
+          "items",
+          "next",
+          "hasMore"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedEntry"
+            }
+          },
+          "next": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "description": "A page of a feed: the entries after the cursor, long FeedPage.Next to pass as `after` next time, and whether more are waiting."
       },
       "FieldChangeDto": {
         "required": [
@@ -7935,6 +8704,28 @@
         },
         "description": "A platform integration template (`GET /output-templates`, docs/11 §13.9) and the tenant's mappings copied from it."
       },
+      "PageOfDeliverySummary": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverySummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
+      },
       "PageOfDocumentSummary": {
         "required": [
           "items",
@@ -8897,6 +9688,31 @@
           }
         },
         "description": "What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row\nused (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there\nwere more), with `write` the document as stored after the write, and the locale the values were read in\n(`de-DE`: the request's, or the tenant country's)."
+      },
+      "RedeliverRequest": {
+        "required": [
+          "mode",
+          "mappingVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mappingVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "`POST /deliveries/{id}:redeliver` (docs/11 §13.6): `snapshot` (the default) sends the stored payload\nagain; `rerender` renders the document again, with int? RedeliverRequest.MappingVersion of the binding's mapping or the\nversion the binding follows now."
       },
       "RejectDocumentRequest": {
         "required": [

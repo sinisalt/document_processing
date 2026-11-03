@@ -11,6 +11,8 @@
   <ItemGroup>
     <!-- The standard template parity test compares the templates' keyword blocks with KeywordRuleSet. -->
     <InternalsVisibleTo Include="DocProc.Integration.Tests" />
+    <!-- The delivery tests (fan-out ranking, re-approval rules) run in the pipeline test host. -->
+    <InternalsVisibleTo Include="DocProc.Pipeline.Tests" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />

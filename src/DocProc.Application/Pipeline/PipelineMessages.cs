@@ -64,6 +64,15 @@ public static class PipelineMessageOrigins
     public const string PublishSweeper = "publish-sweeper";
 }
 
+/// <summary>
+/// Queue message for one attempt at a delivery (docs/11 §13.5, §13.6): the <c>OutboxDeliveries</c> row and the attempt
+/// it expects to make (the row's <c>Attempts</c> plus one), so a copy queued twice (the nudge and the delivery sweeper,
+/// a retry and a sweep) or one left over from an earlier attempt is dropped. <see cref="DestinationId"/> and
+/// <see cref="DocumentId"/> are the key the runner serialises deliveries on (one destination, one document), which the
+/// design's <c>ProcessDelivery(TenantId, DeliveryId, Attempt)</c> left to a lookup.
+/// </summary>
+public sealed record ProcessDelivery(Guid TenantId, Guid DeliveryId, Guid DestinationId, Guid DocumentId, int Attempt = 1);
+
 /// <summary>Queue message for an ingestion (one email, file or API call) before any document exists.</summary>
 public sealed record ProcessIngestion(Guid TenantId, Guid IngestionId, int Attempt = 1);
 

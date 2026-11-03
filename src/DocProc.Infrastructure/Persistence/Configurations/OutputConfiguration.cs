@@ -24,6 +24,7 @@ internal sealed class OutputDestinationConfiguration : IEntityTypeConfiguration<
         b.Property(d => d.Version).IsConcurrencyToken();
         b.HasIndex(d => new { d.TenantId, d.Name }).IsUnique();
         b.HasOne<Tenant>().WithMany().HasForeignKey(d => d.TenantId);
+        b.Property(d => d.FeedSequence).HasDefaultValue(0L);
     }
 }
 
@@ -101,6 +102,7 @@ internal sealed class OutboxDeliveryConfiguration : IEntityTypeConfiguration<Out
     {
         b.ToTable("OutboxDeliveries");
         b.Property(d => d.IdempotencyKey).HasMaxLength(200);
+        b.Property(d => d.Event).HasMaxLength(64).HasDefaultValue(OutputEvents.Approved);
         b.Property(d => d.RecipeStateJson).HasColumnType("json");
         b.Property(d => d.LastError).HasMaxLength(2000);
         b.Property(d => d.PayloadBlobKey).HasMaxLength(400);
@@ -110,6 +112,8 @@ internal sealed class OutboxDeliveryConfiguration : IEntityTypeConfiguration<Out
         b.HasIndex(d => d.IdempotencyKey).IsUnique();
         b.HasIndex(d => new { d.Status, d.NextAttemptAt });
         b.HasIndex(d => d.DocumentId);
+        b.HasIndex(d => new { d.DestinationId, d.FeedSequence });
+        b.HasOne<OutboxDelivery>().WithMany().HasForeignKey(d => d.RedeliveryOfId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne(d => d.OutboxMessage).WithMany().HasForeignKey(d => d.OutboxMessageId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne<Document>().WithMany().HasForeignKey(d => d.DocumentId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne(d => d.Binding).WithMany().HasForeignKey(d => d.BindingId).OnDelete(DeleteBehavior.NoAction);

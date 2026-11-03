@@ -39,6 +39,8 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
 
     public IReadOnlyList<ProcessDocument> Documents => _messages.OfType<ProcessDocument>().ToList();
 
+    public IReadOnlyList<ProcessDelivery> Deliveries => _messages.OfType<ProcessDelivery>().ToList();
+
     /// <summary>
     /// When set and true for a message, enqueuing it throws instead of recording it: the process dying (or the
     /// queue failing) between a committed decision and its publish message.
@@ -63,6 +65,12 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
     }
 
     public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => EnqueueAsync(message, cancellationToken);
+
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        _messages.Enqueue(message);
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>A small, arithmetically consistent invoice with LLM provenance on every field (mirrors the domain test fixture).</summary>

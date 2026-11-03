@@ -136,6 +136,96 @@ public sealed class OutputsSqlTests(SqlServerFixture sqlServer) : IClassFixture<
     internal sealed record P3Rows(Guid DestinationId, Guid MappingId, Guid BindingId, Guid DeliveryId, Guid SupplierId);
 
     /// <summary>
+    /// The pull feed on SQL Server (docs/11 §13.3, P3 part B): the processor publishes each delivery in a transaction
+    /// of its own that increments the destination's counter (through the retrying execution strategy SQL Server
+    /// uses), under the tenant's session context, so the entries take 1, 2, ... in commit order; another tenant sees
+    /// neither the entries nor the counter.
+    /// </summary>
+    [Fact]
+    public async Task Feed_entries_take_the_destinations_next_sequence_number_under_the_tenants_policy()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        var root = Path.Combine(Path.GetTempPath(), "docproc-feed-sql", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var blobs = new DocProc.Infrastructure.Blobs.FileSystemBlobStore(root);
+            Guid destinationId;
+            var deliveries = new List<Guid>();
+            await using (var asTenant = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var rows = await SeedAsync(asTenant, TenantA, ct);
+                var seeded = await asTenant.OutboxDeliveries.AsNoTracking().SingleAsync(d => d.Id == rows.DeliveryId, ct);
+                var now = DateTimeOffset.UtcNow;
+                var pull = new OutputDestination { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "feed", Transport = OutputTransports.Pull, CreatedBy = "a", CreatedAt = now, UpdatedAt = now };
+                asTenant.OutputDestinations.Add(pull);
+                destinationId = pull.Id;
+                for (var i = 0; i < 2; i++)
+                {
+                    // Two bindings to the one feed: of one binding, an older revision would be skipped for the newer.
+                    var binding = new OutputBinding { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = $"feed-{i}", MappingId = rows.MappingId, DestinationId = pull.Id, CreatedBy = "a", CreatedAt = now, UpdatedAt = now };
+                    asTenant.OutputBindings.Add(binding);
+                    await using var payload = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{\"n\":" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"));
+                    var stored = await blobs.PutAsync(Application.Abstractions.BlobContainers.Exports, TenantA, payload, "application/json", ct);
+                    var delivery = new OutboxDelivery
+                    {
+                        Id = Guid.CreateVersion7(),
+                        TenantId = TenantA,
+                        OutboxMessageId = seeded.OutboxMessageId,
+                        DocumentId = seeded.DocumentId,
+                        DocumentVersion = 10 + i,
+                        BindingId = binding.Id,
+                        DestinationId = pull.Id,
+                        MappingVersionId = seeded.MappingVersionId,
+                        IdempotencyKey = $"feed-{i}-{Guid.NewGuid():N}",
+                        Status = DeliveryStatus.Pending,
+                        NextAttemptAt = now,
+                        PayloadBlobKey = stored.Key,
+                        PayloadSha256 = stored.Sha256,
+                        ContentType = "application/json",
+                        CreatedAt = now,
+                    };
+                    asTenant.OutboxDeliveries.Add(delivery);
+                    deliveries.Add(delivery.Id);
+                }
+
+                await asTenant.SaveChangesAsync(ct);
+            }
+
+            foreach (var id in deliveries)
+            {
+                await using var asTenant = NewContext(TenantContext.ForTenant(TenantA));
+                var processor = new DocProc.Infrastructure.Outputs.Delivery.DeliveryProcessor(
+                    asTenant,
+                    [],
+                    blobs,
+                    TimeProvider.System,
+                    Microsoft.Extensions.Options.Options.Create(new DocProc.Infrastructure.Outputs.Delivery.DeliveryOptions()),
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<DocProc.Infrastructure.Outputs.Delivery.DeliveryProcessor>.Instance);
+                (await processor.ProcessAsync(new Application.Pipeline.ProcessDelivery(TenantA, id, destinationId, Guid.Empty, 1), ct)).Result.ShouldBe("published to feed");
+            }
+
+            await using (var asTenant = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                (await asTenant.OutboxDeliveries.Where(d => d.DestinationId == destinationId).OrderBy(d => d.FeedSequence).Select(d => new { d.Id, d.FeedSequence, d.Status }).ToListAsync(ct))
+                    .ShouldBe([new { Id = deliveries[0], FeedSequence = (long?)1, Status = DeliveryStatus.Sending }, new { Id = deliveries[1], FeedSequence = (long?)2, Status = DeliveryStatus.Sending }]);
+                (await asTenant.OutputDestinations.Where(d => d.Id == destinationId).Select(d => d.FeedSequence).SingleAsync(ct)).ShouldBe(2);
+            }
+
+            await using var other = NewContext(TenantContext.ForTenant(TenantB));
+            (await other.OutboxDeliveries.IgnoreQueryFilters().CountAsync(d => d.DestinationId == destinationId, ct)).ShouldBe(0, "row-level security, not only the EF filter");
+            (await other.OutputDestinations.IgnoreQueryFilters().CountAsync(d => d.Id == destinationId, ct)).ShouldBe(0);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
     /// One of everything P3 writes for <paramref name="tenantId"/>: a supplier with attributes, a document with its
     /// outbox row, a destination with a secret reference, a mapping with a published version, a binding, a delivery
     /// with an attempt and an external reference, and a lookup table with an entry. Used by the migrate down and up test.

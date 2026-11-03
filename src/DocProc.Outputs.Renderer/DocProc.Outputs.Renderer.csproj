@@ -3,6 +3,10 @@
     <Description>The sandboxed JSONata renderer of output mappings (docs/11 §13.1): a child process the hosts start and kill, so a render that runs too long or allocates too much can be stopped. Reads requests from stdin, writes results to stdout, one JSON object per line. No I/O besides the two streams.</Description>
     <OutputType>Exe</OutputType>
     <RootNamespace>DocProc.Outputs.Renderer</RootNamespace>
+    <!-- Run as `dotnet DocProc.Outputs.Renderer.dll` next to its host, framework-dependent: one build for every RID.
+         A host published for a RID (the images: `dotnet publish -a`) would otherwise build it twice, with and
+         without the RID, and fail with NETSDK1152 on the two runtimeconfig.json and deps.json files. -->
+    <IsRidAgnostic>true</IsRidAgnostic>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Jsonata.Net.Native" />

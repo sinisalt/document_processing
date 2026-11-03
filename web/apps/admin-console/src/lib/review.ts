@@ -31,6 +31,7 @@ export const flagCodes = [
   "RULE_FAILED",
   "REVISION_OF",
   "CHECKS_SKIPPED",
+  "DELIVERY_FAILED",
 ] as const;
 
 /** What the queue offers on a task, by the API's rules (ReviewTaskEndpoints). */

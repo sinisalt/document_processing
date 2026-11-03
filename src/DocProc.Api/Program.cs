@@ -98,6 +98,7 @@ v1.MapDocumentTypes();
 v1.MapOutputMappings();
 v1.MapDestinations();
 v1.MapOutputBindings();
+v1.MapDeliveries();
 v1.MapLookupTables();
 v1.MapLlmAdmin();
 

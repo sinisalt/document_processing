@@ -42,6 +42,53 @@
       }
     },
     {
+      "name": "article-prices: update a price list (PUT /api/article-prices/{priceListId}, OnReapproval Update)",
+      "priority": 5,
+      "request": {
+        "method": "PUT",
+        "urlPathPattern": "/api/article-prices/[^/]+",
+        "headers": {
+          "Content-Type": {
+            "contains": "json"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"importId\":\"AP-UPD-{{randomValue length=8 type='NUMERIC'}}\",\"status\":\"updated\",\"priceListId\":\"{{request.pathSegments.[2]}}\",\"idempotencyKey\":\"{{request.headers.[Idempotency-Key]}}\",\"receivedAt\":\"{{now}}\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "article-prices: 503 on an update when the request asks for it (X-Mock-Erp-Fail: 503)",
+      "priority": 1,
+      "request": {
+        "method": "PUT",
+        "urlPathPattern": "/api/article-prices/[^/]+",
+        "headers": {
+          "X-Mock-Erp-Fail": {
+            "equalTo": "503"
+          }
+        }
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "article-prices is down (forced by X-Mock-Erp-Fail)."
+        }
+      }
+    },
+    {
       "name": "article-prices: 503 when the request asks for it (X-Mock-Erp-Fail: 503)",
       "priority": 1,
       "request": {

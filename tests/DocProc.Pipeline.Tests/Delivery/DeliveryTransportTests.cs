@@ -1,0 +1,421 @@
+using System.Text;
+using System.Text.Json.Nodes;
+using DocProc.Infrastructure.Outputs;
+using DocProc.Infrastructure.Outputs.Delivery;
+using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Infrastructure.Security;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+
+namespace DocProc.Pipeline.Tests.Delivery;
+
+/// <summary>One renderer pool for the transport tests (the responseMapping runs in it).</summary>
+public sealed class DeliveryRendererFixture : IDisposable
+{
+    public JsonataRenderer Renderer { get; } = new(Options.Create(new JsonataRendererOptions { PoolSize = 1 }));
+
+    public void Dispose() => Renderer.Dispose();
+}
+
+/// <summary>
+/// The transports of docs/11 §13.3 against a fake receiver on loopback: what an http delivery sends (method, URL,
+/// idempotency and revision headers, every auth variant, multipart with the original file), how its answers are
+/// classified (docs/11 §13.6), the responseMapping, the endpoint guard and its Development allowance, and the file
+/// drop's write-then-rename.
+/// </summary>
+public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IClassFixture<DeliveryRendererFixture>
+{
+    private static readonly Guid Tenant = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly byte[] Payload = Encoding.UTF8.GetBytes("""{"header":{"docNo":"RE-1","priceListId":"PL 2027/01"},"rows":[{"net":100}]}""");
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task An_http_delivery_posts_the_payload_with_the_idempotency_key_and_the_revision()
+    {
+        using var receiver = new FakeReceiver();
+        var (transport, _) = Http(receiver);
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/api/ap/invoices?doc={{meta.documentId}}", ["headers"] = new JsonObject { ["X-Tenant-Code"] = "1000" } });
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        outcome.StatusCode.ShouldBe(201);
+        var request = receiver.Requests.ShouldHaveSingleItem();
+        request.Method.ShouldBe("POST");
+        request.PathAndQuery.ShouldBe($"/api/ap/invoices?doc={context.Delivery.DocumentId:D}");
+        request.Header("Idempotency-Key").ShouldBe(context.Delivery.IdempotencyKey);
+        request.Header("X-DocProc-Document-Id").ShouldBe(context.Delivery.DocumentId.ToString("D"));
+        request.Header("X-DocProc-Revision").ShouldBe("7");
+        request.Header("X-DocProc-Event").ShouldBe(OutputEvents.Approved);
+        request.Header("X-Tenant-Code").ShouldBe("1000");
+        request.Header("Content-Type")!.ShouldStartWith("application/json");
+        request.Body.ShouldBe(Payload);
+        request.Header("Authorization").ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(503, DeliveryOutcomeKind.Retryable)]
+    [InlineData(502, DeliveryOutcomeKind.Retryable)]
+    [InlineData(429, DeliveryOutcomeKind.Retryable)]
+    [InlineData(425, DeliveryOutcomeKind.Retryable)]
+    [InlineData(408, DeliveryOutcomeKind.Retryable)]
+    [InlineData(400, DeliveryOutcomeKind.Permanent)]
+    [InlineData(404, DeliveryOutcomeKind.Permanent)]
+    [InlineData(409, DeliveryOutcomeKind.Permanent)]
+    [InlineData(204, DeliveryOutcomeKind.Delivered)]
+    public async Task Answers_are_classified_as_docs_11_13_6_says(int status, DeliveryOutcomeKind expected)
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(status, """{"error":"x"}""") };
+        var (transport, _) = Http(receiver);
+
+        var outcome = await transport.SendAsync(Context(receiver), Ct);
+
+        outcome.Kind.ShouldBe(expected);
+        outcome.StatusCode.ShouldBe(status);
+        if (expected != DeliveryOutcomeKind.Delivered)
+        {
+            outcome.ResponseExcerpt.ShouldBe("""{"error":"x"}""");
+        }
+    }
+
+    [Fact]
+    public async Task Retry_after_is_read_and_success_codes_narrow_the_2xx()
+    {
+        using var receiver = new FakeReceiver();
+        receiver.Script(new ReceiverAnswer(503, "{}", new Dictionary<string, string> { ["Retry-After"] = "7" }), new ReceiverAnswer(202));
+        var (transport, _) = Http(receiver);
+
+        var outcome = await transport.SendAsync(Context(receiver), Ct);
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Retryable);
+        outcome.RetryAfter.ShouldBe(TimeSpan.FromSeconds(7));
+
+        var strict = await transport.SendAsync(Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["successCodes"] = new JsonArray(201) }), Ct);
+        strict.Kind.ShouldBe(DeliveryOutcomeKind.Permanent, "202 is not one of the destination's success codes");
+    }
+
+    [Fact]
+    public async Task The_endpoint_guard_refuses_a_private_http_receiver_unless_it_is_a_development_host()
+    {
+        using var receiver = new FakeReceiver();
+        var strict = Transport(DeliveryEndpointPolicy.Strict, new InMemorySecretStore());
+
+        var refused = await strict.SendAsync(Context(receiver), Ct);
+
+        refused.Kind.ShouldBe(DeliveryOutcomeKind.Permanent);
+        refused.ErrorClass.ShouldBe("permanent:blocked");
+        receiver.Requests.ShouldBeEmpty("nothing is sent to a refused address");
+
+        var https = await strict.SendAsync(Context(receiver, new JsonObject { ["urlTemplate"] = $"https://127.0.0.1:{receiver.Port}/x" }), Ct);
+        https.ErrorClass.ShouldBe("permanent:blocked", "loopback is refused over https too");
+
+        var (allowed, _) = Http(receiver);
+        (await allowed.SendAsync(Context(receiver), Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        new DeliveryEndpointPolicy(["mock-erp:8080"]).IsExempt("mock-erp", 8081).ShouldBeFalse("the port is part of the entry");
+        new DeliveryEndpointPolicy(["MOCK-ERP"]).IsExempt("mock-erp", 1).ShouldBeTrue("a host without a port is exempt on every port");
+    }
+
+    [Theory]
+    [InlineData(HttpAuthTypes.ApiKeyHeader)]
+    [InlineData(HttpAuthTypes.Basic)]
+    [InlineData(HttpAuthTypes.Bearer)]
+    [InlineData(HttpAuthTypes.HmacSha256)]
+    public async Task Every_auth_variant_sends_the_destinations_secret_its_way(string type)
+    {
+        using var receiver = new FakeReceiver();
+        var (transport, secrets) = Http(receiver);
+        var auth = new JsonObject { ["type"] = type };
+        if (type == HttpAuthTypes.ApiKeyHeader)
+        {
+            auth["headerName"] = "X-Erp-Key";
+        }
+
+        if (type == HttpAuthTypes.Basic)
+        {
+            auth["username"] = "docproc";
+        }
+
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = auth });
+        await secrets.SetAsync(context.Destination.SecretRef!, "s3cret-value", Ct);
+
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        var request = receiver.Requests.ShouldHaveSingleItem();
+        switch (type)
+        {
+            case HttpAuthTypes.ApiKeyHeader:
+                request.Header("X-Erp-Key").ShouldBe("s3cret-value");
+                break;
+            case HttpAuthTypes.Basic:
+                request.Header("Authorization").ShouldBe("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("docproc:s3cret-value")));
+                break;
+            case HttpAuthTypes.Bearer:
+                request.Header("Authorization").ShouldBe("Bearer s3cret-value");
+                break;
+            case HttpAuthTypes.HmacSha256:
+                var timestamp = request.Header("X-DocProc-Timestamp").ShouldNotBeNull();
+                request.Header("X-DocProc-Signature").ShouldBe("sha256=" + HttpDeliveryTransport.Signature("s3cret-value", timestamp, request.Body));
+                request.Header("Authorization").ShouldBeNull();
+                break;
+        }
+    }
+
+    [Fact]
+    public async Task A_missing_secret_is_permanent_and_nothing_is_sent()
+    {
+        using var receiver = new FakeReceiver();
+        var (transport, _) = Http(receiver);
+
+        var outcome = await transport.SendAsync(Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = new JsonObject { ["type"] = "bearer" } }), Ct);
+
+        outcome.ErrorClass.ShouldBe("permanent:secret");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Oauth2_client_credentials_asks_for_a_token_once_and_again_after_a_401()
+    {
+        using var receiver = new FakeReceiver
+        {
+            Respond = request => request.PathAndQuery == "/oauth/token"
+                ? new ReceiverAnswer(200, """{"access_token":"tok-1","expires_in":3600}""")
+                : request.Header("Authorization") == "Bearer tok-1" ? new ReceiverAnswer(201) : new ReceiverAnswer(401),
+        };
+        var (transport, secrets) = Http(receiver);
+        var config = new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/api/ap/invoices",
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = receiver.BaseUrl + "/oauth/token", ["clientId"] = "docproc", ["scope"] = "ap.write" },
+        };
+        var context = Context(receiver, config);
+        await secrets.SetAsync(context.Destination.SecretRef!, "client-secret", Ct);
+
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+
+        var token = receiver.Requests.Where(r => r.PathAndQuery == "/oauth/token").ShouldHaveSingleItem("the token is cached until it expires");
+        token.Text.ShouldContain("grant_type=client_credentials");
+        token.Text.ShouldContain("client_id=docproc");
+        token.Text.ShouldContain("client_secret=client-secret");
+        token.Text.ShouldContain("scope=ap.write");
+
+        // The receiver stops taking the token: the 401 drops it, so the next attempt asks for a new one.
+        receiver.Respond = request => request.PathAndQuery == "/oauth/token" ? new ReceiverAnswer(200, """{"access_token":"tok-2","expires_in":3600}""") : request.Header("Authorization") == "Bearer tok-2" ? new ReceiverAnswer(201) : new ReceiverAnswer(401);
+        var refused = await transport.SendAsync(context, Ct);
+        refused.Kind.ShouldBe(DeliveryOutcomeKind.Retryable);
+        refused.ErrorClass.ShouldBe("retryable:token");
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        receiver.Requests.Count(r => r.PathAndQuery == "/oauth/token").ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_response_mapping_captures_the_receivers_id_and_the_excerpt_masks_the_secret()
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(201, """{"erpId":"AP-0042","echo":"Bearer s3cret-value"}""") };
+        var (transport, secrets) = Http(receiver);
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = new JsonObject { ["type"] = "bearer" }, ["responseMapping"] = "erpId" });
+        await secrets.SetAsync(context.Destination.SecretRef!, "s3cret-value", Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ExternalId.ShouldBe("AP-0042");
+        outcome.ResponseExcerpt.ShouldNotBeNull().ShouldNotContain("s3cret-value");
+        outcome.ResponseExcerpt.ShouldContain("***");
+
+        receiver.Default = new ReceiverAnswer(201, "not json");
+        var noJson = await transport.SendAsync(context, Ct);
+        noJson.Kind.ShouldBe(DeliveryOutcomeKind.Delivered, "a response mapping that finds nothing does not fail the delivery");
+        noJson.ExternalId.ShouldBeNull();
+        noJson.Note.ShouldNotBeNull().ShouldContain("not JSON");
+    }
+
+    [Fact]
+    public async Task A_multipart_body_carries_the_payload_and_the_original_file()
+    {
+        using var receiver = new FakeReceiver();
+        var (transport, _) = Http(receiver);
+        var config = new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/api/ap/invoices",
+            ["multipart"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["name"] = "data", ["mapping"] = "self" }, new JsonObject { ["name"] = "file", ["content"] = "original" }) },
+        };
+        var original = new OriginalFile(Encoding.ASCII.GetBytes("%PDF-1.7 original"), "rechnung.pdf", "application/pdf");
+
+        var outcome = await transport.SendAsync(Context(receiver, config, original), Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        var request = receiver.Requests.ShouldHaveSingleItem();
+        request.Header("Content-Type")!.ShouldStartWith("multipart/form-data; boundary=");
+        request.Text.ShouldContain("name=data");
+        request.Text.ShouldContain(Encoding.UTF8.GetString(Payload));
+        request.Text.ShouldContain("name=file");
+        request.Text.ShouldContain("filename=rechnung.pdf");
+        request.Text.ShouldContain("%PDF-1.7 original");
+
+        var missing = await transport.SendAsync(Context(receiver, config, original: null), Ct);
+        missing.ErrorClass.ShouldBe("permanent:original");
+    }
+
+    [Fact]
+    public async Task An_update_goes_with_the_update_method_and_url_naming_a_value_of_the_payload()
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200) };
+        var (transport, _) = Http(receiver);
+        var config = new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/api/article-prices",
+            ["updateUrlTemplate"] = receiver.BaseUrl + "/api/article-prices/{{output.header.priceListId}}",
+        };
+
+        (await transport.SendAsync(Context(receiver, config, eventType: OutputEvents.Updated), Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        (await transport.SendAsync(Context(receiver, config, eventType: OutputEvents.Approved), Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+
+        receiver.Requests[0].Method.ShouldBe("PUT");
+        receiver.Requests[0].PathAndQuery.ShouldBe("/api/article-prices/PL%202027%2F01", "a value is one escaped segment");
+        receiver.Requests[0].Header("X-DocProc-Event").ShouldBe(OutputEvents.Updated);
+        receiver.Requests[1].Method.ShouldBe("POST");
+        receiver.Requests[1].PathAndQuery.ShouldBe("/api/article-prices");
+
+        var missing = await transport.SendAsync(Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x/{{output.header.nothing}}" }), Ct);
+        missing.ErrorClass.ShouldBe("permanent:template");
+    }
+
+    [Fact]
+    public async Task A_receiver_that_does_not_answer_in_time_is_retried()
+    {
+        using var receiver = new FakeReceiver
+        {
+            Respond = _ =>
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(2));
+                return new ReceiverAnswer(201);
+            },
+        };
+        var (transport, _) = Http(receiver);
+
+        var outcome = await transport.SendAsync(Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/slow", ["timeoutSeconds"] = 1 }), Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Retryable);
+        outcome.ErrorClass.ShouldBe("retryable:timeout");
+    }
+
+    [Fact]
+    public async Task The_file_drop_writes_below_the_tenants_folder_and_never_overwrites_other_bytes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "docproc-drop-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var drop = new BlobDropTransport(root);
+            var config = new JsonObject { ["path"] = "exports/ap", ["fileNameTemplate"] = "{{meta.typeKey}}-{{output.header.docNo}}-{{meta.version}}.json" };
+            var context = Context(null, config);
+
+            var outcome = await drop.SendAsync(context, Ct);
+
+            outcome.Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+            var file = Path.Combine(root, Tenant.ToString("D"), "exports", "ap", "Invoice-RE-1-7.json");
+            File.ReadAllBytes(file).ShouldBe(Payload);
+            Directory.GetFiles(Path.GetDirectoryName(file)!).ShouldHaveSingleItem("the temporary file was renamed");
+
+            (await drop.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered, "the same bytes again: a retry after the rename");
+            var other = context with { Payload = Encoding.UTF8.GetBytes("""{"header":{"docNo":"RE-1"},"other":true}""") };
+            var refused = await drop.SendAsync(other, Ct);
+            refused.ErrorClass.ShouldBe("permanent:exists");
+            File.ReadAllBytes(file).ShouldBe(Payload);
+
+            var mapping = context with { MappingFileNameTemplate = "../{{output.header.docNo}}.json" };
+            var named = await drop.SendAsync(mapping, Ct);
+            named.Kind.ShouldBe(DeliveryOutcomeKind.Delivered, "the mapping version's template wins, its '..' made harmless");
+            Directory.GetFiles(Path.Combine(root, Tenant.ToString("D"), "exports", "ap")).Length.ShouldBe(2);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void The_backoff_follows_the_schedule_with_jitter_and_honours_retry_after()
+    {
+        var options = new DeliveryOptions();
+        var random = new Random(42);
+        var expected = new[] { 1, 5, 15, 60, 180, 360, 720, 720, 720 };
+        for (var attempt = 1; attempt <= expected.Length; attempt++)
+        {
+            var delay = DeliveryBackoff.Delay(attempt, null, options, random);
+            delay.TotalMinutes.ShouldBeInRange(expected[attempt - 1] * 0.9, expected[attempt - 1] * 1.1, $"attempt {attempt}");
+        }
+
+        DeliveryBackoff.Delay(1, TimeSpan.FromSeconds(30), options, random).ShouldBe(TimeSpan.FromSeconds(30));
+        DeliveryBackoff.Delay(1, TimeSpan.Zero, options, random).ShouldBe(TimeSpan.FromSeconds(1));
+        DeliveryBackoff.Delay(1, TimeSpan.FromDays(3), options, random).ShouldBe(options.MaxRetryAfter);
+        DeliveryBackoff.Delay(3, null, new DeliveryOptions { RetrySchedule = [TimeSpan.FromSeconds(10)] }, new Random(1)).TotalSeconds.ShouldBeInRange(9, 11);
+    }
+
+    [Fact]
+    public void Destination_configs_take_the_new_settings_and_refuse_unknown_placeholders()
+    {
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject
+        {
+            ["urlTemplate"] = "https://erp.example/api/article-prices",
+            ["updateMethod"] = "PUT",
+            ["updateUrlTemplate"] = "https://erp.example/api/article-prices/{{output.header.priceListId}}",
+            ["multipart"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["name"] = "data", ["mapping"] = "self" }, new JsonObject { ["name"] = "file", ["content"] = "original" }) },
+        }).ShouldBeEmpty();
+
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/{{supplier.vatId}}" })
+            .ShouldContain(p => p.Field == "config.urlTemplate");
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/", ["updateMethod"] = "DELETE" })
+            .ShouldContain(p => p.Field == "config.updateMethod");
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/", ["multipart"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["name"] = "file", ["content"] = "original" }) } })
+            .ShouldContain(p => p.Field == "config.multipart.parts");
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/", ["headers"] = new JsonObject { ["X-DocProc-Signature"] = "x" } })
+            .ShouldContain(p => p.Field == "config.headers.X-DocProc-Signature");
+        DestinationConfig.Validate(OutputTransports.Blob, new JsonObject { ["path"] = "a", ["fileNameTemplate"] = "{{meta.documentId}}-{{meta.version}}.json" }).ShouldBeEmpty();
+        DestinationConfig.Validate(OutputTransports.Blob, new JsonObject { ["path"] = "a", ["fileNameTemplate"] = "{{doc.number}}.json" }).ShouldContain(p => p.Field == "config.fileNameTemplate");
+    }
+
+    private (HttpDeliveryTransport Transport, InMemorySecretStore Secrets) Http(FakeReceiver receiver)
+    {
+        var secrets = new InMemorySecretStore();
+        return (Transport(new DeliveryEndpointPolicy([receiver.Host]), secrets), secrets);
+    }
+
+    private HttpDeliveryTransport Transport(DeliveryEndpointPolicy policy, InMemorySecretStore secrets)
+    {
+        var http = new DeliveryHttpClient(policy);
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
+        return new HttpDeliveryTransport(http, secrets, new OAuthTokenCache(http, clock), fixture.Renderer, clock);
+    }
+
+    private static DeliveryContext Context(FakeReceiver? receiver, JsonObject? config = null, OriginalFile? original = null, string eventType = OutputEvents.Approved)
+    {
+        var documentId = Guid.CreateVersion7();
+        var destinationId = Guid.CreateVersion7();
+        var bindingId = Guid.CreateVersion7();
+        var delivery = new OutboxDelivery
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = Tenant,
+            DocumentId = documentId,
+            DocumentVersion = 7,
+            BindingId = bindingId,
+            DestinationId = destinationId,
+            IdempotencyKey = DeliveryFanOut.IdempotencyKey(documentId, 7, bindingId),
+            Event = eventType,
+        };
+        var destination = new OutputDestination
+        {
+            Id = destinationId,
+            TenantId = Tenant,
+            Name = "erp",
+            Transport = OutputTransports.Http,
+            CreatedBy = "test",
+            SecretRef = $"tenant/{Tenant:D}/destination/{destinationId:D}/1",
+        };
+        config ??= new JsonObject { ["urlTemplate"] = (receiver?.BaseUrl ?? "http://unused") + "/api/ap/invoices" };
+        var values = new DeliveryTemplateValues(documentId, 7, eventType, "Invoice", delivery.Id, JsonNode.Parse(Payload));
+        return new DeliveryContext(delivery, destination, config, Payload, "application/json", values, null, _ => Task.FromResult(original));
+    }
+}

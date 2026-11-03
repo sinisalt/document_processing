@@ -69,10 +69,59 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
 
             // P3's outputs first, with one of everything P3 writes: the build before it has none of the output and
             // lookup tables and no supplier attributes, so they go (the supplier stays), and the policy of P2 is back.
+            Guid both, feedOnly, delivery;
             await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
             {
-                await Outputs.OutputsSqlTests.SeedAsync(seeding, TenantA, ct);
+                var rows = await Outputs.OutputsSqlTests.SeedAsync(seeding, TenantA, ct);
+                delivery = rows.DeliveryId;
+
+                // P3 part B's rows: a redelivery of the seeded delivery for a re-approval (document.updated) in a
+                // feed, a DELIVERY_FAILED flag, and API keys with the deliveries:read scope, one restricted to a feed.
+                var seeded = await seeding.OutboxDeliveries.SingleAsync(d => d.Id == rows.DeliveryId, ct);
+                seeding.OutboxDeliveries.Add(new OutboxDelivery
+                {
+                    Id = Guid.CreateVersion7(),
+                    TenantId = TenantA,
+                    OutboxMessageId = seeded.OutboxMessageId,
+                    DocumentId = seeded.DocumentId,
+                    DocumentVersion = 2,
+                    BindingId = seeded.BindingId,
+                    DestinationId = seeded.DestinationId,
+                    MappingVersionId = seeded.MappingVersionId,
+                    IdempotencyKey = seeded.IdempotencyKey + ":r1",
+                    Event = OutputEvents.Updated,
+                    RedeliveryOfId = seeded.Id,
+                    FeedSequence = 1,
+                    Status = DeliveryStatus.Sending,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                });
+                seeding.DocumentFlags.Add(DocumentFlagRecord.FromDomain(TenantA, seeded.DocumentId, Domain.Flags.FlagCodes.Create(Domain.Flags.FlagCodes.DeliveryFailed, "Delivery to erp-ap failed: 503"), DateTimeOffset.UtcNow));
+                both = Guid.CreateVersion7();
+                feedOnly = Guid.CreateVersion7();
+                seeding.ApiKeys.Add(new ApiKey { Id = both, TenantId = TenantA, Name = "both", Prefix = "both0000", Hash = new string('b', 64), Scopes = [ApiKeyScope.Ingest, ApiKeyScope.DeliveriesRead], CreatedAt = DateTimeOffset.UtcNow });
+                seeding.ApiKeys.Add(new ApiKey { Id = feedOnly, TenantId = TenantA, Name = "feed", Prefix = "feed0000", Hash = new string('f', 64), Scopes = [ApiKeyScope.DeliveriesRead], DestinationId = seeded.DestinationId, CreatedAt = DateTimeOffset.UtcNow });
+                await seeding.SaveChangesAsync(ct);
             }
+
+            // P3 part B first: its columns go; deliveries:read is a scope the build before reads as a nameless number,
+            // so it leaves every key, and the key that had nothing else is revoked; everything else stays.
+            await migrator.MigrateAsync("20261103210336_OutputsAndLookups", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103210336_OutputsAndLookups");
+            foreach (var (table, column) in new[] { ("OutboxDeliveries", "Event"), ("OutboxDeliveries", "RedeliveryOfId"), ("OutboxDeliveries", "FeedSequence"), ("OutputDestinations", "FeedSequence"), ("ApiKeys", "DestinationId") })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = {column}").SingleAsync(ct)).ShouldBe(0, $"{table}.{column}");
+            }
+
+            (await platform.Database.SqlQuery<string>($"SELECT CAST([Scopes] AS nvarchar(max)) AS [Value] FROM dbo.ApiKeys WHERE Id = {both}").SingleAsync(ct)).ShouldBe("[0]");
+            (await platform.Database.SqlQuery<DateTimeOffset?>($"SELECT [RevokedAt] AS [Value] FROM dbo.ApiKeys WHERE Id = {both}").SingleAsync(ct)).ShouldBeNull("it still ingests");
+            (await platform.Database.SqlQuery<string>($"SELECT CAST([Scopes] AS nvarchar(max)) AS [Value] FROM dbo.ApiKeys WHERE Id = {feedOnly}").SingleAsync(ct)).ShouldBe("[]");
+            (await platform.Database.SqlQuery<DateTimeOffset?>($"SELECT [RevokedAt] AS [Value] FROM dbo.ApiKeys WHERE Id = {feedOnly}").SingleAsync(ct)).ShouldNotBeNull("a feed client's key has nothing left to do");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.OutboxDeliveries").SingleAsync(ct)).ShouldBe(2, "the deliveries stay");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            await platform.Database.MigrateAsync(ct);
+            (await platform.ApiKeys.AsNoTracking().SingleAsync(k => k.Id == both, ct)).Scopes.ShouldBe([ApiKeyScope.Ingest]);
+            (await platform.OutboxDeliveries.AsNoTracking().SingleAsync(d => d.Id == delivery, ct)).Event.ShouldBe(OutputEvents.Approved, "up again, the column's default");
+            await migrator.MigrateAsync("20261103210336_OutputsAndLookups", ct);
 
             await migrator.MigrateAsync("20261103112735_TableReports", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103112735_TableReports");

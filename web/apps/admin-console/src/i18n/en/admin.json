@@ -431,7 +431,11 @@
       "type_set": "Type set",
       "supplier_assigned": "Supplier assigned",
       "split": "Split",
-      "joined": "Joined"
+      "joined": "Joined",
+      "delivery_succeeded": "Delivered",
+      "delivery_failed": "Delivery failed",
+      "delivery_skipped": "Delivery skipped",
+      "redelivery_requested": "Redelivery requested"
     },
     "rawJson": "Raw JSON",
     "detailKey": {
@@ -607,7 +611,8 @@
     "FIELD_INVALID": "Invalid value",
     "RULE_FAILED": "Rule failed",
     "REVISION_OF": "Revision of an earlier document",
-    "CHECKS_SKIPPED": "Checks skipped"
+    "CHECKS_SKIPPED": "Checks skipped",
+    "DELIVERY_FAILED": "Delivery failed"
   },
   "failure": {
     "EncryptedPdf": "Password-protected PDF",

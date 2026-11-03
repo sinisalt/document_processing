@@ -327,6 +327,14 @@ public static class OutputBindingEndpoints
         {
             errors.Add("events", $"events is a non-empty list of {string.Join(", ", OutputEvents.All)}.");
         }
+        else if (binding.Events.Contains(OutputEvents.NeedsReview, StringComparer.Ordinal))
+        {
+            errors.Add("events", $"{OutputEvents.NeedsReview} comes in a later phase; this build fans out on {string.Join(" and ", OutputEvents.Fired)}.");
+        }
+        else if (binding.Events.Contains(OutputEvents.Updated, StringComparer.Ordinal))
+        {
+            errors.Add("events", $"{OutputEvents.Updated} is not an event of its own: a re-approval of a binding with onReapproval Update renders with meta.event {OutputEvents.Updated}; list {OutputEvents.Approved}.");
+        }
 
         if (binding.DocumentTypeKey is not null && !DocumentTypeKey.TryParse(binding.DocumentTypeKey, out _))
         {

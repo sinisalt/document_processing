@@ -23,4 +23,11 @@ public sealed class NoOpPipelineQueue(ILogger<NoOpPipelineQueue> logger) : IPipe
     }
 
     public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => EnqueueAsync(message, cancellationToken);
+
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        // The delivery row is stored; the delivery sweeper of the host that runs the pipeline sends it.
+        logger.LogWarning("No pipeline queue is registered; delivery {DeliveryId} of tenant {TenantId} waits for the delivery sweeper.", message.DeliveryId, message.TenantId);
+        return Task.CompletedTask;
+    }
 }

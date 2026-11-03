@@ -62,6 +62,9 @@ public static class PipelineServiceCollectionExtensions
         // Next to the runner: the publish messages it queues go to the queue this host's runner reads.
         services.TryAddSingleton<PublishSweeperHostedService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PublishSweeperHostedService>(sp => sp.GetRequiredService<PublishSweeperHostedService>()));
+        // And the delivery sweeper (docs/11 §13.6), for deliveries whose message was lost.
+        services.TryAddSingleton<DeliverySweeperHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DeliverySweeperHostedService>(sp => sp.GetRequiredService<DeliverySweeperHostedService>()));
 
         services.TryAddSingleton<PipelineBlobs>();
         services.TryAddSingleton(DocumentValidator.Default);
