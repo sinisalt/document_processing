@@ -1,3 +1,4 @@
+using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Definitions;
 using DocProc.Domain.Documents;
@@ -62,6 +63,10 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         {
             var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(platform);
 
+            // A part joined into another document (P2's Cancelled status), with a Cancelled version in the history and
+            // a timeline event that names the status.
+            var (target, part) = await SeedJoinedPartAsync(platform, ct);
+
             // P2's table reports first: the table goes and the policy of P1 is back.
             await migrator.MigrateAsync("20261103102625_ReviewActions", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103102625_ReviewActions");
@@ -74,8 +79,20 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(0);
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DocumentsHistory') AND name = N'SupplierMatchMethod'").SingleAsync(ct)).ShouldBe(0, "the history table follows");
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+
+            // The build before P2 has no Cancelled status and reads enums as strings: the part, its history and its
+            // event are Rejected now, and the event still names the document it was joined into.
+            (await platform.Database.SqlQuery<string>($"SELECT [Status] AS [Value] FROM dbo.Documents WHERE Id = {part}").SingleAsync(ct)).ShouldBe(nameof(DocumentStatus.Rejected));
+            (await platform.Database.SqlQuery<string>($"SELECT [Status] AS [Value] FROM dbo.Documents WHERE Id = {target}").SingleAsync(ct)).ShouldBe(nameof(DocumentStatus.Split), "only Cancelled rows change");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Documents FOR SYSTEM_TIME ALL WHERE [Status] = N'Cancelled'").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentsHistory WHERE Id = {part} AND [Status] = N'Rejected'").SingleAsync(ct)).ShouldBeGreaterThanOrEqualTo(2, "the Cancelled versions, the one the Down's own update wrote included");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentEvents WHERE [ToStatus] = N'Cancelled' OR [FromStatus] = N'Cancelled'").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<string>($"SELECT [DetailsJson] AS [Value] FROM dbo.DocumentEvents WHERE DocumentId = {part} AND [ToStatus] = N'Rejected'").SingleAsync(ct)).ShouldContain(target.ToString());
+            (await platform.Database.SqlQuery<int>($"SELECT CAST(temporal_type AS int) AS [Value] FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.Documents')").SingleAsync(ct)).ShouldBe(2, "system versioning is on again");
+
             await platform.Database.MigrateAsync(ct);
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(2);
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == part, ct)).Status.ShouldBe(DocumentStatus.Rejected, "a downgrade past ReviewActions keeps the part rejected (docs/07)");
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentTableReports')").SingleAsync(ct)).ShouldBe(3);
 
             await migrator.MigrateAsync("20261102231925_TypeCatalogue", ct);
@@ -91,6 +108,30 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         (await asA.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == TenantB, ct)).ShouldBe(0, "row-level security is back");
         (await asA.DocumentFieldIndex.CountAsync(ct)).ShouldBe(0);
         (await asA.DocumentTableReports.CountAsync(ct)).ShouldBe(0);
+    }
+
+    /// <summary>A document of tenant A and a part of the same attachment joined into it (Cancelled, then touched once so the history holds a Cancelled version), with its joined event.</summary>
+    private static async Task<(Guid Target, Guid Part)> SeedJoinedPartAsync(DocProcDbContext platform, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var channel = new IngestionChannel { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "api", Type = ChannelType.ApiUpload, CreatedAt = now };
+        var blob = new BlobReference { Container = "raw", Key = "joined", Sha256 = new string('0', 64), SizeBytes = 1, ContentType = "application/pdf" };
+        var ingestion = new Ingestion { Id = Guid.CreateVersion7(), TenantId = TenantA, ChannelId = channel.Id, ReceivedAt = now, RawBlob = blob, UpdatedAt = now };
+        var item = new IngestionItem { Id = Guid.CreateVersion7(), TenantId = TenantA, IngestionId = ingestion.Id, FileName = "a.pdf", MimeType = "application/pdf", Sha256 = new string('0', 64), Blob = blob, Kind = ItemKind.Pdf, Disposition = ItemDisposition.Accepted, CreatedAt = now };
+        var target = new Document { Id = Guid.CreateVersion7(), TenantId = TenantA, IngestionItemId = item.Id, Status = DocumentStatus.Split, CreatedAt = now, UpdatedAt = now };
+        var part = new Document { Id = Guid.CreateVersion7(), TenantId = TenantA, IngestionItemId = item.Id, Status = DocumentStatus.Cancelled, JoinedIntoDocumentId = target.Id, CreatedAt = now, UpdatedAt = now };
+        platform.IngestionChannels.Add(channel);
+        platform.Ingestions.Add(ingestion);
+        platform.IngestionItems.Add(item);
+        platform.Documents.AddRange(target, part);
+        platform.DocumentEvents.Add(new DocumentEvent { TenantId = TenantA, DocumentId = part.Id, EventType = DocumentEventTypes.Joined, FromStatus = DocumentStatus.NeedsReview, ToStatus = DocumentStatus.Cancelled, Actor = "anna", DetailsJson = $$"""{"into":"{{target.Id}}"}""", At = now });
+        await platform.SaveChangesAsync(ct);
+
+        part.UpdatedAt = now.AddSeconds(1);
+        await platform.SaveChangesAsync(ct);
+        (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.DocumentsHistory WHERE Id = {part.Id} AND [Status] = N'Cancelled'").SingleAsync(ct)).ShouldBe(1);
+        platform.ChangeTracker.Clear();
+        return (target.Id, part.Id);
     }
 
     [Fact]

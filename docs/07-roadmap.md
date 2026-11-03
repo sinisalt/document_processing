@@ -885,6 +885,13 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       actions (`:set-type`, `:assign-supplier`, `:create-supplier`, `:split`, `:join`) take at most 64 KB. Before, a
       reviewer stored 20,000 IBANs of 222 characters through `:create-supplier`, which every Match stage run of the
       tenant then loaded, or "not an iban at all" (`SupplierEndpointsTests`, `ReviewActionEndpointsTests`);
+    - the `ReviewActions` migration's Down maps P2's `Cancelled` status back to `Rejected` in `Documents`, in
+      `DocumentsHistory` (with system versioning off for that one update) and in the `FromStatus`/`ToStatus` of
+      `DocumentEvents`, all in platform scope: the build before P2 has no `Cancelled` and reads enums as strings, so a
+      tenant that had joined parts could not list or open its documents after a downgrade. A downgrade past
+      `ReviewActions` therefore leaves a joined-away part `Rejected` (up again it stays so); the document it was
+      joined into stays in its `document.joined` event (`into`) once `JoinedIntoDocumentId` is dropped
+      (`TypeCatalogueSqlTests`, on SQL Server);
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
