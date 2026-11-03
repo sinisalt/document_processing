@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 part A done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -549,7 +549,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - invoice compatibility from the definition (docs/11 §9.1 `Definition.IsInvoiceCompatible`): the Extract stage,
       `LlmInvoiceExtractor.CanHandle`, the coded invoice rules and the invoice record's patcher go by the key
       `Invoice`/`CreditNote`, so an invoice-compatible type under another key is refused until documents can get one
-      (P2 `:set-type`, P5 the tenant classifier);
+      (P2 `:set-type`, P5 the tenant classifier); still open after P2 part A, which can now give a document such a type:
+      an invoice and credit note type keeps the key `Invoice`/`CreditNote` (adopt, copy and create refuse another), so
+      none exists yet;
     - a type without `validate.schema` gets only the `FIELD_REQUIRED` part of the structural check for the fields
       its template does not require; `FIELD_INVALID` (pattern, bounds, length) needs the step in the definition;
     - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
@@ -574,7 +576,82 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the remaining `AppliedConfigJson` parts (supplier, layout, identification) come with P4;
     - the API routes `:diff`, `:approve`, `:upgrade-base`, `:upgrade-documents`, `/rule-kinds`, `/step-kinds`,
       `resolved-pipeline`, four-eyes approval and the config audit log (from part A's list).
-- **P2 to P6** – not started.
+- **P2, track A: manual mapping of Unknown documents – part A (the review actions backend) done; map mode, the
+  `/words` endpoint, region OCR, the table tool and the P2 demo are open.**
+  - Done (part A), every review action on a document a reviewer may act on (`NeedsReview`, `Validated`, `Failed`;
+    `409 Document not in review` otherwise), with its timeline event, behind a tracked save whose version token makes
+    a concurrent writer's action answer 409 (docs/05 has the requests and answers):
+    - `POST /documents/{id}:set-type {typeKey, version?, prefill}` (docs/11 §12.1 step 3): the type must have a
+      published definition the tenant can use (an adopted std type, or with `configurableTypes` a copy or a type of the
+      tenant's own); `TypeSource=Human`, the version pinned (`Documents.DocumentTypeVersionId`, the published one or
+      `version`), `AppliedConfigJson` naming the type, a `setType` Correction (old and new type, version, prefill),
+      `TYPE_UNKNOWN` resolved by the reviewer. `prefill: none` stores the empty tree of the type version
+      (`DefinitionTree.CreateEmpty`; for an adopted invoice or credit note of the coded record the empty record of its
+      kind; a type without a data path gets none and `UNSUPPORTED_TYPE`, as Extract leaves it), runs the checks of the
+      type at once and moves the open review task to the type's priority; `prefill: auto` goes back to `Matched` and
+      queues Extract, which reads the document for the type (an invoice by the LLM; a definition-driven type without an
+      extraction path gets its empty tree until P5's definition extractor);
+    - approve refused without a definition (docs/11 §11): with `configurableTypes` on, `:approve` answers `409 Cannot
+      approve` with `code` `TYPE_REQUIRED` (Unknown), `NO_DEFINITION` (no published definition the tenant can use) or
+      `NO_DATA` (no canonical data), and `DocumentDetail.approvalBlocked {code, message}` says the same before the click;
+      the portal's review screen disables Approve (and its Ctrl/Cmd+Enter) and shows the reason under it;
+    - `POST /documents/{id}:assign-supplier {supplierId}` (a supplier of the document's tenant) and `POST
+      /documents/{id}:create-supplier` (the body and the master-data checks of `POST /suppliers`, shared as
+      `SupplierEndpoints.AddAsync`; reviewers may create a supplier this way, docs/11 §14): the supplier is assigned
+      with `Documents.SupplierMatchMethod = Human` (new column; the Match stage now also records `Vat`, `Iban`, `Domain`
+      or `Name`), `SUPPLIER_UNMATCHED` is resolved and the checks run again (a duplicate the supplier reveals shows at
+      once). The Match stage keeps a supplier a reviewer assigned on every later run while it exists;
+    - `POST /documents/{id}:split {parts}` and `POST /documents/{id}:join {documentIds}` (docs/11 §12.7, in
+      `src/DocProc.Pipeline/Review/ReviewPartitioning.cs` next to the pipeline's split): pages to new documents of the same
+      attachment (page images and a text layer of their own, the `MULTI_DOCUMENT_SPLIT` flag with `reason: review`, the
+      `UNREADABLE_PAGES` decision per part), an untyped part to Classify and a typed one (`TypeSource=Human`, pinned,
+      the document's supplier) straight to Extract; the reverse puts consecutive parts back into one document in
+      attachment order, which goes to Classify, and the others become `Cancelled` (new terminal status) with
+      `Documents.JoinedIntoDocumentId`; joined back into the whole attachment, the document gets the normalised file
+      back and the stages read it as the whole file again (a cancelled part is no part of a split). What happens to the rest: the data, list columns, field index and pipeline
+      flags of a document whose pages change are cleared (they described the old pages); its corrections stay with it
+      as its audit and nothing is copied to a new part; open review tasks of every document involved are `Skipped` and
+      the pipeline opens new ones; nothing is published (only unsettled documents are split or joined, so no outbox row
+      of theirs is waiting); a cancelled part keeps its data for the audit but loses its list columns and field index,
+      and the duplicate checks skip `Cancelled` documents. `split` and `join` Corrections and `document.split` /
+      `document.joined` events (a new part's `document.received` names `splitFrom`);
+    - the `move` correction (docs/11 §12.3 "match fields"): `PATCH …/fields` with `{path, op: "move", from}` on every
+      document with data, through both patchers (`DefinitionPatcher` for definition-driven trees, `CanonicalPatcher` for
+      the coded records): the value of `from` goes into `path`, converted to its kind (an identifier's text into a text
+      field, an amount's number into a number, a number's text into a text field) with the place it was read from;
+      `from` is left Missing; both keep their history; one Correction row with op `move` and `SourceJson.from`. A
+      correction naming `setType`, `split` or `join` is told which action to use;
+    - migration `ReviewActions` (`Documents.SupplierMatchMethod`, `JoinedIntoDocumentId`; no new table, the policy
+      stays `PolicyV5`; Down drops the policy around the column drops of the temporal table and runs on SQL Server,
+      `TypeCatalogueSqlTests`); the web shows the `Cancelled` status and the new timeline events;
+    - housekeeping: a full `dotnet test` left six persistent AppHost containers running. Aspire's testing builder runs
+      the AppHost's `Program`, which goes on to `.Run()` once a test builds the model; `ComposeParityTests` never
+      disposed its apps, so that run started the orchestrator and the containers. Every model check now builds through
+      `AppHostModel` (`tests/DocProc.AppHost.Tests/AppHostModel.cs`), which stops the run at `BeforeStartEvent` and
+      disposes the app (`Building_the_model_starts_nothing`); the AppHost is unchanged;
+    - tests: `ReviewActionEndpointsTests` (API), the move cases of `DefinitionPatcherTests` and `CanonicalPatcherTests`,
+      `ReviewPartitioningTests` (pipeline: a typed part is extracted from its own pages without classification, a
+      join is read from all pages, Match keeps a reviewer's supplier), the review actions under a retrying execution
+      strategy (`DecisionExecutionStrategyTests`), the migration down and up on SQL Server, the web's blocked Approve.
+  - Decided in part A where docs/11 left it open (the "Correction (P2)" notes in docs/11 §6.2, §11, §12.1, §12.3,
+    §12.7 and §18):
+    - the approval gate is behind `configurableTypes`, so a tenant without the switch still approves an Unknown
+      document as before; switching it on for every tenant is a product decision;
+    - `:assign-supplier` answers 200 and checks the document again at once instead of reprocessing from Classify
+      (202): without layouts (P4) there is no identification to re-run, and a reprocess would extract an invoice again;
+    - `:join` keeps the id of the document named in the URL; the parts must make one unbroken run of pages.
+  - Left for the rest of P2:
+    - map mode, `GET /documents/{id}/pages/{n}/words`, `POST /documents/{id}/regions:read` (region OCR), `POST
+      /documents/{id}/regions:table` with "apply to all pages", the table report (`DocumentTableReport`) and page strip,
+      the single-Correction table write (docs/11 §12.3, §12.4), the "Map this document" panel and the UI of every
+      action above (part A has only the blocked Approve), and the P2 demo of docs/11 §23;
+    - `:assign-supplier`'s `remember` (source rules, P4) and the reprocess through `classify.identification` (P4);
+      the supplier proposal of "create supplier from this document" (the form pre-filled from the supplier party) is
+      the UI's to build from `canonical`;
+    - a move into a member of a composite value (`customer.vatId`) or a bag key, and moving whole rows, are not done (a
+      `set` does those); `:set-type` with prefill none replaces the earlier data of another type (the earlier tree stays
+      in the temporal history of `Documents` only).
+- **P3 to P6** – not started.
 
 ## Risks and open questions
 

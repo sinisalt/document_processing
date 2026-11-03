@@ -1,6 +1,4 @@
-using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
-using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.AppHost.Tests;
@@ -12,11 +10,22 @@ namespace DocProc.AppHost.Tests;
 /// </summary>
 public class AppModelTests
 {
-    private static async Task<DistributedApplicationModel> BuildModelAsync()
+    private static Task<DistributedApplicationModel> BuildModelAsync() => AppHostModel.ModelAsync(TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// The testing builder runs the AppHost's entry point, whose <c>Run()</c> would start the orchestrator and every
+    /// persistent container of the model; a full <c>dotnet test</c> left six of them running. The model-only build
+    /// stops that run before the host starts.
+    /// </summary>
+    [Fact]
+    public async Task Building_the_model_starts_nothing()
     {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(TestContext.Current.CancellationToken);
-        await using var app = await builder.BuildAsync(TestContext.Current.CancellationToken);
-        return app.Services.GetRequiredService<DistributedApplicationModel>();
+        await using var app = await AppHostModel.BuildAsync(TestContext.Current.CancellationToken);
+
+        await app.RunStopped.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+        var lifetime = app.App.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
+        lifetime.ApplicationStarted.IsCancellationRequested.ShouldBeFalse("the host (and with it the orchestrator) never started");
+        app.Model.Resources.ShouldContain(r => r.Name == "keycloak", "the model is still there to check");
     }
 
     [Fact]
@@ -81,10 +90,9 @@ public class AppModelTests
     [Fact]
     public async Task Api_and_worker_share_one_secret_store_directory()
     {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(TestContext.Current.CancellationToken);
-        await using var app = await builder.BuildAsync(TestContext.Current.CancellationToken);
-        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
-        var executionContext = app.Services.GetRequiredService<DistributedApplicationExecutionContext>();
+        await using var app = await AppHostModel.BuildAsync(TestContext.Current.CancellationToken);
+        var model = app.Model;
+        var executionContext = app.ExecutionContext;
 
         async Task<string?> SecretsPathOf(string name)
         {

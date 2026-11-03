@@ -156,7 +156,12 @@ flags, and approves or rejects. Corrections are recorded as `Correction` rows.
 Received → Normalized → Split → Classified → Matched → Extracted → Validated
    → (AutoApproved | NeedsReview → (Approved | Rejected))
    any stage → Failed(reason)  (retryable; surfaces in admin console)
+   NeedsReview | Validated | Failed → Cancelled  (joined into another document in review, docs/11 §12.7; terminal)
 ```
+
+A reviewer's split or join (docs/11 §12.7) sends the documents back into the pipeline from Split (to Classify) or,
+for a part the reviewer typed, from Matched (to Extract), as a reprocess does; the Match stage keeps a supplier a
+reviewer assigned (`SupplierMatchMethod.Human`).
 
 State transitions are recorded in an append-only `DocumentEvent` table used for the
 audit trail, the admin timeline view and metrics (time-to-approve, STP rate).

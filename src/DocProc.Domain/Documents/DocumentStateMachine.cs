@@ -17,6 +17,12 @@ public enum DocumentStatus
     Approved,
     Rejected,
     Failed,
+
+    /// <summary>
+    /// Joined into another document in review (docs/11 §12.7 <c>:join</c>): its pages are now part of the document
+    /// <c>JoinedIntoDocumentId</c> names. Terminal; it is neither settled nor published.
+    /// </summary>
+    Cancelled,
 }
 
 public sealed class InvalidDocumentTransitionException(DocumentStatus from, DocumentStatus to)
@@ -30,8 +36,9 @@ public sealed class InvalidDocumentTransitionException(DocumentStatus from, Docu
 /// Allowed transitions. The happy path runs stage by stage; any in-flight state may fail; a failed or
 /// settled document may be reprocessed from the start, and a reviewed document may be reclassified. A human may
 /// also decide a document the pipeline has validated but not yet routed (Validated → Approved / Rejected), so the
-/// review API never has to wait for the review-routing step. Reprocessing from a later stage is a separate
-/// transition set (<see cref="CanReprocess"/>).
+/// review API never has to wait for the review-routing step. A document a reviewer joins into another one (docs/11
+/// §12.7) is <c>Cancelled</c> from any state a reviewer acts in, and stays so. Reprocessing from a later stage is a
+/// separate transition set (<see cref="CanReprocess"/>).
 /// </summary>
 public static class DocumentStateMachine
 {
@@ -43,12 +50,13 @@ public static class DocumentStateMachine
         [DocumentStatus.Classified] = [DocumentStatus.Matched, DocumentStatus.NeedsReview, DocumentStatus.Failed],
         [DocumentStatus.Matched] = [DocumentStatus.Extracted, DocumentStatus.Failed],
         [DocumentStatus.Extracted] = [DocumentStatus.Validated, DocumentStatus.Failed],
-        [DocumentStatus.Validated] = [DocumentStatus.AutoApproved, DocumentStatus.NeedsReview, DocumentStatus.Approved, DocumentStatus.Rejected, DocumentStatus.Failed],
-        [DocumentStatus.NeedsReview] = [DocumentStatus.Approved, DocumentStatus.Rejected, DocumentStatus.Classified, DocumentStatus.Received],
+        [DocumentStatus.Validated] = [DocumentStatus.AutoApproved, DocumentStatus.NeedsReview, DocumentStatus.Approved, DocumentStatus.Rejected, DocumentStatus.Failed, DocumentStatus.Cancelled],
+        [DocumentStatus.NeedsReview] = [DocumentStatus.Approved, DocumentStatus.Rejected, DocumentStatus.Classified, DocumentStatus.Received, DocumentStatus.Cancelled],
         [DocumentStatus.AutoApproved] = [DocumentStatus.Received],
         [DocumentStatus.Approved] = [DocumentStatus.Received],
         [DocumentStatus.Rejected] = [DocumentStatus.Received],
-        [DocumentStatus.Failed] = [DocumentStatus.Received, DocumentStatus.Normalized, DocumentStatus.Split, DocumentStatus.Classified, DocumentStatus.Matched, DocumentStatus.Extracted, DocumentStatus.Validated],
+        [DocumentStatus.Failed] = [DocumentStatus.Received, DocumentStatus.Normalized, DocumentStatus.Split, DocumentStatus.Classified, DocumentStatus.Matched, DocumentStatus.Extracted, DocumentStatus.Validated, DocumentStatus.Cancelled],
+        [DocumentStatus.Cancelled] = [],
     }.ToFrozenDictionary(kv => kv.Key, kv => kv.Value.ToFrozenSet());
 
     /// <summary>

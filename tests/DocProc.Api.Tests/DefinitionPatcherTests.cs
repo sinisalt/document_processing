@@ -149,12 +149,74 @@ public sealed class DefinitionPatcherTests
         result.Applied.Single().OldValueJson.ShouldBeNull();
     }
 
+    [Fact]
+    public void Move_takes_the_value_with_its_place_into_another_field_and_leaves_the_source_missing_with_its_history()
+    {
+        var located = new CorrectionSource(Page: 2, BBox: new SourceBox(10, 20, 30, 40), RawText: "4711");
+        var filled = Apply(Order, Empty(Order),
+            new FieldCorrection("lines", J("""{"description":"Kaffee"}"""), null, Op: "append"),
+            new FieldCorrection("lines", J("""{"description":"Tee"}"""), null, Op: "append"),
+            new FieldCorrection("lines[0].description", V("4711"), null, Source: located),
+            new FieldCorrection("totalGross", V(119.5m), null),
+            new FieldCorrection("requestedDeliveryDate", V("2026-11-05"), null));
+        var tree = JsonNode.Parse(filled.Json)!.AsObject();
+
+        // A row's text into another row's article number; an amount into a decimal; a date into another date.
+        var moved = Apply(Order, tree,
+            new FieldCorrection("lines[1].supplierSku", null, "article no., not text", Op: "move", From: "lines[0].description"),
+            new FieldCorrection("orderDate", null, null, Op: "move", From: "requestedDeliveryDate"));
+        var result = JsonNode.Parse(moved.Json)!.AsObject();
+
+        var sku = JsonSerializer.Deserialize<FieldValue<string>>(result["lines"]![1]!["supplierSku"]!.ToJsonString(), CanonicalJson.Options)!;
+        sku.Value.ShouldBe("4711");
+        sku.Status.ShouldBe(FieldStatus.Corrected);
+        sku.Source.ShouldBe(new FieldSource(SourceMethod.Human, 2, new BoundingBox(10, 20, 30, 40), "4711"), "the value keeps the place it was read from");
+        var description = JsonSerializer.Deserialize<FieldValue<string>>(result["lines"]![0]!["description"]!.ToJsonString(), CanonicalJson.Options)!;
+        description.Status.ShouldBe(FieldStatus.Missing);
+        description.HasValue.ShouldBeFalse();
+        description.History[^1].Value.ShouldBe("4711");
+        description.History[^1].Source!.Page.ShouldBe(2);
+        result["orderDate"]!["value"]!.GetValue<string>().ShouldBe("2026-11-05");
+        result["requestedDeliveryDate"]!["status"]!.GetValue<string>().ShouldBe("Missing");
+        moved.Applied.Select(a => (a.Path, a.Op, a.From)).ShouldBe([("lines[1].supplierSku", "move", "lines[0].description"), ("orderDate", "move", "requestedDeliveryDate")]);
+        moved.Applied[0].NewValueJson.ShouldBe("\"4711\"");
+        moved.Applied[0].Reason.ShouldBe("article no., not text");
+        JsonSerializer.Deserialize<PurchaseOrder>(moved.Json, CanonicalJson.Options).ShouldNotBeNull("the record still reads the tree");
+
+        // An amount becomes its number in a decimal field of the price list's rows; a source with no value is refused.
+        var priceList = Apply(PriceList, Empty(PriceList),
+            new FieldCorrection("lines", J("""{"supplierSku":"A-1"}"""), null, Op: "append"),
+            new FieldCorrection("declaredLineCount", V(12), null));
+        var asText = Apply(PriceList, JsonNode.Parse(priceList.Json)!.AsObject(), new FieldCorrection("title", null, null, Op: "move", From: "declaredLineCount"));
+        JsonNode.Parse(asText.Json)!["title"]!["value"]!.GetValue<string>().ShouldBe("12", "a number moved into a text field is its text");
+        Should.Throw<CanonicalPatchException>(() => Apply(PriceList, JsonNode.Parse(priceList.Json)!.AsObject(), new FieldCorrection("title", null, null, Op: "move", From: "issueDate")))
+            .Message.ShouldContain("has no value to move");
+    }
+
     [Theory]
-    [InlineData("move", "not available yet")]
-    [InlineData("setType", "not available yet")]
-    [InlineData("split", "not available yet")]
+    [InlineData("orderDate", "currency", "does not fit")]
+    [InlineData("poNumber", "poNumber", "onto itself")]
+    [InlineData("lines", "poNumber", "not the repeating group")]
+    [InlineData("supplier.vatId", "poNumber", "inside a composite")]
+    [InlineData("nope", "poNumber", "is not a field")]
+    [InlineData("status", "poNumber", "read-only")]
+    public void Move_refuses_targets_it_cannot_fill(string from, string path, string message)
+    {
+        var tree = JsonNode.Parse(Apply(Order, Empty(Order),
+            new FieldCorrection("poNumber", V("PO-1"), null),
+            new FieldCorrection("orderDate", V("2026-10-30"), null),
+            new FieldCorrection("supplier.vatId", V("DE1"), null)).Json)!.AsObject();
+        var refused = Should.Throw<CanonicalPatchException>(() => Apply(Order, tree, new FieldCorrection(path, null, null, Op: "move", From: from)));
+        refused.Message.ShouldContain(message);
+    }
+
+    [Theory]
+    [InlineData("move", "names the field the value comes from in 'from'")]
+    [InlineData("setType", "use POST /documents/{id}:set-type")]
+    [InlineData("split", "use POST /documents/{id}:split")]
+    [InlineData("join", "use POST /documents/{id}:join")]
     [InlineData("frobnicate", "is not a correction operation")]
-    public void Operations_of_later_phases_are_refused_as_in_P0(string op, string message)
+    public void Review_actions_and_unknown_operations_are_refused_and_a_move_needs_its_source(string op, string message)
     {
         var refused = Should.Throw<CanonicalPatchException>(() => Apply(Order, Empty(Order), new FieldCorrection("poNumber", V("1"), null, Op: op)));
         refused.Message.ShouldContain(message);

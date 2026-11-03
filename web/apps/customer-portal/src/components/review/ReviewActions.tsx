@@ -88,12 +88,15 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   });
 
   const decidable = canDecide(document.status) && !hasUnsavedChanges;
+  // docs/11 §11: the API refuses to approve a document without a definition or captured data, and says why up front.
+  const approvalBlocked = document.approvalBlocked ?? null;
+  const blockedReason = approvalBlocked === null ? undefined : t(`review.actions.approveBlocked.${approvalBlocked.code}`, { defaultValue: approvalBlocked.message });
   const apple = isApplePlatform();
 
   return (
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("review.actions.label")}>
       <ConfirmDialog
-        open={approveOpen}
+        open={approveOpen && approvalBlocked === null}
         onOpenChange={onApproveOpenChange}
         title={t("review.actions.approveTitle")}
         description={t("review.actions.approveDescription", { number: document.documentNumber ?? document.id })}
@@ -101,7 +104,13 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
         onConfirm={() => approve.mutateAsync().then(() => undefined)}
         isPending={approve.isPending}
         trigger={
-          <Button disabled={!decidable} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} aria-keyshortcuts={apple ? "Meta+Enter" : "Control+Enter"} data-testid="approve-button">
+          <Button
+            disabled={!decidable || approvalBlocked !== null}
+            title={hasUnsavedChanges ? t("review.actions.saveFirst") : blockedReason}
+            aria-describedby={approvalBlocked === null ? undefined : "approve-blocked"}
+            aria-keyshortcuts={apple ? "Meta+Enter" : "Control+Enter"}
+            data-testid="approve-button"
+          >
             <Check aria-hidden />
             {t("review.actions.approve")}
             <kbd className="ml-1 hidden rounded border border-primary-foreground/40 bg-primary-foreground/10 px-1 text-[10px] font-medium text-primary-foreground lg:inline" aria-hidden data-testid="approve-shortcut">
@@ -179,6 +188,11 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
           </div>
         )}
       </ConfirmDialog>
+      {approvalBlocked !== null && canDecide(document.status) && (
+        <p id="approve-blocked" className="basis-full text-xs text-muted-foreground" role="note" data-testid="approve-blocked" data-code={approvalBlocked.code}>
+          {blockedReason}
+        </p>
+      )}
     </div>
   );
 }

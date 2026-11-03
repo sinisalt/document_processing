@@ -17,7 +17,8 @@ namespace DocProc.Pipeline.Stages;
 /// Stage 5 (docs/03 "Match supplier and extractor profile"): collects the signals (ids and names from the text layer
 /// or from the e-invoice parties, the sender domain from the ingestion) and lets <see cref="SupplierMatcher"/> pick the
 /// supplier. No match is not an error: the document carries <c>SUPPLIER_UNMATCHED</c> and review can create the
-/// supplier. The extractor profile stays unset until the profile block lands.
+/// supplier. The extractor profile stays unset until the profile block lands. A supplier a reviewer assigned
+/// (<c>SupplierMatchMethod.Human</c>) is kept instead of matched again.
 /// </summary>
 internal sealed class MatchHandler(
     DocProcDbContext db,
@@ -35,12 +36,27 @@ internal sealed class MatchHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
+        // A supplier a reviewer assigned (docs/11 §12.1 :assign-supplier) is the document's from then on: a reprocess
+        // from Classify, or a part of a review split that inherited it, keeps it while the supplier exists.
+        if (document.SupplierMatchMethod == SupplierMatchMethod.Human && document.SupplierId is { } assignedId)
+        {
+            var assignedName = await Db.Suppliers.AsNoTracking().Where(s => s.Id == assignedId).Select(s => s.Name).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (assignedName is not null)
+            {
+                flags.Replace(document, OwnedFlags, []);
+                Timeline.Transition(document, DocumentStatus.Matched, new { supplierId = assignedId, supplierName = assignedName, confidence = document.SupplierMatchConfidence, method = "human", kept = true });
+                await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return StageOutcome.Advanced;
+            }
+        }
+
         var suppliers = await Db.Suppliers.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
         var signals = await CollectSignalsAsync(document, cancellationToken).ConfigureAwait(false);
         var match = SupplierMatcher.Match(suppliers, signals);
 
         document.SupplierId = match?.Supplier.Id;
         document.SupplierMatchConfidence = match?.Confidence;
+        document.SupplierMatchMethod = MethodOf(match);
         document.ExtractorProfileId = null;
         flags.Replace(document, OwnedFlags, match is null
             ? [FlagCodes.Create(FlagCodes.SupplierUnmatched, "No supplier of the tenant matched the document; a new supplier may be needed.")]
@@ -58,6 +74,16 @@ internal sealed class MatchHandler(
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;
     }
+
+    /// <summary>The matcher's method as <c>Documents.SupplierMatchMethod</c> stores it (docs/11 §6.2).</summary>
+    private static SupplierMatchMethod? MethodOf(SupplierMatch? match) => match?.Method switch
+    {
+        null => null,
+        "vatId" => SupplierMatchMethod.Vat,
+        "iban" => SupplierMatchMethod.Iban,
+        "emailDomain" => SupplierMatchMethod.Domain,
+        _ => SupplierMatchMethod.Name,
+    };
 
     /// <summary>The parsed e-invoice, or null when it does not parse: the pages' text layer then gives the signals.</summary>
     private Invoice? TryParse(Document document, byte[] xml, EInvoiceDetection detection)

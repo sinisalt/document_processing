@@ -427,7 +427,11 @@
       "approved": "Approved",
       "rejected": "Rejected",
       "corrected": "Corrected",
-      "reprocessed": "Reprocessed"
+      "reprocessed": "Reprocessed",
+      "type_set": "Type set",
+      "supplier_assigned": "Supplier assigned",
+      "split": "Split",
+      "joined": "Joined"
     },
     "rawJson": "Raw JSON",
     "detailKey": {

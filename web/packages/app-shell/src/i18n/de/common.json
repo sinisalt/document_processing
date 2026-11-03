@@ -75,7 +75,8 @@
     "NeedsReview": "Zu prüfen",
     "Approved": "Freigegeben",
     "Rejected": "Abgelehnt",
-    "Failed": "Fehlgeschlagen"
+    "Failed": "Fehlgeschlagen",
+    "Cancelled": "In anderes Dokument zusammengeführt"
   },
   "reviewTaskStatus": {
     "Open": "Offen",

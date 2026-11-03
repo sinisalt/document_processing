@@ -59,6 +59,19 @@ public sealed class Document : ITenantScoped, IVersioned
 
     public Guid? SupplierId { get; set; }
     public double? SupplierMatchConfidence { get; set; }
+
+    /// <summary>
+    /// How the supplier was found (docs/11 §6.2 <c>SupplierMatchMethod</c>): by the Match stage's signals, or
+    /// <see cref="Entities.SupplierMatchMethod.Human"/> when a reviewer assigned it (<c>:assign-supplier</c>), which the
+    /// Match stage then keeps. Null for documents matched before the column existed, and while there is no supplier.
+    /// </summary>
+    public SupplierMatchMethod? SupplierMatchMethod { get; set; }
+
+    /// <summary>
+    /// The document this one was joined into in review (docs/11 §12.7 <c>:join</c>); set together with
+    /// <see cref="DocumentStatus.Cancelled"/>.
+    /// </summary>
+    public Guid? JoinedIntoDocumentId { get; set; }
     public Guid? ExtractorProfileId { get; set; }
     public ExtractionMethod? ExtractionMethod { get; set; }
 
@@ -133,6 +146,25 @@ public sealed class DocumentFieldIndexEntry : ITenantScoped
     public DateOnly? DateValue { get; set; }
 
     public Document? Document { get; set; }
+}
+
+/// <summary>How a document's supplier was found (docs/11 §6.2); the routing methods (<c>Hint</c>, <c>SourceRule</c>) come with P4.</summary>
+public enum SupplierMatchMethod
+{
+    /// <summary>A VAT id printed on the document or carried by the e-invoice.</summary>
+    Vat,
+
+    /// <summary>An IBAN of the supplier.</summary>
+    Iban,
+
+    /// <summary>The sender's e-mail domain.</summary>
+    Domain,
+
+    /// <summary>The supplier's name or an alias on the first page.</summary>
+    Name,
+
+    /// <summary>Assigned by a reviewer (<c>:assign-supplier</c>, create supplier from review).</summary>
+    Human,
 }
 
 /// <summary>How urgent a review task is (docs/11 §6.2, from the type's <c>review.priority</c>); the queue sorts by it first.</summary>

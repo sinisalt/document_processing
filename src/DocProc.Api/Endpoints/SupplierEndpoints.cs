@@ -115,51 +115,18 @@ public static class SupplierEndpoints
                 return problem;
             }
 
-            var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
-            if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
-            {
-                errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
-            }
-
-            var normalizedName = string.IsNullOrWhiteSpace(request.Name) ? string.Empty : Identifiers.NormalizeName(request.Name);
-            if (!string.IsNullOrWhiteSpace(request.Name))
-            {
-                ValidateNormalizedName(errors, normalizedName);
-            }
-
-            if (errors.ToProblem() is { } invalid)
+            var creation = await AddAsync(db, tenant.TenantId!.Value, request, clock.GetUtcNow(), ct);
+            if (creation.Invalid is { } invalid)
             {
                 return invalid;
             }
 
-            if (await CurrentTenantAsync(db, ct) is null)
+            if (creation.Problem is { } refused)
             {
-                return UnknownTenant();
+                return refused;
             }
 
-            if (await db.Suppliers.AnyAsync(s => s.NormalizedName == normalizedName, ct))
-            {
-                return Conflict("Supplier exists", $"A supplier whose name folds to '{normalizedName}' already exists in this tenant; add an alias to it instead.");
-            }
-
-            var now = clock.GetUtcNow();
-            var supplier = new Supplier
-            {
-                Id = Guid.CreateVersion7(),
-                TenantId = tenant.TenantId!.Value,
-                Name = request.Name.Trim(),
-                NormalizedName = normalizedName,
-                VatId = Identifiers.NormalizeCompact(request.VatId),
-                TaxId = TrimToNull(request.TaxId),
-                Ibans = CleanList(request.Ibans).Select(i => Identifiers.NormalizeCompact(i)!).ToList(),
-                EmailDomains = CleanList(request.EmailDomains).Select(d => d.ToLowerInvariant()).ToList(),
-                Aliases = CleanList(request.Aliases),
-                DefaultCurrency = request.DefaultCurrency,
-                AlwaysReview = request.AlwaysReview ?? false,
-                CreatedAt = now,
-                UpdatedAt = now,
-            };
-            db.Suppliers.Add(supplier);
+            var supplier = creation.Supplier!;
             await db.SaveChangesAsync(ct);
             return TypedResults.Created($"/api/v1/suppliers/{supplier.Id}", SupplierResponse.From(supplier));
         })
@@ -332,6 +299,64 @@ public static class SupplierEndpoints
         .WithSummary("The supplier's twenty most recent documents.");
 
         return group;
+    }
+
+    /// <summary>What <see cref="AddAsync"/> did: the supplier it added (not saved yet), or why it refused.</summary>
+    internal sealed record SupplierCreation(Supplier? Supplier, ValidationProblem? Invalid, ProblemHttpResult? Problem);
+
+    /// <summary>
+    /// The master-data checks of <c>POST /suppliers</c> (name, identifiers, currency, a name that folds to one no other
+    /// supplier of the tenant has) and the supplier they allow, added to the context unsaved, so creating a supplier
+    /// from review (<c>POST /documents/{id}:create-supplier</c>) checks exactly what the supplier list does and saves the
+    /// supplier with its assignment in one go. The context's scope is the tenant's (the duplicate check reads it).
+    /// </summary>
+    internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct)
+    {
+        var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
+        if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
+        {
+            errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
+        }
+
+        var normalizedName = string.IsNullOrWhiteSpace(request.Name) ? string.Empty : Identifiers.NormalizeName(request.Name);
+        if (!string.IsNullOrWhiteSpace(request.Name))
+        {
+            ValidateNormalizedName(errors, normalizedName);
+        }
+
+        if (errors.ToProblem() is { } invalid)
+        {
+            return new SupplierCreation(null, invalid, null);
+        }
+
+        if (await CurrentTenantAsync(db, ct) is null)
+        {
+            return new SupplierCreation(null, null, UnknownTenant());
+        }
+
+        if (await db.Suppliers.AnyAsync(s => s.TenantId == tenantId && s.NormalizedName == normalizedName, ct))
+        {
+            return new SupplierCreation(null, null, Conflict("Supplier exists", $"A supplier whose name folds to '{normalizedName}' already exists in this tenant; add an alias to it instead."));
+        }
+
+        var supplier = new Supplier
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = tenantId,
+            Name = request.Name.Trim(),
+            NormalizedName = normalizedName,
+            VatId = Identifiers.NormalizeCompact(request.VatId),
+            TaxId = TrimToNull(request.TaxId),
+            Ibans = CleanList(request.Ibans).Select(i => Identifiers.NormalizeCompact(i)!).ToList(),
+            EmailDomains = CleanList(request.EmailDomains).Select(d => d.ToLowerInvariant()).ToList(),
+            Aliases = CleanList(request.Aliases),
+            DefaultCurrency = request.DefaultCurrency,
+            AlwaysReview = request.AlwaysReview ?? false,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        db.Suppliers.Add(supplier);
+        return new SupplierCreation(supplier, null, null);
     }
 
     private static void ValidateNormalizedName(Errors errors, string normalizedName)

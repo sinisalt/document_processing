@@ -189,7 +189,8 @@ public static class DocumentChecks
                  && d.SupplierId == supplierId
                  && d.DocumentNumberNormalized == number
                  && d.Status != DocumentStatus.Failed
-                 && d.Status != DocumentStatus.Rejected,
+                 && d.Status != DocumentStatus.Rejected
+                 && d.Status != DocumentStatus.Cancelled,
             cancellationToken);
     }
 }

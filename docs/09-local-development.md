@@ -44,7 +44,16 @@ read. Mail flows use GreenMail (`mail`). WireMock (`mock-erp`, http://localhost:
 receiving ERP of the delivery demos ("Mock ERP" below).
 Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
 assert the resource set, images, waits, the shared secret-store path and realm contents, so a
-rename is caught before anyone runs the stack.
+rename is caught before anyone runs the stack. Aspire's testing builder runs the AppHost's own
+`Program` on a background thread, and once a test builds the model that `Program` goes on to
+`.Run()`, which starts the orchestrator and every persistent container; only disposing the app
+cancelled that start, and a test that did not dispose it left six containers (`storage-*`,
+`messaging-*` and its `messaging-mssql-*`, `keycloak-*`, `vault-*`, `mail-*`) running after every
+`dotnet test`. Every model check now builds through `AppHostModel`
+(`tests/DocProc.AppHost.Tests/AppHostModel.cs`), which stops that run at `BeforeStartEvent`, before the
+host and the orchestrator start, and always disposes the app (`Building_the_model_starts_nothing`
+holds it); the AppHost itself is unchanged, so `dotnet run` behaves as before. Containers left by an
+earlier run are removed with `docker rm -f` by name (the suffix is a hash of the AppHost path).
 
 ## With Docker Compose
 
@@ -386,6 +395,29 @@ as the index stores them (identifiers trimmed, repeated spaces collapsed and upp
 `104 220815` is found as `104 220815` but not as `104220815`; a number of 10^17 or more is compared as
 text only, the index holds no number that large); `validFrom`, `validUntil`, `lineCount`
 and the open review task's `reviewPriority` are in every inbox row.
+
+**Review actions (docs/11 §12, P2).** A document in review (`NeedsReview`, `Validated`, `Failed`) can be
+given a type, a supplier, or other pages; docs/05 has the request and answer of each. With the dev issuer
+(`$H` as above, a reviewer is enough) and an Unknown document `$DOC`:
+
+```bash
+# Type it as a price list (adopted above): the empty fields of the type at once.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:set-type" -H "$H" -H 'content-type: application/json' -d '{"typeKey":"price-list"}' | jq '{type, typeVersion, approvalBlocked}'
+# A value captured into the wrong field moves to the right one (one correction, history kept).
+curl -s -X PATCH "http://localhost:5100/api/v1/documents/$DOC/fields" -H "$H" -H 'content-type: application/json' -d '{"corrections":[{"path":"issueDate","value":"2026-11-01"}]}' > /dev/null
+curl -s -X PATCH "http://localhost:5100/api/v1/documents/$DOC/fields" -H "$H" -H 'content-type: application/json' -d '{"corrections":[{"path":"validFrom","op":"move","from":"issueDate"}]}' | jq .validFrom
+# Or have the Extract stage read it for a type (202; an invoice is read by the LLM).
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:set-type" -H "$H" -H 'content-type: application/json' -d '{"typeKey":"Invoice","prefill":"auto"}' | jq .status
+# Create the supplier from the document, or assign an existing one.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:create-supplier" -H "$H" -H 'content-type: application/json' -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE811111111"}' | jq .supplier.id
+# Pages 1-2 and 3 are two documents; page 3 is an invoice. Join them again with :join.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:split" -H "$H" -H 'content-type: application/json' -d '{"parts":[{"pages":[1,2]},{"pages":[3],"typeKey":"Invoice"}]}' | jq .parts
+```
+
+With `configurableTypes` on, `:approve` refuses an Unknown document, one whose type has no published
+definition, and one with no data (`409 Cannot approve` with `code`), and the review screen shows the reason
+under a disabled Approve button (`DocumentDetail.approvalBlocked`); a tenant without the switch approves as
+before. A part joined into another document is `Cancelled` (status filter `Cancelled`, shown only under "All").
 
 ### Demo data
 

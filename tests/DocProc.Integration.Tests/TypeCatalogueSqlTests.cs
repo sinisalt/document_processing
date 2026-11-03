@@ -52,7 +52,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task The_P1_migrations_migrate_down_and_up_again()
+    public async Task The_P1_and_P2_migrations_migrate_down_and_up_again()
     {
         // Their Down methods drop columns of the temporal Documents table, which turns system versioning off; SQL
         // Server refuses that while the schema-bound policy names the table, so the old policy comes back last.
@@ -61,6 +61,16 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         await using (var platform = NewContext(TenantContext.Platform()))
         {
             var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(platform);
+
+            // P2's review columns first, on their own: the documents keep their rows, and row-level security stays on.
+            await migrator.MigrateAsync("20261103001957_FieldIndexAndInboxColumns", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103001957_FieldIndexAndInboxColumns");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DocumentsHistory') AND name = N'SupplierMatchMethod'").SingleAsync(ct)).ShouldBe(0, "the history table follows");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            await platform.Database.MigrateAsync(ct);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(2);
+
             await migrator.MigrateAsync("20261102231925_TypeCatalogue", ct);
             await migrator.MigrateAsync("20261102210935_TenantPolicyHistoryAndMoves", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261102210935_TenantPolicyHistoryAndMoves");

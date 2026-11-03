@@ -13,4 +13,18 @@ public static class DocumentEventTypes
     public const string Rejected = "document.rejected";
     public const string Corrected = "document.corrected";
     public const string Reprocessed = "document.reprocessed";
+
+    // Review actions of docs/11 §12.1 and §12.7 (P2); timeline only, never published.
+
+    /// <summary>A reviewer gave the document a type (<c>:set-type</c>).</summary>
+    public const string TypeSet = "document.type_set";
+
+    /// <summary>A reviewer assigned the supplier, or created it from the document.</summary>
+    public const string SupplierAssigned = "document.supplier_assigned";
+
+    /// <summary>A reviewer split the document's pages into several documents (<c>:split</c>).</summary>
+    public const string Split = "document.split";
+
+    /// <summary>A reviewer joined parts of one attachment back into one document (<c>:join</c>), on every part.</summary>
+    public const string Joined = "document.joined";
 }

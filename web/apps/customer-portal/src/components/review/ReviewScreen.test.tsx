@@ -305,6 +305,37 @@ describe("approve shortcut hint", () => {
   });
 });
 
+describe("approve refused without a definition (docs/11 §11)", () => {
+  it("disables Approve, says why, and does not open the confirmation from the shortcut", () => {
+    renderScreen(
+      documentOf({
+        type: "Unknown",
+        canonical: null,
+        approvalBlocked: { code: "TYPE_REQUIRED", message: "The document has no type." },
+      }),
+    );
+    expect(screen.getByTestId("approve-button")).toBeDisabled();
+    const note = screen.getByTestId("approve-blocked");
+    expect(note).toHaveAttribute("data-code", "TYPE_REQUIRED");
+    expect(note).toHaveTextContent("Set the type of this document before approving it");
+    expect(screen.getByTestId("approve-button")).toHaveAttribute("aria-describedby", "approve-blocked");
+    fireEvent.keyDown(window.document.body, { key: "Enter", ctrlKey: true });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(client.POST).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the API's message for a code it does not know", () => {
+    renderScreen(documentOf({ approvalBlocked: { code: "SOMETHING_NEW", message: "A reason the API gives." } }));
+    expect(screen.getByTestId("approve-blocked")).toHaveTextContent("A reason the API gives.");
+  });
+
+  it("shows nothing when the document can be approved", () => {
+    renderScreen(documentOf({ approvalBlocked: null }));
+    expect(screen.queryByTestId("approve-blocked")).toBeNull();
+    expect(screen.getByTestId("approve-button")).toBeEnabled();
+  });
+});
+
 describe("review screen Esc and Ctrl+Enter", () => {
   it("goes back to the inbox on Esc outside inputs", () => {
     renderScreen(documentOf());

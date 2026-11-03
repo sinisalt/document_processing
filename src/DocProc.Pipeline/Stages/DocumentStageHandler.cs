@@ -77,8 +77,10 @@ internal abstract class DocumentStageHandler(DocProcDbContext db, DocumentTimeli
 
     /// <summary>
     /// True when stage 3 cut the document's ingestion item into several documents and this is one of them: only a
-    /// split creates a second document for an item. Such a document owns its page range, not the whole file.
+    /// split (the pipeline's or a reviewer's) creates a second document for an item. Such a document owns its page
+    /// range, not the whole file. A part a reviewer joined into another one (<c>Cancelled</c>) no longer counts, so a
+    /// document joined back into the whole attachment is the whole file again (docs/11 §12.7).
     /// </summary>
     protected Task<bool> IsSplitPartAsync(Document document, CancellationToken cancellationToken) =>
-        Db.Documents.AnyAsync(d => d.IngestionItemId == document.IngestionItemId && d.Id != document.Id, cancellationToken);
+        Db.Documents.AnyAsync(d => d.IngestionItemId == document.IngestionItemId && d.Id != document.Id && d.Status != DocumentStatus.Cancelled, cancellationToken);
 }

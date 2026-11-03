@@ -94,9 +94,21 @@ public static partial class CorrectionSources
         return new FieldSource(SourceMethod.Human, source.Page, box, source.RawText);
     }
 
-    /// <summary>The value of <c>Correction.SourceJson</c>: a JSON object, or null when no source was given.</summary>
-    public static string? ToJson(CorrectionSource? source) =>
-        source is null ? null : JsonSerializer.Serialize(source, StorageOptions);
+    /// <summary>
+    /// The value of <c>Correction.SourceJson</c>: a JSON object, or null when no source was given. A move records the
+    /// field the value came from as <c>from</c>, next to the source the reviewer gave, if any.
+    /// </summary>
+    public static string? ToJson(CorrectionSource? source, string? from = null)
+    {
+        if (from is null)
+        {
+            return source is null ? null : JsonSerializer.Serialize(source, StorageOptions);
+        }
+
+        var json = source is null ? [] : (System.Text.Json.Nodes.JsonObject)JsonSerializer.SerializeToNode(source, StorageOptions)!;
+        json["from"] = from;
+        return json.ToJsonString();
+    }
 
     private static bool IsValid(SourceBox box) =>
         double.IsFinite(box.X0) && double.IsFinite(box.Y0) && double.IsFinite(box.X1) && double.IsFinite(box.Y1)

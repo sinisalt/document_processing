@@ -18,7 +18,7 @@ namespace DocProc.Pipeline.Support;
 /// says so (<c>FIELD_REQUIRED</c> blocks already). It is skipped too when every component other than the supplier is
 /// empty, and when the key names the supplier but none is matched ("no supplier" is not a supplier).</description></item>
 /// <item><description>Only the document's own tenant's documents are candidates, whatever the scope of the context.</description></item>
-/// <item><description>Rejected and failed documents are never matches. (Sandbox runs and superseded documents arrive
+/// <item><description>Rejected, failed and cancelled (joined) documents are never matches. (Sandbox runs and superseded documents arrive
 /// with later phases and are excluded then.)</description></item>
 /// </list>
 /// </summary>
@@ -75,7 +75,7 @@ public static class DuplicateKeyCheck
 
         var typeKey = document.Type;
         var candidates = db.Documents.AsNoTracking()
-            .Where(d => d.TenantId == tenantId && d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected);
+            .Where(d => d.TenantId == tenantId && d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected && d.Status != DocumentStatus.Cancelled);
         if (bySupplier)
         {
             var supplierId = document.SupplierId;

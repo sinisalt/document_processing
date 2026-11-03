@@ -248,6 +248,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}:assign-supplier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assigns a supplier of the document's tenant to a document in review (docs/11 §12.1); the Match stage keeps it from then on, and the document is checked again with it. */
+        post: operations["AssignDocumentSupplier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:create-supplier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). */
+        post: operations["CreateSupplierFromDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Joins other parts of the same attachment into this document, pages in attachment order (docs/11 §12.7); the others are cancelled with a link to it, and the joined document is classified again. 202. */
+        post: operations["JoinDocuments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}:reject": {
         parameters: {
             query?: never;
@@ -276,6 +327,40 @@ export interface paths {
         put?: never;
         /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract). */
         post: operations["ReprocessDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:set-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Gives a document in review a type (docs/11 §12.1): pinned to the tenant's published version of it (or the version named), with prefill none (the empty fields of the type at once, 200) or auto (extracted again for that type, 202). A setType correction records it. */
+        post: operations["SetDocumentType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Splits a document in review into several documents by page (docs/11 §12.7): the first part keeps the id, the others are new documents of the same attachment; each is classified again, or extracted for the type a part names. 202. */
+        post: operations["SplitDocument"];
         delete?: never;
         options?: never;
         head?: never;
@@ -866,8 +951,22 @@ export interface components {
             revokedAt: null | string;
             scopes: string[];
         };
+        /**
+         * @description What keeps a document from being approved: `code` is `TYPE_REQUIRED` (the type is Unknown),
+         *     `NO_DEFINITION` (the type has no published definition the tenant can use) or `NO_DATA` (nothing was
+         *     captured: the document has no canonical data); `message` says it in English.
+         */
+        ApprovalBlock: {
+            code: string;
+            message: string;
+        };
         ApproveDocumentRequest: {
             comment: null | string;
+        };
+        /** @description `POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant. */
+        AssignSupplierRequest: {
+            /** Format: uuid */
+            supplierId: string;
         };
         ChangeMemberRoleRequest: {
             role: string;
@@ -1028,6 +1127,7 @@ export interface components {
          */
         DocumentDetail: {
             appliedConfig: null | components["schemas"]["JsonElement"];
+            approvalBlocked?: null | components["schemas"]["ApprovalBlock"];
             /** Format: date-time */
             approvedAt: null | string;
             approvedBy: null | string;
@@ -1050,6 +1150,11 @@ export interface components {
             ingestion: null | components["schemas"]["DocumentIngestionRef"];
             /** Format: date */
             issueDate: null | string;
+            /**
+             * Format: uuid
+             * @description The document a reviewer joined this one into (`:join`, docs/11 §12.7); set on a `Cancelled` part.
+             */
+            joinedIntoDocumentId?: null | string;
             /** Format: int32 */
             lineCount: null | number | string;
             /** Format: int32 */
@@ -1058,6 +1163,7 @@ export interface components {
             status: components["schemas"]["DocumentStatus"];
             /** Format: uuid */
             supplierId: null | string;
+            supplierMatchMethod?: null | components["schemas"]["SupplierMatchMethod"];
             supplierName: null | string;
             /** Format: uuid */
             tenantId: string;
@@ -1128,7 +1234,7 @@ export interface components {
          * @description Document lifecycle states (docs/03-pipeline.md "Document state machine").
          * @enum {unknown}
          */
-        DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed";
+        DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed" | "Cancelled";
         /**
          * @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
          *     `TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's
@@ -1278,14 +1384,18 @@ export interface components {
          *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
          *     property inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON
          *     shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-         *     clear it. `op` is the correction operation: `set` (the default); for a definition-driven document
-         *     (`canonicalSchemaVersion` 2) also `append` (a row of a repeating group, with an optional object of row
-         *     values, or a list entry) and `remove` (a row, a list entry or a bag key); the others of docs/11 §6.2
-         *     (`move`, `setType`, `split`, `join`) are refused until their phase. `source`
-         *     optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
-         *     provenance and on the Correction row.
+         *     clear it. `op` is the correction operation: `set` (the default); `move` (docs/11 §12.3 "match
+         *     fields", every document with data): the value of the field `from` names goes into string FieldCorrection.Path, converted
+         *     to that field's kind, with its place on the page, and `from` is left without a value; both fields keep their
+         *     previous state in their history, and the move is one Correction row (op `move`, the source path in its
+         *     `SourceJson.from`). For a definition-driven document (`canonicalSchemaVersion` 2) also `append` (a
+         *     row of a repeating group, with an optional object of row values, or a list entry) and `remove` (a row, a list
+         *     entry or a bag key). `setType`, `split` and `join` are review actions of their own
+         *     (`:set-type`, `:split`, `:join`), not corrections. `source` optionally says where on the page
+         *     or in the file the reviewer took the value from; it is stored with the field's provenance and on the Correction row.
          */
         FieldCorrection: {
+            from?: null | string;
             op?: null | string;
             path: string;
             reason: null | string;
@@ -1402,6 +1512,10 @@ export interface components {
         ItemDisposition: "Candidate" | "Ignored" | "Unpacked" | "Duplicate" | "Accepted";
         /** @enum {unknown} */
         ItemKind: "Pdf" | "Image" | "Xml" | "Office" | "Text" | "Archive" | "Other";
+        /** @description `POST /documents/{id}:join` (docs/11 §12.7): the other parts of the same attachment to join into this one. */
+        JoinDocumentsRequest: {
+            documentIds: string[];
+        };
         JsonElement: unknown;
         /** @enum {unknown} */
         KeyOwner: "Platform" | "Tenant" | null;
@@ -1603,6 +1717,18 @@ export interface components {
         };
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /**
+         * @description `POST /documents/{id}:set-type` (docs/11 §12.1 step 3): the type key, optionally a published version of it
+         *     (the tenant's published version otherwise), and `prefill`: `none` (the default; the document gets the
+         *     empty tree of the type version, every field Missing, at once) or `auto` (the document goes back through the
+         *     Extract stage for that type, which fills what it can; 202).
+         */
+        SetDocumentTypeRequest: {
+            prefill?: null | string;
+            typeKey: string;
+            /** Format: int32 */
+            version?: null | number | string;
+        };
         /** @description An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes. */
         SourceBox: {
             /** Format: double */
@@ -1613,6 +1739,29 @@ export interface components {
             y0: number | string;
             /** Format: double */
             y1: number | string;
+        };
+        /** @description The parts of a split, in page order; together they cover every page of the document exactly once. */
+        SplitDocumentRequest: {
+            parts: components["schemas"]["SplitPartRequest"][];
+        };
+        SplitDocumentResponse: {
+            parts: components["schemas"]["SplitPartResult"][];
+        };
+        /**
+         * @description One part of `POST /documents/{id}:split` (docs/11 §12.7): its pages, 1-based within the document and
+         *     consecutive, and optionally the type a reviewer already knows it has (the part then skips classification).
+         */
+        SplitPartRequest: {
+            pages: (number | string)[];
+            typeKey?: null | string;
+        };
+        /** @description A part a split produced: the first keeps the document's id, the others are new documents of the same attachment. */
+        SplitPartResult: {
+            /** Format: uuid */
+            documentId: string;
+            pages: (number | string)[];
+            status: components["schemas"]["DocumentStatus"];
+            typeKey: null | string;
         };
         /** @description One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity"). */
         SupplierActivityItem: {
@@ -1629,6 +1778,13 @@ export interface components {
             totalGross: null | number | string;
             type: string;
         };
+        /** @description What `POST /documents/{id}:create-supplier` answers: the new supplier and the document it was assigned to. */
+        SupplierFromReviewResponse: {
+            document: components["schemas"]["DocumentDetail"];
+            supplier: components["schemas"]["SupplierResponse"];
+        };
+        /** @enum {unknown} */
+        SupplierMatchMethod: "Vat" | "Iban" | "Domain" | "Name" | "Human" | null;
         SupplierResponse: {
             aliases: string[];
             alwaysReview: boolean;
@@ -1717,7 +1873,9 @@ export interface components {
 export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
+export type SchemaApprovalBlock = components['schemas']['ApprovalBlock'];
 export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
+export type SchemaAssignSupplierRequest = components['schemas']['AssignSupplierRequest'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
@@ -1762,6 +1920,7 @@ export type SchemaIngestionStatus = components['schemas']['IngestionStatus'];
 export type SchemaIngestionSummary = components['schemas']['IngestionSummary'];
 export type SchemaItemDisposition = components['schemas']['ItemDisposition'];
 export type SchemaItemKind = components['schemas']['ItemKind'];
+export type SchemaJoinDocumentsRequest = components['schemas']['JoinDocumentsRequest'];
 export type SchemaJsonElement = components['schemas']['JsonElement'];
 export type SchemaKeyOwner = components['schemas']['KeyOwner'];
 export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
@@ -1785,8 +1944,15 @@ export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDoc
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
+export type SchemaSplitDocumentRequest = components['schemas']['SplitDocumentRequest'];
+export type SchemaSplitDocumentResponse = components['schemas']['SplitDocumentResponse'];
+export type SchemaSplitPartRequest = components['schemas']['SplitPartRequest'];
+export type SchemaSplitPartResult = components['schemas']['SplitPartResult'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
+export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
+export type SchemaSupplierMatchMethod = components['schemas']['SupplierMatchMethod'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
 export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
@@ -2376,6 +2542,111 @@ export interface operations {
             };
         };
     };
+    AssignDocumentSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateSupplierFromDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierFromReviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    JoinDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinDocumentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     RejectDocument: {
         parameters: {
             query?: never;
@@ -2433,6 +2704,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SetDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDocumentTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SplitDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitDocumentResponse"];
                 };
             };
             /** @description Bad Request */

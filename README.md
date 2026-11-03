@@ -144,7 +144,8 @@ and keep running after `dotnet run` stops, but they do not block compose: they p
 ports, and the fixed ports are served by the app host's proxy, which stops with it. If `up` still
 fails with `Bind for 127.0.0.1:8080 failed: port is already allocated` (or another of those
 ports), `docker ps --format '{{.Names}}\t{{.Ports}}'` shows which container holds it, for example a
-second compose project (`-p`).
+second compose project (`-p`). `dotnet test` starts none of them: the AppHost checks build its
+application model and stop the app host before it starts anything (`tests/DocProc.AppHost.Tests/AppHostModel.cs`).
 
 If sign-in fails with "Failed to fetch", and the browser console shows a CORS error on
 `http://localhost:8080/realms/docproc/.well-known/openid-configuration`, another server (a local

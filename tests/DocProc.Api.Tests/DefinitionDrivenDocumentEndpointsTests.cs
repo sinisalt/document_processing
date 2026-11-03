@@ -111,10 +111,13 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         (await bad.Content.ReadAsStringAsync(Ct)).ShouldContain("field.po Number");
         (await reviewer.GetAsync("/api/v1/documents?field.poNumber=", Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
-        // Operations of later phases are refused with the P0 message.
-        var move = await Patch(reviewer, id, new FieldCorrection("lines[0]", null, null, Op: "move"));
+        // A move needs the field it takes the value from; a review action is not a field correction.
+        var move = await Patch(reviewer, id, new FieldCorrection("lines[0].description", null, null, Op: "move"));
         move.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await move.Content.ReadAsStringAsync(Ct)).ShouldContain("not available yet");
+        (await move.Content.ReadAsStringAsync(Ct)).ShouldContain("'from'");
+        var split = await Patch(reviewer, id, new FieldCorrection("lines", null, null, Op: "split"));
+        split.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await split.Content.ReadAsStringAsync(Ct)).ShouldContain(":split");
 
         // docs/11 §18: the detail carries what the pipeline resolved (AppliedConfigJson), null before Extract wrote it.
         (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!.AppliedConfig.ShouldBeNull();
@@ -288,7 +291,7 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
 
         var append = await Patch(reviewer, seeded.DocumentId, new FieldCorrection("lines", J("{}"), null, Op: "append"));
         append.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await append.Content.ReadAsStringAsync(Ct)).ShouldContain("not available yet");
+        (await append.Content.ReadAsStringAsync(Ct)).ShouldContain("does not apply to this document");
 
         var set = await Patch(reviewer, seeded.DocumentId, new FieldCorrection("invoiceNumber", V("RE-2026-0100"), null));
         set.StatusCode.ShouldBe(HttpStatusCode.OK);

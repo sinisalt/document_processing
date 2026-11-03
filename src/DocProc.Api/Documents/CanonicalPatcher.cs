@@ -43,21 +43,41 @@ public sealed class CanonicalPatchException : Exception
 /// What one correction changed: the field's value before and after, as JSON, for the <c>Corrections</c> audit table,
 /// with the operation and the place the value was taken from (<see cref="CorrectionSource"/>, null when not given).
 /// </summary>
-public sealed record AppliedCorrection(string Path, string? OldValueJson, string? NewValueJson, string? Reason, string Op = CorrectionOps.Set, CorrectionSource? Source = null);
+public sealed record AppliedCorrection(string Path, string? OldValueJson, string? NewValueJson, string? Reason, string Op = CorrectionOps.Set, CorrectionSource? Source = null, string? From = null);
 
 /// <summary>
-/// The correction operations of docs/11 §6.2. The coded records' patcher (<see cref="CanonicalPatcher"/>) applies only
-/// <see cref="Set"/>; the definition patcher (<see cref="DefinitionPatcher"/>, definition-driven documents) also
-/// <see cref="Append"/> and <see cref="Remove"/>. The others are known so a request naming one gets "not available
-/// yet" rather than "unknown".
+/// The correction operations of docs/11 §6.2. The coded records' patcher (<see cref="CanonicalPatcher"/>) applies
+/// <see cref="Set"/> and <see cref="Move"/>; the definition patcher (<see cref="DefinitionPatcher"/>, definition-driven
+/// documents) also <see cref="Append"/> and <see cref="Remove"/>. <see cref="SetType"/>, <see cref="Split"/> and
+/// <see cref="Join"/> are the ops of the Correction rows the review actions write (<c>:set-type</c>, <c>:split</c>,
+/// <c>:join</c>); a correction naming one is told which action to use.
 /// </summary>
 public static class CorrectionOps
 {
     public const string Set = "set";
     public const string Append = "append";
     public const string Remove = "remove";
+    public const string Move = "move";
+    public const string SetType = "setType";
+    public const string Split = "split";
+    public const string Join = "join";
 
-    public static readonly IReadOnlyList<string> Planned = ["append", "remove", "move", "setType", "split", "join"];
+    /// <summary>Every op a Correction row can carry.</summary>
+    public static readonly IReadOnlyList<string> Planned = [Append, Remove, Move, SetType, Split, Join];
+
+    /// <summary>The review action that writes each op that is not a field correction.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ReviewActions = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        [SetType] = "POST /documents/{id}:set-type",
+        [Split] = "POST /documents/{id}:split",
+        [Join] = "POST /documents/{id}:join",
+    };
+
+    /// <summary>The message for an op the patcher at hand does not apply (<paramref name="applied"/> lists the ones it does).</summary>
+    public static string NotApplied(string op, IReadOnlyList<string> applied) =>
+        ReviewActions.TryGetValue(op, out var action) ? $"'{op}' is not a field correction; use {action}."
+        : Planned.Contains(op, StringComparer.Ordinal) ? $"The correction operation '{op}' does not apply to this document; only '{string.Join("', '", applied)}' do."
+        : $"'{op}' is not a correction operation; use one of '{string.Join("', '", applied)}'.";
 }
 
 public sealed record CanonicalPatchResult(string Json, IReadOnlyList<AppliedCorrection> Applied);
@@ -119,6 +139,16 @@ public static partial class CanonicalPatcher
         var path = correction.Path?.Trim() ?? string.Empty;
         CheckOp(path, correction.Op);
         CorrectionSources.Check(path, correction.Source);
+        if (correction.Op == CorrectionOps.Move)
+        {
+            return Move(schema, root, path, correction, by, at, documentCurrency);
+        }
+
+        if (correction.From is not null)
+        {
+            throw new CanonicalPatchException(path, $"'from' belongs to op '{CorrectionOps.Move}' only.");
+        }
+
         var segments = ParsePath(path);
         JsonObject node = root;
         var shape = schema;
@@ -227,16 +257,190 @@ public static partial class CanonicalPatcher
         return (newNode, new AppliedCorrection(path, oldValueNode?.ToJsonString(), newNode["value"]?.ToJsonString(), correction.Reason, CorrectionOps.Set, correction.Source));
     }
 
+    /// <summary>The operations this patcher applies: a coded record's lists and rows are fixed by its type, so neither append nor remove.</summary>
+    public static readonly IReadOnlyList<string> Operations = [CorrectionOps.Set, CorrectionOps.Move];
+
     private static void CheckOp(string path, string? op)
     {
-        if (op is null || string.Equals(op, CorrectionOps.Set, StringComparison.Ordinal))
+        if (op is null || Operations.Contains(op, StringComparer.Ordinal))
         {
             return;
         }
 
-        throw new CanonicalPatchException(path, CorrectionOps.Planned.Contains(op, StringComparer.Ordinal)
-            ? $"The correction operation '{op}' is not available yet; only '{CorrectionOps.Set}' is."
-            : $"'{op}' is not a correction operation; use '{CorrectionOps.Set}'.");
+        throw new CanonicalPatchException(path, CorrectionOps.NotApplied(op, Operations));
+    }
+
+    /// <summary>
+    /// <c>move</c> (docs/11 §12.3 "match fields"): the value of the field <c>from</c> names into <paramref name="path"/>,
+    /// converted to the target's type (an identifier's verbatim text for a string, an amount's number for a number) and
+    /// with the place it was read from unless the correction names one; <c>from</c> is left Missing. Both keep their
+    /// earlier state in their history. Either end is a single field, an entry of a list of fields or a field of a row.
+    /// </summary>
+    private static AppliedCorrection Move(FieldSchemaNode schema, JsonObject root, string path, FieldCorrection correction, string by, DateTimeOffset at, string? documentCurrency)
+    {
+        var from = correction.From?.Trim();
+        if (string.IsNullOrEmpty(from))
+        {
+            throw new CanonicalPatchException(path, "A move names the field the value comes from in 'from'.");
+        }
+
+        if (correction.Value is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+        {
+            throw new CanonicalPatchException(path, "A move takes its value from the field 'from' names; send no value.");
+        }
+
+        if (string.Equals(from, path, StringComparison.Ordinal))
+        {
+            throw new CanonicalPatchException(path, "A field cannot be moved onto itself.");
+        }
+
+        var source = Resolve(schema, root, from);
+        var target = Resolve(schema, root, path);
+        var sourceNode = source.Get() as JsonObject;
+        if (sourceNode?["value"] is not { } moved || sourceNode["status"] is JsonValue status && status.TryGetValue<string>(out var text)
+            && (string.Equals(text, nameof(FieldStatus.Missing), StringComparison.OrdinalIgnoreCase) || string.Equals(text, nameof(FieldStatus.Unreadable), StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new CanonicalPatchException(from, $"'{from}' has no value to move.");
+        }
+
+        var options = CanonicalDocumentSerializer.Options;
+        object sourceField;
+        try
+        {
+            sourceField = JsonSerializer.Deserialize(sourceNode, source.Field.ClrType, options) ?? throw new JsonException("The field is null.");
+        }
+        catch (JsonException ex)
+        {
+            throw new CanonicalPatchException(from, $"The stored field could not be read: {ex.Message}");
+        }
+
+        var location = correction.Source ?? LocationOf(((IFieldValue)sourceField).Source);
+        var asSet = correction with { Value = MovableValue(source.Field.ValueType!, target.Field.ValueType!, moved), Op = CorrectionOps.Set, Source = location, From = null };
+        (JsonNode NewNode, AppliedCorrection Record) result;
+        try
+        {
+            result = Correct(path, target.Field, target.Get(), [], asSet, by, at, documentCurrency);
+        }
+        catch (CanonicalPatchException ex)
+        {
+            throw new CanonicalPatchException(path, $"The value of '{from}' does not fit '{path}': {ex.Message}");
+        }
+
+        target.Set(result.NewNode);
+        source.Set(MovedOut(source.Field, sourceField, by, at));
+        return result.Record with { Op = CorrectionOps.Move, Source = correction.Source, From = from };
+    }
+
+    /// <summary>The place a moved value was read from, as a correction's source; null when the field records none.</summary>
+    private static CorrectionSource? LocationOf(FieldSource? source) =>
+        source is null || (source.Page is null && source.BBox is null && source.RawText is null)
+            ? null
+            : new CorrectionSource(Page: source.Page, BBox: source.BBox is { } b ? new SourceBox(b.X0, b.Y0, b.X1, b.Y1) : null, RawText: source.RawText);
+
+    /// <summary>The moved value in a shape the target's type reads (see <see cref="Move"/>).</summary>
+    private static JsonElement MovableValue(Type sourceType, Type targetType, JsonNode value)
+    {
+        var target = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        JsonNode adapted = value;
+        if (sourceType == typeof(DocumentIdentifier) && target != typeof(DocumentIdentifier) && value["verbatim"] is JsonValue verbatim)
+        {
+            adapted = verbatim;
+        }
+        else if (sourceType == typeof(Money) && target != typeof(Money) && value["amount"] is JsonValue amount)
+        {
+            adapted = amount;
+        }
+
+        if (target == typeof(string) && adapted is JsonValue scalar && scalar.GetValueKind() is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
+        {
+            adapted = JsonValue.Create(scalar.ToJsonString());
+        }
+
+        using var document = JsonDocument.Parse(adapted.ToJsonString());
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>The field a value moved out of: its earlier state in the history, Missing now (no value, no confidence), the reviewer's provenance.</summary>
+    private static JsonObject MovedOut(FieldSchemaMember field, object current, string by, DateTimeOffset at)
+    {
+        var correct = field.ClrType.GetMethod(nameof(FieldValue<object>.Correct), BindingFlags.Public | BindingFlags.Instance)!;
+        var valueType = field.ValueType!;
+        var empty = valueType.IsValueType && Nullable.GetUnderlyingType(valueType) is null ? Activator.CreateInstance(valueType) : null;
+        var corrected = correct.Invoke(current, [empty, by, at, null])!;
+        var node = (JsonObject)JsonSerializer.SerializeToNode(corrected, field.ClrType, CanonicalDocumentSerializer.Options)!;
+        node.Remove("value");
+        node.Remove("confidence");
+        node["status"] = nameof(FieldStatus.Missing);
+        return node;
+    }
+
+    /// <summary>Where one field of a move sits: a property of an object (the root, a group, a row) or an entry of a list.</summary>
+    private sealed record Slot(JsonObject? Owner, string? Key, JsonArray? List, int Index, FieldSchemaMember Field)
+    {
+        public JsonNode? Get() => Owner is not null ? Owner[Key!] : List![Index];
+
+        public void Set(JsonNode value)
+        {
+            if (Owner is not null)
+            {
+                Owner[Key!] = value;
+            }
+            else
+            {
+                List![Index] = value;
+            }
+        }
+    }
+
+    /// <summary>The field a move reads or writes, walked on the record's schema like a <c>set</c>; a value inside a field's value is not moved.</summary>
+    private static Slot Resolve(FieldSchemaNode schema, JsonObject root, string path)
+    {
+        var segments = ParsePath(path);
+        var node = root;
+        var shape = schema;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            var last = i == segments.Count - 1;
+            var member = shape.Member(segment.Name) ?? throw new CanonicalPatchException(path, $"'{segment.Name}' is not a field of {shape.Name}.");
+            if (member.Kind == FieldSchemaMemberKind.Field)
+            {
+                if (segment.Index is not null)
+                {
+                    throw new CanonicalPatchException(path, $"'{segment.Name}' is a single field, not a list.");
+                }
+
+                return last ? new Slot(node, segment.Name, null, 0, member) : throw new CanonicalPatchException(path, "A value inside a field is not moved; move the whole field, or set the value.");
+            }
+
+            if (member is { Kind: FieldSchemaMemberKind.List, Element: { } element })
+            {
+                if (segment.Index is not { } index || node[segment.Name] is not JsonArray array || index >= array.Count)
+                {
+                    throw new CanonicalPatchException(path, segment.Index is null ? $"'{segment.Name}' is a list; address an entry as {segment.Name}[n]." : $"'{segment.Name}' has no entry at index {segment.Index}.");
+                }
+
+                if (element.Kind == FieldSchemaMemberKind.Field)
+                {
+                    return last ? new Slot(null, null, array, index, element) : throw new CanonicalPatchException(path, "A value inside a field is not moved; move the whole field, or set the value.");
+                }
+
+                node = array[index] as JsonObject ?? throw new CanonicalPatchException(path, $"'{segment.Name}[{index}]' is not an object.");
+                shape = element.Shape;
+                continue;
+            }
+
+            if (member.Kind == FieldSchemaMemberKind.Group && segment.Index is null && !last)
+            {
+                node = node[segment.Name] as JsonObject ?? throw new CanonicalPatchException(path, $"'{segment.Name}' is empty; it cannot be navigated into.");
+                shape = member.Shape;
+                continue;
+            }
+
+            throw new CanonicalPatchException(path, $"'{segment.Name}' carries no provenance and cannot be corrected through this endpoint.");
+        }
+
+        throw new CanonicalPatchException(path, "The path does not address a field.");
     }
 
     /// <summary>A property inside the field's value (<c>supplier.vatId</c>): patch that property on the current value and re-read the whole value.</summary>

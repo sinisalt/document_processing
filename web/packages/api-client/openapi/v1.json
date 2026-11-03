@@ -849,6 +849,276 @@
         }
       }
     },
+    "/api/v1/documents/{id}:set-type": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Gives a document in review a type (docs/11 §12.1): pinned to the tenant's published version of it (or the version named), with prefill none (the empty fields of the type at once, 200) or auto (extracted again for that type, 202). A setType correction records it.",
+        "operationId": "SetDocumentType",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDocumentTypeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:assign-supplier": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Assigns a supplier of the document's tenant to a document in review (docs/11 §12.1); the Match stage keeps it from then on, and the document is checked again with it.",
+        "operationId": "AssignDocumentSupplier",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:create-supplier": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14).",
+        "operationId": "CreateSupplierFromDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierFromReviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:split": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Splits a document in review into several documents by page (docs/11 §12.7): the first part keeps the id, the others are new documents of the same attachment; each is classified again, or extracted for the type a part names. 202.",
+        "operationId": "SplitDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SplitDocumentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:join": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Joins other parts of the same attachment into this document, pages in attachment order (docs/11 §12.7); the others are cancelled with a link to it, and the joined document is classified again. 202.",
+        "operationId": "JoinDocuments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinDocumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/review-tasks": {
       "get": {
         "tags": [
@@ -2748,6 +3018,22 @@
           }
         }
       },
+      "ApprovalBlock": {
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "description": "What keeps a document from being approved: `code` is `TYPE_REQUIRED` (the type is Unknown),\n`NO_DEFINITION` (the type has no published definition the tenant can use) or `NO_DATA` (nothing was\ncaptured: the document has no canonical data); `message` says it in English."
+      },
       "ApproveDocumentRequest": {
         "required": [
           "comment"
@@ -2761,6 +3047,19 @@
             ]
           }
         }
+      },
+      "AssignSupplierRequest": {
+        "required": [
+          "supplierId"
+        ],
+        "type": "object",
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "description": "`POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant."
       },
       "ChangeMemberRoleRequest": {
         "required": [
@@ -3626,6 +3925,36 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          },
+          "supplierMatchMethod": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "How the supplier was found (docs/11 §6.2): `Human` when a reviewer assigned it; null without one or before it was recorded.",
+                "$ref": "#/components/schemas/SupplierMatchMethod"
+              }
+            ]
+          },
+          "joinedIntoDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The document a reviewer joined this one into (`:join`, docs/11 §12.7); set on a `Cancelled` part.",
+            "format": "uuid"
+          },
+          "approvalBlocked": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "Why `:approve` would refuse the document now (docs/11 §11 \"Approve is refused when a document has no definition\nor no canonical data\"), so the review screen can say so before the click; null when nothing stands in the way.",
+                "$ref": "#/components/schemas/ApprovalBlock"
+              }
+            ]
           }
         },
         "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.\n`AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the\ntype version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract."
@@ -3805,7 +4134,8 @@
           "NeedsReview",
           "Approved",
           "Rejected",
-          "Failed"
+          "Failed",
+          "Cancelled"
         ],
         "description": "Document lifecycle states (docs/03-pipeline.md \"Document state machine\")."
       },
@@ -4417,9 +4747,15 @@
                 "$ref": "#/components/schemas/CorrectionSource"
               }
             ]
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
-        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it. `op` is the correction operation: `set` (the default); for a definition-driven document\n(`canonicalSchemaVersion` 2) also `append` (a row of a repeating group, with an optional object of row\nvalues, or a list entry) and `remove` (a row, a list entry or a bag key); the others of docs/11 §6.2\n(`move`, `setType`, `split`, `join`) are refused until their phase. `source`\noptionally says where on the page or in the file the reviewer took the value from; it is stored with the field's\nprovenance and on the Correction row."
+        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it. `op` is the correction operation: `set` (the default); `move` (docs/11 §12.3 \"match\nfields\", every document with data): the value of the field `from` names goes into string FieldCorrection.Path, converted\nto that field's kind, with its place on the page, and `from` is left without a value; both fields keep their\nprevious state in their history, and the move is one Correction row (op `move`, the source path in its\n`SourceJson.from`). For a definition-driven document (`canonicalSchemaVersion` 2) also `append` (a\nrow of a repeating group, with an optional object of row values, or a list entry) and `remove` (a row, a list\nentry or a bag key). `setType`, `split` and `join` are review actions of their own\n(`:set-type`, `:split`, `:join`), not corrections. `source` optionally says where on the page\nor in the file the reviewer took the value from; it is stored with the field's provenance and on the Correction row."
       },
       "FlagOrigin": {
         "enum": [
@@ -4818,6 +5154,22 @@
           "Archive",
           "Other"
         ]
+      },
+      "JoinDocumentsRequest": {
+        "required": [
+          "documentIds"
+        ],
+        "type": "object",
+        "properties": {
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "`POST /documents/{id}:join` (docs/11 §12.7): the other parts of the same attachment to join into this one."
       },
       "JsonElement": { },
       "KeyOwner": {
@@ -5664,6 +6016,33 @@
           "Skipped"
         ]
       },
+      "SetDocumentTypeRequest": {
+        "required": [
+          "typeKey"
+        ],
+        "type": "object",
+        "properties": {
+          "typeKey": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "prefill": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}:set-type` (docs/11 §12.1 step 3): the type key, optionally a published version of it\n(the tenant's published version otherwise), and `prefill`: `none` (the default; the document gets the\nempty tree of the type version, every field Missing, at once) or `auto` (the document goes back through the\nExtract stage for that type, which fills what it can; 202)."
+      },
       "SourceBox": {
         "required": [
           "x0",
@@ -5707,6 +6086,97 @@
           }
         },
         "description": "An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes."
+      },
+      "SplitDocumentRequest": {
+        "required": [
+          "parts"
+        ],
+        "type": "object",
+        "properties": {
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SplitPartRequest"
+            }
+          }
+        },
+        "description": "The parts of a split, in page order; together they cover every page of the document exactly once."
+      },
+      "SplitDocumentResponse": {
+        "required": [
+          "parts"
+        ],
+        "type": "object",
+        "properties": {
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SplitPartResult"
+            }
+          }
+        }
+      },
+      "SplitPartRequest": {
+        "required": [
+          "pages"
+        ],
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "typeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One part of `POST /documents/{id}:split` (docs/11 §12.7): its pages, 1-based within the document and\nconsecutive, and optionally the type a reviewer already knows it has (the part then skips classification)."
+      },
+      "SplitPartResult": {
+        "required": [
+          "documentId",
+          "pages",
+          "typeKey",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "typeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          }
+        },
+        "description": "A part a split produced: the first keeps the document's id, the others are new documents of the same attachment."
       },
       "SupplierActivityItem": {
         "required": [
@@ -5765,6 +6235,32 @@
           }
         },
         "description": "One recent document of a supplier, for the supplier activity view (docs/05 \"Suppliers: ... activity\")."
+      },
+      "SupplierFromReviewResponse": {
+        "required": [
+          "supplier",
+          "document"
+        ],
+        "type": "object",
+        "properties": {
+          "supplier": {
+            "$ref": "#/components/schemas/SupplierResponse"
+          },
+          "document": {
+            "$ref": "#/components/schemas/DocumentDetail"
+          }
+        },
+        "description": "What `POST /documents/{id}:create-supplier` answers: the new supplier and the document it was assigned to."
+      },
+      "SupplierMatchMethod": {
+        "enum": [
+          "Vat",
+          "Iban",
+          "Domain",
+          "Name",
+          "Human",
+          null
+        ]
       },
       "SupplierResponse": {
         "required": [

@@ -188,6 +188,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("IssueDate")
                         .HasColumnType("date");
 
+                    b.Property<Guid?>("JoinedIntoDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int?>("LineCount")
                         .HasColumnType("int");
 
@@ -224,6 +227,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<double?>("SupplierMatchConfidence")
                         .HasColumnType("float");
+
+                    b.Property<string>("SupplierMatchMethod")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");

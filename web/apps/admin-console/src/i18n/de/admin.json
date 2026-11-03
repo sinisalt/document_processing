@@ -427,7 +427,11 @@
       "approved": "Freigegeben",
       "rejected": "Abgelehnt",
       "corrected": "Korrigiert",
-      "reprocessed": "Erneut verarbeitet"
+      "reprocessed": "Erneut verarbeitet",
+      "type_set": "Typ festgelegt",
+      "supplier_assigned": "Lieferant zugeordnet",
+      "split": "Aufgeteilt",
+      "joined": "Zusammengeführt"
     },
     "rawJson": "Rohdaten (JSON)",
     "detailKey": {

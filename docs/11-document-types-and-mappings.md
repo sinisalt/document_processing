@@ -649,6 +649,7 @@ When a tenant fallback rule decided the type, `identification` holds `{"scope": 
 **Correction** (extended)
 - `Op nvarchar(16)`: `set | append | remove | move | setType | split | join`.
 - `SourceJson json?`: `{method, page, bBox, rawText, words:[[page,i]], path, cell, table?}`. `table` holds the table tool's specification and a copy of its report when one Correction writes a whole repeating group (section 12.4), for the audit; the report that rules read is the `DocumentTableReport` below.
+  - Correction (P2): a `move` records the field the value came from as `from` (`{"from": "issueDate", …}`), next to the source the reviewer gave; `FieldPath` is the target. The review actions write `setType` with `FieldPath` `type` and `split` / `join` with `FieldPath` `pages` (old and new type or page ranges as their values).
 - `DocumentTypeVersionId`.
 - `FieldPath` keeps the existing grammar.
 
@@ -1304,6 +1305,8 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 
    Tenant-defined types default to always-review, which keeps today's "non-invoices always reviewed" behaviour (`ValidateHandler.cs:290`). Approve is refused when a document has no definition or no canonical data; today an empty approval would be published.
 
+   Correction (P2): the refusal is behind `configurableTypes` (principle 6), so a tenant that is not on the feature approves as before. `:approve` answers 409 with `code` `TYPE_REQUIRED` (the type is Unknown), `NO_DEFINITION` (the type has no published definition the tenant can use) or `NO_DATA` (no canonical data), and `DocumentDetail.approvalBlocked {code, message}` carries the same, so the review screen can say why before the click.
+
 **Flags.** `FlagCodes.Catalogue` (`DocumentFlag.cs:63-83`) gains:
 
 - `FIELD_REQUIRED`, `FIELD_INVALID`, `RULE_FAILED {ruleId, typeKey, message}`
@@ -1330,6 +1333,7 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
    - "Start with: Empty / Let AI pre-fill". There is no "apply a layout" option: this panel is shown only for unknown suppliers and suppliers without layouts, and a layout whose identification rule did not hold is never applied (principle 9).
    - A document of a known, layout-managed supplier does not get this panel; it gets the **New layout** panel of section 12.10.
    - `POST /documents/{id}:assign-supplier {supplierId, remember?}` (the supplier picker) re-runs `classify.identification` for the assigned supplier through the reprocess path (from Classify, 202), exactly as if routing had found it: if one of its layouts holds, that layout is applied with its identification evidence (and a type the reviewer set, `TypeSource=Human`, restricts the search to that type's layouts); if the supplier is layout-managed and none holds, the document gets `NEW_LAYOUT` and the New layout panel replaces this one; otherwise this panel stays, with the tenant fallback rules re-evaluated. A document therefore takes the same identification path whether the supplier came from routing or from a reviewer.
+   - Correction (P2): until identification exists (P4) there is nothing to re-run, and a reprocess from Classify would extract the document again (an invoice by the LLM). In P2 `:assign-supplier {supplierId}` therefore assigns the supplier at once (`SupplierMatchMethod=Human`, which the Match stage keeps on every later run), resolves `SUPPLIER_UNMATCHED`, re-runs the checks inline and answers 200; `remember` comes with source rules in P4, and so does the reprocess through `classify.identification`. "Create supplier from this document" is `POST /documents/{id}:create-supplier` (section 18), with the checks of `POST /suppliers`.
 3. `POST /documents/{id}:set-type {typeKey, version?, prefill: "none"|"auto"}` sets the type key, `DocumentTypeVersionId` and `TypeSource=Human`. It writes a `setType` Correction and creates an empty canonical from the definition, with every field Missing (`DefinitionPatcher.CreateEmpty`). With `auto` it re-enters Extract through the existing reprocess path (`DocumentEndpoints.cs:508`) and returns 202. The screen remounts on the new version, using the existing `id:updatedAt` key.
 
 ### 12.2 Generated form
@@ -1353,6 +1357,7 @@ A "Map from page" toggle sits next to Words (`PageViewer.tsx:125-128`). It is on
 - Enter assigns and moves to the next empty required field. Tab skips. Esc cancels.
 - If there are no words under the box (a scanned page with a weak text layer), `POST /documents/{id}/regions:read {page, bBox}` crops the page PNG and runs `IOcrProvider` on that region only.
 - **Match fields.** The reviewer drags a value chip from one field onto another; the correction op is `move`, with history kept.
+  - Correction (P2): the correction is `{path, op: "move", from}` and needs no value: the value of `from`, converted to the kind of `path`, goes there with the place it was read from, and `from` is left Missing; both fields keep their history, and the move is one Correction row. Both ends are single fields, list entries or fields of rows; a member of a composite value or a bag key is corrected with `set`.
 
 ### 12.4 Table tool
 
@@ -1413,7 +1418,11 @@ This needs new normalizers (`NormalizeHandler.cs:42-48` throws "unsupported form
 
 This handles an Unknown PDF that actually contains a credit note and a delivery note.
 
+Correction (P2): a typed part goes to Extract without the Match stage, so it keeps the document's supplier (an untyped part is matched again; a supplier a reviewer assigned is kept either way). The parts list the document's pages in order, each once, every part a run of consecutive pages, because a document is a page range of its item (`PageStart`, `PageEnd`). The document's data, list columns, field index and pipeline flags described its old pages and are cleared; its corrections stay with it as its audit, its open review tasks are skipped, and nothing is published (only unsettled documents are split).
+
 The reverse, `POST /documents/{id}:join {documentIds}`, joins parts of the same item that are not settled back into one document, with the pages in item order. The first document keeps its id, the others are cancelled with a link to it, a Correction with op `join` records the operation, and the joined document re-enters Classify. It repairs a price list that the heuristic splitter cut at a group heading (5.8).
+
+Correction (P2): "cancelled" needs a state and a link the data model did not have: the joined-away parts get the terminal status `Cancelled` and `Documents.JoinedIntoDocumentId` (§6.2), keep their data for the audit, lose their list columns and field index, and are never duplicates. "The first document" is the one the request names (`{id}`), which takes every page in item order; the parts must make one unbroken run of the item's pages. Joined back into the whole item, the document is the whole file again (its normalised file restored, cancelled parts do not count as parts of a split), so it is read exactly as before the split.
 
 ### 12.8 DefinitionPatcher
 
@@ -1882,6 +1891,7 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
   - `POST /documents/{id}:set-type {typeKey, version?, prefill: "none"|"auto"}`
   - `POST /documents/{id}:assign-supplier {supplierId, remember?:{conditions…, mode}}` (202; re-runs `classify.identification` for that supplier from Classify, 12.1)
   - `POST /documents/{id}:split`, `POST /documents/{id}:join {documentIds}`
+  - Correction (P2): `POST /documents/{id}:create-supplier` ("create supplier from review", section 14), with the body and checks of `POST /suppliers`; section 14 and the P2 plan need it and this list had no route for it.
   - `POST /documents/{id}:resolve-revision {resolution: "supersedes"|"additional"|"duplicate"}` (`REVISION_OF`, section 11)
   - `POST /documents/{id}:revalidate`
   - `GET /documents/{id}/pages/{n}/words?bbox=`

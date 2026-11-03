@@ -81,7 +81,11 @@
       "approved": "Approved",
       "rejected": "Rejected",
       "corrected": "Fields corrected",
-      "reprocessed": "Reprocessing requested"
+      "reprocessed": "Reprocessing requested",
+      "type_set": "Type set",
+      "supplier_assigned": "Supplier assigned",
+      "split": "Split into documents",
+      "joined": "Joined"
     }
   },
   "inbox": {
@@ -243,6 +247,11 @@
       "useCurrentVersionNewer": "This document was read with {{type}} v{{version}}; v{{published}} is published. Without this, the document keeps v{{version}}.",
       "useCurrentVersionSame": "This document was read with {{type}} v{{version}}, the published version.",
       "saveFirst": "Save or discard your corrections first.",
+      "approveBlocked": {
+        "TYPE_REQUIRED": "Set the type of this document before approving it: an Unknown document has no fields to deliver.",
+        "NO_DEFINITION": "This type has no published definition; publish it or set another type before approving.",
+        "NO_DATA": "Nothing was captured yet; fill the fields before approving."
+      },
       "shortcutApple": "⌘↵",
       "shortcutOther": "Ctrl+Enter"
     },

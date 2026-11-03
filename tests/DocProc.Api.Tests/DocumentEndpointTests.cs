@@ -601,7 +601,7 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
             return await response.Content.ReadAsStringAsync(Ct);
         }
 
-        (await Refused(new FieldCorrection("notes", value, null, Op: "append"))).ShouldContain("not available yet");
+        (await Refused(new FieldCorrection("notes", value, null, Op: "append"))).ShouldContain("does not apply to this document");
         (await Refused(new FieldCorrection("notes", value, null, Op: "rewrite"))).ShouldContain("is not a correction operation");
         (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(Page: 0)))).ShouldContain("1-based");
         (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(BBox: new SourceBox(10, 10, 1200, 20))))).ShouldContain("bBox");

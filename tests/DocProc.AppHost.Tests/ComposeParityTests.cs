@@ -1,10 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
-using Aspire.Hosting.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using YamlDotNet.RepresentationModel;
 
 namespace DocProc.AppHost.Tests;
@@ -359,20 +356,14 @@ public sealed class ComposeParityTests
         || key.StartsWith("services__", StringComparison.Ordinal)
         || key.StartsWith("Logging__", StringComparison.OrdinalIgnoreCase);
 
-    private static async Task<DistributedApplicationModel> BuildModelAsync()
-    {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(Ct);
-        var app = await builder.BuildAsync(Ct);
-        return app.Services.GetRequiredService<DistributedApplicationModel>();
-    }
+    private static Task<DistributedApplicationModel> BuildModelAsync() => AppHostModel.ModelAsync(Ct);
 
     /// <summary>The environment the AppHost gives a resource, evaluated without starting anything (values may be expressions).</summary>
     private static async Task<Dictionary<string, object>> EnvironmentOfAsync(string name)
     {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(Ct);
-        await using var app = await builder.BuildAsync(Ct);
-        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
-        var executionContext = app.Services.GetRequiredService<DistributedApplicationExecutionContext>();
+        await using var app = await AppHostModel.BuildAsync(Ct);
+        var model = app.Model;
+        var executionContext = app.ExecutionContext;
 
         var resource = (IResourceWithEnvironment)model.Resources.Single(r => r.Name == name);
         var context = new EnvironmentCallbackContext(executionContext, resource, cancellationToken: Ct);

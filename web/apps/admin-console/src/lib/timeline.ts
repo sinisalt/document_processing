@@ -13,7 +13,7 @@ export function eventKind(eventType: string): string {
 export const failureKinds: readonly string[] = ["stage_failed"];
 
 /** Event kinds a human caused (the actor is a user, not `pipeline`). */
-export const humanKinds: readonly string[] = ["approved", "rejected", "corrected", "reprocessed"];
+export const humanKinds: readonly string[] = ["approved", "rejected", "corrected", "reprocessed", "type_set", "supplier_assigned", "split", "joined"];
 
 /** The pipeline stage whose output is each progress status (PipelineStages.ResultingStatus, inverted). */
 const stageByStatus: Partial<Record<DocumentStatus, string>> = {

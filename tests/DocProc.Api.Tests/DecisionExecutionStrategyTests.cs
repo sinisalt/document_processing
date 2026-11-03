@@ -48,6 +48,24 @@ public sealed class DecisionExecutionStrategyTests : IDisposable
         Outbox(toReject.DocumentId).ShouldHaveSingleItem().EventType.ShouldBe(DocumentEventTypes.Rejected);
     }
 
+    /// <summary>The review actions of P2 (docs/11 §12) save without a transaction of their own, so the strategy runs them as it runs any save.</summary>
+    [Fact]
+    public async Task The_review_actions_work_under_a_retrying_execution_strategy()
+    {
+        var typed = await _factory.SeedDocumentAsync(new DocumentSeed { Type = DocumentTypeKey.Unknown, Invoice = null, SupplierName = null, ReviewTask = true });
+        var assigned = await _factory.SeedDocumentAsync(new DocumentSeed { SupplierName = null, ReviewTask = true });
+        var metro = await _factory.SeedDocumentAsync(new DocumentSeed());
+        var supplierId = _factory.Query(db => db.Documents.Single(d => d.Id == metro.DocumentId).SupplierId!.Value);
+        using var reviewer = Reviewer();
+
+        (await reviewer.PostAsJsonAsync(Uri(typed.DocumentId, ":set-type"), new SetDocumentTypeRequest("Invoice"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await reviewer.PostAsJsonAsync(Uri(assigned.DocumentId, ":assign-supplier"), new AssignSupplierRequest(supplierId), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await reviewer.PatchAsJsonAsync(Uri(assigned.DocumentId, "/fields"), new CorrectFieldsRequest([new FieldCorrection("deliveryDate", null, null, Op: "move", From: "dueDate")]), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        _factory.Query(db => db.Documents.Single(d => d.Id == typed.DocumentId).Type).ShouldBe(DocumentTypeKey.Invoice);
+        _factory.Query(db => db.Documents.Single(d => d.Id == assigned.DocumentId).SupplierMatchMethod).ShouldBe(SupplierMatchMethod.Human);
+    }
+
     [Theory]
     [InlineData(":approve", DocumentStatus.Approved, DocumentEventTypes.Approved)]
     [InlineData(":reject", DocumentStatus.Rejected, DocumentEventTypes.Rejected)]

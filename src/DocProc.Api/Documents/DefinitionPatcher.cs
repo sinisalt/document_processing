@@ -26,14 +26,17 @@ namespace DocProc.Api.Documents;
 /// <item><description><c>append</c> adds a row to a repeating group (<c>lines</c>, with an optional object of row
 /// values) or an entry to a list.</description></item>
 /// <item><description><c>remove</c> removes a row (<c>lines[2]</c>), a list entry or a bag key.</description></item>
+/// <item><description><c>move</c> (docs/11 §12.3 "match fields") takes the value of the field <c>from</c> names and puts it
+/// into the field <c>path</c> names, converted to that field's kind and with the place it was read from; <c>from</c> is
+/// left Missing. Both fields keep their earlier state in their history. Either end is a single field, a list entry or a
+/// field of a row.</description></item>
 /// </list>
-/// The other operations of docs/11 §6.2 (<c>move</c>, <c>setType</c>, <c>split</c>, <c>join</c>) are refused as not
-/// available yet, as before.
+/// <c>setType</c>, <c>split</c> and <c>join</c> are review actions of their own, not field corrections.
 /// </summary>
 public static partial class DefinitionPatcher
 {
     /// <summary>The operations this patcher applies.</summary>
-    public static readonly IReadOnlyList<string> Operations = [CorrectionOps.Set, CorrectionOps.Append, CorrectionOps.Remove];
+    public static readonly IReadOnlyList<string> Operations = [CorrectionOps.Set, CorrectionOps.Append, CorrectionOps.Remove, CorrectionOps.Move];
 
     /// <summary>The most rows an append may grow a repeating group to when the definition sets no <c>maxItems</c>.</summary>
     public const int DefaultMaxRows = 20_000;
@@ -127,12 +130,20 @@ public static partial class DefinitionPatcher
         var op = string.IsNullOrEmpty(correction.Op) ? CorrectionOps.Set : correction.Op;
         if (!Operations.Contains(op, StringComparer.Ordinal))
         {
-            throw new CanonicalPatchException(path, CorrectionOps.Planned.Contains(op, StringComparer.Ordinal)
-                ? $"The correction operation '{op}' is not available yet; only '{string.Join("', '", Operations)}' are."
-                : $"'{op}' is not a correction operation; use one of '{string.Join("', '", Operations)}'.");
+            throw new CanonicalPatchException(path, CorrectionOps.NotApplied(op, Operations));
         }
 
         CorrectionSources.Check(path, correction.Source);
+        if (op == CorrectionOps.Move)
+        {
+            return Move(context, path, correction);
+        }
+
+        if (correction.From is not null)
+        {
+            throw new CanonicalPatchException(path, $"'from' belongs to op '{CorrectionOps.Move}' only.");
+        }
+
         var segments = ParsePath(path);
         var node = context.Root;
         string? prefix = null;
@@ -225,6 +236,210 @@ public static partial class DefinitionPatcher
             var (envelope, record) = Correct(context, path, field, node[segment.Name], rest, correction);
             node[segment.Name] = envelope;
             return record;
+        }
+
+        throw new CanonicalPatchException(path, "The path does not address a field.");
+    }
+
+    /// <summary>
+    /// <c>move</c>: the value of <c>from</c> into <paramref name="path"/> (converted to the target's kind, with the place it
+    /// was read from unless the correction names one), and <c>from</c> left Missing; both keep their history.
+    /// </summary>
+    private static AppliedCorrection Move(Context context, string path, FieldCorrection correction)
+    {
+        var from = correction.From?.Trim();
+        if (string.IsNullOrEmpty(from))
+        {
+            throw new CanonicalPatchException(path, "A move names the field the value comes from in 'from'.");
+        }
+
+        if (correction.Value is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+        {
+            throw new CanonicalPatchException(path, "A move takes its value from the field 'from' names; send no value.");
+        }
+
+        if (string.Equals(from, path, StringComparison.Ordinal))
+        {
+            throw new CanonicalPatchException(path, "A field cannot be moved onto itself.");
+        }
+
+        var source = Resolve(context, from, create: false);
+        var sourceNode = source.Get();
+        var moved = DefinitionTree.IsEnvelope(sourceNode) && sourceNode!["value"] is { } value && !IsWithoutValue(sourceNode)
+            ? value
+            : throw new CanonicalPatchException(from, $"'{from}' has no value to move.");
+        var sourceField = ReadEnvelope(from, sourceNode);
+
+        var target = Resolve(context, path, create: true);
+        var targetNode = target.Get();
+        var oldValue = DefinitionTree.IsEnvelope(targetNode) ? targetNode!["value"] : null;
+        JsonNode? newValue;
+        try
+        {
+            newValue = Convert(context, path, target.Field, MovableValue(source.Field, target.Field, moved), oldValue, target.Row);
+        }
+        catch (CanonicalPatchException ex)
+        {
+            throw new CanonicalPatchException(path, $"The value of '{from}' does not fit '{path}': {ex.Message}");
+        }
+
+        var location = CorrectionSources.ToFieldSource(correction.Source) ?? sourceField.Source;
+        var corrected = CorrectEnvelope(context, path, targetNode, newValue, location is { Page: null, BBox: null, RawText: null } ? null : location);
+        target.Set(corrected);
+        source.Set(MovedOut(context, sourceField));
+        return new AppliedCorrection(path, oldValue?.ToJsonString(), corrected["value"]?.ToJsonString(), correction.Reason, CorrectionOps.Move, correction.Source, from);
+    }
+
+    private static bool IsWithoutValue(JsonNode envelope) =>
+        envelope["status"] is JsonValue status && status.TryGetValue<string>(out var text)
+        && (string.Equals(text, nameof(FieldStatus.Missing), StringComparison.OrdinalIgnoreCase) || string.Equals(text, nameof(FieldStatus.Unreadable), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The moved value in a shape the target's kind takes: an identifier's verbatim text for any other kind, an amount's
+    /// number for a plain number, the text of a number or a yes/no for a string, anything else as stored.
+    /// </summary>
+    private static JsonElement MovableValue(FieldDescriptor sourceField, FieldDescriptor targetField, JsonNode value)
+    {
+        JsonNode adapted = value;
+        if (sourceField.Kind == FieldKinds.Identifier && targetField.Kind != FieldKinds.Identifier && value["verbatim"] is JsonValue verbatim)
+        {
+            adapted = verbatim;
+        }
+        else if (sourceField.Kind == FieldKinds.Money && targetField.Kind != FieldKinds.Money && value["amount"] is JsonValue amount)
+        {
+            adapted = amount;
+        }
+
+        if (targetField.Kind is FieldKinds.String or FieldKinds.Text && adapted is JsonValue scalar && scalar.GetValueKind() is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
+        {
+            adapted = JsonValue.Create(scalar.ToJsonString());
+        }
+
+        using var document = JsonDocument.Parse(adapted.ToJsonString());
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>The field a value moved out of: its earlier state in the history, Missing now, the reviewer's provenance.</summary>
+    private static JsonObject MovedOut(Context context, FieldValue<JsonNode> field)
+    {
+        var moved = field.Correct(null, context.By, context.At) with { Status = FieldStatus.Missing, Confidence = null };
+        return (JsonObject)JsonSerializer.SerializeToNode(moved, CanonicalJson.Options)!;
+    }
+
+    private static FieldValue<JsonNode> ReadEnvelope(string path, JsonNode? stored)
+    {
+        try
+        {
+            return stored is JsonObject envelope && DefinitionTree.IsEnvelope(envelope)
+                ? envelope.Deserialize<FieldValue<JsonNode>>(CanonicalJson.Options) ?? FieldValue<JsonNode>.Missing()
+                : FieldValue<JsonNode>.Missing();
+        }
+        catch (JsonException ex)
+        {
+            throw new CanonicalPatchException(path, $"The stored field could not be read: {ex.Message}");
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new CanonicalPatchException(path, $"The stored field could not be read: {ex.Message}");
+        }
+    }
+
+    /// <summary>Where one field envelope of a move sits: a property of an object (the root, a group, a row) or an entry of a list.</summary>
+    private sealed record Slot(JsonObject? Owner, string? Key, JsonArray? List, int Index, FieldDescriptor Field, JsonObject Row)
+    {
+        public JsonNode? Get() => Owner is not null ? Owner[Key!] : List![Index];
+
+        public void Set(JsonNode value)
+        {
+            if (Owner is not null)
+            {
+                Owner[Key!] = value;
+            }
+            else
+            {
+                List![Index] = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The field envelope a move reads or writes: a single field (<c>issueDate</c>, <c>totals.net</c>), a list entry
+    /// (<c>orderReferences[0]</c>) or a field of a row (<c>lines[2].price</c>). A member inside a composite value and a
+    /// bag attribute are not moved (they are corrected with <c>set</c>). <paramref name="create"/> makes a missing group.
+    /// </summary>
+    private static Slot Resolve(Context context, string path, bool create)
+    {
+        var segments = ParsePath(path);
+        var node = context.Root;
+        string? prefix = null;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            var last = i == segments.Count - 1;
+            var definitionPath = prefix is null ? segment.Name : $"{prefix}.{segment.Name}";
+            var field = context.Descriptors.Find(definitionPath) ?? throw new CanonicalPatchException(path, $"'{segment.Name}' is not a field of the document type.");
+            switch (field.Kind)
+            {
+                case FieldKinds.Bag:
+                    throw new CanonicalPatchException(path, "An attribute of a bag is not moved; set it instead.");
+                case FieldKinds.Array:
+                    if (segment.Index is not { } row || last)
+                    {
+                        throw new CanonicalPatchException(path, $"A move addresses a field of a row ({segment.Name}[n].<field>), not the repeating group.");
+                    }
+
+                    var rows = node[segment.Name] as JsonArray;
+                    node = rows is not null && row < rows.Count && rows[row] is JsonObject rowObject
+                        ? rowObject
+                        : throw new CanonicalPatchException(path, $"'{segment.Name}' has no row at index {row}.");
+                    prefix = $"{definitionPath}[*]";
+                    continue;
+                case FieldKinds.Object:
+                    if (segment.Index is not null || last)
+                    {
+                        throw new CanonicalPatchException(path, $"'{segment.Name}' is a group of fields; address one of its fields.");
+                    }
+
+                    if (node[segment.Name] is not JsonObject group)
+                    {
+                        if (!create)
+                        {
+                            throw new CanonicalPatchException(path, $"'{path}' has no value to move.");
+                        }
+
+                        group = [];
+                        node[segment.Name] = group;
+                    }
+
+                    node = group;
+                    prefix = definitionPath;
+                    continue;
+            }
+
+            if (!last)
+            {
+                throw new CanonicalPatchException(path, "A value inside a composite field is not moved; move the whole field, or set the value.");
+            }
+
+            if (!field.Provenance || field.ReadOnly)
+            {
+                throw new CanonicalPatchException(path, $"'{segment.Name}' carries no provenance or is read-only and cannot be corrected through this endpoint.");
+            }
+
+            if (field.IsList)
+            {
+                var list = node[segment.Name] as JsonArray;
+                return segment.Index is { } entry && list is not null && entry < list.Count
+                    ? new Slot(null, null, list, entry, field, node)
+                    : throw new CanonicalPatchException(path, segment.Index is null ? $"'{segment.Name}' is a list; address an entry as {segment.Name}[n]." : $"'{segment.Name}' has no entry at index {segment.Index}.");
+            }
+
+            if (segment.Index is not null)
+            {
+                throw new CanonicalPatchException(path, $"'{segment.Name}' is a single field, not a list.");
+            }
+
+            return new Slot(node, segment.Name, null, 0, field, node);
         }
 
         throw new CanonicalPatchException(path, "The path does not address a field.");
@@ -384,25 +599,13 @@ public static partial class DefinitionPatcher
     }
 
     /// <summary>The corrected envelope: the stored one (or Missing) read as <c>FieldValue&lt;JsonNode&gt;</c>, through <see cref="FieldValue{T}.Correct"/>.</summary>
-    private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldCorrection correction)
-    {
-        FieldValue<JsonNode> field;
-        try
-        {
-            field = current is JsonObject stored && DefinitionTree.IsEnvelope(stored)
-                ? stored.Deserialize<FieldValue<JsonNode>>(CanonicalJson.Options) ?? FieldValue<JsonNode>.Missing()
-                : FieldValue<JsonNode>.Missing();
-        }
-        catch (JsonException ex)
-        {
-            throw new CanonicalPatchException(path, $"The stored field could not be read: {ex.Message}");
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            throw new CanonicalPatchException(path, $"The stored field could not be read: {ex.Message}");
-        }
+    private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldCorrection correction) =>
+        CorrectEnvelope(context, path, current, newValue, CorrectionSources.ToFieldSource(correction.Source));
 
-        var corrected = field.Correct(newValue?.DeepClone(), context.By, context.At, CorrectionSources.ToFieldSource(correction.Source));
+    private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldSource? source)
+    {
+        var field = ReadEnvelope(path, current);
+        var corrected = field.Correct(newValue?.DeepClone(), context.By, context.At, source);
         return (JsonObject)JsonSerializer.SerializeToNode(corrected, CanonicalJson.Options)!;
     }
 

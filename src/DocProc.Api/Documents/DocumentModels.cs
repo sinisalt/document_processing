@@ -127,7 +127,58 @@ public sealed record DocumentDetail(
     string? TypeName,
     int? TypeVersion,
     DocumentDefinitionRef? Definition,
-    JsonElement? AppliedConfig);
+    JsonElement? AppliedConfig)
+{
+    /// <summary>How the supplier was found (docs/11 §6.2): <c>Human</c> when a reviewer assigned it; null without one or before it was recorded.</summary>
+    public SupplierMatchMethod? SupplierMatchMethod { get; init; }
+
+    /// <summary>The document a reviewer joined this one into (<c>:join</c>, docs/11 §12.7); set on a <c>Cancelled</c> part.</summary>
+    public Guid? JoinedIntoDocumentId { get; init; }
+
+    /// <summary>
+    /// Why <c>:approve</c> would refuse the document now (docs/11 §11 "Approve is refused when a document has no definition
+    /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
+    /// </summary>
+    public ApprovalBlock? ApprovalBlocked { get; init; }
+}
+
+/// <summary>
+/// What keeps a document from being approved: <c>code</c> is <c>TYPE_REQUIRED</c> (the type is Unknown),
+/// <c>NO_DEFINITION</c> (the type has no published definition the tenant can use) or <c>NO_DATA</c> (nothing was
+/// captured: the document has no canonical data); <c>message</c> says it in English.
+/// </summary>
+public sealed record ApprovalBlock(string Code, string Message);
+
+/// <summary>
+/// <c>POST /documents/{id}:set-type</c> (docs/11 §12.1 step 3): the type key, optionally a published version of it
+/// (the tenant's published version otherwise), and <c>prefill</c>: <c>none</c> (the default; the document gets the
+/// empty tree of the type version, every field Missing, at once) or <c>auto</c> (the document goes back through the
+/// Extract stage for that type, which fills what it can; 202).
+/// </summary>
+public sealed record SetDocumentTypeRequest(string TypeKey, int? Version = null, string? Prefill = null);
+
+/// <summary><c>POST /documents/{id}:assign-supplier</c> (docs/11 §12.1): a supplier of the document's tenant.</summary>
+public sealed record AssignSupplierRequest(Guid SupplierId);
+
+/// <summary>What <c>POST /documents/{id}:create-supplier</c> answers: the new supplier and the document it was assigned to.</summary>
+public sealed record SupplierFromReviewResponse(Endpoints.SupplierResponse Supplier, DocumentDetail Document);
+
+/// <summary>
+/// One part of <c>POST /documents/{id}:split</c> (docs/11 §12.7): its pages, 1-based within the document and
+/// consecutive, and optionally the type a reviewer already knows it has (the part then skips classification).
+/// </summary>
+public sealed record SplitPartRequest(IReadOnlyList<int> Pages, string? TypeKey = null);
+
+/// <summary>The parts of a split, in page order; together they cover every page of the document exactly once.</summary>
+public sealed record SplitDocumentRequest(IReadOnlyList<SplitPartRequest> Parts);
+
+/// <summary>A part a split produced: the first keeps the document's id, the others are new documents of the same attachment.</summary>
+public sealed record SplitPartResult(Guid DocumentId, IReadOnlyList<int> Pages, string? TypeKey, DocumentStatus Status);
+
+public sealed record SplitDocumentResponse(IReadOnlyList<SplitPartResult> Parts);
+
+/// <summary><c>POST /documents/{id}:join</c> (docs/11 §12.7): the other parts of the same attachment to join into this one.</summary>
+public sealed record JoinDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
 
 public sealed record DocumentEventDto(
     long Id,
@@ -155,14 +206,17 @@ public sealed record ReprocessDocumentRequest(string? FromStage, string? ConfigM
 /// <c>Invoice.EnumerateAllFields</c> produces it (<c>invoiceNumber</c>, <c>lines[2].quantity</c>, <c>supplier</c>) or a
 /// property inside such a field's value (<c>supplier.vatId</c>); <see cref="Value"/> is the new value in the JSON
 /// shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-/// clear it. <c>op</c> is the correction operation: <c>set</c> (the default); for a definition-driven document
-/// (<c>canonicalSchemaVersion</c> 2) also <c>append</c> (a row of a repeating group, with an optional object of row
-/// values, or a list entry) and <c>remove</c> (a row, a list entry or a bag key); the others of docs/11 §6.2
-/// (<c>move</c>, <c>setType</c>, <c>split</c>, <c>join</c>) are refused until their phase. <c>source</c>
-/// optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
-/// provenance and on the Correction row.
+/// clear it. <c>op</c> is the correction operation: <c>set</c> (the default); <c>move</c> (docs/11 §12.3 "match
+/// fields", every document with data): the value of the field <c>from</c> names goes into <see cref="Path"/>, converted
+/// to that field's kind, with its place on the page, and <c>from</c> is left without a value; both fields keep their
+/// previous state in their history, and the move is one Correction row (op <c>move</c>, the source path in its
+/// <c>SourceJson.from</c>). For a definition-driven document (<c>canonicalSchemaVersion</c> 2) also <c>append</c> (a
+/// row of a repeating group, with an optional object of row values, or a list entry) and <c>remove</c> (a row, a list
+/// entry or a bag key). <c>setType</c>, <c>split</c> and <c>join</c> are review actions of their own
+/// (<c>:set-type</c>, <c>:split</c>, <c>:join</c>), not corrections. <c>source</c> optionally says where on the page
+/// or in the file the reviewer took the value from; it is stored with the field's provenance and on the Correction row.
 /// </summary>
-public sealed record FieldCorrection(string Path, JsonElement? Value, string? Reason, string? Op = null, CorrectionSource? Source = null);
+public sealed record FieldCorrection(string Path, JsonElement? Value, string? Reason, string? Op = null, CorrectionSource? Source = null, string? From = null);
 
 /// <summary>
 /// Where a corrected value came from (docs/11 §6.2 <c>Correction.SourceJson</c>). Every part is optional.

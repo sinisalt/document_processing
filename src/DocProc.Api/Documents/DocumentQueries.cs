@@ -127,7 +127,11 @@ public static class DocumentQueries
             definition is null ? null : definition.Name.GetValueOrDefault("en") ?? definition.Name.Values.FirstOrDefault(),
             definition?.Version,
             definition,
-            ParseJson(d.AppliedConfigJson));
+            ParseJson(d.AppliedConfigJson))
+        {
+            SupplierMatchMethod = d.SupplierMatchMethod,
+            JoinedIntoDocumentId = d.JoinedIntoDocumentId,
+        };
     }
 
     /// <summary>What a flag without parameters (or one stored before they existed) sends: <c>{}</c>, never null.</summary>

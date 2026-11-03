@@ -20,6 +20,7 @@ export const documentStatuses: readonly DocumentStatus[] = [
   "Approved",
   "Rejected",
   "Failed",
+  "Cancelled",
 ];
 
 export const documentTypes: readonly DocumentType[] = ["Unknown", "Invoice", "CreditNote", "PurchaseOrder", "DeliveryNote", "Statement", "Reminder", "Other"];

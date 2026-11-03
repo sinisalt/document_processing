@@ -75,7 +75,8 @@
     "NeedsReview": "Needs review",
     "Approved": "Approved",
     "Rejected": "Rejected",
-    "Failed": "Failed"
+    "Failed": "Failed",
+    "Cancelled": "Joined into another document"
   },
   "reviewTaskStatus": {
     "Open": "Open",

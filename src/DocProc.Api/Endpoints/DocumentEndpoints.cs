@@ -110,6 +110,7 @@ public static partial class DocumentEndpoints
             .WithName("CorrectDocumentFields")
             .WithSummary("Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.");
 
+        MapReviewActions(documents);
         return group;
     }
 
@@ -306,7 +307,7 @@ public static partial class DocumentEndpoints
     {
         var document = row.Document;
         var (definition, type) = await DefinitionOfAsync(document, configs, features, ct);
-        var detail = DocumentQueries.ToDetail(row, definition);
+        var detail = DocumentQueries.ToDetail(row, definition) with { ApprovalBlocked = await ApprovalBlockAsync(document, configs, features, ct) };
         if (type?.Compiled is not { } compiled || !Correctable.Contains(document.Status))
         {
             return detail;
@@ -489,6 +490,13 @@ public static partial class DocumentEndpoints
         if (!DocumentStateMachine.CanTransition(document.Status, DocumentStatus.Approved))
         {
             return InvalidTransition(document, DocumentStatus.Approved);
+        }
+
+        // docs/11 §11: a document without a definition or without captured data is not approved (it would be published
+        // empty); the detail's approvalBlocked says the same before the click. Gated by configurableTypes.
+        if (await ApprovalBlockAsync(document, configs, features, ct) is { } block)
+        {
+            return ApprovalRefused(document, block);
         }
 
         var now = clock.GetUtcNow();
@@ -785,7 +793,7 @@ public static partial class DocumentEndpoints
                 Op = applied.Op,
                 OldValueJson = applied.OldValueJson,
                 NewValueJson = applied.NewValueJson,
-                SourceJson = CorrectionSources.ToJson(applied.Source),
+                SourceJson = CorrectionSources.ToJson(applied.Source, applied.From),
                 DocumentTypeVersionId = document.DocumentTypeVersionId,
                 By = actor,
                 At = now,
