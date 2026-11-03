@@ -127,6 +127,72 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         after.Aliases.Count.ShouldBe(SupplierEndpoints.MaxAliases);
     }
 
+    /// <summary>
+    /// A supplier stored before the caps (P1) with longer lists and entries the format checks now refuse. The portal
+    /// sends every list with every edit, so a list sent back as stored is not checked; a changed one is, and the code
+    /// names the refused entry.
+    /// </summary>
+    [Fact]
+    public async Task A_supplier_stored_before_the_caps_keeps_its_lists_through_an_edit_that_sends_them_back()
+    {
+        using var admin = TenantAdminClient();
+        var now = factory.Clock.GetUtcNow();
+        var id = Guid.CreateVersion7();
+        List<string> legacyIbans = [.. Enumerable.Range(0, 30).Select(i => $"DE{i:00}370400440000{i:000000}"), "NOTANIBANATALL"];
+        List<string> legacyDomains = [.. Enumerable.Range(0, 25).Select(i => $"d{i}.legacy.example"), "@legacy.example"];
+        List<string> legacyAliases = [.. Enumerable.Range(0, 60).Select(i => $"Legacy {i}")];
+        factory.Run(db => db.Suppliers.Add(new DocProc.Infrastructure.Persistence.Entities.Supplier
+        {
+            Id = id,
+            TenantId = ApiFactory.TenantA,
+            Name = "Altbestand KG",
+            NormalizedName = Identifiers.NormalizeName("Altbestand KG"),
+            Ibans = [.. legacyIbans],
+            EmailDomains = [.. legacyDomains],
+            Aliases = [.. legacyAliases],
+            CreatedAt = now,
+            UpdatedAt = now,
+        }));
+
+        var stored = (await admin.GetFromJsonAsync<SupplierResponse>(SupplierUri(id), Ct))!;
+        stored.Ibans.Count.ShouldBe(31);
+
+        // The portal's save: every list as GET returned it (one IBAN regrouped as typed), with a new name and review setting.
+        List<string> asTyped = ["DE00 3704 0044 0000 0000 00", .. stored.Ibans.Skip(1)];
+        var portal = await admin.PatchAsJsonAsync(SupplierUri(id), new PatchSupplierRequest("Altbestand KG & Co", null, null, asTyped, stored.EmailDomains, stored.Aliases, null, true), Ct);
+        portal.StatusCode.ShouldBe(HttpStatusCode.OK, await portal.Content.ReadAsStringAsync(Ct));
+        var edited = (await portal.Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        edited.Name.ShouldBe("Altbestand KG & Co");
+        edited.AlwaysReview.ShouldBeTrue();
+        factory.Query(db => db.Suppliers.Single(s => s.Id == id).Ibans).ShouldBe(legacyIbans);
+        factory.Query(db => db.Suppliers.Single(s => s.Id == id).EmailDomains).ShouldBe(legacyDomains);
+        factory.Query(db => db.Suppliers.Single(s => s.Id == id).Aliases).ShouldBe(legacyAliases);
+
+        // A changed list is checked whole: still over the cap, then the entry the format check refuses, named.
+        var trimmedByOne = await admin.PatchAsJsonAsync(SupplierUri(id), new PatchSupplierRequest(null, null, null, legacyIbans.Skip(1).ToList(), null, null, null, null), Ct);
+        (await ErrorCodeOf(trimmedByOne, "ibans")).Code.ShouldBe("maxItems");
+        var underTheCap = await admin.PatchAsJsonAsync(SupplierUri(id), new PatchSupplierRequest(null, null, null, legacyIbans.Skip(20).ToList(), legacyDomains.Skip(10).ToList(), null, null, null), Ct);
+        var (ibanCode, ibanParams) = await ErrorCodeOf(underTheCap, "ibans");
+        ibanCode.ShouldBe("iban");
+        ibanParams.GetProperty("value").GetString().ShouldBe("NOTANIBANATALL");
+        using (var problem = System.Text.Json.JsonDocument.Parse(await underTheCap.Content.ReadAsStringAsync(Ct)))
+        {
+            var domain = problem.RootElement.GetProperty("errorCodes").GetProperty("emailDomains");
+            domain.GetProperty("code").GetString().ShouldBe("emailDomain");
+            domain.GetProperty("params").GetProperty("value").GetString().ShouldBe("@legacy.example");
+        }
+
+        factory.Query(db => db.Suppliers.Single(s => s.Id == id).Ibans.Count).ShouldBe(31, "a refused PATCH changes nothing");
+
+        // Trimmed and fixed: stored as cleaned, the untouched aliases stay as they were.
+        var fixedLists = await admin.PatchAsJsonAsync(SupplierUri(id), new PatchSupplierRequest(null, null, null, legacyIbans.Skip(20).SkipLast(1).ToList(), legacyDomains.Skip(10).SkipLast(1).ToList(), stored.Aliases, null, null), Ct);
+        fixedLists.StatusCode.ShouldBe(HttpStatusCode.OK, await fixedLists.Content.ReadAsStringAsync(Ct));
+        var after = (await fixedLists.Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        after.Ibans.Count.ShouldBe(10);
+        after.EmailDomains.Count.ShouldBe(15);
+        after.Aliases.Count.ShouldBe(60);
+    }
+
     [Fact]
     public void Supplier_writes_and_the_review_actions_refuse_a_body_larger_than_a_legitimate_one()
     {

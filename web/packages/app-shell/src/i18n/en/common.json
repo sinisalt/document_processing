@@ -271,8 +271,8 @@
     "positive": "Must be greater than zero.",
     "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters.",
     "maxItems": "At most {{maxItems}} entries.",
-    "iban": "Not an IBAN: a country code, two check digits and 11 to 30 letters or digits.",
-    "emailDomain": "A domain name such as example.com, without the @."
+    "iban": "'{{value}}' is not an IBAN: a country code, two check digits and 11 to 30 letters or digits.",
+    "emailDomain": "'{{value}}' is not a domain name such as example.com (without the @)."
   },
   "dateInput": {
     "pick": "Choose a date",

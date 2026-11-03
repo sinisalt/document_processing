@@ -188,8 +188,16 @@ public static partial class SupplierEndpoints
                 return problem;
             }
 
+            var supplier = await db.Suppliers.SingleOrDefaultAsync(s => s.Id == id, ct);
+
+            // A list sent back as it is stored is not a change and is not checked: a supplier stored before the caps
+            // (P1) keeps its lists through an edit of its name or review setting, which the portal sends with every
+            // list, until a write changes them (docs/05).
+            var ibans = Changed(request.Ibans, supplier?.Ibans, CleanIbans);
+            var emailDomains = Changed(request.EmailDomains, supplier?.EmailDomains, CleanDomains);
+            var aliases = Changed(request.Aliases, supplier?.Aliases, CleanList);
             var errors = new Errors().Optional("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
-            ValidateLists(errors, request.Ibans, request.EmailDomains, request.Aliases);
+            ValidateLists(errors, ibans, emailDomains, aliases);
             string? normalizedName = null;
             if (request.Name is not null)
             {
@@ -207,7 +215,6 @@ public static partial class SupplierEndpoints
                 return invalid;
             }
 
-            var supplier = await db.Suppliers.SingleOrDefaultAsync(s => s.Id == id, ct);
             if (supplier is null)
             {
                 return TypedResults.NotFound();
@@ -234,19 +241,19 @@ public static partial class SupplierEndpoints
                 supplier.TaxId = TrimToNull(request.TaxId);
             }
 
-            if (request.Ibans is not null)
+            if (ibans is not null)
             {
-                supplier.Ibans = CleanIbans(request.Ibans);
+                supplier.Ibans = CleanIbans(ibans);
             }
 
-            if (request.EmailDomains is not null)
+            if (emailDomains is not null)
             {
-                supplier.EmailDomains = CleanDomains(request.EmailDomains);
+                supplier.EmailDomains = CleanDomains(emailDomains);
             }
 
-            if (request.Aliases is not null)
+            if (aliases is not null)
             {
-                supplier.Aliases = CleanList(request.Aliases);
+                supplier.Aliases = CleanList(aliases);
             }
 
             if (request.DefaultCurrency is not null)
@@ -395,6 +402,13 @@ public static partial class SupplierEndpoints
         return new SupplierCreation(supplier, null, null);
     }
 
+    /// <summary>
+    /// The list a <c>PATCH</c> gives, or null (leave it as it is) when none is given or it is the stored list again once
+    /// both are cleaned the same way (same entries in the same order).
+    /// </summary>
+    private static IReadOnlyList<string>? Changed(IReadOnlyList<string>? given, IReadOnlyList<string>? stored, Func<IEnumerable<string>?, List<string>> clean) =>
+        given is null || (stored is not null && clean(given).SequenceEqual(clean(stored), StringComparer.Ordinal)) ? null : given;
+
     private static List<string> CleanIbans(IEnumerable<string>? ibans) =>
         CleanList(ibans).Select(i => Identifiers.NormalizeCompact(i)!).Distinct(StringComparer.Ordinal).ToList();
 
@@ -422,7 +436,7 @@ public static partial class SupplierEndpoints
             }
             else if (entries.FirstOrDefault(i => !IbanPattern().IsMatch(Identifiers.NormalizeCompact(i)!)) is { } notAnIban)
             {
-                errors.Add("ibans", $"'{notAnIban}' is not an IBAN: a country code, two check digits and 11 to 30 letters or digits (spaces, dots and dashes are ignored).", ValidationCodes.Iban);
+                errors.Add("ibans", $"'{notAnIban}' is not an IBAN: a country code, two check digits and 11 to 30 letters or digits (spaces, dots and dashes are ignored).", ValidationCodes.Iban, ValidationCodes.ValueParam(notAnIban));
             }
         }
 
@@ -439,7 +453,7 @@ public static partial class SupplierEndpoints
             }
             else if (entries.FirstOrDefault(d => !DomainPattern().IsMatch(d.ToLowerInvariant())) is { } notADomain)
             {
-                errors.Add("emailDomains", $"'{notADomain}' is not a domain name such as example.com (the part of a sender's address after the @).", ValidationCodes.EmailDomain);
+                errors.Add("emailDomains", $"'{notADomain}' is not a domain name such as example.com (the part of a sender's address after the @).", ValidationCodes.EmailDomain, ValidationCodes.ValueParam(notADomain));
             }
         }
 

@@ -885,6 +885,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       actions (`:set-type`, `:assign-supplier`, `:create-supplier`, `:split`, `:join`) take at most 64 KB. Before, a
       reviewer stored 20,000 IBANs of 222 characters through `:create-supplier`, which every Match stage run of the
       tenant then loaded, or "not an iban at all" (`SupplierEndpointsTests`, `ReviewActionEndpointsTests`);
+    - a supplier stored before those caps (P1) can be edited again from the portal: `PATCH /suppliers/{id}` leaves a
+      list that equals the stored one once both are cleaned as it is, unchecked, so saving a new name or review setting
+      (the portal's dialog sends every list) no longer fails on lists the admin did not touch; a changed list is checked
+      whole, and `iban` and `emailDomain` carry the refused entry (`{value}`), which the portal's text names. Before,
+      every portal save of such a supplier was a `400` whose German text did not say which of 20 lines to fix
+      (`SupplierEndpointsTests`, `ApiError.test.ts`);
     - the `ReviewActions` migration's Down maps P2's `Cancelled` status back to `Rejected` in `Documents`, in
       `DocumentsHistory` (with system versioning off for that one update) and in the `FromStatus`/`ToStatus` of
       `DocumentEvents`, all in platform scope: the build before P2 has no `Cancelled` and reads enums as strings, so a
@@ -914,6 +920,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       that opens every page by its place. "Leave out lines like …" beside it, or a top margin, leaves it out;
     - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document, and
       an IBAN's check digits (mod 97) are not verified, only its format;
+    - suppliers stored before the list caps are not trimmed: they keep more than 20 IBANs or domains, more than 50
+      aliases, or entries the format checks refuse, until a write changes that list, which must then bring all of it
+      within the caps; the Match stage reads them as before;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
       `column-table` (P4) are not implemented;

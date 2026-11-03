@@ -235,14 +235,18 @@ internal static partial class EndpointSupport
         /// <summary>A list with more than <c>maxItems</c> entries.</summary>
         public const string MaxItems = "maxItems";
 
-        /// <summary>Not an IBAN (a country code, two check digits and 11 to 30 letters or digits).</summary>
+        /// <summary>An entry (<c>value</c>, as given) that is not an IBAN (a country code, two check digits and 11 to 30 letters or digits).</summary>
         public const string Iban = "iban";
 
-        /// <summary>Not a domain name such as <c>example.com</c>.</summary>
+        /// <summary>An entry (<c>value</c>, as given) that is not a domain name such as <c>example.com</c>.</summary>
         public const string EmailDomain = "emailDomain";
 
         /// <summary>A code's parameters, numbers as invariant strings.</summary>
         public static IReadOnlyDictionary<string, string> Params(params (string Key, IFormattable Value)[] pairs) =>
             pairs.ToDictionary(p => p.Key, p => p.Value.ToString(null, CultureInfo.InvariantCulture), StringComparer.Ordinal);
+
+        /// <summary>The <c>value</c> parameter: the offending entry of a list as the client gave it (trimmed), so the apps can name it.</summary>
+        public static IReadOnlyDictionary<string, string> ValueParam(string value) =>
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["value"] = value };
     }
 }
