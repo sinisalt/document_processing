@@ -1132,6 +1132,9 @@ export interface components {
          *     cross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and
          *     `LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a
          *     total); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.
+         *     `Fields` holds the indexed field values the list request asked for with `fields=` (docs/11 §19, the inbox
+         *     columns of indexed custom fields), keyed by definition path, as `DocumentFieldIndex` stores them (identifiers and
+         *     strings normalised, numbers invariant, dates ISO); null when the request named none.
          */
         DocumentSummary: {
             /** Format: date-time */
@@ -1143,6 +1146,9 @@ export interface components {
             currency: null | string;
             documentNumber: null | string;
             extractionMethod: null | components["schemas"]["ExtractionMethod"];
+            fields?: null | {
+                [key: string]: string;
+            };
             /** Format: uuid */
             id: string;
             /** Format: date */
@@ -1192,7 +1198,10 @@ export interface components {
             /** Format: int32 */
             version: number | string;
         };
-        /** @description A tenant's document type (docs/11 §6.1) with its versions. */
+        /**
+         * @description A tenant's document type (docs/11 §6.1) with its versions, and the fields the inbox can filter by
+         *     (`IndexedFields`).
+         */
         DocumentTypeDetail: {
             baseTemplate: null | string;
             /** Format: int32 */
@@ -1202,6 +1211,7 @@ export interface components {
             description: null | string;
             /** Format: int32 */
             draftVersion: null | number | string;
+            indexedFields: components["schemas"]["IndexedFieldDto"][];
             key: string;
             name: {
                 [key: string]: string;
@@ -1293,6 +1303,17 @@ export interface components {
             status?: null | number | string;
             title?: null | string;
             type?: null | string;
+        };
+        /**
+         * @description A field of a type that `DocumentFieldIndex` holds (docs/11 §6.2): its definition path, which is the key of the
+         *     document list's `?field.&lt;path&gt;=value` filter and of its `fields` columns, its kind and its label by locale.
+         */
+        IndexedFieldDto: {
+            kind: string;
+            label: null | {
+                [key: string]: string;
+            };
+            path: string;
         };
         IngestionCreated: {
             /** Format: uuid */
@@ -1727,6 +1748,7 @@ export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
 export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
 export type SchemaHttpValidationProblemDetails = components['schemas']['HttpValidationProblemDetails'];
+export type SchemaIndexedFieldDto = components['schemas']['IndexedFieldDto'];
 export type SchemaIngestionCreated = components['schemas']['IngestionCreated'];
 export type SchemaIngestionDetail = components['schemas']['IngestionDetail'];
 export type SchemaIngestionDocumentRef = components['schemas']['IngestionDocumentRef'];
@@ -2267,6 +2289,7 @@ export interface operations {
         parameters: {
             query?: {
                 cursor?: string;
+                fields?: string;
                 flag?: string;
                 from?: string;
                 limit?: number | string;

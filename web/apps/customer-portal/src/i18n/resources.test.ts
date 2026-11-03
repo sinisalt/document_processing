@@ -62,7 +62,7 @@ describe("portal i18n resources", () => {
       ...["Info", "Warning", "Blocking"].map((severity) => `flagSeverity.${severity}`),
       ...["Normalize", "Classify", "Extract", "Validate", "Split", "Synthesize"].map((stage) => `stages.${stage}`),
       ...["received", "stage_completed", "stage_failed", "flagged", "review_requested", "auto_approved", "approved", "rejected", "corrected", "reprocessed"].map((event) => `events.document.${event}`),
-      ...["general", "members", "apiKeys", "channels", "ai"].map((tab) => `settings.tabs.${tab}`),
+      ...["general", "members", "apiKeys", "channels", "ai", "types"].map((tab) => `settings.tabs.${tab}`),
       ...["none", "notValidated", "stale", "staleSettled"].map((state) => `review.flags.${state}`),
       // FlagCodes (src/DocProc.Domain/Flags/DocumentFlag.cs).
       ...[

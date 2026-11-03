@@ -123,6 +123,7 @@ public static partial class DocumentEndpoints
         string? q,
         string? cursor,
         int? limit,
+        string? fields,
         HttpContext http,
         [FromServices] DocProcDbContext db,
         CancellationToken ct)
@@ -131,6 +132,7 @@ public static partial class DocumentEndpoints
         var statuses = ParseList<DocumentStatus>(status, "status", errors);
         var types = ParseTypeKeys(type, errors);
         var fieldFilters = ParseFieldFilters(http.Request.Query, errors);
+        var columns = ParseFieldColumns(fields, errors);
         PageCursor? after = null;
         if (!string.IsNullOrEmpty(cursor))
         {
@@ -225,8 +227,62 @@ public static partial class DocumentEndpoints
         }
 
         var items = rows.Select(DocumentQueries.ToSummary).ToList();
+        if (columns.Count > 0 && items.Count > 0)
+        {
+            items = await WithFieldColumnsAsync(db, items, columns, ct);
+        }
+
         var next = hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode() : null;
         return TypedResults.Ok(new Page<DocumentSummary>(items, next));
+    }
+
+    /// <summary>The most indexed fields one list request may ask for as columns.</summary>
+    public const int MaxFieldColumns = 10;
+
+    /// <summary><c>fields=supplierCustomerRef,lines[*].supplierSku</c>: the indexed fields to return as columns (docs/11 §19).</summary>
+    private static List<string> ParseFieldColumns(string? fields, Dictionary<string, string[]> errors)
+    {
+        var keys = (fields ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToList();
+        if (keys.Count > MaxFieldColumns)
+        {
+            errors["fields"] = [$"At most {MaxFieldColumns} fields."];
+            return [];
+        }
+
+        var invalid = keys.Where(k => k.Length > DocumentFieldIndexEntry.MaxFieldKeyLength || !FieldKeyPattern().IsMatch(k)).ToList();
+        if (invalid.Count > 0)
+        {
+            errors["fields"] = [$"Not indexed field paths: {string.Join(", ", invalid)}."];
+            return [];
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// The page's rows with the asked-for indexed values in <see cref="DocumentSummary.Fields"/>: per field the first
+    /// value the index holds (by ordinal; a row field such as <c>lines[*].supplierSku</c> has one per row).
+    /// </summary>
+    private static async Task<List<DocumentSummary>> WithFieldColumnsAsync(DocProcDbContext db, List<DocumentSummary> items, List<string> keys, CancellationToken ct)
+    {
+        var ids = items.Select(i => i.Id).ToList();
+        var entries = await db.DocumentFieldIndex.AsNoTracking()
+            .Where(e => ids.Contains(e.DocumentId) && keys.Contains(e.FieldKey))
+            .Select(e => new { e.DocumentId, e.FieldKey, e.Ordinal, e.StringValue, e.NumberValue, e.DateValue })
+            .ToListAsync(ct);
+        var byDocument = entries
+            .GroupBy(e => e.DocumentId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyDictionary<string, string>)g.GroupBy(e => e.FieldKey)
+                    .Select(f => f.OrderBy(e => e.Ordinal).First())
+                    .Select(e => (e.FieldKey, Value: e.DateValue?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                                                     ?? e.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                                     ?? e.StringValue))
+                    .Where(e => e.Value is not null)
+                    .ToDictionary(e => e.FieldKey, e => e.Value!, StringComparer.Ordinal));
+        var empty = new Dictionary<string, string>(StringComparer.Ordinal);
+        return [.. items.Select(i => i with { Fields = byDocument.TryGetValue(i.Id, out var values) ? values : empty })];
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ProblemHttpResult>> GetAsync(

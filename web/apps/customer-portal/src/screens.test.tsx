@@ -238,4 +238,27 @@ describe("inbox columns of definition-driven types", () => {
       client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
     }
   });
+
+  it("takes the types from the catalogue and filters and shows a type's indexed custom field", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    search.current = { tab: "all", type: "CreditNote", field: "supplierCustomerRef", value: "0815" };
+    const types = [
+      { key: "CreditNote", name: { en: "Credit note" }, indexedFields: [{ path: "supplierCustomerRef", kind: "identifier", label: { en: "Our customer no. at supplier" } }] },
+      { key: "price-list", name: { en: "Price list" }, indexedFields: [] },
+    ];
+    const items = [row({ id: "d3", documentNumber: "GS-1", type: "CreditNote", fields: { supplierCustomerRef: "0815" } })];
+    client.GET.mockImplementation((async (path: string) =>
+      ({ data: path === "/api/v1/document-types" ? types : { items: path === "/api/v1/documents" ? items : [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200 }) })) as never);
+    try {
+      await renderRoute(inboxRoute);
+      expect(await screen.findByRole("columnheader", { name: /Our customer no\. at supplier/ })).toBeInTheDocument();
+      expect(screen.getAllByText("0815").length).toBeGreaterThan(0);
+      expect(screen.getByLabelText("Our customer no. at supplier is")).toBeInTheDocument();
+      const list = client.GET.mock.calls.filter(([path]) => path === "/api/v1/documents").at(-1) as unknown as [string, { params: { query: Record<string, unknown> } }];
+      expect(list[1].params.query).toMatchObject({ type: "CreditNote", fields: "supplierCustomerRef", "field.supplierCustomerRef": "0815" });
+    } finally {
+      client.GET.mockReset();
+      client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
+    }
+  });
 });

@@ -124,7 +124,8 @@
       "suppliers": "Suppliers",
       "settings": "Settings",
       "api-keys": "API keys",
-      "llm": "AI"
+      "llm": "AI",
+      "document-types": "Document types"
     },
     "identity": "Identity",
     "identityDescription": "What the tenant is called and where it operates.",
@@ -609,5 +610,19 @@
     "UnreadablePage": "Unreadable page",
     "UnsupportedPlatform": "Processor unavailable on this platform",
     "TooLarge": "File too large"
+  },
+  "features": {
+    "title": "Feature switches",
+    "description": "Configurable document types (docs/11). Off by default; switched off again, the tenant's documents use the adopted standard types as before.",
+    "saved": "Feature switches saved.",
+    "saveFailed": "The switches were not saved.",
+    "configurableTypes": {
+      "label": "Configurable document types",
+      "hint": "The tenant can adopt, copy, edit and publish document types, add custom fields, and review every type in the generated form."
+    },
+    "customTypes": {
+      "label": "Types of the tenant's own",
+      "hint": "The tenant can also create types that no template covers. Needs configurable document types."
+    }
   }
 }

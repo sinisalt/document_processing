@@ -106,7 +106,10 @@
       "status": "Status",
       "flags": "Flags",
       "received": "Received",
-      "document": "Document"
+      "document": "Document",
+      "validFrom": "Valid from",
+      "validUntil": "Valid until",
+      "lineCount": "Rows"
     },
     "filters": {
       "search": "Search",
@@ -120,7 +123,10 @@
       "rangeInvalid": "The end date is before the start date.",
       "rangeInvalidTitle": "Check the date range",
       "apply": "Apply",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "field": "Field",
+      "anyField": "Any field",
+      "fieldValue": "{{field}} is"
     },
     "emptyTitle": "No documents",
     "emptyFiltered": "No document matches these filters.",
@@ -421,7 +427,8 @@
       "members": "Members",
       "apiKeys": "API keys",
       "channels": "Channels",
-      "ai": "AI providers"
+      "ai": "AI providers",
+      "types": "Document types"
     },
     "general": {
       "identityTitle": "Organisation",

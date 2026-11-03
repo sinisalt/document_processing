@@ -106,7 +106,10 @@
       "status": "Status",
       "flags": "Hinweise",
       "received": "Empfangen",
-      "document": "Dokument"
+      "document": "Dokument",
+      "validFrom": "Gültig ab",
+      "validUntil": "Gültig bis",
+      "lineCount": "Zeilen"
     },
     "filters": {
       "search": "Suche",
@@ -120,7 +123,10 @@
       "rangeInvalid": "Das Enddatum liegt vor dem Startdatum.",
       "rangeInvalidTitle": "Zeitraum prüfen",
       "apply": "Anwenden",
-      "clear": "Filter zurücksetzen"
+      "clear": "Filter zurücksetzen",
+      "field": "Feld",
+      "anyField": "Beliebiges Feld",
+      "fieldValue": "{{field}} ist"
     },
     "emptyTitle": "Keine Dokumente",
     "emptyFiltered": "Kein Dokument passt zu diesen Filtern.",
@@ -175,7 +181,7 @@
     "settledDescription": "Es ist {{status}}; seine Felder können nicht mehr bearbeitet werden.",
     "failedTitle": "Verarbeitung fehlgeschlagen",
     "noCanonicalTitle": "Keine extrahierten Daten",
-    "noCanonical": "Für diese Dokumentart gibt es noch kein Prüfformular: ihre Felder lassen sich prüfen, sobald die Art unter Einstellungen > Dokumentarten eingerichtet ist.",
+    "noCanonical": "Für diesen Dokumenttyp gibt es noch kein Prüfformular: seine Felder lassen sich prüfen, sobald der Typ unter Einstellungen > Dokumenttypen eingerichtet ist.",
     "noCanonicalExtracted": "Die Extraktion hat für dieses Dokument keine Daten geliefert; siehe den Fehler oben, oder verarbeiten Sie es neu, sobald die Ursache behoben ist.",
     "noCanonicalProcessing": "Das Dokument wird noch verarbeitet; die Felder erscheinen nach der Extraktion.",
     "tabs": {
@@ -421,7 +427,8 @@
       "members": "Mitglieder",
       "apiKeys": "API-Schlüssel",
       "channels": "Kanäle",
-      "ai": "KI-Anbieter"
+      "ai": "KI-Anbieter",
+      "types": "Dokumenttypen"
     },
     "general": {
       "identityTitle": "Organisation",

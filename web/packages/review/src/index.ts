@@ -10,3 +10,9 @@ export { FieldInput, type FieldInputProps, type HighlightHandler, type Highlight
 export { RepeatingGroupGrid, ArithmeticIndicator, PAGED_ABOVE, PAGE_SIZE, type RepeatingGroupGridProps } from "./components/RepeatingGroupGrid";
 export { DefinitionForm, type DefinitionFormProps } from "./components/DefinitionForm";
 export { reviewResources } from "./i18n";
+
+// The document type editor (docs/11 §19, Settings > Document types).
+export { DocumentTypesPanel, useTenantFeatures, type DocumentTypesPanelProps } from "./types-editor/DocumentTypesPanel";
+export { DocumentTypeEditor, PublishReportView, type DocumentTypeEditorProps } from "./types-editor/DocumentTypeEditor";
+export * from "./types-editor/api";
+export * from "./types-editor/model";

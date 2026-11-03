@@ -23,6 +23,9 @@ importers:
       '@docproc/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@docproc/review':
+        specifier: workspace:*
+        version: link:../../packages/review
       '@docproc/ui':
         specifier: workspace:*
         version: link:../../packages/ui

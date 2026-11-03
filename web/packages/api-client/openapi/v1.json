@@ -454,6 +454,13 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3978,9 +3985,18 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "fields": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
-        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and\n`LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a\ntotal); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one."
+        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and\n`LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a\ntotal); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.\n`Fields` holds the indexed field values the list request asked for with `fields=` (docs/11 §19, the inbox\ncolumns of indexed custom fields), keyed by definition path, as `DocumentFieldIndex` stores them (identifiers and\nstrings normalised, numbers invariant, dates ISO); null when the request named none."
       },
       "DocumentTemplateSummary": {
         "required": [
@@ -4048,7 +4064,8 @@
           "draftVersion",
           "createdAt",
           "updatedAt",
-          "versions"
+          "versions",
+          "indexedFields"
         ],
         "type": "object",
         "properties": {
@@ -4119,9 +4136,15 @@
             "items": {
               "$ref": "#/components/schemas/DocumentTypeVersionSummary"
             }
+          },
+          "indexedFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IndexedFieldDto"
+            }
           }
         },
-        "description": "A tenant's document type (docs/11 §6.1) with its versions."
+        "description": "A tenant's document type (docs/11 §6.1) with its versions, and the fields the inbox can filter by\n(`IndexedFields`)."
       },
       "DocumentTypeKey": {
         "maxLength": 64,
@@ -4446,6 +4469,32 @@
             }
           }
         }
+      },
+      "IndexedFieldDto": {
+        "required": [
+          "path",
+          "kind",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "A field of a type that `DocumentFieldIndex` holds (docs/11 §6.2): its definition path, which is the key of the\ndocument list's `?field.&lt;path&gt;=value` filter and of its `fields` columns, its kind and its label by locale."
       },
       "IngestionCreated": {
         "required": [

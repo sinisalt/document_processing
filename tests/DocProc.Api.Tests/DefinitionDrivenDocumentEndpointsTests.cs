@@ -118,6 +118,35 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
     }
 
     [Fact]
+    public async Task The_inbox_gets_indexed_values_as_columns_and_the_type_list_names_the_indexed_fields()
+    {
+        var tenant = NewTenant("Columns tenant", configurable: true);
+        var id = await SeedEmptyAsync(tenant, "PurchaseOrder");
+        using var reviewer = Reviewer(tenant);
+        (await Patch(reviewer, id, new FieldCorrection("poNumber", V("PO-2026-91"), null))).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // The inbox offers a type's indexed fields as filters and columns (docs/11 §19): the type list names them.
+        var types = (await reviewer.GetFromJsonAsync<List<DocumentTypeDetail>>("/api/v1/document-types", ApiFactory.Json, Ct))!;
+        var po = types.Single(t => t.Key == "PurchaseOrder");
+        var indexed = po.IndexedFields.ShouldHaveSingleItem();
+        indexed.Path.ShouldBe("poNumber");
+        indexed.Kind.ShouldBe("identifier");
+        indexed.Label.ShouldNotBeNull()["en"].ShouldNotBeNullOrWhiteSpace();
+        types.Single(t => t.Key == "Invoice").IndexedFields.Select(f => f.Path).ShouldBe(["invoiceNumber"]);
+
+        // fields= returns the asked-for values as the index stores them; without it the rows carry none, as before.
+        var page = (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>("/api/v1/documents?type=PurchaseOrder&fields=poNumber,lines[*].supplierSku", ApiFactory.Json, Ct))!;
+        page.Items.Single(d => d.Id == id).Fields.ShouldNotBeNull().ShouldBe(new Dictionary<string, string> { ["poNumber"] = "PO-2026-91" });
+        (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>("/api/v1/documents?type=PurchaseOrder", ApiFactory.Json, Ct))!.Items.Single(d => d.Id == id).Fields.ShouldBeNull();
+
+        var bad = await reviewer.GetAsync("/api/v1/documents?fields=po%20Number", Ct);
+        bad.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await bad.Content.ReadAsStringAsync(Ct)).ShouldContain("po Number");
+        var many = string.Join(',', Enumerable.Range(0, DocumentEndpoints.MaxFieldColumns + 1).Select(i => $"f{i}"));
+        (await reviewer.GetAsync($"/api/v1/documents?fields={many}", Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Without_configurable_types_a_purchase_order_has_nothing_to_correct_as_before()
     {
         var tenant = NewTenant("PO tenant off", configurable: false);

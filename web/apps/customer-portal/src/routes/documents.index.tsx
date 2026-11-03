@@ -18,12 +18,10 @@ import {
   useAuth,
   type DocumentListQuery,
 } from "@docproc/app-shell";
+import { useDocumentTypes } from "@docproc/review";
 import { UploadDialog } from "@/components/UploadDialog";
-import { inboxTabs, statusFilterOf, type InboxTab } from "@/lib/inbox";
+import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
-
-type DocumentType = components["schemas"]["DocumentTypeKey"];
-const documentTypes: DocumentType[] = ["Invoice", "CreditNote", "PurchaseOrder", "DeliveryNote", "Statement", "Reminder", "Other", "Unknown"];
 
 const ALL = "__all__";
 
@@ -34,6 +32,9 @@ const searchSchema = z.object({
   from: z.string().optional().catch(undefined),
   to: z.string().optional().catch(undefined),
   q: z.string().optional().catch(undefined),
+  /** An indexed field's definition path and the value to find in it (`?field.<path>=value`, docs/11 §18). */
+  field: z.string().optional().catch(undefined),
+  value: z.string().optional().catch(undefined),
 });
 
 export type InboxSearch = z.infer<typeof searchSchema>;
@@ -56,6 +57,15 @@ function InboxPage() {
   // A phone has room for two columns: the document (number, supplier, date) and its state (status, total).
   const phone = useIsMobile();
   const [draftQ, setDraftQ] = useState(search.q ?? "");
+  const [draftValue, setDraftValue] = useState(search.value ?? "");
+
+  // The types and their indexed fields come from the catalogue (docs/11 §19); a platform account has none.
+  const types = useDocumentTypes(tenantScope);
+  const typeChoices = useMemo(() => typeOptions(types.data, i18n.language), [types.data, i18n.language]);
+  const fieldChoices = useMemo(() => indexedFieldOptions(types.data, search.type || undefined, i18n.language), [types.data, search.type, i18n.language]);
+  // Columns for the indexed fields of the type the inbox is filtered by.
+  const fieldColumns = useMemo(() => (search.type ? fieldChoices.slice(0, MAX_FIELD_COLUMNS) : []), [search.type, fieldChoices]);
+  const filterField = fieldChoices.find((option) => option.path === search.field);
 
   const query = useMemo<DocumentListQuery>(
     () => ({
@@ -65,9 +75,12 @@ function InboxPage() {
       from: search.from || undefined,
       to: search.to || undefined,
       q: search.q || undefined,
+      fields: fieldColumns.length > 0 ? fieldColumns.map((column) => column.path).join(",") : undefined,
+      // `field.<path>` is read from the query string by the API, so it is not part of the generated parameters.
+      ...(fieldFilterQuery(search.field, search.value) as Partial<DocumentListQuery>),
       limit: 50,
     }),
-    [tab, search.type, search.supplierId, search.from, search.to, search.q],
+    [tab, search.type, search.supplierId, search.from, search.to, search.q, search.field, search.value, fieldColumns],
   );
 
   // The API answers from > to with 400; such a range is shown as an error at the inputs and not sent.
@@ -127,6 +140,21 @@ function InboxPage() {
         helper.accessor("supplierName", { header: t("inbox.columns.supplier"), cell: (info) => info.getValue() ?? <span className="text-muted-foreground">—</span> }),
         helper.accessor("type", { header: t("inbox.columns.type"), cell: (info) => t(`documentType.${info.getValue()}`, { defaultValue: info.getValue() }) }),
         helper.accessor("issueDate", { header: t("inbox.columns.issueDate"), cell: (info) => formatDate(info.getValue(), i18n.language), sortFn: "datetime" }),
+        // The roles of docs/11 §6.2, hidden until picked under Columns (a price list also shows them in place of a total).
+        helper.accessor("validFrom", { header: t("inbox.columns.validFrom"), cell: (info) => formatDate(info.getValue() ?? null, i18n.language), sortFn: "datetime" }),
+        helper.accessor("validUntil", { header: t("inbox.columns.validUntil"), cell: (info) => formatDate(info.getValue() ?? null, i18n.language), sortFn: "datetime" }),
+        helper.accessor("lineCount", {
+          header: t("inbox.columns.lineCount"),
+          cell: (info) => <span className="tabular-nums">{info.getValue() === null || info.getValue() === undefined ? "—" : String(info.getValue())}</span>,
+          sortFn: "basic",
+        }),
+        ...fieldColumns.map((column) =>
+          helper.display({
+            id: `field:${column.path}`,
+            header: column.name,
+            cell: ({ row }) => <IndexedValue field={column} value={row.original.fields?.[column.path]} />,
+          }),
+        ),
         helper.accessor("totalGross", {
           header: t("inbox.columns.total"),
           cell: (info) => (
@@ -160,11 +188,11 @@ function InboxPage() {
           sortFn: "datetime",
         }),
       ]),
-    [t, i18n.language],
+    [t, i18n.language, fieldColumns],
   );
   const columns = phone ? phoneColumns : desktopColumns;
 
-  const hasFilters = !!(search.type || search.supplierId || search.from || search.to || search.q);
+  const hasFilters = !!(search.type || search.supplierId || search.from || search.to || search.q || search.field);
 
   return (
     <>
@@ -188,6 +216,7 @@ function InboxPage() {
         isLoading={list.isLoading && !rangeInvalid}
         query={list}
         enableColumnVisibility={!phone}
+        initialColumnVisibility={{ validFrom: false, validUntil: false, lineCount: false }}
         caption={t("inbox.caption")}
         onRowClick={(row) => void navigate({ to: "/documents/$documentId", params: { documentId: row.id } })}
         emptyTitle={rangeInvalid ? t("inbox.filters.rangeInvalidTitle") : t("inbox.emptyTitle")}
@@ -200,7 +229,7 @@ function InboxPage() {
             role="search"
             onSubmit={(event) => {
               event.preventDefault();
-              setSearch({ q: draftQ.trim() || undefined });
+              setSearch({ q: draftQ.trim() || undefined, value: search.field ? draftValue.trim() || undefined : undefined });
             }}
           >
             {/* At least 15rem, growing into the free room: "Number, supplier, file name" fits beside the icon (w-56 cut it). */}
@@ -217,20 +246,71 @@ function InboxPage() {
               <Label htmlFor="inbox-type" className="text-xs text-muted-foreground">
                 {t("inbox.filters.type")}
               </Label>
-              <Select value={search.type ?? ALL} onValueChange={(value) => setSearch({ type: value === ALL ? undefined : value })}>
+              <Select
+                value={search.type ?? ALL}
+                onValueChange={(value) => {
+                  const type = value === ALL ? undefined : value;
+                  // A field filter of another type's field would find nothing: it goes with the type.
+                  const keepsField = !!search.field && indexedFieldOptions(types.data, type, i18n.language).some((option) => option.path === search.field);
+                  setSearch({ type, ...(keepsField ? {} : { field: undefined, value: undefined }) });
+                  if (!keepsField) setDraftValue("");
+                }}
+              >
                 <SelectTrigger id="inbox-type" className="w-full sm:w-36" aria-label={t("inbox.filters.type")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>{t("inbox.filters.anyType")}</SelectItem>
-                  {documentTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {t(`documentType.${type}`)}
+                  {typeChoices.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                      {option.name ?? t(`documentType.${option.key}`, { defaultValue: option.key })}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            {fieldChoices.length > 0 && (
+              <div className="col-span-2 flex items-end gap-2 sm:col-span-1">
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="inbox-field" className="text-xs text-muted-foreground">
+                    {t("inbox.filters.field")}
+                  </Label>
+                  <Select
+                    value={search.field ?? ALL}
+                    onValueChange={(value) => {
+                      setSearch({ field: value === ALL ? undefined : value, value: value === ALL ? undefined : search.value });
+                      if (value === ALL) setDraftValue("");
+                    }}
+                  >
+                    <SelectTrigger id="inbox-field" className="w-full sm:w-44" aria-label={t("inbox.filters.field")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>{t("inbox.filters.anyField")}</SelectItem>
+                      {fieldChoices.map((option) => (
+                        <SelectItem key={option.path} value={option.path}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {filterField && (
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="inbox-field-value" className="text-xs text-muted-foreground">
+                      {t("inbox.filters.fieldValue", { field: filterField.name })}
+                    </Label>
+                    <Input
+                      id="inbox-field-value"
+                      value={draftValue}
+                      onChange={(event) => setDraftValue(event.target.value)}
+                      placeholder={filterField.kind === "date" ? "yyyy-mm-dd" : undefined}
+                      className="w-full sm:w-40"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {tenantScope && (
               <div className="flex flex-col gap-1">
                 <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">
@@ -291,7 +371,8 @@ function InboxPage() {
                     data-testid="inbox-clear-filters"
                     onClick={() => {
                       setDraftQ("");
-                      setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined });
+                      setDraftValue("");
+                      setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined, field: undefined, value: undefined });
                     }}
                   >
                     <X aria-hidden />
@@ -357,6 +438,14 @@ function TotalOrValidity({ document }: { document: InboxRow }) {
   }
   if (rows !== null) parts.push(t("inbox.rows", { count: rows }));
   return <span title={parts.join(" · ")}>{parts.join(" · ")}</span>;
+}
+
+/** An indexed field's value in the list, as the field index holds it (identifiers normalised, dates ISO). */
+function IndexedValue({ field, value }: { field: IndexedFieldOption; value: string | undefined }) {
+  const { i18n } = useTranslation();
+  if (value === undefined || value === "") return <span className="text-muted-foreground">—</span>;
+  if (field.kind === "date") return <>{formatDate(value, i18n.language)}</>;
+  return <span className="tabular-nums">{value}</span>;
 }
 
 /** The open review task's priority when it is above normal (docs/11 §6.2 `ReviewTask.Priority`). */

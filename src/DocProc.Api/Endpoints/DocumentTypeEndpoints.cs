@@ -50,7 +50,66 @@ public sealed record DocumentTypeVersionSummary(
         v.ChangeNote);
 }
 
-/// <summary>A tenant's document type (docs/11 §6.1) with its versions.</summary>
+/// <summary>
+/// A field of a type that <c>DocumentFieldIndex</c> holds (docs/11 §6.2): its definition path, which is the key of the
+/// document list's <c>?field.&lt;path&gt;=value</c> filter and of its <c>fields</c> columns, its kind and its label by locale.
+/// </summary>
+public sealed record IndexedFieldDto(string Path, string Kind, IReadOnlyDictionary<string, string>? Label)
+{
+    /// <summary>
+    /// The indexed fields of a definition, depth first: the published version's, else (a type not published yet) the
+    /// latest version's. A definition that does not parse lists none.
+    /// </summary>
+    internal static IReadOnlyList<IndexedFieldDto> Of(IReadOnlyList<DocumentTypeVersion> versions)
+    {
+        var version = versions.Where(v => v.State == DocumentTypeVersionState.Published).MaxBy(v => v.Version) ?? versions.MaxBy(v => v.Version);
+        if (version is null)
+        {
+            return [];
+        }
+
+        TypeDefinition definition;
+        try
+        {
+            definition = DefinitionSerializer.Parse(version.DefinitionJson);
+        }
+        catch (DefinitionFormatException)
+        {
+            return [];
+        }
+
+        var fields = new List<IndexedFieldDto>();
+        Collect(definition.Fields, null, fields);
+        return fields;
+    }
+
+    private static void Collect(IReadOnlyList<FieldDefinition> definitions, string? prefix, List<IndexedFieldDto> into)
+    {
+        foreach (var field in definitions)
+        {
+            var path = prefix is null ? field.Key : $"{prefix}.{field.Key}";
+            if (field.Indexed)
+            {
+                into.Add(new IndexedFieldDto(path, field.Kind, field.Label));
+            }
+
+            if (field.Item?.Fields is { } rows)
+            {
+                Collect(rows, $"{path}[*]", into);
+            }
+
+            if (field.Fields is { } members)
+            {
+                Collect(members, path, into);
+            }
+        }
+    }
+}
+
+/// <summary>
+/// A tenant's document type (docs/11 §6.1) with its versions, and the fields the inbox can filter by
+/// (<c>IndexedFields</c>).
+/// </summary>
 public sealed record DocumentTypeDetail(
     string Key,
     IReadOnlyDictionary<string, string> Name,
@@ -63,7 +122,8 @@ public sealed record DocumentTypeDetail(
     int? DraftVersion,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<DocumentTypeVersionSummary> Versions)
+    IReadOnlyList<DocumentTypeVersionSummary> Versions,
+    IReadOnlyList<IndexedFieldDto> IndexedFields)
 {
     internal static DocumentTypeDetail From(CatalogueType type)
     {
@@ -80,7 +140,8 @@ public sealed record DocumentTypeDetail(
             type.Versions.FirstOrDefault(v => v.State == DocumentTypeVersionState.Draft)?.Version,
             d.CreatedAt,
             d.UpdatedAt,
-            [.. type.Versions.Select(DocumentTypeVersionSummary.From)]);
+            [.. type.Versions.Select(DocumentTypeVersionSummary.From)],
+            IndexedFieldDto.Of(type.Versions));
     }
 }
 

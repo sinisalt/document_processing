@@ -11,6 +11,9 @@ namespace DocProc.Api.Documents;
 /// cross-tenant documents list and global review queue) can show whose row it is. <c>ValidFrom</c>, <c>ValidUntil</c> and
 /// <c>LineCount</c> are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a
 /// total); <c>ReviewPriority</c> and <c>ReviewDueAt</c> are the open review task's priority and due time, null without one.
+/// <c>Fields</c> holds the indexed field values the list request asked for with <c>fields=</c> (docs/11 §19, the inbox
+/// columns of indexed custom fields), keyed by definition path, as <c>DocumentFieldIndex</c> stores them (identifiers and
+/// strings normalised, numbers invariant, dates ISO); null when the request named none.
 /// </summary>
 public sealed record DocumentSummary(
     Guid Id,
@@ -36,7 +39,10 @@ public sealed record DocumentSummary(
     DateOnly? ValidUntil,
     int? LineCount,
     ReviewPriority? ReviewPriority,
-    DateTimeOffset? ReviewDueAt);
+    DateTimeOffset? ReviewDueAt)
+{
+    public IReadOnlyDictionary<string, string>? Fields { get; init; }
+}
 
 /// <summary>
 /// The type version a document is shown with (docs/11 §18 <c>DocumentDetail.definition</c>): its key, version and

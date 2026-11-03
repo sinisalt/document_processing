@@ -107,6 +107,15 @@ export const queryKeys = {
     get: () => ["settings", "get"] as const,
   },
 
+  /** The type catalogue (docs/11 §19): platform templates, the tenant's types, their versions and one version's JSON. */
+  documentTypes: {
+    all: ["document-types"] as const,
+    templates: () => ["document-types", "templates"] as const,
+    list: () => ["document-types", "list"] as const,
+    detail: (key: string) => ["document-types", "detail", key] as const,
+    version: (key: string, version: number) => ["document-types", "detail", key, "version", version] as const,
+  },
+
   llm: {
     all: ["llm"] as const,
     policy: () => ["llm", "policy"] as const,
