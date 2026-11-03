@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 parts A and B done
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -576,8 +576,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the remaining `AppliedConfigJson` parts (supplier, layout, identification) come with P4;
     - the API routes `:diff`, `:approve`, `:upgrade-base`, `:upgrade-documents`, `/rule-kinds`, `/step-kinds`,
       `resolved-pipeline`, four-eyes approval and the config audit log (from part A's list).
-- **P2, track A: manual mapping of Unknown documents – part A (the review actions backend) and part B (the map mode
-  backend and the table tool engine) done; the review UI of P2 and the P2 demo are open.**
+- **P2, track A: manual mapping of Unknown documents – done: part A (the review actions backend), part B (the map
+  mode backend and the table tool engine) and part C (the review UI, the demo price list and the P2 demo, run in the
+  browser on a fresh compose stack).** What is left is listed under "Left for later" at the end of this item.
   - Done (part A), every review action on a document a reviewer may act on (`NeedsReview`, `Validated`, `Failed`;
     `409 Document not in review` otherwise), with its timeline event, behind a tracked save whose version token makes
     a concurrent writer's action answer 409 (docs/05 has the requests and answers):
@@ -699,28 +700,104 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - a line with text but no price is a heading when it is one run of text in the anchor column, or printed across a
       divider; under a row, one printed inside a text column is a continuation line (docs/11 §8.6 said both);
     - tier columns are on whenever a row has the tier group (`tiers` with `minQuantity` and `price`).
-  - Left for the rest of P2:
-    - the UI: map mode in the page viewer (selection, preview of the readings, Enter to assign), the table tool
-      (dividers, page strip, rejected-row filter), the "Map this document" panel and the UI of every action of part A
-      (part A has only the blocked Approve), and the P2 demo of docs/11 §23;
+  - Done (part C), the review UI of P2 in the customer portal (docs/11 §12, §19; docs/09 "Demo: manual mapping" has
+    the steps):
+    - the **Map this document** panel (docs/11 §12.1) in place of the empty form of a document without a form or data
+      that a reviewer may correct: the type (every type of the tenant with a published version) with Start with Empty or
+      Let AI pre-fill (`:set-type` none or auto), the supplier picker (`:assign-supplier`) and Create supplier from this
+      document (`:create-supplier`, the dialog filled from the captured supplier party);
+    - the review actions' More menu: Change type, Assign supplier, Create supplier from this document, Split into
+      documents (the pages where a part starts, a type per part or classify again) and Join parts (the other parts of
+      the attachment, from the new `GET /documents/{id}/parts`, which lists the documents of an attachment in page
+      order with their pages, status, type and the document a cancelled part was joined into);
+    - map mode in the page viewer (docs/11 §12.3): the Map toggle (M), on by itself for a document whose fields hold no
+      value (a type just set in review); the field focused last in the form is the target; a click picks a word,
+      shift-click adds one, a drag draws a box; `GET /pages/{n}/words?bbox=` reads it and the preview above the page shows
+      the text and the reading of the field's kind ("01.01.2027" → 2027-01-01), editable; Enter assigns and moves to the
+      next empty required field, Tab skips, Esc drops the selection; the value is saved with Save corrections, with its
+      page, box, the text layer's words and the printed text as `source`, so it is Corrected by the reviewer with its
+      place drawn on the page; a box without words offers region OCR (`regions:read`), which says when the server has no
+      OCR provider;
+    - the table tool (docs/11 §12.4): the Table toggle and tab; a box drawn on a page asks `regions:table` for the columns;
+      a field (or tier price, or leave out) per column; dividers moved on the page by dragging or with the arrow keys,
+      added by a double-click inside the box, merged from the panel; "Apply to all pages" (`pages: "1-*"`) and group
+      headings into `category`; Read all pages answers the report as a page strip (rows and rejected rows per page,
+      pages without rows, a page's rejected lines with their text and reason, the rejected boxes drawn on the page, a
+      click on a page shows the dividers used there); Write stores every row as one correction (`write: true`); a change
+      to the mapping makes a preview stale, and Write needs a fresh one; after a reload the stored report
+      (`GET /table-reports`) is the strip;
+    - match fields (docs/11 §12.3): a drag handle beside a field's label is dropped on another field, or the arrows
+      button beside it picks the field ("Move value to"): one `move` correction, sent with the unsaved corrections;
+    - the approval gate's refusal (`409 Cannot approve` with its code) is shown in the UI language as well as the reason
+      under the disabled Approve of part A;
+    - map mode, its target field, the page, the tab and the table mapping are kept per document while the reviewer
+      stays in the tab (`lib/reviewSession.ts`): the screen remounts after every save;
+    - the pure parts in `packages/review` (`mapMode.ts`, `tableTool.ts`, `MapPreview`, `TablePageStrip`,
+      `TableToolPanel`, the move handle of `DefinitionForm`), the screen's parts in the portal (`FieldHighlightOverlay`
+      with the selection layer and the dividers, `PageViewer`'s toolbar, `useMapMode`, `useTableTool`,
+      `ReviewDialogs`, `MapDocumentPanel`), with en and de texts;
+    - the demo price list: `fixtures/demo/uploads/tenant-a/Nordwind_Preisliste_2027.pdf`, 14 pages, 412 articles in
+      nine groups, repeated header, continuation lines, two rows continued across a page break, tier columns "ab 10" and
+      "ab 50", drawn reproducibly by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceList.cs` like the other demo PDFs
+      (`REGENERATE_DEMO_PDFS`); two replay fixtures answer its upload (the LLM splitter, since 14 pages are more than the
+      heuristic splitter decides alone, and the LLM classifier), captured by `DemoFixtureTests`, which now treats split
+      fixtures as rendered-page fixtures too; no master data was added: Nordwind is created from the document in the
+      demo;
+    - the P2 demo of docs/11 §23, run with Playwright in the browser on a fresh compose stack: configurable types on
+      (superadmin), price list adopted (tenant admin), the list uploaded through the portal (reviewer), in review as
+      `Other` (see below), set to Price list (empty), the header values and the supplier name taken from the page, the
+      supplier created from the document, the table drawn once on page 1 and applied to all pages: the page strip shows
+      412 rows and no rejected row (22 on page 1, 30 on each other page), written as one correction, approved by hand;
+      split and join of the demo invoice and a move on the demo delivery note in the same session;
+    - fixed from the demo: map mode's default was stored for a document before it had a type (no fields, so off) and
+      kept after the type was set; the move handle was the menu's trigger as well, whose menu opened on pointer down and
+      covered the drop target; the table mapping stayed drawn after Write, because the save remounts the screen before an
+      effect of the old one could store the cleared state; the panel named a failed invoice "without a form";
+    - tests: `DemoPriceListTableTests` (API: the committed PDF read as the Normalize stage reads it, the proposal from a
+      box on page 1, the mapping applied to all pages as the portal sends it: 412 rows, none rejected, the header on all
+      14 pages, nine headings, 13 continuation lines, a row carried across a page break, one correction),
+      `DemoFixtureTests` (the upload: split and classification calls, one document of type Other in review),
+      `DemoPdfClassificationTests`, the parts endpoint in `ReviewActionEndpointsTests`; web: `mapMode`, `tableTool` and
+      `MappingTools` (review package), `FieldHighlightOverlay.selection`, `ReviewTools` and `ReviewScreen.mapping`
+      (portal), and the updated `ReviewScreen.definition` test.
+  - Decided in part C where docs/11 left it open (the "Correction (P2)" notes in docs/11 §12.1, §12.3, §23):
+    - with an LLM classifier (the replay provider in the demo stacks, any configured provider), a document of no type
+      the classifier knows arrives as `Other`, not `Unknown`: the classifier's answer has no Unknown. The Map this
+      document panel is therefore shown for every document without a form or data, `Other` included, and the classifier
+      behaviour is unchanged;
+    - map mode is on by itself for a document none of whose fields holds a value (`DocumentDetail` does not carry
+      `TypeSource`); the type list of the panel is every published type of the tenant (the classifier has no
+      top three, and suppliers have no types before P4);
+    - a mapped value is saved with Save corrections, like a typed one, so several fields can be taken from the page and
+      saved in one patch; a table is written at once (`write: true`).
+  - Left for later:
     - an OCR provider (Tesseract or Azure Document Intelligence Layout, docs/01): until one is registered, region OCR
       answers 501 and an image page has no words;
+    - the row filters of the grid of docs/11 §12.4 ("rejected or low-confidence rows", "rows on page n", "changed against
+      the previous list", P5): the page strip lists the rejected lines per page instead; the grid pages by 100 rows
+      and does not virtualise (docs/11 §12.2); a repeating group inside a row (a price list's `tiers`) is still shown
+      as a count, not edited;
+    - fixing a rejected row in place and `pageOverrides` from the UI: the reviewer moves the dividers of the mapping page
+      and reads again; dividers set for one other page only (`pageOverrides`, which the API takes) have no UI yet, and
+      the header row band cannot be redrawn by hand (the proposal's is used);
+    - the proposal reads its page without group headings, so a heading line counts as a row there (23 rows on page 1 of
+      the demo list); the mapping read with headings does not;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
       `column-table` (P4) are not implemented;
     - region OCR is not counted in `Costs.OcrPages`;
     - the proposal names a column from its header and checks that the column's values read as the field's kind; where a
       template labels two fields alike (`std.price-list`: "Inhalt" for `packSize`, "Inhaltseinheit" for `packUnit`) it
-      can still name the less fitting one, and the reviewer changes it before applying the mapping;
-    - no compose run of part B: it was checked against the dependency-free dev API (SQLite) with a generated three-page
-      price list PDF (proposal, 90 rows written with no rejected row, the header found again on every page, tiers and
-      the heading), besides the tests;
+      can still name the less fitting one, and the reviewer changes it before applying the mapping (the demo list
+      prints "Gebinde", which names `packDescription`);
     - `:assign-supplier`'s `remember` (source rules, P4) and the reprocess through `classify.identification` (P4);
-      the supplier proposal of "create supplier from this document" (the form pre-filled from the supplier party) is
-      the UI's to build from `canonical`;
-    - a move into a member of a composite value (`customer.vatId`) or a bag key, and moving whole rows, are not done (a
-      `set` does those); `:set-type` with prefill none replaces the earlier data of another type (the earlier tree stays
-      in the temporal history of `Documents` only).
+    - a move into a member of a composite value (`customer.vatId`) or a bag key, moving whole rows, and a drag onto a
+      cell of the grid are not done (a `set` does those); `:set-type` with prefill none replaces the earlier data of
+      another type (the earlier tree stays in the temporal history of `Documents` only);
+    - the review components stay in the customer portal (`PageViewer`, `FieldHighlightOverlay`, the dialogs); docs/11
+      §19 moves them into `packages/review` with the shared review of the admin console (P6); the admin console's
+      document page has none of the P2 actions;
+    - the Identify mode, the New layout panel and "Remember for supplier" (P4).
 - **P3 to P6** – not started.
 
 ## Risks and open questions

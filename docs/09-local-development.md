@@ -415,7 +415,8 @@ curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:split" -H "$H" -H '
 ```
 
 **Map mode and the table tool (docs/11 §12.3, §12.4, P2).** The server side of capturing values by pointing at
-the page; the review screen's UI for it is not built yet. Boxes are in page units (0 to 1000, top left origin):
+the page; the review screen's map mode and table tool call them ("Demo: manual mapping" below). Boxes are in page
+units (0 to 1000, top left origin):
 
 ```bash
 # The words under a box, their text and its readings (a date, an amount, ...), in the tenant's locale.
@@ -510,7 +511,8 @@ start seeds and ingests everything again, with a usage history that ends today. 
 **Replay fixtures.** `fixtures/demo/llm-replay/<request hash>.json` are `FileReplayStore` files: a readable
 header, the usage and a hand-authored, schema-valid answer (`tests/DocProc.Pipeline.Tests/Demo/DemoAnswers.cs`).
 The hash is `RequestHasher.Hash` over model, prompt, task text, schema, options and the document bytes the
-stage sends (the PDF for extraction, the rendered first page PNG for classification).
+stage sends (the PDF for extraction, the rendered first page PNG for classification, page thumbnails for the LLM
+splitter).
 `DemoFixtureTests.Llm_replay_fixtures_answer_exactly_the_requests_the_demo_pdfs_produce` boots the processing
 stack with the API's `appsettings.json` and `appsettings.Development.json`, lets the demo data run with a capturing
 provider in place of the replay store, hashes every request the real stages send and compares the resulting files
@@ -519,7 +521,9 @@ with the committed ones. It then forks tenant A's `Invoice` with the demo custom
 the extraction with `x_custom`. Last it forks `CreditNote` with the field of docs/11 §5.3
 (`fixtures/demo/types/credit-note-supplier-customer-ref.field.json`) and uploads the credit note of
 `fixtures/demo/uploads/tenant-a`, which adds the fourth: that credit note's extraction with `x_custom` ("Demo: types
-as data" below). After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
+as data" below). Then it adopts `std.price-list` and uploads the Nordwind price list of the same folder, which adds
+the fifth and sixth: its split (14 pages are too many for the heuristic splitter) and its classification, both
+answered so that it arrives as one document of type `Other` ("Demo: manual mapping" below). After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
 demo PDF it fails and says so; regenerate and commit:
 
 ```bash
@@ -527,8 +531,9 @@ UPDATE_DEMO_FIXTURES=1 dotnet test --project tests/DocProc.Pipeline.Tests -c Rel
 git add fixtures/demo/llm-replay
 ```
 
-The three PDFs (the two of `tenant-a` and the credit note of `uploads/tenant-a`) are committed bytes, drawn once by
-`tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` with PDFsharp (test-only, see below). PDFsharp writes a new document
+The four PDFs (the two of `tenant-a`, the credit note and the price list of `uploads/tenant-a`) are committed bytes,
+drawn once by `tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` and `DemoPriceList.cs` with PDFsharp (test-only, see
+below). PDFsharp writes a new document
 id on every save, so the normal run never rewrites them; after editing `DemoPdfs`, run once with
 `REGENERATE_DEMO_PDFS=1` (every PDF) or `REGENERATE_DEMO_PDFS=<file name>` (that one only, so the others' bytes and
 fixtures stay as they are) and then with `UPDATE_DEMO_FIXTURES=1`. To add a demo document, drop the file into the
@@ -536,13 +541,13 @@ tenant folder (or into `uploads/<tenant slug>` for one a demo uploads by hand: t
 if it is a PDF that needs an LLM call, add its answer to `DemoAnswers` (and its expected request to the fixture
 test) and regenerate. `DemoPdfClassificationTests` holds which demo PDFs the keyword rules classify.
 
-The classification hash covers the PNG that PDFium renders. The committed fixtures are generated on linux-x64 (the
+The classification and split hashes cover the PNGs that PDFium renders. The committed fixtures are generated on linux-x64 (the
 CI platform, `DemoData.FixtureCapturePlatform`); a machine whose PDFium build rasterises the page differently gets a
-replay miss for the delivery note, which then ends `Failed`, and the API logs a warning saying so at start-up. On any
+replay miss for the delivery note and the price list, which then end `Failed`, and the API logs a warning saying so at start-up. On any
 platform other than linux-x64 (`RuntimeInformation`: Linux and X64), `DemoFixtureTests` compares only the extraction
-fixture, which hashes the PDF bytes and is platform-independent, `UPDATE_DEMO_FIXTURES=1` rewrites only that one, and
+fixtures, which hash the PDF bytes and are platform-independent, `UPDATE_DEMO_FIXTURES=1` rewrites only those, and
 `DemoDataTests` skips the delivery-note assertions; both tests then report themselves skipped with this explanation.
-Do not commit a classification fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
+Do not commit a classification or split fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
 keeps every file's bytes exactly as committed on every checkout, whatever `core.autocrlf` says, since the bytes key
 the request hashes.
 
@@ -618,6 +623,71 @@ held by tests too: `DemoFixtureTests` (fork, upload, x_custom, the tree, the ind
 `DefinitionDrivenDocumentEndpointsTests` (the empty tree, the completed tree, definitions on decisions), the portal's
 `ReviewScreen.definition` tests (the reprocess option, the empty delivery note) and `DocumentTypesPanel` tests (the
 extraction hints).
+
+### Demo: manual mapping
+
+The P2 demo of docs/11 §23, in the browser: a 14-page Nordwind price list the system does not recognise is given its
+type in review, its header values are captured by pointing at the page, and its 412 rows by one table mapping drawn
+on page 1 and applied to all pages. Run it on a fresh compose stack (`docker compose up --build`; no LLM key needed),
+portal on http://localhost:5173, admin console on http://localhost:5174.
+
+The file is `fixtures/demo/uploads/tenant-a/Nordwind_Preisliste_2027.pdf` (drawn by
+`tests/DocProc.Pipeline.Tests/Pdf/DemoPriceList.cs`, see "Demo data"): 14 A4 pages, 412 articles in nine groups
+("Weißweine" … "Feinkost"), the column header Art.-Nr. / Bezeichnung / Gebinde / Preis / ab 10 / ab 50 repeated under a
+running header on every page, eleven continuation lines under a row, two rows continued at the top of the next page,
+tier prices in some rows only, and "gültig ab 01.01.2027", "Listen-Nr. PL-2027-01" and "Alle Preise in EUR" on page 1.
+Nordwind is not in the demo master data; the demo creates it from the document (step 5).
+
+1. **Switch on and adopt** (as in "Demo: types as data", steps 2 and 3). As `superadmin` in the admin console: Tenants >
+   Gasthaus zur Post GmbH > Settings > Feature switches: Configurable document types on. As `tenant-a-admin` in the
+   portal: Settings > Document types > Templates > Price list > Adopt ("price-list adopted.").
+2. **Upload.** As `tenant-a-reviewer`: Inbox > Upload > the price list > Upload 1 file. It costs two LLM calls, both
+   answered by replay fixtures: 14 pages are more than the heuristic splitter decides alone (`MaxConfidentPageCount`,
+   6), so the LLM splitter is asked and keeps the pages together; no keyword rule knows a price list, so the LLM
+   classifier is asked, whose types have none either. The document arrives as `Other`, not `Unknown` (the correction
+   in docs/11 §23), in Needs review with `UNSUPPORTED_TYPE` and `SUPPLIER_UNMATCHED`; Approve is disabled with
+   "Nothing was captured yet; fill the fields before approving."
+3. **Map this document.** Open it from the inbox ("(no number)", type Other). The Fields tab shows the Map this
+   document panel: Type = Price list, Start with = Empty, Set type. The form of Price list v1 appears with every field
+   empty, the blocking `FIELD_REQUIRED` flags of Valid from, Supplier and Currency, and map mode on (Map in the page
+   viewer's toolbar; M switches it on and off).
+4. **Header values from the page.** Click Valid from in the form, then click "01.01.2027" on the page: the preview above
+   the page reads `“01.01.2027” → 2027-01-01` (editable); Enter assigns it and moves to the next empty required field,
+   Tab skips, Esc drops the selection. Likewise Price list no. ← "PL-2027-01" and Currency ← "EUR"; for Supplier > Name,
+   drag a box around "Nordwind Großhandel GmbH" in the letterhead (a box reads every word in it, in reading order;
+   shift-click adds words one by one). Save corrections: each value is Corrected by the reviewer with its page and box,
+   drawn on the page, and the three required flags resolve.
+5. **Supplier.** More > Create supplier from this document: the dialog is filled from the supplier party
+   (Nordwind Großhandel GmbH); Create and assign. `SUPPLIER_UNMATCHED` resolves and the header names the supplier.
+   More > Assign supplier picks an existing one instead.
+6. **The table, once.** Click Table in the toolbar (the Table tab opens) and drag a box on page 1 from just above and
+   left of "Art.-Nr." down to just above the footer rule and across to the right of "ab 50". The proposal names the
+   columns Article no., Description, Pack as printed, Price, Tier price from 10 and Tier price from 50 and draws the
+   dividers on the page (drag one to move it, or move it with the arrow keys; double-click inside the box to add one;
+   the merge button beside a column removes the divider before it). "Apply to all pages" and "Group headings fill the
+   category" are ticked. Read all pages: the page strip shows `412 rows, 0 rejected, 14 pages read`, p. 1: 22 rows and
+   p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured again at its header. Write 412
+   rows: one correction ("412 rows written as one correction."), the rows in the Articles grid (100 a page) with their
+   category and tier prices, and the report kept as the Table tab's page strip (also after a reload).
+7. **Approve by hand.** Approve: no open flag is left, and the document is Approved. Price lists are always reviewed in
+   this phase (`review.autoApprove: false`, docs/11 §5.8).
+
+The same through the API (`$H` as under "Document types", `$DOC` the price list): `POST $DOC:set-type
+{"typeKey":"price-list"}`, `PATCH $DOC/fields` with a `source` on each correction, `POST $DOC/regions:table` with the box
+`{"x0":45,"y0":280,"x1":945,"y1":935}` on page 1 (the proposal), then again with its `columns`, `headerRow` and
+`rowAnchor`, `pages: "1-*"`, `groupHeader: {"target":"category"}` and `write: true`. `DemoPriceListTableTests`
+(`tests/DocProc.Api.Tests`) runs this on the committed PDF and checks the 412 rows; `DemoFixtureTests` holds the upload
+(the split and classification fixtures, one document of type Other in review); the portal's `ReviewScreen.mapping`,
+`ReviewTools` and `FieldHighlightOverlay.selection` tests and the review package's `MappingTools`, `mapMode` and
+`tableTool` tests hold the screens.
+
+The other review actions of P2 work on the demo data as well. More > Split into documents on the two-page invoice
+2026-131, with page 2 starting a document: the parts are read again and end `Failed` on a replay miss (their pages have
+no fixture); then More > Join parts on page 1 joins page 2 back, and the document is the whole file again, read from its
+fixture as before. A value typed into the wrong field of the delivery note moves to the right one when the handle beside
+its label is dragged onto that field (or with the arrows button beside it, "Move value to"): one `move` correction.
+Region OCR (a box without words, on a scan) says "No OCR is configured on this server": no OCR provider ships yet
+(docs/07).
 
 ## Settings reference
 

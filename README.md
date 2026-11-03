@@ -171,8 +171,9 @@ start, since SQL Server keeps the password it was created with.
 
 **LLM keys.** Without a key the stack still processes e-invoice XML (UBL, CII, XRechnung) end to
 end, and the demo PDFs are answered from their replay fixtures (so are the demo PDF invoice after the
-custom-field steps of docs/09 "Document types" and the credit note of `fixtures/demo/uploads` in the P1 demo,
-docs/09 "Demo: types as data"); any other PDF ends `Failed` until a
+custom-field steps of docs/09 "Document types", the credit note of `fixtures/demo/uploads` in the P1 demo,
+docs/09 "Demo: types as data", and the split and classification of the Nordwind price list in the P2 demo, docs/09
+"Demo: manual mapping"); any other PDF ends `Failed` until a
 provider is configured. To use a real provider, copy `.env.example` to `.env` (git-ignored) and set
 `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` together with `OPENAI_MODEL`, then `docker compose up -d`.
 The one-shot `llm-setup` service makes the platform configurations follow `.env` through the admin
@@ -185,7 +186,10 @@ a provider in the admin console under AI providers. Details: docs/09 "With Docke
 **Demos.** The phase demos of docs/11 §23 run on this stack: the P0 demo (a decision whose publish message is
 lost) and the P1 demo, types as data (switch the catalogue on, adopt the price list, fork the credit note with a
 custom field, upload a credit note that carries it, review it in the generated form, find it in the inbox, and give
-the demo delivery note fields of its own), step by step in docs/09 "Demo data" and "Demo: types as data".
+the demo delivery note fields of its own) and the P2 demo, manual mapping (upload a 14-page price list the system
+does not recognise, give it its type in review, take its header values from the page in map mode, draw its table once
+on page 1 and apply it to all pages: 412 rows, none rejected, then approve), step by step in docs/09 "Demo data",
+"Demo: types as data" and "Demo: manual mapping".
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
@@ -337,7 +341,7 @@ tests/
 web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
                               review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
-fixtures/                     demo documents, the demo custom fields and upload, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data")
+fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
                               template schemas (templates/)
 docs/                         plan and design
