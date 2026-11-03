@@ -58,14 +58,16 @@ export function MapPreview(props: MapPreviewProps) {
       data-testid="map-preview"
       data-state={props.loading ? "loading" : props.noWords ? "no-words" : "ready"}
       onKeyDown={(event) => {
-        if (event.key === "Enter") {
+        // Enter and Tab belong to the value's input (a button keeps its own Enter, and Tab still leaves the buttons).
+        const inValue = (event.target as HTMLElement).id === "map-value";
+        if (event.key === "Enter" && inValue) {
           event.preventDefault();
           if (props.text !== null) props.onAssign();
         } else if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
           props.onCancel();
-        } else if (event.key === "Tab" && !event.shiftKey) {
+        } else if (event.key === "Tab" && !event.shiftKey && inValue) {
           event.preventDefault();
           props.onSkip();
         }
