@@ -1844,7 +1844,10 @@ export interface components {
          *     `2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's
          *     line items by default), `rowAnchor` the field that starts a row (the group's anchor by default),
          *     `repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or
-         *     `none`, `skipRows` and `stopAt` regular expressions over a line's text. `write: true` writes the
+         *     `none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band
+         *     of the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,
+         *     or the foot of the page). A column is a tier column only when it names `tierMinQuantity` (the proposal reads it
+         *     from a header such as `ab 10`); one without a field or a quantity is left out. `write: true` writes the
          *     rows into the document as one correction (op `set` on `path`, the specification and report in its source)
          *     and stores the report (docs/11 §6.2 `DocumentTableReport`).
          */
@@ -1875,12 +1878,14 @@ export interface components {
         /**
          * @description What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row
          *     used (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there
-         *     were more), and with `write` the document as stored after the write.
+         *     were more), with `write` the document as stored after the write, and the locale the values were read in
+         *     (`de-DE`: the request's, or the tenant country's).
          */
         ReadTableResponse: {
             columns: components["schemas"]["TableColumnDto"][];
             document?: null | components["schemas"]["DocumentDetail"];
             headerRow: null | components["schemas"]["TableBandDto"];
+            locale?: null | string;
             path: string;
             proposed: boolean;
             report: components["schemas"]["TableReportDto"];
@@ -2069,10 +2074,13 @@ export interface components {
         /**
          * @description One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the
          *     first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
-         *     dividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), and
-         *     its first three rows as printed.
+         *     dividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its
+         *     first three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header
+         *     row, within the page margins; absent in a report stored before it was recorded).
          */
         TablePageReportDto: {
+            /** Format: double */
+            bottom?: null | number | string;
             columns: components["schemas"]["TableColumnBoundsDto"][];
             columnsFrom: string;
             /** Format: int32 */
@@ -2092,6 +2100,8 @@ export interface components {
             rows: number | string;
             /** Format: int32 */
             skippedLines: number | string;
+            /** Format: double */
+            top?: null | number | string;
         };
         /** @description A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`), the message and the field. */
         TableRejectedLineDto: {

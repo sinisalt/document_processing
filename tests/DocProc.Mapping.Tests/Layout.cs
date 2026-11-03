@@ -53,15 +53,15 @@ internal static class PriceList
     // Column left edges of the printed layout (docs/11 §8.6 example), and the dividers a reviewer draws between them.
     public const double Sku = 55, Description = 155, Content = 505, Unit = 625, Price = 705, Tier10 = 805, Tier50 = 905;
 
-    public static readonly IReadOnlyList<(double X0, double X1, string? Field, string Header)> Dividers =
+    public static readonly IReadOnlyList<(double X0, double X1, string? Field, string Header, decimal? Tier)> Dividers =
     [
-        (50, 150, "supplierSku", "Art.-Nr."),
-        (150, 500, "description", "Bezeichnung"),
-        (500, 620, "packDescription", "Inhalt"),
-        (620, 700, "unit", "VE"),
-        (700, 800, "price", "Preis"),
-        (800, 900, null, "ab 10"),
-        (900, 990, null, "ab 50"),
+        (50, 150, "supplierSku", "Art.-Nr.", null),
+        (150, 500, "description", "Bezeichnung", null),
+        (500, 620, "packDescription", "Inhalt", null),
+        (620, 700, "unit", "VE", null),
+        (700, 800, "price", "Preis", null),
+        (800, 900, null, "ab 10", 10),
+        (900, 990, null, "ab 50", 50),
     ];
 
     public static readonly IReadOnlyDictionary<string, TableField> Fields = new Dictionary<string, TableField>(StringComparer.Ordinal)
@@ -103,12 +103,12 @@ internal static class PriceList
 
     private static (double, string) X(double x, double shift, double scale, string text) => ((x * scale) + shift, text);
 
-    /// <summary>The mapping a reviewer draws on page 1: the seven columns (two of them tier columns), the header band and the box.</summary>
+    /// <summary>The mapping a reviewer draws on page 1: the seven columns (two of them tier columns, named by their minimum quantity as the proposal names them), the header band and the box.</summary>
     public static ColumnTableSpec Spec(int page = 1, double headerY = 100, double top = 95, double bottom = 940, IReadOnlyList<int>? pages = null) => new()
     {
         Page = page,
         Region = new BoundingBox(40, top, 995, bottom),
-        Columns = [.. Dividers.Select(d => new TableColumn(d.X0, d.X1, d.Field))],
+        Columns = [.. Dividers.Select(d => new TableColumn(d.X0, d.X1, d.Field, TierMinQuantity: d.Tier))],
         Fields = Fields,
         HeaderRow = (headerY - 1, headerY + 11),
         RowAnchor = "supplierSku",

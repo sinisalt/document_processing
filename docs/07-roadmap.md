@@ -699,7 +699,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       own, not the client's), not a `PATCH` of 400 rows from the browser;
     - a line with text but no price is a heading when it is one run of text in the anchor column, or printed across a
       divider; under a row, one printed inside a text column is a continuation line (docs/11 §8.6 said both);
-    - tier columns are on whenever a row has the tier group (`tiers` with `minQuantity` and `price`).
+    - tier columns are on whenever a row has the tier group (`tiers` with `minQuantity` and `price`); since the fixes
+      after review (below) a column is a tier column only when the mapping names its `tierMinQuantity` (the proposal
+      reads it from a header such as `ab 10`), so a column the reviewer leaves out stays out.
   - Done (part C), the review UI of P2 in the customer portal (docs/11 §12, §19; docs/09 "Demo: manual mapping" has
     the steps):
     - the **Map this document** panel (docs/11 §12.1) in place of the empty form of a document without a form or data
@@ -770,7 +772,34 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       top three, and suppliers have no types before P4);
     - a mapped value is saved with Save corrections, like a typed one, so several fields can be taken from the page and
       saved in one patch; a table is written at once (`write: true`).
+  - Fixed after the review of P2 (on top of part C):
+    - Classify keeps a type a reviewer set (`TypeSource=Human`, from `:set-type` or a typed split part; docs/11 §9.4
+      rule 1): a reprocess from Classify or Normalize moves the document to `Classified` without asking the keyword
+      rules or the LLM, so the type, its version pin and the tree (a price list's rows written with the table tool) and
+      its table report survive; the timeline's `Classified` event says `kept: true`. Before, the classifier's answer
+      replaced the type and the rows were dropped with the tree (`DefinitionDrivenPipelineTests`);
+    - the table tool's "Lines that are not rows" (docs/11 §12.4 step 3): lines to leave out wherever they are printed
+      (`skipRows`) and lines the table ends at (`stopAt`), each named by the text it starts with, in which any number
+      stands for any number ("Seite 1 von 14" also leaves out "Seite 2 von 14"); a rejected line of the page strip
+      offers "Leave out lines like this"; the part of the other pages that is read (`pageMargins`, in percent of the
+      page height). A running title of a list that prints its header on page 1 only no longer becomes a heading, and a
+      footer printed inside the box is no longer appended to the last row of every page or rejected on every page;
+    - a box drawn only around the header row (docs/11 §12.4 step 1) reads every page down to the bottom page margin,
+      or the foot of the page; before, it read no row on page 1 and dropped everything below the page-1 box on the
+      other pages. Each page of the report names the band it read (`top`, `bottom`), which the page viewer draws;
+    - a tier column the reviewer leaves out yields no tiers (before, a column headed `ab 10` became tiers whatever the
+      reviewer chose; the header pattern is the proposal's only);
+    - a tier header with a thousands separator (`ab 1.000`, `ab 1 000`) is read as the whole number in the locale of
+      the request (the API's default pattern captures the whole number; the answer of `regions:table` names the
+      `locale` it read in, which the portal reads the header with when a left-out column is made a tier again);
+    - a continuation conflict in a column without a field says "in column 5", not "in the column 5 column";
+    - map mode's Enter moves on to a required composite (the price list's Supplier) whose members are not required
+      one by one: an empty required party counts as its first member (`FieldSpec.inRequired`), tested against the form
+      spec `std.price-list` compiles to.
   - Left for later:
+    - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
+      expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
+      defaults in the UI (`auto`, `appendToPrevious`);
     - an OCR provider (Tesseract or Azure Document Intelligence Layout, docs/01): until one is registered, region OCR
       answers 501 and an image page has no words;
     - the row filters of the grid of docs/11 §12.4 ("rejected or low-confidence rows", "rows on page n", "changed against

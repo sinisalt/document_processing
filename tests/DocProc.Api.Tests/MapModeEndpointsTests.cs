@@ -24,13 +24,14 @@ namespace DocProc.Api.Tests;
 /// </summary>
 internal static class PriceListPages
 {
-    public static readonly (double X0, double X1, string? Field, string Header)[] Columns =
+    /// <summary>The columns as the portal maps them: the tier columns name their minimum quantity, as the proposal does.</summary>
+    public static readonly (double X0, double X1, string? Field, string Header, decimal? Tier)[] Columns =
     [
-        (50, 150, "supplierSku", "Art.-Nr."),
-        (150, 500, "description", "Bezeichnung"),
-        (500, 650, "price", "Preis"),
-        (650, 800, null, "ab 10"),
-        (800, 990, null, "ab 50"),
+        (50, 150, "supplierSku", "Art.-Nr.", null),
+        (150, 500, "description", "Bezeichnung", null),
+        (500, 650, "price", "Preis", null),
+        (650, 800, null, "ab 10", 10),
+        (800, 990, null, "ab 50", 50),
     ];
 
     private static readonly double[] Left = [55, 155, 505, 655, 805];
@@ -101,7 +102,7 @@ internal static class PriceListPages
         page,
         bBox = new { x0 = 40, y0 = 95, x1 = 995, y1 = 940 },
         headerRow = new { y0 = 99, y1 = 111 },
-        columns = Columns.Select(c => new { x0 = c.X0, x1 = c.X1, field = c.Field }).ToArray(),
+        columns = Columns.Select(c => new { x0 = c.X0, x1 = c.X1, field = c.Field, tierMinQuantity = c.Tier }).ToArray(),
         pages,
         groupHeader = new { target = "category" },
         pageMargins = new { bottom = 940 },

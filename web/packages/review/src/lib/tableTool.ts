@@ -74,10 +74,42 @@ export function targetOf(column: TableColumn): ColumnTarget {
   return { kind: "none" };
 }
 
-/** The minimum quantity a tier header names (`ab 10`, `from 50`, `>= 100`), or null. */
-export function tierQuantityOf(header: string | null | undefined): number | null {
-  const match = /(\d+(?:[.,]\d+)?)/.exec(header ?? "");
-  return match ? Number(match[1]!.replace(",", ".")) : null;
+/** The decimal separator of a locale (`de-DE` ",", `en-US` "."); "," when the locale is unknown, as the API reads by default. */
+export function decimalSeparatorOf(locale: string | null | undefined): "," | "." {
+  if (!locale) return ",";
+  try {
+    return new Intl.NumberFormat(locale).formatToParts(1.5).find((p) => p.type === "decimal")?.value === "." ? "." : ",";
+  } catch {
+    return ",";
+  }
+}
+
+/**
+ * The minimum quantity a tier header names (`ab 10`, `from 50`, `>= 100`, `ab 1.000`, `ab 1 000`), read in `locale` as
+ * the API reads printed numbers (docs/11 §8.6): spaces group thousands, and so does a separator that is repeated or
+ * followed by exactly three digits, unless it is the locale's decimal separator; or null.
+ */
+export function tierQuantityOf(header: string | null | undefined, locale?: string | null): number | null {
+  const match = /(\d(?:[\d.,\s\u00a0\u202f]*\d)?)/.exec(header ?? "");
+  if (!match) return null;
+  const text = match[1]!.replace(/[\s\u00a0\u202f]/g, "");
+  const decimal = decimalSeparatorOf(locale);
+  const lastDot = text.lastIndexOf(".");
+  const lastComma = text.lastIndexOf(",");
+  let separator: string | null;
+  if (lastDot >= 0 && lastComma >= 0) separator = lastDot > lastComma ? "." : ",";
+  else if (lastDot < 0 && lastComma < 0) separator = null;
+  else {
+    const sign = lastDot >= 0 ? "." : ",";
+    const count = text.split(sign).length - 1;
+    const after = text.length - text.lastIndexOf(sign) - 1;
+    separator = count > 1 ? null : sign === decimal ? sign : after === 3 ? null : sign;
+  }
+  const at = separator === null ? -1 : text.lastIndexOf(separator);
+  const whole = (at < 0 ? text : text.slice(0, at)).replace(/[.,]/g, "");
+  const fraction = at < 0 ? "" : text.slice(at + 1);
+  const value = Number(fraction ? `${whole}.${fraction}` : whole);
+  return Number.isFinite(value) ? value : null;
 }
 
 export function withTarget(column: TableColumn, target: ColumnTarget): TableColumn {
@@ -115,10 +147,101 @@ export interface TableToolState {
   allPages: boolean;
   /** Group headings fill this row field (`category`), or none. */
   groupHeadingTarget: string | null;
+  /**
+   * Lines that are not rows wherever they are printed (a running page title, "Seite 1 von 14", "Übertrag"): the text
+   * they start with, as the reviewer typed it or took it from a rejected line (`skipRows`). Absent in a state saved
+   * before the tool had it.
+   */
+  skipLines?: string[];
+  /** The table ends at a line that starts with one of these ("Ende der Preisliste", `stopAt`). */
+  stopLines?: string[];
+  /**
+   * The band of the other pages that is read, in page units (`pageMargins`): from `top` (null: the top of the page)
+   * to `bottom` (null: the bottom of the box, or the foot of the page for a box drawn around the header row only).
+   */
+  margins?: TableMargins;
+  /** The locale the API read the values in (`de-DE`), for the quantity of a tier header. */
+  locale?: string | null;
+}
+
+export interface TableMargins {
+  top: number | null;
+  bottom: number | null;
+}
+
+/** The most texts a list of skip or stop lines takes (the API takes 20 patterns of at most 200 characters). */
+export const MAX_LINE_TEXTS = 20;
+
+/**
+ * The `skipRows`/`stopAt` pattern for a line the reviewer named by its text: a line that starts with that text, where
+ * any run of digits stands for any number (so "Seite 1 von 14" also leaves out "Seite 2 von 14") and any run of spaces
+ * for any spacing. Everything else is taken literally.
+ */
+export function linePattern(text: string): string {
+  // At most MAX_LINE_TEXT_LENGTH characters of the text: escaped, a pattern stays within the API's 200 characters.
+  const escaped = text
+    .trim()
+    .slice(0, MAX_LINE_TEXT_LENGTH)
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word
+        .split(/(\d+)/)
+        .map((part, i) => (i % 2 === 1 ? "\\d+" : part.replace(/[\\^$.|?*+()[\]{}]/g, "\\$&")))
+        .join(""),
+    )
+    .join("\\s+");
+  return `^${escaped}`;
+}
+
+/** The line a rejected line stands for: the line added last (a row's continuation line, or the line itself). */
+export function rejectedLineText(line: Pick<TableRejectedLine, "text">): string {
+  const parts = line.text.split(" / ");
+  return (parts[parts.length - 1] ?? line.text).trim();
+}
+
+/** The most characters of a line's start a skip or stop text keeps (what `linePattern` reads of it). */
+export const MAX_LINE_TEXT_LENGTH = 60;
+
+/** The start of a line as a skip or stop text: trimmed, cut at a word boundary to `MAX_LINE_TEXT_LENGTH` characters. */
+export function lineStart(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= MAX_LINE_TEXT_LENGTH) return trimmed;
+  const cut = trimmed.slice(0, MAX_LINE_TEXT_LENGTH);
+  const space = cut.lastIndexOf(" ");
+  return (space > 0 ? cut.slice(0, space) : cut).trim();
+}
+
+/** `texts` with the start of `text` added (`lineStart`, once, at most `MAX_LINE_TEXTS`). */
+export function addLineText(texts: readonly string[] | undefined, text: string): string[] {
+  const list = [...(texts ?? [])];
+  const trimmed = lineStart(text);
+  if (trimmed === "" || list.includes(trimmed) || list.length >= MAX_LINE_TEXTS) return list;
+  return [...list, trimmed];
+}
+
+/** The margins of a state (none in a state saved before the tool had them). */
+export function marginsOf(state: Pick<TableToolState, "margins">): TableMargins {
+  return { top: state.margins?.top ?? null, bottom: state.margins?.bottom ?? null };
+}
+
+/** A margin as the reviewer sees it, in percent of the page height (page units run from 0 to 1000). */
+export function marginPercent(value: number | null): string {
+  return value === null ? "" : String(Math.round(value) / 10);
+}
+
+/** A margin typed in percent of the page height, in page units; null for an empty or unreadable entry. */
+export function marginFromPercent(text: string): number | null {
+  const trimmed = text.trim().replace(",", ".");
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  return Math.round(Math.min(100, Math.max(0, value)) * 10);
 }
 
 /** The `regions:table` body for the state: a preview (`write` false) or the write. */
 export function tableRequest(state: TableToolState, write: boolean, reason?: string): ReadTableRequest {
+  const margins = marginsOf(state);
   return {
     page: state.page,
     bBox: state.box,
@@ -128,15 +251,20 @@ export function tableRequest(state: TableToolState, write: boolean, reason?: str
     path: state.path,
     pages: state.allPages ? `${state.page}-*` : String(state.page),
     groupHeader: state.groupHeadingTarget ? { target: state.groupHeadingTarget } : null,
+    skipRows: state.skipLines && state.skipLines.length > 0 ? state.skipLines.map(linePattern) : null,
+    stopAt: state.stopLines && state.stopLines.length > 0 ? state.stopLines.map(linePattern) : null,
+    pageMargins: margins.top !== null || margins.bottom !== null ? margins : null,
     write,
     reason: write ? (reason ?? null) : null,
   };
 }
 
-/** Whether the mapping can be read: a row anchor whose column is mapped, and at least one column with a field. */
-export function mappingProblem(state: Pick<TableToolState, "columns" | "rowAnchor">): "noColumns" | "noAnchor" | null {
+/** Whether the mapping can be read: a row anchor whose column is mapped, at least one column with a field, and the margins in order. */
+export function mappingProblem(state: Pick<TableToolState, "columns" | "rowAnchor" | "margins">): "noColumns" | "noAnchor" | "margins" | null {
   if (!state.columns.some((c) => c.field)) return "noColumns";
   if (state.rowAnchor && !state.columns.some((c) => c.field === state.rowAnchor)) return "noAnchor";
+  const margins = marginsOf(state);
+  if (margins.top !== null && margins.bottom !== null && margins.top >= margins.bottom) return "margins";
   return null;
 }
 

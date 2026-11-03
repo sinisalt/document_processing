@@ -88,6 +88,12 @@ export interface FieldSpec {
   /** For a member of a composite value: the composite's kind and the member path inside it (`address.city`). */
   member?: { of: string; path: string };
   required?: boolean;
+  /**
+   * A member of a composite value the definition requires (the price list's `supplier` party): the member itself is not
+   * required (the form shows no "*" beside it), but the composite is empty, and so missing, while none of its members
+   * holds a value. What map mode's Enter moves on to (`nextEmptyRequired`).
+   */
+  inRequired?: boolean;
   readOnly?: boolean;
   /** Where the currency of a money value is when the value carries none (`currency`). */
   currencyPath?: string;
@@ -341,6 +347,7 @@ function memberSpecs(field: FormSpecField, kind: string, base: string, fieldPath
       ...(options ? { options } : optionsOf(member, unitCodes(canonical, [], schemaVersion))),
       definitionKind: member.kind,
       member: { of, path: memberPath },
+      ...(field.required ? { inRequired: true } : {}),
       ...(field.readOnly ? { readOnly: true } : {}),
       ...(field.currencyPath ? { currencyPath: field.currencyPath } : {}),
       ...(member.kind === "integer" ? { integer: true } : {}),

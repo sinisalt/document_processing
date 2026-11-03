@@ -6509,7 +6509,7 @@
             ]
           }
         },
-        "description": "`POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box\ndrawn on `page` (word gaps and header words, each column named from the field labels its header matches), with\nthe rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,\n`2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's\nline items by default), `rowAnchor` the field that starts a row (the group's anchor by default),\n`repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or\n`none`, `skipRows` and `stopAt` regular expressions over a line's text. `write: true` writes the\nrows into the document as one correction (op `set` on `path`, the specification and report in its source)\nand stores the report (docs/11 §6.2 `DocumentTableReport`)."
+        "description": "`POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box\ndrawn on `page` (word gaps and header words, each column named from the field labels its header matches), with\nthe rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,\n`2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's\nline items by default), `rowAnchor` the field that starts a row (the group's anchor by default),\n`repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or\n`none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band\nof the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,\nor the foot of the page). A column is a tier column only when it names `tierMinQuantity` (the proposal reads it\nfrom a header such as `ab 10`); one without a field or a quantity is left out. `write: true` writes the\nrows into the document as one correction (op `set` on `path`, the specification and report in its source)\nand stores the report (docs/11 §6.2 `DocumentTableReport`)."
       },
       "ReadTableResponse": {
         "required": [
@@ -6577,9 +6577,15 @@
                 "$ref": "#/components/schemas/DocumentDetail"
               }
             ]
+          },
+          "locale": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
-        "description": "What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row\nused (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there\nwere more), and with `write` the document as stored after the write."
+        "description": "What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row\nused (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there\nwere more), with `write` the document as stored after the write, and the locale the values were read in\n(`de-DE`: the request's, or the tenant country's)."
       },
       "RejectDocumentRequest": {
         "required": [
@@ -7335,9 +7341,27 @@
                 "type": "string"
               }
             }
+          },
+          "top": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "bottom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         },
-        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), and\nits first three rows as printed."
+        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its\nfirst three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header\nrow, within the page margins; absent in a report stored before it was recorded)."
       },
       "TableRejectedLineDto": {
         "required": [

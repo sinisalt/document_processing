@@ -414,7 +414,7 @@
     "cancel": "Auswahl verwerfen"
   },
   "table": {
-    "drawHint": "Ziehen Sie auf der Seite einen Rahmen um die Tabelle, von der Spaltenüberschrift bis zur letzten Zeile (bei einer langen Liste bis knapp über die Fußzeile). Daraus werden die Spalten vorgeschlagen.",
+    "drawHint": "Ziehen Sie auf der Seite einen Rahmen um die Tabelle, von der Spaltenüberschrift bis zur letzten Zeile (bei einer langen Liste bis knapp über die Fußzeile), oder nur um die Überschriftenzeile: Dann wird jede Seite bis zu ihrem Fuß (oder bis zum unteren Rand unten) gelesen. Daraus werden die Spalten vorgeschlagen.",
     "proposing": "Spalten werden vorgeschlagen …",
     "columnsHint": "Spalten der Tabelle auf Seite {{page}}: Wählen Sie das Feld, das jede Spalte füllt.",
     "columns": "Spalten",
@@ -427,7 +427,8 @@
     "groupHeadings": "Zwischenüberschriften füllen die Warengruppe der Zeilen darunter",
     "problems": {
       "noColumns": "Wählen Sie für mindestens eine Spalte ein Feld.",
-      "noAnchor": "Die Spalte des Zeilenankers (des Felds, mit dem eine Zeile beginnt) muss zugeordnet sein."
+      "noAnchor": "Die Spalte des Zeilenankers (des Felds, mit dem eine Zeile beginnt) muss zugeordnet sein.",
+      "margins": "Der obere Rand des gelesenen Teils muss über dem unteren liegen."
     },
     "preview": "Diese Seite lesen",
     "previewAll": "Alle Seiten lesen",
@@ -460,6 +461,20 @@
       "noAnchor": "kein Zeilenbeginn",
       "continuationConflict": "Fortsetzung"
     },
-    "reportStale": "Vorschau einer früheren Zuordnung (die Zuordnung hat sich seitdem geändert; lesen Sie die Seiten erneut):"
+    "reportStale": "Vorschau einer früheren Zuordnung (die Zuordnung hat sich seitdem geändert; lesen Sie die Seiten erneut):",
+    "notRows": {
+      "heading": "Zeilen, die keine Positionen sind",
+      "hint": "Seitentitel, Seitenzahlen und Fußzeilen, die auf jeder Seite in der Tabelle stehen: Lassen Sie sie über den Text aus, mit dem sie beginnen (Zahlen darin stehen für jede Zahl), oder legen Sie fest, welcher Teil der übrigen Seiten gelesen wird.",
+      "skip": "Zeilen auslassen, die beginnen mit",
+      "skipPlaceholder": "Seite 1 von 14",
+      "stop": "Die Tabelle endet an einer Zeile, die beginnt mit",
+      "stopPlaceholder": "Ende der Preisliste",
+      "add": "Hinzufügen",
+      "remove": "„{{text}}“ entfernen",
+      "skipThis": "Zeilen wie „{{text}}“ auslassen",
+      "margins": "Auf den übrigen Seiten diesen Teil der Seite lesen",
+      "marginTop": "von",
+      "marginBottom": "bis"
+    }
   }
 }

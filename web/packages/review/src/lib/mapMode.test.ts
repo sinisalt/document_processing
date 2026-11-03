@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { bboxParam, boxFromDrag, candidateKindsFor, editableFromCandidate, grow, isClick, nextEmptyRequired, pickCandidate, sourceOf, union, wordAt, type ValueCandidate } from "./mapMode";
-import type { FieldSpec } from "./formSpec";
+import { specsFromDefinition, type FieldSpec } from "./formSpec";
+import { toFormValues } from "./values";
+import { templates } from "../test/templates";
 
 const candidates: ValueCandidate[] = [
   { kind: "date", value: "2027-01-01" },
@@ -75,5 +77,28 @@ describe("map mode", () => {
     expect(nextEmptyRequired(specs, { validFrom: "2027-01-01", currency: "", supplier: { name: "" } }, "validFrom")?.path).toBe("currency");
     expect(nextEmptyRequired(specs, { validFrom: "", currency: "EUR", supplier: { name: "Nordwind" } }, "supplier.name")?.path).toBe("validFrom");
     expect(nextEmptyRequired(specs, { validFrom: "2027-01-01", currency: "EUR", supplier: { name: "Nordwind" } }, "currency")).toBeNull();
+  });
+
+  it("counts the price list's required supplier party as its first member until a member holds a value (the form spec std.price-list compiles to)", () => {
+    // The compiled form spec marks the party required, not its members: Supplier > Name shows no "*".
+    const { specs } = specsFromDefinition(templates.priceList, {}, { schemaVersion: 2 });
+    const name = specs.find((s) => s.path === "supplier.name")!;
+    expect(name.required).toBeUndefined();
+    expect(name.inRequired).toBe(true);
+    expect(specs.find((s) => s.path === "customer.name")?.inRequired).toBeUndefined();
+    const values = (patch: Record<string, unknown>) => ({ ...toFormValues({}, specs), ...patch });
+    const empty = values({});
+    // The demo of docs/09: Valid from, then Currency (Price list no. is optional), then Supplier > Name.
+    expect(nextEmptyRequired(specs, empty, null)?.path).toBe("validFrom");
+    expect(nextEmptyRequired(specs, values({ validFrom: "2027-01-01" }), "validFrom")?.path).toBe("currency");
+    expect(nextEmptyRequired(specs, values({ validFrom: "2027-01-01", priceListNumber: "PL-2027-01" }), "priceListNumber")?.path).toBe("currency");
+    const header = values({ validFrom: "2027-01-01", priceListNumber: "PL-2027-01", currency: "EUR" });
+    expect(nextEmptyRequired(specs, header, "currency")?.path).toBe("supplier.name");
+    // Any member of the party holding a value fills it; from inside the party, Enter goes on past it.
+    const withVat = { ...header, supplier: { ...(header.supplier as object), vatId: "DE123456789" } };
+    expect(nextEmptyRequired(specs, withVat, "currency")).toBeNull();
+    expect(nextEmptyRequired(specs, { ...empty, currency: "EUR" }, "supplier.vatId")?.path).toBe("validFrom");
+    const done = { ...header, supplier: { ...(header.supplier as object), name: "Nordwind Großhandel GmbH" } };
+    expect(nextEmptyRequired(specs, done, "supplier.name")).toBeNull();
   });
 });

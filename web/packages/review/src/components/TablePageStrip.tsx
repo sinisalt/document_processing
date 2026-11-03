@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, EyeOff } from "lucide-react";
 import { Badge, Button, cn } from "@docproc/ui";
 import { REVIEW_NS } from "../lib/labels";
-import { pageReport, reportTotals, stripEntries, type TableRejectedLine, type TableReport } from "../lib/tableTool";
+import { pageReport, rejectedLineText, reportTotals, stripEntries, type TableRejectedLine, type TableReport } from "../lib/tableTool";
 
 export interface TablePageStripProps {
   report: TableReport;
@@ -12,6 +12,8 @@ export interface TablePageStripProps {
   onPickPage?: (page: number) => void;
   /** Clicking a rejected line shows its page and box. */
   onPickRejected?: (line: TableRejectedLine) => void;
+  /** "Leave out lines like this": the text of a rejected line (its last line) becomes a skip line. */
+  onSkipLine?: (text: string) => void;
   className?: string;
 }
 
@@ -19,7 +21,7 @@ export interface TablePageStripProps {
  * The table report as a page strip (docs/11 §12.4): the totals, then one chip per page read ("p. 1: 22 rows",
  * "p. 7: 2 rejected", "p. 12: no rows"), and the rejected lines of the current page with their text and reason.
  */
-export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected, className }: TablePageStripProps) {
+export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected, onSkipLine, className }: TablePageStripProps) {
   const { t } = useTranslation(REVIEW_NS);
   const totals = reportTotals(report);
   const entries = stripEntries(report);
@@ -63,14 +65,27 @@ export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected
           </p>
           <ul className="flex flex-col gap-1">
             {rejectedHere.map((line, index) => (
-              <li key={index}>
-                <button type="button" className="w-full rounded px-1 text-left text-xs hover:bg-muted" onClick={() => onPickRejected?.(line)}>
+              <li key={index} className="flex items-start gap-1">
+                <button type="button" className="min-w-0 flex-1 rounded px-1 text-left text-xs hover:bg-muted" onClick={() => onPickRejected?.(line)}>
                   <span className="font-mono">{line.text}</span>
                   <Badge variant="outline" className="ml-2">
                     {t(`table.reasons.${line.reason}`, { defaultValue: line.reason })}
                   </Badge>
                   <span className="ml-1 text-muted-foreground">{line.message}</span>
                 </button>
+                {onSkipLine && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("table.notRows.skipThis", { text: rejectedLineText(line) })}
+                    title={t("table.notRows.skipThis", { text: rejectedLineText(line) })}
+                    onClick={() => onSkipLine(rejectedLineText(line))}
+                    data-testid="table-skip-rejected"
+                  >
+                    <EyeOff aria-hidden />
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

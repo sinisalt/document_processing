@@ -414,7 +414,7 @@
     "cancel": "Cancel the selection"
   },
   "table": {
-    "drawHint": "Drag a box around the table on the page, from its column header down to the last row (on a long list, down to just above the footer). The columns are proposed from it.",
+    "drawHint": "Drag a box around the table on the page, from its column header down to the last row (on a long list, down to just above the footer), or only around its header row: then every page is read down to its foot (or the bottom margin below). The columns are proposed from it.",
     "proposing": "Proposing the columns…",
     "columnsHint": "Columns of the table drawn on page {{page}}: name the field each one fills.",
     "columns": "Columns",
@@ -427,7 +427,8 @@
     "groupHeadings": "Group headings fill the category of the rows below them",
     "problems": {
       "noColumns": "Name the field of at least one column.",
-      "noAnchor": "The column of the row anchor (the field that starts a row) has to be mapped."
+      "noAnchor": "The column of the row anchor (the field that starts a row) has to be mapped.",
+      "margins": "The top of the part read has to lie above its bottom."
     },
     "preview": "Read this page",
     "previewAll": "Read all pages",
@@ -460,6 +461,20 @@
       "noAnchor": "no row start",
       "continuationConflict": "continuation"
     },
-    "reportStale": "Preview of an earlier mapping (the mapping changed since; read the pages again):"
+    "reportStale": "Preview of an earlier mapping (the mapping changed since; read the pages again):",
+    "notRows": {
+      "heading": "Lines that are not rows",
+      "hint": "Running titles, page numbers and footers printed inside the table on every page: leave them out by the text they start with (numbers in it stand for any number), or set the part of the other pages that is read.",
+      "skip": "Leave out lines that start with",
+      "skipPlaceholder": "Seite 1 von 14",
+      "stop": "The table ends at a line that starts with",
+      "stopPlaceholder": "Ende der Preisliste",
+      "add": "Add",
+      "remove": "Remove “{{text}}”",
+      "skipThis": "Leave out lines like “{{text}}”",
+      "margins": "On the other pages, read the part of the page",
+      "marginTop": "from",
+      "marginBottom": "to"
+    }
   }
 }

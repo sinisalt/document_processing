@@ -144,6 +144,46 @@ describe("TableToolPanel", () => {
     expect(screen.getByTestId("table-write")).toBeDisabled();
     expect(screen.getByText(/the mapping changed since/)).toBeInTheDocument();
   });
+
+  it("leaves out lines that are not rows: typed, taken from a rejected line, or by the margins of the other pages", () => {
+    const onSkipLinesChange = vi.fn();
+    const onStopLinesChange = vi.fn();
+    const onMarginsChange = vi.fn();
+    panel({ state: { ...state, skipLines: ["Seite 1 von 14"] }, report, reportKind: "preview", currentPage: 2, onSkipLinesChange, onStopLinesChange, onMarginsChange });
+
+    const skip = screen.getByTestId("table-skip-lines");
+    expect(skip).toHaveTextContent("Seite 1 von 14");
+    fireEvent.change(within(skip).getByRole("textbox", { name: "Leave out lines that start with" }), { target: { value: "Nordwind Preisliste 2027" } });
+    fireEvent.keyDown(within(skip).getByRole("textbox", { name: "Leave out lines that start with" }), { key: "Enter" });
+    expect(onSkipLinesChange).toHaveBeenLastCalledWith(["Seite 1 von 14", "Nordwind Preisliste 2027"]);
+    fireEvent.click(within(skip).getByRole("button", { name: "Remove “Seite 1 von 14”" }));
+    expect(onSkipLinesChange).toHaveBeenLastCalledWith([]);
+
+    const stop = screen.getByTestId("table-stop-lines");
+    fireEvent.change(within(stop).getByRole("textbox", { name: "The table ends at a line that starts with" }), { target: { value: "Ende der Preisliste" } });
+    fireEvent.click(within(stop).getByRole("button", { name: "Add" }));
+    expect(onStopLinesChange).toHaveBeenLastCalledWith(["Ende der Preisliste"]);
+
+    // A rejected line of the page shown: "Leave out lines like this".
+    fireEvent.click(within(screen.getByTestId("table-rejected")).getByTestId("table-skip-rejected"));
+    expect(onSkipLinesChange).toHaveBeenLastCalledWith(["Seite 1 von 14", "104 Wein 1,2x"]);
+
+    fireEvent.change(screen.getByLabelText("from"), { target: { value: "5" } });
+    expect(onMarginsChange).toHaveBeenLastCalledWith({ top: 50, bottom: null });
+    fireEvent.change(screen.getByLabelText("to"), { target: { value: "93.5" } });
+    expect(onMarginsChange).toHaveBeenLastCalledWith({ top: null, bottom: 935 });
+  });
+
+  it("says when the margins are the wrong way round, and offers a left-out tier column again at its proposed quantity", () => {
+    const onColumnTarget = vi.fn();
+    panel({ state: { ...state, margins: { top: 600, bottom: 400 }, locale: "de-DE", columns: [...state.columns, { x0: 650, x1: 800, field: null, header: "ab 1.000", tierMinQuantity: null }] }, onColumnTarget });
+    expect(screen.getByTestId("table-problem")).toHaveTextContent("The top of the part read has to lie above its bottom.");
+    expect(screen.getByTestId("table-preview")).toBeDisabled();
+    expect(screen.getByLabelText("from")).toHaveValue(60);
+    // A tier column the reviewer left out shows as left out (its quantity is read again from the header if it is made a tier).
+    expect(screen.getByTestId("table-column-3")).toHaveTextContent("(leave out)");
+    expect(onColumnTarget).not.toHaveBeenCalled();
+  });
 });
 
 describe("MapPreview", () => {

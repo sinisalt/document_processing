@@ -159,17 +159,33 @@ export function sourceOf(page: number, read: Pick<PageWords, "bBox" | "words" | 
 
 /**
  * The next field to map after `current` (Enter, docs/11 §12.3): the next required field in form order that is empty in
- * the form, wrapping around; repeating-group cells are left to the table tool. Null when every required field holds a value.
+ * the form, wrapping around; repeating-group cells are left to the table tool. A required composite (the supplier party,
+ * whose members are not required one by one) counts as one field, its first member, while none of its members holds a
+ * value. Null when every required field holds a value.
  */
 export function nextEmptyRequired(specs: readonly FieldSpec[], values: unknown, current: string | null): FieldSpec | null {
-  const candidates = specs.filter((s) => s.required && !s.readOnly && !s.path.includes("["));
+  const blank = (path: string) => {
+    const value = getByPath(values, path);
+    return value === undefined || value === null || String(value).trim() === "";
+  };
+  const open = specs.filter((s) => !s.readOnly && !s.path.includes("["));
+  const candidates: { spec: FieldSpec; empty: () => boolean; owns: (path: string) => boolean }[] = [];
+  const composites = new Set<string>();
+  for (const spec of open) {
+    if (spec.required) {
+      candidates.push({ spec, empty: () => blank(spec.path), owns: (path) => path === spec.path });
+    } else if (spec.inRequired && spec.member && !composites.has(spec.fieldPath)) {
+      composites.add(spec.fieldPath);
+      const members = open.filter((m) => m.fieldPath === spec.fieldPath && m.member);
+      candidates.push({ spec, empty: () => members.every((m) => blank(m.path)), owns: (path) => members.some((m) => m.path === path) });
+    }
+  }
   if (candidates.length === 0) return null;
-  const start = current === null ? -1 : candidates.findIndex((s) => s.path === current);
+  const start = current === null ? -1 : candidates.findIndex((c) => c.owns(current));
   for (let step = 1; step <= candidates.length; step++) {
-    const spec = candidates[(start + step + candidates.length) % candidates.length]!;
-    if (spec.path === current) continue;
-    const value = getByPath(values, spec.path);
-    if (value === undefined || value === null || String(value).trim() === "") return spec;
+    const candidate = candidates[(start + step + candidates.length) % candidates.length]!;
+    if (current !== null && candidate.owns(current)) continue;
+    if (candidate.empty()) return candidate.spec;
   }
   return null;
 }

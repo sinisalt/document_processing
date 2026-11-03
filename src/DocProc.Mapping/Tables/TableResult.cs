@@ -50,7 +50,8 @@ public static class ColumnsFrom
 /// <summary>
 /// What the table yielded on one page (docs/11 §12.4 table report and page strip): rows that start on it, the rejected
 /// lines (with their text, at most <see cref="ColumnTableSpec.MaxRejectedListed"/> listed), whether its header row was
-/// found, the dividers used on it and where they came from, and its first three rows as printed.
+/// found, the dividers used on it and where they came from, its first three rows as printed, and the band of the page
+/// read (<paramref name="Top"/> to <paramref name="Bottom"/>, in page units).
 /// </summary>
 public sealed record TablePageReport(
     int Page,
@@ -63,7 +64,9 @@ public sealed record TablePageReport(
     int ContinuationLines,
     IReadOnlyList<ColumnBounds> Columns,
     string ColumnsFrom,
-    IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows);
+    IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows,
+    double? Top = null,
+    double? Bottom = null);
 
 /// <summary>
 /// The table report (docs/11 §8.6, §12.4): totals, the pages read, the pages that yielded no row, the page a

@@ -25,8 +25,11 @@ public static partial class TableCapture
     /// <summary>The most rows a response lists (the report always counts them all).</summary>
     public const int MaxRowsInResponse = 1000;
 
-    /// <summary>The tier header pattern when the request names none: <c>ab 10</c>, <c>from 50</c>.</summary>
-    public const string DefaultTierPattern = @"^(?:ab|from|von)\s*(\d+)";
+    /// <summary>
+    /// The tier header pattern when the request names none: <c>ab 10</c>, <c>from 50</c>, and with a thousands separator
+    /// <c>ab 1.000</c> or <c>ab 1 000</c> (the whole number is captured and read in the request's locale).
+    /// </summary>
+    public const string DefaultTierPattern = @"^(?:ab|from|von)\s*(\d(?:[\d.,\s]*\d)?)";
 
     /// <summary>The kinds a column can be read into (one printed value each).</summary>
     public static readonly IReadOnlySet<string> ReadableKinds = new HashSet<string>(StringComparer.Ordinal)
@@ -312,8 +315,9 @@ public static partial class TableCapture
 
     /// <summary>
     /// The tier columns (docs/11 §8.6): on whenever a row has the tier group (<c>tiers</c> with <c>minQuantity</c> and
-    /// <c>price</c>), so a column headed <c>ab 10</c> becomes tier entries without more set-up; an error when the request
-    /// asks for tiers a row cannot hold.
+    /// <c>price</c>), so a column that names its <c>tierMinQuantity</c> (as the proposal does for a column headed
+    /// <c>ab 10</c>) becomes tier entries without more set-up, and a column left out (no field, no quantity) stays out;
+    /// an error when the request asks for tiers a row cannot hold.
     /// </summary>
     public static TierColumnsSpec? Tiers(ReadTableRequest request, Target target, IReadOnlyList<TableColumn> mapped, Dictionary<string, string[]> errors)
     {
@@ -500,7 +504,9 @@ public static partial class TableCapture
                     p.ContinuationLines,
                     [.. p.Columns.Select(c => new TableColumnBoundsDto(c.X0, c.X1))],
                     p.ColumnsFrom,
-                    p.FirstRows)),
+                    p.FirstRows,
+                    p.Top,
+                    p.Bottom)),
             ]);
     }
 

@@ -653,8 +653,9 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    viewer's toolbar; M switches it on and off).
 4. **Header values from the page.** Click Valid from in the form, then click "01.01.2027" on the page: the preview above
    the page reads `“01.01.2027” → 2027-01-01` (editable); Enter assigns it and moves to the next empty required field,
-   Tab skips, Esc drops the selection. Likewise Price list no. ← "PL-2027-01" and Currency ← "EUR"; for Supplier > Name,
-   drag a box around "Nordwind Großhandel GmbH" in the letterhead (a box reads every word in it, in reading order;
+   Tab skips, Esc drops the selection. Likewise Price list no. ← "PL-2027-01" (click it first: it is not required) and
+   Currency ← "EUR"; Enter after Currency moves on to Supplier > Name (the supplier party is required as a whole): drag
+   a box around "Nordwind Großhandel GmbH" in the letterhead (a box reads every word in it, in reading order;
    shift-click adds words one by one). Save corrections: each value is Corrected by the reviewer with its page and box,
    drawn on the page, and the three required flags resolve.
 5. **Supplier.** More > Create supplier from this document: the dialog is filled from the supplier party
@@ -669,6 +670,14 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured again at its header. Write 412
    rows: one correction ("412 rows written as one correction."), the rows in the Articles grid (100 a page) with their
    category and tier prices, and the report kept as the Table tab's page strip (also after a reload).
+   Lines inside the box that are not rows go under "Lines that are not rows": a box drawn down to the foot of the page
+   holds the footer of every page (14 rejected lines); "Leave out lines like this" beside a rejected line, or typing
+   "Seite 1 von 14" and "Nordwind Großhandel GmbH · Amtsgericht" under "Leave out lines that start with" (a number
+   stands for any number), reads 412 rows and none rejected again; "On the other pages, read the part of the page
+   from … to … %" cuts off running titles and footers by position instead. A box drawn only around the header row
+   reads every page down to its foot (or the bottom margin). Choosing "(leave out)" for a tier column leaves its prices
+   out of the rows.
+   A reprocess from Classify (Reprocess, From stage = Classify) keeps the type set in review, and with it the rows.
 7. **Approve by hand.** Approve: no open flag is left, and the document is Approved. Price lists are always reviewed in
    this phase (`review.autoApprove: false`, docs/11 §5.8).
 

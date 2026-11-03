@@ -152,6 +152,72 @@ public sealed class DefinitionDrivenPipelineTests
     }
 
     [Fact]
+    public async Task A_type_a_reviewer_set_survives_a_reprocess_from_classify_with_its_pin_tree_and_table_report()
+    {
+        // docs/11 §9.4 rule 1: TypeSource=Human (what :set-type and a typed split part write) stands. A reprocess from
+        // Classify (the portal's Reprocess menu) moves the document on without asking the classifier, so the reviewer's
+        // type, its version pin, the tree with the rows the table tool wrote and the group's report all survive.
+        await using var host = await StartAsync();
+        await host.AddReplayProviderAsync();
+        await SetConfigurableAsync(host, true);
+        host.Llm.Enqueue(ClassifyPurchaseOrder);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bestellung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        var pin = document.DocumentTypeVersionId.ShouldNotBeNull();
+
+        // What a reviewer leaves behind: the type set by hand, a value and a row captured from the page, and the report.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            var tree = JsonNode.Parse(row.CanonicalJson!)!.AsObject();
+            tree["poNumber"] = JsonNode.Parse("""{"value":{"verbatim":"PO-2026-77","normalized":"PO-2026-77"},"status":"Corrected","confidence":1,"history":[]}""");
+            tree["lines"]!.AsArray().Add(JsonNode.Parse("""{"description":{"value":"Rioja Crianza","status":"Corrected","confidence":1,"history":[]}}"""));
+            row.CanonicalJson = tree.ToJsonString();
+            row.TypeSource = TypeSource.Human;
+            row.TypeConfidence = 1.0;
+            db.DocumentTableReports.Add(new DocumentTableReport { TenantId = row.TenantId, DocumentId = row.Id, Path = "lines", Origin = TableReportOrigin.ReviewTool, ReportJson = "{\"rows\":1}", ProducedAtVersion = row.Version });
+            row.Status = DocumentStatus.Split;
+            await db.SaveChangesAsync();
+        });
+
+        // The classifier would now say invoice; it is not asked.
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Classify), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+
+        var after = await host.DocumentAsync(document.Id);
+        after.Status.ShouldBe(DocumentStatus.NeedsReview);
+        after.Type.ShouldBe(DocumentTypeKey.PurchaseOrder);
+        after.TypeSource.ShouldBe(TypeSource.Human);
+        after.DocumentTypeVersionId.ShouldBe(pin);
+        after.CanonicalSchemaVersion.ShouldBe(DefinitionTree.SchemaVersion);
+        var kept = JsonNode.Parse(after.CanonicalJson.ShouldNotBeNull())!.AsObject();
+        kept["poNumber"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe("PO-2026-77");
+        kept["lines"]!.AsArray().Count.ShouldBe(1);
+        kept["lines"]![0]!["description"]!["value"]!.GetValue<string>().ShouldBe("Rioja Crianza");
+        (await host.WithDbAsync(db => db.DocumentTableReports.CountAsync(r => r.DocumentId == document.Id))).ShouldBe(1);
+        host.Llm.Remaining.ShouldBe(1, "the classifier was not asked for a type a reviewer set");
+        (await host.EventsAsync(document.Id)).Last(e => e.ToStatus == DocumentStatus.Classified).DetailsJson.ShouldNotBeNull().ShouldContain("\"kept\":true");
+
+        // A type the pipeline found itself is classified again, as before.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+            row.TypeSource = TypeSource.Llm;
+            row.Status = DocumentStatus.Split;
+            await db.SaveChangesAsync();
+        });
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice);
+        await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Classify), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+        var reclassified = await host.DocumentAsync(document.Id);
+        reclassified.Type.ShouldBe(DocumentTypeKey.Invoice);
+        reclassified.TypeSource.ShouldBe(TypeSource.Llm);
+        host.Llm.Remaining.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Extract_keeps_a_table_report_with_the_tree_it_describes_and_drops_it_with_a_new_tree()
     {
         // docs/11 §6.2: a DocumentTableReport describes the rows of a group; a rerun of Extract that keeps the reviewer's

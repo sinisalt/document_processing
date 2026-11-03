@@ -285,7 +285,7 @@ public static partial class DocumentEndpoints
         var header = spec.HeaderRow is { } h ? new TableBandDto(h.Y0, h.Y1) : null;
         if (!request.Write)
         {
-            return TypedResults.Ok(new ReadTableResponse(target.Path, false, columns, header, spec.RowAnchor, report, rows, result.Rows.Count > rows.Count, false));
+            return TypedResults.Ok(new ReadTableResponse(target.Path, false, columns, header, spec.RowAnchor, report, rows, result.Rows.Count > rows.Count, false, Locale: readLocale.Name));
         }
 
         // The write (docs/11 §12.4): every row as one correction (op set on the group) through the definition patcher, the
@@ -373,7 +373,7 @@ public static partial class DocumentEndpoints
 
         await RecheckAsync(db, document, type, validator, now, ct);
         var detail = await FreshDetailAsync(db, id, configs, features, ct);
-        return TypedResults.Ok(new ReadTableResponse(target.Path, false, columns, header, spec.RowAnchor, report, rows, result.Rows.Count > rows.Count, true, detail));
+        return TypedResults.Ok(new ReadTableResponse(target.Path, false, columns, header, spec.RowAnchor, report, rows, result.Rows.Count > rows.Count, true, detail, readLocale.Name));
     }
 
     /// <summary>
@@ -417,18 +417,18 @@ public static partial class DocumentEndpoints
         var empty = new TableReportDto(0, 0, [request.Page], [request.Page], null, []);
         if (anchor is null || columns.Count == 0)
         {
-            return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, null, empty, [], false, false));
+            return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, null, empty, [], false, false, Locale: locale.Name));
         }
 
         var spec = TableCapture.Build(proposed with { RowAnchor = anchor }, target, pageCount, locale, new Dictionary<string, string[]>(StringComparer.Ordinal));
         if (spec is null)
         {
-            return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, empty, [], false, false));
+            return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, empty, [], false, false, Locale: locale.Name));
         }
 
         var result = ColumnTableEngine.Extract(pages, spec);
         var rows = result.Rows.Take(TableCapture.MaxRowsInResponse).Select(TableCapture.ToDto).ToList();
-        return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, TableCapture.ToDto(result.Report), rows, result.Rows.Count > rows.Count, false));
+        return TypedResults.Ok(new ReadTableResponse(target.Path, true, columns, header, anchor, TableCapture.ToDto(result.Report), rows, result.Rows.Count > rows.Count, false, Locale: locale.Name));
     }
 
     private static async Task<Results<Ok<IReadOnlyList<DocumentTableReportDto>>, ProblemHttpResult>> GetTableReportsAsync(Guid id, [FromServices] DocProcDbContext db, CancellationToken ct)

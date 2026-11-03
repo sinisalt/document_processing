@@ -16,6 +16,7 @@ import {
   type Box,
   type ColumnTarget,
   type FormSpec,
+  type TableMargins,
   type TableReport,
   type TableToolState,
 } from "@docproc/review";
@@ -65,6 +66,10 @@ export function useTableTool(document: DocumentDetail, formSpec: FormSpec | null
         path: answer.path,
         allPages: true,
         groupHeadingTarget: hasCategory ? "category" : null,
+        skipLines: [],
+        stopLines: [],
+        margins: { top: null, bottom: null },
+        locale: answer.locale ?? null,
       });
       setReport(answer.report);
       setKind("proposal");
@@ -120,13 +125,16 @@ export function useTableTool(document: DocumentDetail, formSpec: FormSpec | null
           onDividerAdd: (x) => change({ ...state, columns: addDivider(state.columns, x) }),
         };
       }
-      // Another page of the report: the dividers used there (measured again at its header, or carried over), read only.
+      // Another page of the report: the dividers used there (measured again at its header, or carried over) and the band
+      // of the page read (below its header row, within the margins), read only. A report stored before it recorded the
+      // band draws the box's height.
       const here = pageReport(shown, page);
       if (!here || here.columns.length === 0) return null;
       const cols = here.columns.map((c) => ({ x0: Number(c.x0), x1: Number(c.x1) }));
-      const top = state?.box.y0 ?? 0;
+      const top = here.top !== null && here.top !== undefined ? Number(here.top) : page === state?.page ? (state?.box.y0 ?? 0) : 0;
+      const bottom = here.bottom !== null && here.bottom !== undefined ? Number(here.bottom) : (state?.box.y1 ?? 1000);
       return {
-        box: { x0: cols[0]!.x0, y0: page === state?.page ? top : 0, x1: cols[cols.length - 1]!.x1, y1: state?.box.y1 ?? 1000 },
+        box: { x0: cols[0]!.x0, y0: top, x1: cols[cols.length - 1]!.x1, y1: bottom },
         dividers: dividers(cols),
         rejected: here.rejectedLines.map((l) => toBox(l.bBox)),
       };
@@ -155,6 +163,9 @@ export function useTableTool(document: DocumentDetail, formSpec: FormSpec | null
     onRemoveDivider: (index: number) => state && change({ ...state, columns: removeDivider(state.columns, index) }),
     onAllPagesChange: (allPages: boolean) => state && change({ ...state, allPages }),
     onGroupHeadingsChange: (on: boolean) => state && change({ ...state, groupHeadingTarget: on ? "category" : null }),
+    onSkipLinesChange: (skipLines: string[]) => state && change({ ...state, skipLines }),
+    onStopLinesChange: (stopLines: string[]) => state && change({ ...state, stopLines }),
+    onMarginsChange: (margins: TableMargins) => state && change({ ...state, margins }),
     onPreview: () => state && preview.mutate(state),
     onWrite: () => state && write.mutate(state),
     onReset: () => {

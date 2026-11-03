@@ -21,8 +21,13 @@ namespace DocProc.Mapping.Tables;
 /// continuation of the row above (also across a page break): its text is appended to the row's text fields.</description></item>
 /// <item><description><b>Group headings.</b> A line with text but no value in the price column, printed as one run of
 /// text (not spread over the columns), is a heading; it fills the heading field of the rows below it.</description></item>
-/// <item><description><b>Tier columns.</b> A column whose header reads like <c>ab 10</c> (or that names its minimum
-/// quantity) yields a tier entry per non-empty cell.</description></item>
+/// <item><description><b>Tier columns.</b> A column that names its minimum quantity (<see cref="TableColumn.TierMinQuantity"/>,
+/// which the proposal reads from a header such as <c>ab 10</c>) yields a tier entry per non-empty cell. A column without
+/// a field and without a minimum quantity is left out, whatever its header says.</description></item>
+/// <item><description><b>The band read.</b> On the mapping page, the box below its header row; a box drawn only around
+/// the header row (nothing printed below the header inside it) reads on down to the bottom page margin, or the foot of the
+/// page. On the other pages, from the top page margin (or the top of the page) to the bottom one (or the box's bottom,
+/// or the foot of the page for a box around the header only); a header row found there moves the top below it.</description></item>
 /// <item><description><b>Report.</b> Per page: rows, rejected lines with their text and reason, header found, the
 /// dividers used, the first three rows; pages without rows; where a <c>stopAt</c> line ended the table.</description></item>
 /// </list>
@@ -62,8 +67,14 @@ public static partial class ColumnTableEngine
         return builder.ToString();
     }
 
-    /// <summary>The minimum quantity a tier header names (<c>ab 10</c> with <c>ab\s+(\d+)</c> is 10), or null.</summary>
-    public static decimal? TierQuantity(Regex? pattern, string? header)
+    /// <summary>The foot of a page, in page units.</summary>
+    public const double PageBottom = 1000;
+
+    /// <summary>
+    /// The minimum quantity a tier header names (<c>ab 10</c> with <c>ab\s+(\d+)</c> is 10), read in
+    /// <paramref name="locale"/> (German when null), so <c>ab 1.000</c> is 1000 in German and <c>from 1,000</c> in English; or null.
+    /// </summary>
+    public static decimal? TierQuantity(Regex? pattern, string? header, ValueLocale? locale = null)
     {
         if (pattern is null || string.IsNullOrWhiteSpace(header))
         {
@@ -74,7 +85,7 @@ public static partial class ColumnTableEngine
         {
             var match = pattern.Match(header);
             var group = match.Groups.Count > 1 ? match.Groups[1].Value : match.Value;
-            return match.Success && PrintedValues.TryDecimal(group, ValueLocale.German, out var quantity) && quantity >= 0 ? quantity : null;
+            return match.Success && PrintedValues.TryDecimal(group.Trim(), locale ?? ValueLocale.German, out var quantity) && quantity >= 0 ? quantity : null;
         }
         catch (RegexMatchTimeoutException)
         {
@@ -112,6 +123,7 @@ public static partial class ColumnTableEngine
         private readonly string[] _headers;
         private readonly double[] _mappingCentres;
         private readonly int _minAnchors;
+        private readonly bool _headerOnly;
         private readonly List<TableRow> _rows = [];
         private readonly Dictionary<int, PageState> _reports = [];
         private RowBuilder? _current;
@@ -146,7 +158,9 @@ public static partial class ColumnTableEngine
                 var printed = column.Header ?? PageGeometry.ReadingText(inColumn);
                 _headers[i] = NormalizeHeader(printed);
                 _mappingCentres[i] = PageGeometry.Union(inColumn) is { } union ? union.CenterX : column.Center;
-                _tiers[i] = column.Field is null ? column.TierMinQuantity ?? TierQuantity(spec.TierColumns?.HeaderPattern, printed) : null;
+                // Only a column that names its minimum quantity is a tier: one the reviewer left out (no field, no quantity)
+                // is left out even when its header reads like "ab 10". The header pattern is the proposal's (ColumnProposer).
+                _tiers[i] = column.Field is null ? column.TierMinQuantity : null;
                 if (column.Field is null && column.TierMinQuantity is not null && spec.TierColumns is null)
                 {
                     throw new ArgumentException("A tier column needs tierColumns (the list and fields its entries go to).", nameof(spec));
@@ -155,6 +169,11 @@ public static partial class ColumnTableEngine
 
             var anchors = _headers.Count(h => h.Length > 0);
             _minAnchors = spec.MinAnchors > 0 ? Math.Min(spec.MinAnchors, Math.Max(anchors, 1)) : Math.Min(3, anchors);
+
+            // A box drawn only around the header row (docs/11 §12.4 step 1): nothing is printed below the header inside it.
+            _headerOnly = spec.HeaderRow is { } headerBand && !mapping.Words.Any(w =>
+                w.Box.CenterY > headerBand.Y1 && w.Box.CenterY <= spec.Region.Y1
+                && w.Box.CenterX >= spec.Region.X0 && w.Box.CenterX <= spec.Region.X1);
         }
 
         private int? IndexOf(string field)
@@ -204,7 +223,7 @@ public static partial class ColumnTableEngine
                     columns = overridden?.Columns ?? [.. _spec.Columns.Select(c => new ColumnBounds(c.X0, c.X1))];
                     state.ColumnsFrom = overridden is null ? ColumnsFrom.Mapping : ColumnsFrom.Override;
                     top = Math.Max(_spec.Region.Y0, _spec.HeaderRow?.Y1 ?? _spec.Region.Y0);
-                    bottom = _spec.Region.Y1;
+                    bottom = _headerOnly ? _spec.PageMargins?.Bottom ?? PageBottom : _spec.Region.Y1;
                     state.HeaderFound = _spec.HeaderRow is not null;
                     if (overridden is null)
                     {
@@ -215,7 +234,7 @@ public static partial class ColumnTableEngine
                 else
                 {
                     top = _spec.PageMargins?.Top ?? 0;
-                    bottom = _spec.PageMargins?.Bottom ?? _spec.Region.Y1;
+                    bottom = _spec.PageMargins?.Bottom ?? (_headerOnly ? PageBottom : _spec.Region.Y1);
                     columns = overridden?.Columns ?? lastMeasured;
                     state.ColumnsFrom = overridden is not null ? ColumnsFrom.Override : lastFrom == ColumnsFrom.Mapping ? ColumnsFrom.Mapping : ColumnsFrom.PreviousHeader;
                     if (_spec.RepeatHeader == RepeatHeader.Auto && _minAnchors > 0
@@ -234,6 +253,8 @@ public static partial class ColumnTableEngine
                 }
 
                 state.Columns = columns;
+                state.Top = top;
+                state.Bottom = bottom;
                 if (!ReadPage(page, state, columns, top, bottom))
                 {
                     stoppedOn = number;
@@ -324,7 +345,7 @@ public static partial class ColumnTableEngine
 
                 if (!IsTextColumn(i) && _current!.Has(i))
                 {
-                    _current.Conflict ??= _spec.Columns[i].Field ?? $"column {i + 1}";
+                    _current.Conflict ??= i;
                 }
             }
 
@@ -552,7 +573,10 @@ public static partial class ColumnTableEngine
             var text = row.Text;
             if (row.Conflict is { } conflict)
             {
-                state.Reject(new RejectedLine(row.Page, text, row.Box, RejectionReasons.ContinuationConflict, $"A continuation line has a second value in the {conflict} column.", conflict));
+                // "in the price column", or "in column 5" for a column the mapping leaves without a field.
+                var field = _spec.Columns[conflict].Field;
+                var where = field is null ? $"column {conflict + 1}" : $"the {field} column";
+                state.Reject(new RejectedLine(row.Page, text, row.Box, RejectionReasons.ContinuationConflict, $"A continuation line has a second value in {where}.", field));
                 return;
             }
 
@@ -632,8 +656,8 @@ public static partial class ColumnTableEngine
 
         public (string Text, int Page, BoundingBox Box)? Category { get; } = category;
 
-        /// <summary>The column a continuation line gave a second value in, when one did.</summary>
-        public string? Conflict { get; set; }
+        /// <summary>The index of the column a continuation line gave a second value in, when one did.</summary>
+        public int? Conflict { get; set; }
 
         public BoundingBox Box => _box ?? default;
 
@@ -684,6 +708,10 @@ public static partial class ColumnTableEngine
 
         public IReadOnlyList<ColumnBounds> Columns { get; set; } = [];
 
+        public double Top { get; set; }
+
+        public double Bottom { get; set; }
+
         public string ColumnsFrom { get; set; } = Tables.ColumnsFrom.Mapping;
 
         public List<IReadOnlyDictionary<string, string>> FirstRows { get; } = [];
@@ -695,6 +723,6 @@ public static partial class ColumnTableEngine
         }
 
         public TablePageReport ToReport(int maxListed) =>
-            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows);
+            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows, Math.Round(Top, 2), Math.Round(Bottom, 2));
     }
 }

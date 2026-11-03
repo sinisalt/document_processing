@@ -74,7 +74,10 @@ public sealed record TablePageOverrideDto(int Page, IReadOnlyList<TableColumnBou
 /// <c>2-5,7</c>; just <c>page</c> by default), and the table report. <c>path</c> is the repeating group (the type's
 /// line items by default), <c>rowAnchor</c> the field that starts a row (the group's anchor by default),
 /// <c>repeatHeader</c> <c>auto</c> (default) or <c>none</c>, <c>continuation</c> <c>appendToPrevious</c> (default) or
-/// <c>none</c>, <c>skipRows</c> and <c>stopAt</c> regular expressions over a line's text. <c>write: true</c> writes the
+/// <c>none</c>, <c>skipRows</c> and <c>stopAt</c> regular expressions over a line's text, <c>pageMargins</c> the band
+/// of the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,
+/// or the foot of the page). A column is a tier column only when it names <c>tierMinQuantity</c> (the proposal reads it
+/// from a header such as <c>ab 10</c>); one without a field or a quantity is left out. <c>write: true</c> writes the
 /// rows into the document as one correction (op <c>set</c> on <c>path</c>, the specification and report in its source)
 /// and stores the report (docs/11 §6.2 <c>DocumentTableReport</c>).
 /// </summary>
@@ -114,8 +117,9 @@ public sealed record TableRejectedLineDto(int Page, string Text, SourceBox BBox,
 /// <summary>
 /// One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the
 /// first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
-/// dividers used and where they came from (<c>mapping</c>, <c>header</c>, <c>previousHeader</c>, <c>override</c>), and
-/// its first three rows as printed.
+/// dividers used and where they came from (<c>mapping</c>, <c>header</c>, <c>previousHeader</c>, <c>override</c>), its
+/// first three rows as printed, and the band of the page read (<c>top</c> to <c>bottom</c>, page units: below the header
+/// row, within the page margins; absent in a report stored before it was recorded).
 /// </summary>
 public sealed record TablePageReportDto(
     int Page,
@@ -128,7 +132,9 @@ public sealed record TablePageReportDto(
     int ContinuationLines,
     IReadOnlyList<TableColumnBoundsDto> Columns,
     string ColumnsFrom,
-    IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows);
+    IReadOnlyList<IReadOnlyDictionary<string, string>> FirstRows,
+    double? Top = null,
+    double? Bottom = null);
 
 /// <summary>The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page.</summary>
 public sealed record TableReportDto(int Rows, int RejectedRows, IReadOnlyList<int> Pages, IReadOnlyList<int> PagesWithoutRows, int? StoppedOnPage, IReadOnlyList<TablePageReportDto> PerPage);
@@ -136,7 +142,8 @@ public sealed record TableReportDto(int Rows, int RejectedRows, IReadOnlyList<in
 /// <summary>
 /// What <c>regions:table</c> answers: the repeating group, whether the columns were proposed, the columns and header row
 /// used (to draw the dividers), the row anchor, the report, the rows (the first 1,000; <c>rowsTruncated</c> when there
-/// were more), and with <c>write</c> the document as stored after the write.
+/// were more), with <c>write</c> the document as stored after the write, and the locale the values were read in
+/// (<c>de-DE</c>: the request's, or the tenant country's).
 /// </summary>
 public sealed record ReadTableResponse(
     string Path,
@@ -148,7 +155,8 @@ public sealed record ReadTableResponse(
     IReadOnlyList<TableRowDto> Rows,
     bool RowsTruncated,
     bool Written,
-    DocumentDetail? Document = null);
+    DocumentDetail? Document = null,
+    string? Locale = null);
 
 /// <summary>
 /// A stored table report (docs/11 §6.2 <c>DocumentTableReport</c>): the group, who wrote it, the Correction that wrote

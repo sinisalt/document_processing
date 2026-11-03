@@ -138,7 +138,7 @@ public static class ColumnProposer
             }
 
             var headerText = PageGeometry.ReadingText(header.Where(w => w.Box.CenterX >= c0 && w.Box.CenterX < c1));
-            var tier = ColumnTableEngine.TierQuantity(tierPattern, headerText);
+            var tier = ColumnTableEngine.TierQuantity(tierPattern, headerText, locale);
             var cells = body.Select(l => PrintedValues.Collapse(string.Join(' ', l.Words.Where(w => w.Box.CenterX >= c0 && w.Box.CenterX < c1).Select(w => w.Text)))).Where(t => t.Length > 0).ToList();
             var field = tier is null ? Suggest(headerText, fields, used, f => Reads(f, cells, locale)) : null;
             if (field is not null)

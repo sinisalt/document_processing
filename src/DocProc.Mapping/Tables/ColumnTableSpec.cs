@@ -45,9 +45,12 @@ public enum Continuation
 public sealed record GroupHeaderSpec(string Target, string? When = null);
 
 /// <summary>
-/// Tier price columns (docs/11 §8.6 <c>tierColumns</c>): a column whose header matches <see cref="HeaderPattern"/>
-/// (group 1 the minimum quantity, as in <c>ab\s+(\d+)</c>) is a tier; its cells become entries of the row's
-/// <see cref="Target"/> list with <see cref="QuantityField"/> from the header and <see cref="PriceField"/> from the cell.
+/// Tier price columns (docs/11 §8.6 <c>tierColumns</c>): a column of the mapping that names its minimum quantity
+/// (<see cref="TableColumn.TierMinQuantity"/>) is a tier; its cells become entries of the row's <see cref="Target"/> list
+/// with <see cref="QuantityField"/> from that quantity and <see cref="PriceField"/> from the cell.
+/// <see cref="HeaderPattern"/> (group 1 the minimum quantity, as in <c>ab\s+(\d+)</c>) is what the proposal reads that
+/// quantity from a header with; the mapping itself never takes a column for a tier by its header alone, so a column the
+/// reviewer left out stays out.
 /// </summary>
 public sealed record TierColumnsSpec(Regex? HeaderPattern, string Target = "tiers", string QuantityField = "minQuantity", string PriceField = "price", string PriceKind = Definitions.FieldKinds.Money);
 

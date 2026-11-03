@@ -20,7 +20,8 @@ namespace DocProc.Pipeline.Stages;
 /// PDF whose embedded XML cannot be read falls back to its pages;
 /// everything else goes through the keyword rules and, below <see cref="PipelineOptions.LlmClassificationThreshold"/>,
 /// the LLM classifier with the first page image. <c>Unknown</c> is still a classification: the document carries
-/// <c>TYPE_UNKNOWN</c> and review decides.
+/// <c>TYPE_UNKNOWN</c> and review decides. A type a reviewer set (<see cref="TypeSource.Human"/>) is kept as it is
+/// (docs/11 §9.4 rule 1), with its version pin and tree.
 /// </summary>
 internal sealed class ClassifyHandler(
     DocProcDbContext db,
@@ -44,6 +45,14 @@ internal sealed class ClassifyHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
+        if (document.TypeSource == TypeSource.Human)
+        {
+            // docs/11 §9.4 rule 1: a type a reviewer set (:set-type, a typed split part) stands. A reprocess from Classify or
+            // Normalize keeps it with its version pin and its tree of the type's fields (a price list captured with the
+            // table tool keeps its rows), and the classifier is not asked.
+            return await KeepAsync(document, cancellationToken).ConfigureAwait(false);
+        }
+
         ClassificationOutcome? outcome = null;
         var usedLlm = false;
         string? xmlIgnored = null;
@@ -112,6 +121,22 @@ internal sealed class ClassifyHandler(
             language = outcome.Language,
             usedLlm,
             embeddedXmlIgnored = xmlIgnored,
+        });
+        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return StageOutcome.Advanced;
+    }
+
+    private async Task<StageOutcome> KeepAsync(Document document, CancellationToken cancellationToken)
+    {
+        flags.Replace(document, OwnedFlags, document.Type == DocumentTypeKey.Unknown
+            ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
+            : []);
+        Timeline.Transition(document, DocumentStatus.Classified, new
+        {
+            type = document.Type,
+            confidence = document.TypeConfidence,
+            source = document.TypeSource,
+            kept = true,
         });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;

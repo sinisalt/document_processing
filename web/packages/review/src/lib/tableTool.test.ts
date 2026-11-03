@@ -2,11 +2,18 @@ import { describe, expect, it } from "vitest";
 import { templates } from "../test/templates";
 import {
   addDivider,
+  addLineText,
+  decimalSeparatorOf,
   defaultTablePath,
   dividers,
+  linePattern,
+  lineStart,
   mappingProblem,
+  marginFromPercent,
+  marginPercent,
   moveDivider,
   pageReport,
+  rejectedLineText,
   removeDivider,
   reportTotals,
   rowFieldsOf,
@@ -77,6 +84,54 @@ describe("table tool", () => {
     expect(tierQuantityOf("Preis")).toBeNull();
   });
 
+  it("reads a tier header's whole quantity in the locale the API read the page in", () => {
+    expect(decimalSeparatorOf("de-DE")).toBe(",");
+    expect(decimalSeparatorOf("en-US")).toBe(".");
+    expect(decimalSeparatorOf(null)).toBe(",");
+    expect(decimalSeparatorOf("not a locale!")).toBe(",");
+    expect(tierQuantityOf("ab 1.000", "de-DE")).toBe(1000);
+    expect(tierQuantityOf("ab 1 000 Stück", "de-DE")).toBe(1000);
+    expect(tierQuantityOf("ab 1.000")).toBe(1000);
+    expect(tierQuantityOf("ab 2,5 kg", "de-DE")).toBe(2.5);
+    expect(tierQuantityOf("from 1,000", "en-US")).toBe(1000);
+    expect(tierQuantityOf("from 1.5", "en-US")).toBe(1.5);
+    expect(tierQuantityOf("ab 1.000", "en-US")).toBe(1);
+    expect(tierQuantityOf("ab 1.000.000", "en-US")).toBe(1000000);
+    expect(tierQuantityOf("ab 1.234,5", "en-US")).toBe(1234.5);
+  });
+
+  it("turns a line the reviewer names into a skip or stop pattern (any number stands for any number)", () => {
+    expect(linePattern("Seite 1 von 14")).toBe("^Seite\\s+\\d+\\s+von\\s+\\d+");
+    expect(linePattern("  Übertrag:  ")).toBe("^Übertrag:");
+    expect(linePattern("Nordwind GmbH · (Preise) 2027*")).toBe("^Nordwind\\s+GmbH\\s+·\\s+\\(Preise\\)\\s+\\d+\\*");
+    const pattern = new RegExp(linePattern("Seite 1 von 14"));
+    expect(pattern.test("Seite 12 von 14")).toBe(true);
+    expect(pattern.test("Seitenschneider 3")).toBe(false);
+    expect(new RegExp(linePattern("a.b")).test("axb")).toBe(false);
+    expect(linePattern("x".repeat(500)).length).toBeLessThanOrEqual(200);
+    expect(linePattern("[".repeat(500)).length).toBeLessThanOrEqual(200);
+    expect(rejectedLineText({ text: "104999 Rioja / Seite 3 von 14" })).toBe("Seite 3 von 14");
+    expect(rejectedLineText({ text: "Seite 3 von 14" })).toBe("Seite 3 von 14");
+    expect(addLineText(undefined, " Seite 1 ")).toEqual(["Seite 1"]);
+    expect(addLineText(["Seite 1"], "Seite 1")).toEqual(["Seite 1"]);
+    expect(addLineText(["a"], "  ")).toEqual(["a"]);
+    expect(addLineText(Array.from({ length: 20 }, (_, i) => `l${i}`), "more")).toHaveLength(20);
+    // A long footer line is kept by its start, cut at a word: what the pattern reads of it anyway.
+    const footer = "Nordwind Großhandel GmbH · Amtsgericht Hamburg HRB 99812 · USt-IdNr. DE312456789 · IBAN DE44 2005";
+    expect(addLineText([], footer)).toEqual(["Nordwind Großhandel GmbH · Amtsgericht Hamburg HRB 99812 ·"]);
+    expect(lineStart("  a   b ")).toBe("a b");
+    expect(new RegExp(linePattern(addLineText([], footer)[0]!)).test(footer)).toBe(true);
+  });
+
+  it("shows and reads the page margins in percent of the page height", () => {
+    expect(marginPercent(null)).toBe("");
+    expect(marginPercent(935)).toBe("93.5");
+    expect(marginFromPercent("93,5")).toBe(935);
+    expect(marginFromPercent("120")).toBe(1000);
+    expect(marginFromPercent("")).toBeNull();
+    expect(marginFromPercent("abc")).toBeNull();
+  });
+
   it("offers the price list's row fields, its tiers and its category", () => {
     expect(defaultTablePath(templates.priceList)).toBe("lines");
     const { fields, hasTiers, hasCategory } = rowFieldsOf(templates.priceList, "lines");
@@ -99,6 +154,32 @@ describe("table tool", () => {
     expect(mappingProblem(state)).toBeNull();
     expect(mappingProblem({ ...state, columns: columns.map((c) => ({ ...c, field: null })) })).toBe("noColumns");
     expect(mappingProblem({ ...state, columns: columns.slice(1) })).toBe("noAnchor");
+    // Nothing set: no skip, stop or margins in the request (a state saved before the tool had them reads the same).
+    expect(preview).toMatchObject({ skipRows: null, stopAt: null, pageMargins: null });
+    expect(tableRequest({ ...state, skipLines: [], stopLines: [], margins: { top: null, bottom: null } }, false)).toMatchObject({ skipRows: null, stopAt: null, pageMargins: null });
+  });
+
+  it("sends the lines that are not rows: skip and stop lines and the margins of the other pages", () => {
+    const state: TableToolState = {
+      page: 1,
+      box: { x0: 45, y0: 280, x1: 945, y1: 300 },
+      columns,
+      headerRow: { y0: 285, y1: 297 },
+      rowAnchor: "supplierSku",
+      path: "lines",
+      allPages: true,
+      groupHeadingTarget: null,
+      skipLines: ["Seite 1 von 14", "Nordwind Preisliste 2027"],
+      stopLines: ["Ende der Preisliste"],
+      margins: { top: 50, bottom: null },
+    };
+    expect(tableRequest(state, false)).toMatchObject({
+      skipRows: ["^Seite\\s+\\d+\\s+von\\s+\\d+", "^Nordwind\\s+Preisliste\\s+\\d+"],
+      stopAt: ["^Ende\\s+der\\s+Preisliste"],
+      pageMargins: { top: 50, bottom: null },
+    });
+    expect(mappingProblem(state)).toBeNull();
+    expect(mappingProblem({ ...state, margins: { top: 600, bottom: 400 } })).toBe("margins");
   });
 
   it("turns the report into the page strip", () => {

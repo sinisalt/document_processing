@@ -1,9 +1,25 @@
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Merge, Table2, Upload, X } from "lucide-react";
-import { Alert, AlertDescription, Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
+import { Loader2, Merge, Plus, Table2, Upload, X } from "lucide-react";
+import { Alert, AlertDescription, Badge, Button, Checkbox, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import { REVIEW_NS, humanize, localized } from "../lib/labels";
 import type { FormSpecField } from "../lib/formSpec";
-import { mappingProblem, targetOf, tierQuantityOf, type ColumnTarget, type TableReport, type TableRejectedLine, type TableToolState } from "../lib/tableTool";
+import {
+  MAX_LINE_TEXTS,
+  MAX_LINE_TEXT_LENGTH,
+  addLineText,
+  marginFromPercent,
+  marginPercent,
+  marginsOf,
+  mappingProblem,
+  targetOf,
+  tierQuantityOf,
+  type ColumnTarget,
+  type TableMargins,
+  type TableReport,
+  type TableRejectedLine,
+  type TableToolState,
+} from "../lib/tableTool";
 import { TablePageStrip } from "./TablePageStrip";
 
 export interface TableToolPanelProps {
@@ -30,6 +46,12 @@ export interface TableToolPanelProps {
   onRemoveDivider: (index: number) => void;
   onAllPagesChange: (allPages: boolean) => void;
   onGroupHeadingsChange: (on: boolean) => void;
+  /** The lines left out wherever they are printed (`skipRows`), by the text they start with. */
+  onSkipLinesChange?: (lines: string[]) => void;
+  /** The lines the table ends at (`stopAt`), by the text they start with. */
+  onStopLinesChange?: (lines: string[]) => void;
+  /** The band read on the other pages (`pageMargins`), in page units. */
+  onMarginsChange?: (margins: TableMargins) => void;
   onPreview: () => void;
   onWrite: () => void;
   onReset: () => void;
@@ -51,6 +73,7 @@ export function TableToolPanel(props: TableToolPanelProps) {
   const busy = !!props.proposing || !!props.previewing || !!props.writing;
   const problem = state ? mappingProblem(state) : null;
   const labelOf = (field: FormSpecField) => localized(field.label, i18n.language) ?? humanize(field.key);
+  const quantityOf = (column: TableToolState["columns"][number]) => tierQuantityOf(column.header, state?.locale);
 
   if (!state) {
     return (
@@ -81,7 +104,7 @@ export function TableToolPanel(props: TableToolPanelProps) {
               <Select
                 value={value}
                 onValueChange={(next) =>
-                  props.onColumnTarget(index, next === NONE ? { kind: "none" } : next === TIER ? { kind: "tier", minQuantity: tierQuantityOf(column.header) ?? Number(column.tierMinQuantity ?? 1) } : { kind: "field", key: next })
+                  props.onColumnTarget(index, next === NONE ? { kind: "none" } : next === TIER ? { kind: "tier", minQuantity: column.tierMinQuantity !== null && column.tierMinQuantity !== undefined ? Number(column.tierMinQuantity) : (quantityOf(column) ?? 1) } : { kind: "field", key: next })
                 }
                 disabled={busy}
               >
@@ -95,7 +118,7 @@ export function TableToolPanel(props: TableToolPanelProps) {
                       {labelOf(field)}
                     </SelectItem>
                   ))}
-                  {props.hasTiers && <SelectItem value={TIER}>{t("table.tier", { quantity: tierQuantityOf(column.header) ?? column.tierMinQuantity ?? "?" })}</SelectItem>}
+                  {props.hasTiers && <SelectItem value={TIER}>{t("table.tier", { quantity: column.tierMinQuantity ?? quantityOf(column) ?? "?" })}</SelectItem>}
                 </SelectContent>
               </Select>
               {index > 0 && (
@@ -120,6 +143,31 @@ export function TableToolPanel(props: TableToolPanelProps) {
           </div>
         )}
       </div>
+      <section className="flex flex-col gap-3 rounded-md border p-3" aria-labelledby="table-not-rows" data-testid="table-not-rows">
+        <div>
+          <h3 id="table-not-rows" className="text-sm font-medium">
+            {t("table.notRows.heading")}
+          </h3>
+          <p className="text-xs text-muted-foreground">{t("table.notRows.hint")}</p>
+        </div>
+        <LineTexts
+          testId="table-skip-lines"
+          label={t("table.notRows.skip")}
+          placeholder={t("table.notRows.skipPlaceholder")}
+          lines={state.skipLines ?? []}
+          disabled={busy || !props.onSkipLinesChange}
+          onChange={(lines) => props.onSkipLinesChange?.(lines)}
+        />
+        <LineTexts
+          testId="table-stop-lines"
+          label={t("table.notRows.stop")}
+          placeholder={t("table.notRows.stopPlaceholder")}
+          lines={state.stopLines ?? []}
+          disabled={busy || !props.onStopLinesChange}
+          onChange={(lines) => props.onStopLinesChange?.(lines)}
+        />
+        <Margins margins={marginsOf(state)} disabled={busy || !props.onMarginsChange} onChange={(margins) => props.onMarginsChange?.(margins)} />
+      </section>
       {problem && (
         <p className="text-sm text-destructive" role="alert" data-testid="table-problem">
           {t(`table.problems.${problem}`)}
@@ -155,9 +203,117 @@ export function TableToolPanel(props: TableToolPanelProps) {
                 : props.reportKind === "stale"
                   ? t("table.reportStale")
                   : t("table.reportProposal", { page: state.page })}</p>
-          <TablePageStrip report={report} currentPage={props.currentPage} onPickPage={props.onPickPage} onPickRejected={props.onPickRejected} />
+          <TablePageStrip
+            report={report}
+            currentPage={props.currentPage}
+            onPickPage={props.onPickPage}
+            onPickRejected={props.onPickRejected}
+            onSkipLine={props.onSkipLinesChange && !busy ? (text) => props.onSkipLinesChange!(addLineText(state.skipLines, text)) : undefined}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+/** A list of line texts (skip or stop lines): one chip per text with a remove button, and a field to add one. */
+function LineTexts({ testId, label, placeholder, lines, disabled, onChange }: { testId: string; label: string; placeholder: string; lines: readonly string[]; disabled: boolean; onChange: (lines: string[]) => void }) {
+  const { t } = useTranslation(REVIEW_NS);
+  const id = useId();
+  const [draft, setDraft] = useState("");
+  const full = lines.length >= MAX_LINE_TEXTS;
+  const add = () => {
+    if (draft.trim() === "") return;
+    onChange(addLineText(lines, draft));
+    setDraft("");
+  };
+  return (
+    <div className="flex flex-col gap-1.5" data-testid={testId}>
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      {lines.length > 0 && (
+        <ul className="flex flex-wrap gap-1" aria-label={label}>
+          {lines.map((line) => (
+            <li key={line} className="max-w-full">
+              <Badge variant="secondary" className="max-w-full gap-1 pr-0.5 font-mono" title={line}>
+                <span className="truncate">{line}</span>
+                <Button type="button" variant="ghost" size="icon-sm" className="size-5" aria-label={t("table.notRows.remove", { text: line })} disabled={disabled} onClick={() => onChange(lines.filter((l) => l !== line))}>
+                  <X aria-hidden />
+                </Button>
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          value={draft}
+          placeholder={placeholder}
+          maxLength={MAX_LINE_TEXT_LENGTH}
+          disabled={disabled || full}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+          className="h-8 text-sm"
+        />
+        <Button type="button" variant="outline" size="sm" disabled={disabled || full || draft.trim() === ""} onClick={add}>
+          <Plus aria-hidden />
+          {t("table.notRows.add")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The band read on the pages after the one the table was drawn on, in percent of the page height. */
+function Margins({ margins, disabled, onChange }: { margins: TableMargins; disabled: boolean; onChange: (margins: TableMargins) => void }) {
+  const { t } = useTranslation(REVIEW_NS);
+  const topId = useId();
+  const bottomId = useId();
+  return (
+    <fieldset className="flex flex-col gap-1.5" data-testid="table-margins">
+      <legend className="mb-1 text-xs">{t("table.notRows.margins")}</legend>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor={topId} className="text-xs text-muted-foreground">
+          {t("table.notRows.marginTop")}
+        </Label>
+        <Input
+          id={topId}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={100}
+          step={0.5}
+          className="h-8 w-20 text-sm"
+          value={marginPercent(margins.top)}
+          placeholder="0"
+          disabled={disabled}
+          onChange={(event) => onChange({ ...margins, top: marginFromPercent(event.target.value) })}
+        />
+        <Label htmlFor={bottomId} className="text-xs text-muted-foreground">
+          {t("table.notRows.marginBottom")}
+        </Label>
+        <Input
+          id={bottomId}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={100}
+          step={0.5}
+          className="h-8 w-20 text-sm"
+          value={marginPercent(margins.bottom)}
+          placeholder="100"
+          disabled={disabled}
+          onChange={(event) => onChange({ ...margins, bottom: marginFromPercent(event.target.value) })}
+        />
+        <span className="text-xs text-muted-foreground">%</span>
+      </div>
+    </fieldset>
   );
 }

@@ -569,6 +569,9 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                         onRemoveDivider={table.onRemoveDivider}
                         onAllPagesChange={table.onAllPagesChange}
                         onGroupHeadingsChange={table.onGroupHeadingsChange}
+                        onSkipLinesChange={table.onSkipLinesChange}
+                        onStopLinesChange={table.onStopLinesChange}
+                        onMarginsChange={table.onMarginsChange}
                         onPreview={table.onPreview}
                         onWrite={table.onWrite}
                         onReset={table.onReset}

@@ -106,4 +106,78 @@ public sealed class DemoPriceListTableTests(ApiFactory factory) : MapModeTestBas
 
         Factory.Query(db => db.Corrections.Count(c => c.DocumentId == id && c.FieldPath == "lines")).ShouldBe(1);
     }
+
+    /// <summary>The skip lines the portal's table tool sends for the footer texts the reviewer names ("Leave out lines that start with", digits standing for any number).</summary>
+    private static readonly string[] FooterSkipLines = [@"^Nordwind\s+Großhandel\s+GmbH\s+·\s+Amtsgericht", @"^Seite\s+\d+\s+von\s+\d+"];
+
+    private async Task<(Guid Id, HttpClient Reviewer)> DemoInReviewAsync(string name)
+    {
+        var processor = new PdfPigPdfProcessor(Options.Create(new PdfProcessingOptions()));
+        await using var file = File.OpenRead(PriceListPath());
+        var layer = await processor.ExtractTextAsync(file, Ct);
+        var tenant = NewTenant(name);
+        var id = await SeedAsync(tenant, layer, pages: 14);
+        var reviewer = Reviewer(tenant);
+        await SetTypeAsync(reviewer, id);
+        return (id, reviewer);
+    }
+
+    [Fact]
+    public async Task Footer_lines_inside_the_box_are_left_out_by_the_skip_lines_and_left_out_tier_columns_give_no_tiers()
+    {
+        var (id, reviewer) = await DemoInReviewAsync("Demo price list footers");
+        using var _ = reviewer;
+
+        // A box down to the foot of the page holds the footer of every page.
+        var box = new { x0 = 45, y0 = 280, x1 = 945, y1 = 1000 };
+        var proposal = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box }, Ct));
+        proposal.Locale.ShouldBe("de-DE");
+        // "(leave out)" for both tier columns, as the portal sends it: no field and no minimum quantity, the header kept.
+        var leftOut = proposal.Columns.Select(c => c with { TierMinQuantity = null }).ToList();
+        leftOut.Where(c => c.Field is null).Select(c => c.Header).ShouldBe(["ab 10", "ab 50"]);
+        object Mapping(string[]? skipRows) => new { page = 1, bBox = box, columns = leftOut, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" }, skipRows };
+
+        var withFooters = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(null), Ct));
+        var footers = withFooters.Report.PerPage.SelectMany(p => p.RejectedLines).ToList();
+        footers.Count.ShouldBe(14, "the footer of every page is a line that is not a row");
+        footers.ShouldAllBe(r => !r.Message.Contains(" column 5 column", StringComparison.Ordinal) && !r.Message.Contains(" column 6 column", StringComparison.Ordinal));
+        footers.Where(r => r.Reason == "continuationConflict").ShouldAllBe(r => r.Field != null || r.Message.Contains("in column ", StringComparison.Ordinal));
+        withFooters.Rows.ShouldAllBe(r => r.Tiers.Count == 0, "a tier column left out yields no tiers");
+
+        var skipped = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), Mapping(FooterSkipLines), Ct));
+        skipped.Report.RejectedRows.ShouldBe(0, string.Join("; ", skipped.Report.PerPage.SelectMany(p => p.RejectedLines).Select(r => $"p. {r.Page}: {r.Text} ({r.Reason}: {r.Message})")));
+        skipped.Report.Rows.ShouldBe(412);
+        skipped.Report.PerPage.Select(p => p.Rows).ShouldBe(RowsPerPage);
+        skipped.Report.PerPage.ShouldAllBe(p => p.SkippedLines == 2);
+        skipped.Rows.ShouldAllBe(r => r.Tiers.Count == 0);
+        skipped.Rows.ShouldAllBe(r => !r.Cells.Any(c => c.Text.Contains("Seite", StringComparison.Ordinal)));
+
+        // A bottom page margin above the footer rule does the same on the pages after the first.
+        var margins = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box with { y1 = 935 }, columns = proposal.Columns, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" }, pageMargins = new { bottom = 935 } }, Ct));
+        margins.Report.RejectedRows.ShouldBe(0);
+        margins.Report.Rows.ShouldBe(412);
+        margins.Report.PerPage.ShouldAllBe(p => p.Bottom == 935);
+        margins.Rows.Count(r => r.Tiers.Count > 0).ShouldBeGreaterThan(0, "the proposal's tier columns are tiers");
+    }
+
+    [Fact]
+    public async Task A_box_around_the_header_row_only_reads_every_page_down_to_its_foot()
+    {
+        var (id, reviewer) = await DemoInReviewAsync("Demo price list header box");
+        using var _ = reviewer;
+
+        // docs/11 §12.4 step 1: "or only around its header row".
+        var box = new { x0 = 45, y0 = 280, x1 = 945, y1 = 300 };
+        var proposal = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), new { page = 1, bBox = box }, Ct));
+        proposal.Columns.Select(c => c.Header).ShouldBe(["Art.-Nr.", "Bezeichnung", "Gebinde", "Preis", "ab 10", "ab 50"]);
+        proposal.Report.Rows.ShouldBeGreaterThan(0, "the proposal reads the rows below the header on page 1");
+
+        var mapping = new { page = 1, bBox = box, columns = proposal.Columns, headerRow = proposal.HeaderRow, rowAnchor = proposal.RowAnchor, pages = "1-*", groupHeader = new { target = "category" }, skipRows = FooterSkipLines };
+        var read = await Read<ReadTableResponse>(await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), mapping, Ct));
+        read.Report.RejectedRows.ShouldBe(0, string.Join("; ", read.Report.PerPage.SelectMany(p => p.RejectedLines).Select(r => $"p. {r.Page}: {r.Text} ({r.Reason}: {r.Message})")));
+        read.Report.Rows.ShouldBe(412);
+        read.Report.PerPage.Select(p => p.Rows).ShouldBe(RowsPerPage);
+        read.Report.PerPage.ShouldAllBe(p => p.Bottom == 1000);
+        read.Report.PerPage[0].Top.ShouldNotBeNull().ShouldBe(proposal.HeaderRow!.Y1, 0.01);
+    }
 }
