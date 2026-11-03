@@ -1,0 +1,10 @@
+{
+  "id": "fld_c_scr",
+  "key": "supplierCustomerRef",
+  "kind": "identifier",
+  "indexed": true,
+  "section": "document",
+  "label": { "en": "Our customer no. at supplier", "de": "Unsere Kundennummer beim Lieferanten" },
+  "description": "The account number the supplier assigned to us, printed as Kundennummer, Kunden-Nr. or Kd.-Nr.",
+  "extraction": { "labels": { "de": ["Kundennummer", "Kunden-Nr.", "Kd.-Nr."], "en": ["Customer No."] } }
+}

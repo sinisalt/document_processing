@@ -9,7 +9,14 @@ using Microsoft.EntityFrameworkCore;
 namespace DocProc.Api.Documents;
 
 /// <summary>A document with the joined values the summary needs; what the list and detail queries project to.</summary>
-public sealed record DocumentRow(Document Document, string? TenantName, string? SupplierName, int BlockingFlagCount, int WarningFlagCount);
+/// <param name="Document">The row.</param>
+/// <param name="TenantName">The owning tenant's name.</param>
+/// <param name="SupplierName">The matched supplier's name.</param>
+/// <param name="BlockingFlagCount">Open blocking flags.</param>
+/// <param name="WarningFlagCount">Open warnings.</param>
+/// <param name="ReviewPriority">The open review task's priority, null without one.</param>
+/// <param name="ReviewDueAt">The open review task's due time.</param>
+public sealed record DocumentRow(Document Document, string? TenantName, string? SupplierName, int BlockingFlagCount, int WarningFlagCount, ReviewPriority? ReviewPriority, DateTimeOffset? ReviewDueAt);
 
 /// <summary>Projections shared by the document, ingestion and review-task endpoints.</summary>
 public static class DocumentQueries
@@ -28,7 +35,9 @@ public static class DocumentQueries
             t != null ? t.Name : null,
             d.Supplier != null ? d.Supplier.Name : null,
             d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
-            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning));
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => (ReviewPriority?)t.Priority).FirstOrDefault(),
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => t.SlaDueAt).FirstOrDefault());
 
     public static DocumentSummary ToSummary(DocumentRow row)
     {
@@ -52,7 +61,12 @@ public static class DocumentQueries
             row.WarningFlagCount,
             d.CreatedAt,
             d.UpdatedAt,
-            d.ApprovedAt);
+            d.ApprovedAt,
+            d.ValidFrom,
+            d.ValidUntil,
+            d.LineCount,
+            row.ReviewPriority,
+            row.ReviewDueAt);
     }
 
     /// <summary>Loads one document with everything the detail needs; tracked when the caller is going to modify it.</summary>
@@ -67,7 +81,7 @@ public static class DocumentQueries
             .SingleOrDefaultAsync(ct);
     }
 
-    public static DocumentDetail ToDetail(DocumentRow row)
+    public static DocumentDetail ToDetail(DocumentRow row, DocumentDefinitionRef? definition = null)
     {
         var d = row.Document;
         var item = d.IngestionItem;
@@ -106,7 +120,13 @@ public static class DocumentQueries
                 .ToList(),
             new DocumentCostsDto(d.Costs.LlmInputTokens, d.Costs.LlmOutputTokens, d.Costs.LlmCacheReadTokens, d.Costs.OcrPages, d.Costs.EstimatedUsd, d.Costs.LlmProvider, d.Costs.LlmModel, d.Costs.KeyOwner),
             ingestion,
-            Enumerable.Range(1, d.PageImageKeys.Count).Select(n => PageImageUrl(d.Id, n)).ToList());
+            Enumerable.Range(1, d.PageImageKeys.Count).Select(n => PageImageUrl(d.Id, n)).ToList(),
+            d.ValidFrom,
+            d.ValidUntil,
+            d.LineCount,
+            definition is null ? null : definition.Name.GetValueOrDefault("en") ?? definition.Name.Values.FirstOrDefault(),
+            definition?.Version,
+            definition);
     }
 
     /// <summary>What a flag without parameters (or one stored before they existed) sends: <c>{}</c>, never null.</summary>

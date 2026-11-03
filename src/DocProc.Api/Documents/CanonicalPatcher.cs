@@ -46,12 +46,16 @@ public sealed class CanonicalPatchException : Exception
 public sealed record AppliedCorrection(string Path, string? OldValueJson, string? NewValueJson, string? Reason, string Op = CorrectionOps.Set, CorrectionSource? Source = null);
 
 /// <summary>
-/// The correction operations of docs/11 §6.2. Only <see cref="Set"/> is applied today; the others are known so a
-/// request naming one gets "not available yet" rather than "unknown".
+/// The correction operations of docs/11 §6.2. The coded records' patcher (<see cref="CanonicalPatcher"/>) applies only
+/// <see cref="Set"/>; the definition patcher (<see cref="DefinitionPatcher"/>, definition-driven documents) also
+/// <see cref="Append"/> and <see cref="Remove"/>. The others are known so a request naming one gets "not available
+/// yet" rather than "unknown".
 /// </summary>
 public static class CorrectionOps
 {
     public const string Set = "set";
+    public const string Append = "append";
+    public const string Remove = "remove";
 
     public static readonly IReadOnlyList<string> Planned = ["append", "remove", "move", "setType", "split", "join"];
 }

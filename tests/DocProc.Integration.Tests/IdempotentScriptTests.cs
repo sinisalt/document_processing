@@ -37,6 +37,7 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
     private static readonly Guid ItemId = Guid.Parse("00000000-0000-0000-0000-00000000c001");
     private static readonly Guid DocumentId = Guid.Parse("00000000-0000-0000-0000-00000000d001");
     private static readonly Guid OutboxId = Guid.Parse("00000000-0000-0000-0000-00000000e001");
+    private static readonly Guid ReviewTaskId = Guid.Parse("00000000-0000-0000-0000-00000000f001");
     private static readonly DateTimeOffset At = new(2026, 10, 31, 9, 30, 0, TimeSpan.Zero);
 
     private const string OldValue = """{"amount":1.00,"currency":"EUR"}""";
@@ -126,6 +127,8 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
             VALUES ({{TenantA}}, {{DocumentId}}, N'totalGross', {{OldValue}}, {{NewValue}}, N'reviewer-a', {{At}});
             INSERT INTO [OutboxMessages] ([Id], [TenantId], [DocumentId], [EventType], [PayloadJson], [CreatedAt])
             VALUES ({{OutboxId}}, {{TenantA}}, {{DocumentId}}, {{DocumentEventTypes.Approved}}, N'{}', {{At}});
+            INSERT INTO [ReviewTasks] ([Id], [TenantId], [DocumentId], [Version], [Reason], [Status], [CreatedAt])
+            VALUES ({{ReviewTaskId}}, {{TenantA}}, {{DocumentId}}, 0, N'MANUAL_REVIEW', N'Done', {{At}});
             """,
             ct);
     }
@@ -173,6 +176,21 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
         invoice.LlmSchemaName.ShouldBe("invoice_extraction");
         (await asA.Documents.AsNoTracking().SingleAsync(ct)).DocumentTypeVersionId.ShouldBe(invoice.Id);
         (await asA.Corrections.AsNoTracking().SingleAsync(ct)).DocumentTypeVersionId.ShouldBe(invoice.Id);
+
+        // FieldIndexAndInboxColumns: the existing task is Normal, the new document columns are empty (not back-filled),
+        // and DocumentFieldIndex is a strict tenant table: a tenant session writes and reads its own rows.
+        (await asA.ReviewTasks.AsNoTracking().SingleAsync(ct)).Priority.ShouldBe(Infrastructure.Persistence.Entities.ReviewPriority.Normal);
+        var document = await asA.Documents.AsNoTracking().SingleAsync(ct);
+        (document.ValidFrom, document.ValidUntil, document.LineCount, document.AppliedConfigJson).ShouldBe((null, null, null, null));
+        (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentFieldIndex')").SingleAsync(ct))
+            .ShouldBe(3, "filter, after insert and after update, like every strict table");
+        if (!await asA.DocumentFieldIndex.AnyAsync(ct))
+        {
+            asA.DocumentFieldIndex.Add(new Infrastructure.Persistence.Entities.DocumentFieldIndexEntry { TenantId = TenantA, DocumentId = DocumentId, FieldKey = "invoiceNumber", StringValue = "RE-1" });
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.DocumentFieldIndex.AsNoTracking().SingleAsync(ct)).StringValue.ShouldBe("RE-1");
     }
 
     private static async Task RunScriptAsync(string connectionString, string script, CancellationToken ct)

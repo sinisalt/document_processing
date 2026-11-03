@@ -35,6 +35,9 @@ public static class UnitOfMeasureParser
         ["h"] = UnitOfMeasure.Hour, ["hr"] = UnitOfMeasure.Hour, ["hour"] = UnitOfMeasure.Hour, ["hours"] = UnitOfMeasure.Hour, ["std"] = UnitOfMeasure.Hour, ["stunde"] = UnitOfMeasure.Hour, ["stunden"] = UnitOfMeasure.Hour, ["sat"] = UnitOfMeasure.Hour,
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Every printed alias the parser knows (the platform <c>uom</c> code list maps them, docs/11 §6.1).</summary>
+    public static IEnumerable<string> KnownAliases => Aliases.Keys;
+
     /// <summary>Maps a printed unit to the normalised enum; unknown or empty input maps to <see cref="UnitOfMeasure.Other"/>.</summary>
     public static UnitOfMeasure Parse(string? raw)
     {

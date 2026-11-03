@@ -23,6 +23,7 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
         b.Property(d => d.Currency).HasMaxLength(3).IsFixedLength();
         b.Property(d => d.TotalGross).HasPrecision(18, 4);
         b.Property(d => d.ApprovedBy).HasMaxLength(200);
+        b.Property(d => d.AppliedConfigJson).HasColumnType("json");
         b.OwnsOne(d => d.Costs, c =>
         {
             c.ToJson();
@@ -39,6 +40,21 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
         b.HasOne(d => d.Supplier).WithMany().HasForeignKey(d => d.SupplierId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne(d => d.ExtractorProfile).WithMany().HasForeignKey(d => d.ExtractorProfileId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(d => d.DocumentTypeVersion).WithMany().HasForeignKey(d => d.DocumentTypeVersionId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class DocumentFieldIndexConfiguration : IEntityTypeConfiguration<DocumentFieldIndexEntry>
+{
+    public void Configure(EntityTypeBuilder<DocumentFieldIndexEntry> b)
+    {
+        b.ToTable("DocumentFieldIndex");
+        b.HasKey(e => new { e.DocumentId, e.FieldKey, e.Ordinal });
+        b.Property(e => e.FieldKey).HasMaxLength(DocumentFieldIndexEntry.MaxFieldKeyLength);
+        b.Property(e => e.StringValue).HasMaxLength(DocumentFieldIndexEntry.MaxStringLength);
+        b.Property(e => e.NumberValue).HasPrecision(28, 8);
+        b.HasIndex(e => new { e.TenantId, e.FieldKey, e.StringValue });
+        b.HasIndex(e => new { e.TenantId, e.FieldKey, e.DateValue });
+        b.HasOne(e => e.Document).WithMany(d => d.FieldIndex).HasForeignKey(e => e.DocumentId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 

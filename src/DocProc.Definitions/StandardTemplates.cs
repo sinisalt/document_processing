@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text.Json;
 using DocProc.Domain.Documents;
+using DocProc.Domain.Flags;
 using DocProc.Domain.Validation;
 
 namespace DocProc.Definitions;
@@ -114,6 +115,13 @@ public static class TypeDefinitionExtensions
             values[name] = JsonSerializer.SerializeToElement(value, DefinitionSerializer.Options);
         }
 
-        return new RuleReference(rule.Id, rule.Kind, values.Count == 0 ? RuleParams.None : new RuleParams(values));
+        FlagSeverity? severity = rule.Severity switch
+        {
+            "blocking" => FlagSeverity.Blocking,
+            "warning" => FlagSeverity.Warning,
+            "info" => FlagSeverity.Info,
+            _ => null,
+        };
+        return new RuleReference(rule.Id, rule.Kind, values.Count == 0 ? RuleParams.None : new RuleParams(values), severity, rule.Message);
     }
 }

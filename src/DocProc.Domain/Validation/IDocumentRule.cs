@@ -25,8 +25,12 @@ public sealed record RuleParams(IReadOnlyDictionary<string, JsonElement> Values)
     public bool TryGet(string name, out JsonElement value) => Values.TryGetValue(name, out value);
 }
 
-/// <summary>One entry of a type's rule list: a stable id, the kind it runs and the parameters it passes.</summary>
-public sealed record RuleReference(string Id, string Kind, RuleParams Params)
+/// <summary>
+/// One entry of a type's rule list: a stable id, the kind it runs and the parameters it passes. <see cref="Severity"/>
+/// is the definition's <c>severity</c> (null keeps the kind's own) and <see cref="Message"/> its <c>message</c> by
+/// locale; the validator applies both to the flags the rule raises.
+/// </summary>
+public sealed record RuleReference(string Id, string Kind, RuleParams Params, FlagSeverity? Severity = null, IReadOnlyDictionary<string, string>? Message = null)
 {
     public static RuleReference Of(string kind) => new(kind, kind, RuleParams.None);
 }

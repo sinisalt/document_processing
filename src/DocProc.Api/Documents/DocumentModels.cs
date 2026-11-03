@@ -8,7 +8,9 @@ namespace DocProc.Api.Documents;
 /// <summary>
 /// One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
 /// <c>TenantId</c> / <c>TenantName</c> name the owning tenant, so a platform-scope list (the admin console's
-/// cross-tenant documents list and global review queue) can show whose row it is.
+/// cross-tenant documents list and global review queue) can show whose row it is. <c>ValidFrom</c>, <c>ValidUntil</c> and
+/// <c>LineCount</c> are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a
+/// total); <c>ReviewPriority</c> and <c>ReviewDueAt</c> are the open review task's priority and due time, null without one.
 /// </summary>
 public sealed record DocumentSummary(
     Guid Id,
@@ -29,7 +31,19 @@ public sealed record DocumentSummary(
     int WarningFlagCount,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? ApprovedAt);
+    DateTimeOffset? ApprovedAt,
+    DateOnly? ValidFrom,
+    DateOnly? ValidUntil,
+    int? LineCount,
+    ReviewPriority? ReviewPriority,
+    DateTimeOffset? ReviewDueAt);
+
+/// <summary>
+/// The type version a document is shown with (docs/11 §18 <c>DocumentDetail.definition</c>): its key, version and
+/// catalogue row, the display name by locale and the compiled form spec the review form renders (docs/11 §5.5, artifact
+/// 3). Sent for definition-driven documents and for every document of a tenant with <c>configurableTypes</c> on.
+/// </summary>
+public sealed record DocumentDefinitionRef(string Key, int Version, Guid? VersionId, IReadOnlyDictionary<string, string> Name, JsonElement FormSpec);
 
 /// <summary>
 /// One flag of a document. <c>Message</c> is English for API clients; <c>Params</c> holds the same facts as invariant
@@ -68,6 +82,8 @@ public sealed record DocumentIngestionRef(Guid IngestionId, Guid ItemId, string 
 /// extraction has run), so every <c>FieldValue</c> keeps its provenance and history verbatim. <c>PageImageUrls</c> are
 /// API-relative, in page order (<c>/api/v1/documents/{id}/pages/{n}.png</c>). <c>TenantId</c> / <c>TenantName</c> name
 /// the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
+/// <c>CanonicalSchemaVersion</c> 2 marks a definition-driven tree (docs/11 §5.6); <c>TypeName</c> (English, else the first
+/// locale), <c>TypeVersion</c> and <c>Definition</c> describe the type version it is shown with when the API resolved one.
 /// </summary>
 public sealed record DocumentDetail(
     Guid Id,
@@ -96,7 +112,13 @@ public sealed record DocumentDetail(
     IReadOnlyList<DocumentFlagDto> Flags,
     DocumentCostsDto Costs,
     DocumentIngestionRef? Ingestion,
-    IReadOnlyList<string> PageImageUrls);
+    IReadOnlyList<string> PageImageUrls,
+    DateOnly? ValidFrom,
+    DateOnly? ValidUntil,
+    int? LineCount,
+    string? TypeName,
+    int? TypeVersion,
+    DocumentDefinitionRef? Definition);
 
 public sealed record DocumentEventDto(
     long Id,
@@ -111,16 +133,23 @@ public sealed record ApproveDocumentRequest(string? Comment);
 
 public sealed record RejectDocumentRequest(string Reason);
 
-/// <summary>Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").</summary>
-public sealed record ReprocessDocumentRequest(string? FromStage);
+/// <summary>
+/// Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
+/// <c>configMode</c> (docs/11 §18): <c>pinned</c> (the default) reruns with the type version the document is pinned to;
+/// <c>current</c> drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork
+/// with a custom field published after the document arrived).
+/// </summary>
+public sealed record ReprocessDocumentRequest(string? FromStage, string? ConfigMode = null);
 
 /// <summary>
 /// One human correction (docs/05 "PATCH /documents/{id}/fields"). <see cref="Path"/> is a canonical field path as
 /// <c>Invoice.EnumerateAllFields</c> produces it (<c>invoiceNumber</c>, <c>lines[2].quantity</c>, <c>supplier</c>) or a
 /// property inside such a field's value (<c>supplier.vatId</c>); <see cref="Value"/> is the new value in the JSON
 /// shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-/// clear it. <c>op</c> is the correction operation; only <c>set</c> (the default) exists so far, the others of
-/// docs/11 §6.2 (<c>append</c>, <c>remove</c>, <c>move</c>, …) are refused until their phase. <c>source</c>
+/// clear it. <c>op</c> is the correction operation: <c>set</c> (the default); for a definition-driven document
+/// (<c>canonicalSchemaVersion</c> 2) also <c>append</c> (a row of a repeating group, with an optional object of row
+/// values, or a list entry) and <c>remove</c> (a row, a list entry or a bag key); the others of docs/11 §6.2
+/// (<c>move</c>, <c>setType</c>, <c>split</c>, <c>join</c>) are refused until their phase. <c>source</c>
 /// optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
 /// provenance and on the Correction row.
 /// </summary>
@@ -159,4 +188,5 @@ public sealed record ReviewTaskDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? SlaDueAt,
     DateTimeOffset? CompletedAt,
-    DocumentSummary? Document);
+    DocumentSummary? Document,
+    ReviewPriority Priority);

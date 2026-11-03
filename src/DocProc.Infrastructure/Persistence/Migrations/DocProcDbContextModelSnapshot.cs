@@ -136,6 +136,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AppliedConfigJson")
+                        .HasColumnType("json");
+
                     b.Property<DateTimeOffset?>("ApprovedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -184,6 +187,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("IssueDate")
                         .HasColumnType("date");
+
+                    b.Property<int?>("LineCount")
+                        .HasColumnType("int");
 
                     b.Property<int>("PageCount")
                         .HasColumnType("int");
@@ -240,6 +246,12 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly?>("ValidFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("ValidUntil")
+                        .HasColumnType("date");
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
@@ -402,6 +414,43 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("DocumentId", "At");
 
                     b.ToTable("DocumentEvents", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentFieldIndexEntry", b =>
+                {
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("FieldKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("NumberValue")
+                        .HasPrecision(28, 8)
+                        .HasColumnType("decimal(28,8)");
+
+                    b.Property<string>("StringValue")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("DocumentId", "FieldKey", "Ordinal");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "FieldKey", "DateValue");
+
+                    b.HasIndex("TenantId", "FieldKey", "StringValue");
+
+                    b.ToTable("DocumentFieldIndex", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentFlagRecord", b =>
@@ -1345,6 +1394,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -1677,6 +1731,17 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentFieldIndexEntry", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
+                        .WithMany("FieldIndex")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentFlagRecord", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
@@ -1917,6 +1982,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Corrections");
 
                     b.Navigation("Events");
+
+                    b.Navigation("FieldIndex");
 
                     b.Navigation("Flags");
 

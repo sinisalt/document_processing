@@ -26,7 +26,7 @@ public static class ReviewTaskEndpoints
 
         tasks.MapGet("/", ListAsync)
             .WithName("ListReviewTasks")
-            .WithSummary("The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary.");
+            .WithSummary("The review queue, urgent then high then normal priority, oldest first within each (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary.");
 
         tasks.MapPost("/{id:guid}:claim", ClaimAsync)
             .WithName("ClaimReviewTask")
@@ -94,13 +94,23 @@ public static class ReviewTaskEndpoints
             query = query.Where(t => t.AssignedTo == assignee);
         }
 
+        // Urgent first, then high, then normal (docs/11 §6.2), oldest first within a priority. A cursor issued before the
+        // priority existed carries none and continues among the normal tasks, where every earlier task is.
         if (after is { } c)
         {
-            query = query.Where(t => t.CreatedAt > c.At || (t.CreatedAt == c.At && t.Id.CompareTo(c.Id) > 0));
+            var rank = c.Rank ?? Rank(ReviewPriority.Normal);
+            query = query.Where(t => (t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) > rank
+                                     || ((t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) == rank
+                                         && (t.CreatedAt > c.At || (t.CreatedAt == c.At && t.Id.CompareTo(c.Id) > 0))));
         }
 
         var size = PageCursor.ClampLimit(limit);
-        var rows = await Rows(db, query.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id).Take(size + 1)).ToListAsync(ct);
+        var rows = await Rows(db, query
+                .OrderBy(t => t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2)
+                .ThenBy(t => t.CreatedAt)
+                .ThenBy(t => t.Id)
+                .Take(size + 1))
+            .ToListAsync(ct);
         var hasMore = rows.Count > size;
         if (hasMore)
         {
@@ -108,7 +118,7 @@ public static class ReviewTaskEndpoints
         }
 
         var items = rows.Select(ToDto).ToList();
-        return TypedResults.Ok(new Page<ReviewTaskDto>(items, hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode() : null));
+        return TypedResults.Ok(new Page<ReviewTaskDto>(items, hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id, Rank(items[^1].Priority)).Encode() : null));
     }
 
     private static async Task<Results<Ok<ReviewTaskDto>, ProblemHttpResult>> ClaimAsync(Guid id, [FromServices] DocProcDbContext db, ClaimsPrincipal user, CancellationToken ct)
@@ -214,13 +224,23 @@ public static class ReviewTaskEndpoints
                     tenant != null ? tenant.Name : null,
                     t.Document.Supplier != null ? t.Document.Supplier.Name : null,
                     t.Document.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
-                    t.Document.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning)));
+                    t.Document.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
+                    t.Document.ReviewTasks.Where(o => o.Status == ReviewTaskStatus.Open || o.Status == ReviewTaskStatus.InProgress).Select(o => (ReviewPriority?)o.Priority).FirstOrDefault(),
+                    t.Document.ReviewTasks.Where(o => o.Status == ReviewTaskStatus.Open || o.Status == ReviewTaskStatus.InProgress).Select(o => o.SlaDueAt).FirstOrDefault()));
 
     private static ReviewTaskDto ToDto(ReviewTaskRow row)
     {
         var t = row.Task;
-        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document is null ? null : DocumentQueries.ToSummary(row.Document));
+        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document is null ? null : DocumentQueries.ToSummary(row.Document), t.Priority);
     }
+
+    /// <summary>The queue position of a priority: urgent 0, high 1, normal 2.</summary>
+    private static int Rank(ReviewPriority priority) => priority switch
+    {
+        ReviewPriority.Urgent => 0,
+        ReviewPriority.High => 1,
+        _ => 2,
+    };
 
     private static ProblemHttpResult NotFound(Guid id) =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Review task not found", detail: $"No review task {id} is visible in the current scope.");

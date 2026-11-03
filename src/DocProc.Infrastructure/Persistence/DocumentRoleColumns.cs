@@ -58,6 +58,21 @@ public static class DocumentRoleColumns
         {
             document.TotalGross = projection.Total;
         }
+
+        if (bindings.ValidFrom is not null)
+        {
+            document.ValidFrom = projection.ValidFrom;
+        }
+
+        if (bindings.ValidUntil is not null)
+        {
+            document.ValidUntil = projection.ValidUntil;
+        }
+
+        if (bindings.LineItems is not null)
+        {
+            document.LineCount = projection.LineCount;
+        }
     }
 
     private static string? Truncate(string? value, int max) =>

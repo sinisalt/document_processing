@@ -59,6 +59,24 @@ internal static class DemoAnswers
         }
         """;
 
+    /// <summary>The customer number Bio-Hof Müller prints on invoice 2026-131 ("Kundennummer 0815").</summary>
+    public const string CustomerNumber = "0815";
+
+    /// <summary>
+    /// The same invoice read against the tenant's fork of Invoice with the demo custom field of
+    /// <c>fixtures/demo/types/invoice-customer-number.field.json</c> (docs/09 "Document types"): the answer with
+    /// <c>x_custom</c>, so the reprocessed document stores the customer number as a field.
+    /// </summary>
+    public static string InvoiceExtractionWithCustomField
+    {
+        get
+        {
+            var answer = System.Text.Json.Nodes.JsonNode.Parse(InvoiceExtraction)!.AsObject();
+            answer["x_custom"] = new System.Text.Json.Nodes.JsonObject { ["supplierCustomerRef"] = CustomerNumber };
+            return answer.ToJsonString();
+        }
+    }
+
     /// <summary>The delivery slip whose keywords cancel out ("Lieferung" is no title the rules know, "Die Rechnung folgt" negates the invoice title).</summary>
     public const string DeliveryNoteClassification = """
         { "documentType": "DeliveryNote", "confidence": 0.91, "language": "de", "supplierNameHint": "Bio-Hof Müller" }
@@ -67,6 +85,15 @@ internal static class DemoAnswers
     /// <summary>The recorded result for a request of the given stage, as a provider would have returned it.</summary>
     public static LlmResult For(LlmRequest request) => request.Stage switch
     {
+        LlmStage.Extract when request.OutputSchema?.Version.StartsWith("1+x.", StringComparison.Ordinal) == true => new LlmResult
+        {
+            Json = InvoiceExtractionWithCustomField,
+            Usage = new LlmUsage(InputTokens: 3950, OutputTokens: 1730, CacheReadTokens: 2950),
+            Model = request.Model,
+            StopReason = StopReasons.EndTurn,
+            ProviderRequestId = "replay-demo-extract-2026-131-x-custom",
+            Latency = TimeSpan.FromMilliseconds(9610),
+        },
         LlmStage.Extract => new LlmResult
         {
             Json = InvoiceExtraction,

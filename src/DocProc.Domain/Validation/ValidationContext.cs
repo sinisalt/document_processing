@@ -34,5 +34,8 @@ public sealed record TenantContext(
 /// <summary>Everything a rule may consult besides the document itself.</summary>
 public sealed record ValidationContext(DateOnly Today, ValidationOptions Options, TenantContext? Tenant = null)
 {
+    /// <summary>What the generic rule kinds read besides the document: the duplicate check's matches and the code lists (docs/11 §11).</summary>
+    public RuleData Data { get; init; } = RuleData.None;
+
     public static ValidationContext For(DateOnly today, TenantContext? tenant = null) => new(today, ValidationOptions.Default, tenant);
 }

@@ -11,14 +11,17 @@ namespace DocProc.Application.Documents;
 /// Which canonical field plays each summary role of a document type (docs/11 §6.2): the field the inbox shows as the
 /// document number, its date, its currency and its total. A null path means the type does not bind that role, and the
 /// matching list column is left alone. Paths are canonical field paths, dotted for nested objects.
+/// <see cref="ValidFrom"/> and <see cref="ValidUntil"/> fill the validity columns of documents with a validity period
+/// (price lists, docs/11 §5.8); <see cref="LineItems"/> names the repeating group whose row count is the
+/// <c>LineCount</c> column (§6.2).
 /// </summary>
-public sealed record RoleBindings(string? DocumentNumber, string? DocumentDate, string? Currency, string? Total)
+public sealed record RoleBindings(string? DocumentNumber, string? DocumentDate, string? Currency, string? Total, string? ValidFrom = null, string? ValidUntil = null, string? LineItems = null)
 {
-    public static readonly RoleBindings Invoice = new("invoiceNumber", "issueDate", "currency", "totalGross");
+    public static readonly RoleBindings Invoice = new("invoiceNumber", "issueDate", "currency", "totalGross", LineItems: "lines");
 
-    public static readonly RoleBindings PurchaseOrder = new("poNumber", "orderDate", "currency", "totalGross");
+    public static readonly RoleBindings PurchaseOrder = new("poNumber", "orderDate", "currency", "totalGross", LineItems: "lines");
 
-    public static readonly RoleBindings DeliveryNote = new("deliveryNoteNumber", "deliveryDate", Currency: null, Total: null);
+    public static readonly RoleBindings DeliveryNote = new("deliveryNoteNumber", "deliveryDate", Currency: null, Total: null, LineItems: "lines");
 
     /// <summary>
     /// The bindings of the coded types, until definitions carry their own (P1): the same fields
@@ -38,7 +41,7 @@ public sealed record RoleBindings(string? DocumentNumber, string? DocumentDate, 
 /// The role values read from one canonical tree: each is null when its role is unbound (see <see cref="Bindings"/>)
 /// or when the bound field has no usable value (Missing, Unreadable, empty or unreadable JSON).
 /// </summary>
-public sealed record RoleProjection(RoleBindings Bindings, DocumentIdentifier? DocumentNumber, DateOnly? DocumentDate, string? Currency, decimal? Total);
+public sealed record RoleProjection(RoleBindings Bindings, DocumentIdentifier? DocumentNumber, DateOnly? DocumentDate, string? Currency, decimal? Total, DateOnly? ValidFrom = null, DateOnly? ValidUntil = null, int? LineCount = null);
 
 /// <summary>
 /// The single projector from a canonical tree to the denormalised summary columns (docs/11 §6.2). It replaces the two
@@ -58,7 +61,27 @@ public static class RoleProjector
             ReadIdentifier(Leaf(canonical, bindings.DocumentNumber)),
             ReadDate(Leaf(canonical, bindings.DocumentDate)),
             ReadCurrency(Leaf(canonical, bindings.Currency)),
-            ReadAmount(Leaf(canonical, bindings.Total)));
+            ReadAmount(Leaf(canonical, bindings.Total)),
+            ReadDate(Leaf(canonical, bindings.ValidFrom)),
+            ReadDate(Leaf(canonical, bindings.ValidUntil)),
+            RowCount(canonical, bindings.LineItems));
+    }
+
+    /// <summary>The number of rows of the repeating group at <paramref name="path"/>; null when unbound or not an array.</summary>
+    private static int? RowCount(JsonObject? root, string? path)
+    {
+        if (root is null || string.IsNullOrEmpty(path))
+        {
+            return null;
+        }
+
+        JsonNode? node = root;
+        foreach (var segment in path.Split('.'))
+        {
+            node = node is JsonObject obj && obj.TryGetPropertyValue(segment, out var child) ? child : null;
+        }
+
+        return node is JsonArray rows ? rows.Count : null;
     }
 
     /// <summary>The roles of a stored canonical JSON string; an empty or unparseable string projects every bound role as null.</summary>

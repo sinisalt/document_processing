@@ -57,7 +57,9 @@ public sealed class DocumentRuleTests
         ]);
         StandardRuleSets.Invoice.Select(r => r.Kind).ShouldBe(InvoiceRuleAdapter.All.Select(a => a.Kind));
         StandardRuleSets.Invoice.ShouldAllBe(r => r.Params.Values.Count == 0 && r.Id == r.Kind);
-        RuleRegistry.Default.Kinds.Order(StringComparer.Ordinal).ShouldBe(InvoiceRuleAdapter.All.Select(a => a.Kind).Order(StringComparer.Ordinal));
+        // P1 registers the generic kinds next to the coded invoice kinds (docs/11 §11).
+        RuleRegistry.Default.Kinds.Order(StringComparer.Ordinal).ShouldBe(
+            InvoiceRuleAdapter.All.Select(a => a.Kind).Concat(DocProc.Domain.Validation.Rules.GenericRules.All.Select(r => r.Kind)).Order(StringComparer.Ordinal));
     }
 
     [Theory]
@@ -148,7 +150,7 @@ public sealed class DocumentRuleTests
     {
         // Publishing refuses a kind the deployment does not declare (docs/11 §5.7); a declared kind whose evaluator is
         // not registered yet is reported as not run, and a result with a rule that did not run is never auto-approved.
-        var unknown = new RuleReference("r1", "dateOrder", RuleParams.None);
+        var unknown = new RuleReference("r1", "tableComplete", RuleParams.None);
         var notRun = DocumentValidator.Default.Validate(DocumentView.ForInvoice(Valid()), [unknown], Context);
         notRun.Flags.ShouldBeEmpty();
         notRun.RulesNotRun.ShouldBe(["r1"]);

@@ -15,7 +15,8 @@ public sealed class RuleRegistry
         _rules = rules.ToFrozenDictionary(r => r.Kind, StringComparer.Ordinal);
     }
 
-    public static RuleRegistry Default { get; } = new(InvoiceRuleAdapter.All);
+    /// <summary>The coded invoice kinds (P0) and the generic kinds of P1 (<see cref="Rules.GenericRules"/>).</summary>
+    public static RuleRegistry Default { get; } = new([.. InvoiceRuleAdapter.All, .. Rules.GenericRules.All]);
 
     public IEnumerable<string> Kinds => _rules.Keys;
 
@@ -64,9 +65,33 @@ public sealed class DocumentValidator(RuleRegistry registry)
                 continue;
             }
 
-            flags.AddRange(rule.Evaluate(view, entry.Params, context));
+            flags.AddRange(rule.Evaluate(view, entry.Params, context).Select(f => Stamp(f, entry, rule, view.TypeKey)));
         }
 
         return new ValidationResult(flags, notRun.Count == 0 ? null : notRun);
+    }
+
+    /// <summary>
+    /// A rule's flag as the definition asks for it: the entry's severity when it sets one, its English message when it
+    /// has one, and, for the generic kinds, the rule id and the type key in the parameters (<c>RULE_FAILED {ruleId,
+    /// typeKey}</c>, docs/11 §11). A coded invoice kind's flags are left exactly as the coded rule raised them.
+    /// </summary>
+    private static DocumentFlag Stamp(DocumentFlag flag, RuleReference entry, IDocumentRule rule, string typeKey)
+    {
+        if (rule is InvoiceRuleAdapter)
+        {
+            return entry.Severity is { } coded ? flag with { Severity = coded } : flag;
+        }
+
+        var parameters = new Dictionary<string, string>(flag.Params ?? new Dictionary<string, string>(), StringComparer.Ordinal)
+        {
+            ["ruleId"] = entry.Id,
+            ["ruleKind"] = entry.Kind,
+            ["typeKey"] = typeKey,
+        };
+        var message = entry.Message is { } messages && messages.TryGetValue("en", out var english) && !string.IsNullOrWhiteSpace(english)
+            ? english
+            : flag.Message;
+        return flag with { Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
     }
 }

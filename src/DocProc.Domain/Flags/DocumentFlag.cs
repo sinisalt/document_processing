@@ -58,6 +58,15 @@ public static class FlagCodes
     public const string InvalidValue = "INVALID_VALUE";
     public const string UnsupportedType = "UNSUPPORTED_TYPE";
 
+    // Definition-driven validation (docs/11 §11).
+    public const string FieldRequired = "FIELD_REQUIRED";
+    public const string FieldInvalid = "FIELD_INVALID";
+    public const string RuleFailed = "RULE_FAILED";
+    public const string RevisionOf = "REVISION_OF";
+
+    /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
+    public static readonly string DefinitionScopedPrefix = "X_";
+
     public sealed record Definition(string Code, FlagSeverity DefaultSeverity, string Description);
 
     public static readonly FrozenDictionary<string, Definition> Catalogue = new Definition[]
@@ -80,19 +89,40 @@ public static class FlagCodes
         new(DateImplausible, FlagSeverity.Warning, "Issue date is in the future or more than a year old."),
         new(InvalidValue, FlagSeverity.Warning, "A value failed its type or format check (for example a malformed currency code)."),
         new(UnsupportedType, FlagSeverity.Warning, "The document type has no extraction path yet; the reviewer handles it by hand."),
+        new(FieldRequired, FlagSeverity.Blocking, "A field the document type requires has no value."),
+        new(FieldInvalid, FlagSeverity.Warning, "A value does not fit its field's definition (format, range, length or code); blocking for a required field."),
+        new(RuleFailed, FlagSeverity.Warning, "A rule of the document type's definition failed; the message is the rule's."),
+        new(RevisionOf, FlagSeverity.Warning, "An earlier document with the same duplicate key exists; this one may replace it."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);
 
-    /// <summary>Creates a flag with the catalogue's default severity for the code.</summary>
+    /// <summary>Whether the code is a definition-scoped one (<c>X_&lt;RULEID&gt;</c>, docs/11 §11): upper-case letters, digits and underscores after the prefix.</summary>
+    public static bool IsDefinitionScoped(string code) =>
+        code.Length > DefinitionScopedPrefix.Length && code.Length <= 64 && code.StartsWith(DefinitionScopedPrefix, StringComparison.Ordinal)
+        && code.Skip(DefinitionScopedPrefix.Length).All(c => c is (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_');
+
+    /// <summary>
+    /// Creates a flag with the catalogue's default severity for the code. A definition-scoped code (<c>X_*</c>) is not
+    /// in the catalogue: it carries the rule's own message and is a warning unless the caller sets another severity.
+    /// </summary>
     public static DocumentFlag Create(string code, string message, string? field = null, IReadOnlyDictionary<string, string>? parameters = null)
     {
-        if (!Catalogue.TryGetValue(code, out var def))
+        FlagSeverity severity;
+        if (Catalogue.TryGetValue(code, out var def))
+        {
+            severity = def.DefaultSeverity;
+        }
+        else if (IsDefinitionScoped(code))
+        {
+            severity = FlagSeverity.Warning;
+        }
+        else
         {
             throw new ArgumentException($"Unknown flag code '{code}'.", nameof(code));
         }
 
-        return new DocumentFlag(code, def.DefaultSeverity, message, field, Params: parameters is { Count: > 0 } ? parameters : null);
+        return new DocumentFlag(code, severity, message, field, Params: parameters is { Count: > 0 } ? parameters : null);
     }
 }
 

@@ -54,6 +54,28 @@ public sealed class TenantIsolationTests(SqlServerFixture sqlServer) : IClassFix
     }
 
     [Fact]
+    public async Task The_field_index_is_hidden_from_and_closed_to_other_tenants_on_the_database()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        // docs/11 §6.2: DocumentFieldIndex is a strict tenant table (PolicyV5).
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var mine = await asA.Documents.Select(d => d.Id).FirstAsync(ct);
+            asA.DocumentFieldIndex.Add(new DocumentFieldIndexEntry { TenantId = TenantA, DocumentId = mine, FieldKey = "supplierCustomerRef", Ordinal = 0, StringValue = "123456789" });
+            await asA.SaveChangesAsync(ct);
+            (await asA.DocumentFieldIndex.CountAsync(ct)).ShouldBe(1);
+        }
+
+        await using var asB = NewContext(TenantContext.ForTenant(TenantB));
+        (await asB.DocumentFieldIndex.IgnoreQueryFilters().CountAsync(ct)).ShouldBe(0);
+        var theirs = await asB.Documents.Select(d => d.Id).FirstAsync(ct);
+        asB.DocumentFieldIndex.Add(new DocumentFieldIndexEntry { TenantId = TenantA, DocumentId = theirs, FieldKey = "supplierCustomerRef", Ordinal = 0, StringValue = "forged" });
+        await Should.ThrowAsync<DbUpdateException>(() => asB.SaveChangesAsync(ct));
+    }
+
+    [Fact]
     public async Task Row_level_security_blocks_cross_tenant_reads_and_writes_even_without_ef_filters()
     {
         DockerFacts.SkipUnlessAvailable();

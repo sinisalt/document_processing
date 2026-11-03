@@ -1,5 +1,6 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
+using DocProc.Definitions.Compilation;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -22,6 +23,15 @@ namespace DocProc.Pipeline.Stages;
 /// the same save and a publish message as a nudge; everything else means <c>NeedsReview</c> with a review task. A
 /// document without canonical data (unsupported type), or whose type has no rules or no auto-approval in its
 /// definition, always goes to review.
+/// <para>
+/// Which checks run follows the definition's <c>processing.validate</c> steps (docs/11 §10.1, §11): <c>validate.schema</c>
+/// (the structural check of the values view, <see cref="StructuralValidator"/>), <c>validate.rules</c> (the rule list:
+/// the coded invoice kinds and the generic P1 kinds over the values view, <c>DocumentDataView</c>) and
+/// <c>validate.duplicate</c> (the coded duplicate check); a definition without a validate list runs the rules and the
+/// coded duplicate check, as before. A <c>duplicate</c> rule is given the result of the duplicate check of the type's
+/// <c>roles.duplicateKey</c> (<see cref="DuplicateKeyCheck"/>). The review task takes its priority from
+/// <c>review.priority</c>.
+/// </para>
 /// </summary>
 internal sealed class ValidateHandler(
     DocProcDbContext db,
@@ -34,11 +44,8 @@ internal sealed class ValidateHandler(
 {
     public const string ApprovedBy = DocumentTimeline.Actor;
 
-    private static readonly string[] OwnedFlags =
-    [
-        FlagCodes.MissingRequired, FlagCodes.InvalidValue, FlagCodes.TotalsMismatch, FlagCodes.TaxMismatch, FlagCodes.LineArithmetic,
-        FlagCodes.DateImplausible, FlagCodes.CustomerMismatch, FlagCodes.LowConfidence, FlagCodes.CurrencyInferred, FlagCodes.DuplicateSuspected,
-    ];
+    /// <summary>The flags this stage owns (raises and replaces), also those a correction re-validates inline.</summary>
+    private static string[] OwnedFlags => DocumentChecks.OwnedFlags;
 
     public override PipelineStage Stage => PipelineStage.Validate;
 
@@ -51,26 +58,19 @@ internal sealed class ValidateHandler(
             ? await Db.Suppliers.AsNoTracking().SingleOrDefaultAsync(s => s.Id == supplierId, cancellationToken).ConfigureAwait(false)
             : null;
 
-        // A type whose definition lists no rules is not validated: nothing vouches for its data, so it goes to review.
+        // A type whose definition lists no rules is not validated by them: nothing vouches for its data, so it goes to
+        // review. The structural check runs whenever the definition lists it.
         var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
-        var type = config.Type is { Rules.Count: > 0 } validated ? validated : null;
+        var resolved = config.Type;
+        var type = resolved is { Rules.Count: > 0 } validated ? validated : null;
 
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
-        if (document.CanonicalJson is { } json && type is not null)
+        if (document.CanonicalJson is { } json && resolved is not null && (type is not null || resolved.RunsValidateStep(ValidateStepKinds.Schema)))
         {
-            var view = DocumentView.FromJson(document.Type, json);
-            var context = new ValidationContext(
-                Today(tenant),
-                ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
-                new Domain.Validation.TenantContext(tenant.LegalName, tenant.VatId, tenant.DefaultCurrency, tenant.NameAliases));
-            result = validator.Validate(view, type.Rules, context);
-            raised.AddRange(result.Flags);
-
-            if (await IsDuplicateAsync(document, cancellationToken).ConfigureAwait(false))
-            {
-                raised.Add(FlagCodes.Create(FlagCodes.DuplicateSuspected, $"Another document of this supplier carries the number {document.DocumentNumber}.", "invoiceNumber", FlagParams.Of(("number", document.DocumentNumber))));
-            }
+            var run = await DocumentChecks.RunAsync(Db, document, resolved, tenant, Today(tenant), validator, cancellationToken).ConfigureAwait(false);
+            result = type is null ? null : run.Result;
+            raised.AddRange(run.Flags);
         }
 
         flags.Replace(document, OwnedFlags, raised);
@@ -122,32 +122,12 @@ internal sealed class ValidateHandler(
             DocumentId = document.Id,
             Reason = reason.Length <= 1000 ? reason : reason[..1000],
             Status = ReviewTaskStatus.Open,
+            Priority = DocumentChecks.PriorityOf(resolved),
             CreatedAt = Timeline.Now,
         });
         Timeline.Transition(document, DocumentStatus.NeedsReview, new { reason }, DocumentEventTypes.ReviewRequested);
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Stopped;
-    }
-
-    /// <summary>
-    /// Same tenant, same matched supplier, same normalised number, on a document that is still alive. Unmatched
-    /// documents are never compared with each other: "no supplier" is not a supplier, and two unrelated vendors can
-    /// both number their first invoice 1.
-    /// </summary>
-    private Task<bool> IsDuplicateAsync(Document document, CancellationToken cancellationToken)
-    {
-        if (document.SupplierId is not { } supplierId || document.DocumentNumberNormalized is not { Length: > 0 } number)
-        {
-            return Task.FromResult(false);
-        }
-
-        return Db.Documents.AsNoTracking().AnyAsync(
-            d => d.Id != document.Id
-                 && d.SupplierId == supplierId
-                 && d.DocumentNumberNormalized == number
-                 && d.Status != DocumentStatus.Failed
-                 && d.Status != DocumentStatus.Rejected,
-            cancellationToken);
     }
 
     /// <summary>Today in the tenant's time zone, so an invoice dated tomorrow in Berlin is not "in the future" at 23:30 UTC.</summary>

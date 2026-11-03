@@ -18,7 +18,19 @@ public sealed record ExtractionInput(
     TextLayer? TextLayer,
     ReadOnlyMemory<byte>? EmbeddedXml,
     SupplierHints? Supplier,
-    TenantHints Tenant);
+    TenantHints Tenant,
+    ResolvedDefinition? Definition = null);
+
+/// <summary>
+/// The type version a document is extracted against (docs/11 §9.1): its key and version, the compiled LLM schema, and
+/// the fields the tenant added to an invoice-family type, which the invoice LLM call asks for in <c>x_custom</c>
+/// (<see cref="CustomFields"/>, empty for an adopted standard type, whose request is exactly today's).
+/// </summary>
+public sealed record ResolvedDefinition(string TypeKey, Guid? VersionId, int Version, DocProc.Definitions.Compilation.CompiledLlmSchema? LlmSchema, IReadOnlyList<DocProc.Definitions.Compilation.FieldDescriptor> CustomFields)
+{
+    /// <summary>Whether the LLM schema carries the tenant's added fields (<c>x_custom</c>).</summary>
+    public bool HasCustomFields => LlmSchema is { CustomPaths.Count: > 0 } && CustomFields.Count > 0;
+}
 
 /// <summary>"Supplier memory": what we already know about this supplier, passed to the LLM and used by profiles.</summary>
 public sealed record SupplierHints(Guid SupplierId, string Name, string? VatId, IReadOnlyList<string> KnownSkus, Invoice? LastApprovedInvoice, Guid? ActiveProfileId);

@@ -207,7 +207,6 @@ public sealed class RowLevelSecuritySqlTests
             statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV3)]);
         }
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV4);
         var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4);
         foreach (var table in new[] { "DocumentTypeDefinitions", "DocumentTypeVersions", "LlmProviderConfigs", "ExtractorProfiles" })
         {
@@ -217,6 +216,32 @@ public sealed class RowLevelSecuritySqlTests
 
         sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PlatformReadFunction}]([TenantId]) ON [dbo].[DocumentTypeVersionsHistory]");
         RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV3).ShouldNotContain("DocumentType");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_field_index_migration_puts_the_index_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.2: DocumentFieldIndex is a tenant table; FieldIndexAndInboxColumns re-creates the policy with it.
+        var migration = new FieldIndexAndInboxColumns();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV5 : RowLevelSecurity.PolicyV4)]);
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV5);
+        var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV5);
+        sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentFieldIndex]");
+        sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentFieldIndex] AFTER UPDATE");
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV4).ShouldNotContain("DocumentFieldIndex");
+        RowLevelSecurity.PolicyV5.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV4.PlatformRowTables);
+        RowLevelSecurity.PolicyV5.StrictTables.Except(RowLevelSecurity.PolicyV4.StrictTables).ShouldBe([("DocumentFieldIndex", "TenantId")]);
+
+        // The drop comes before the table goes, so the schema-bound policy never names a missing table.
+        if (!up)
+        {
+            var operations = migration.DownOperations.ToList();
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation { Name: "DocumentFieldIndex" }));
+        }
     }
 
     [Fact]

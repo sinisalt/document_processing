@@ -29,6 +29,33 @@ public sealed class DocumentView
 
     public DocumentTypeKey Type { get; }
 
+    /// <summary>
+    /// The values view of the canonical tree (the <c>doc</c> block of docs/11 §5.6: plain values, Missing as null),
+    /// which the generic rule kinds read; null when the caller has no definition to build it from. Provenance
+    /// (status, confidence) stays in <see cref="Root"/>.
+    /// </summary>
+    public JsonObject? Values { get; private set; }
+
+    /// <summary>The type key as the definition names it (<c>CreditNote</c>, <c>price-list</c>), for flag parameters.</summary>
+    public string TypeKey => Type.Value;
+
+    /// <summary>The role bindings of the type (role name to field path, <c>documentDate</c> to <c>issueDate</c>), for rules that read a role.</summary>
+    public IReadOnlyDictionary<string, string> RolePaths { get; private set; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Attaches the values view built by the caller (<c>DocumentDataView.Values</c>) and the type's role bindings;
+    /// returns this view.
+    /// </summary>
+    public DocumentView WithValues(JsonObject? values, IReadOnlyDictionary<string, string>? rolePaths = null)
+    {
+        Values = values;
+        RolePaths = rolePaths ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        return this;
+    }
+
+    /// <summary>The path bound to a role, or null.</summary>
+    public string? RolePath(string role) => RolePaths.GetValueOrDefault(role);
+
     /// <summary>The canonical tree, or null when the document has none. Parsed on first use.</summary>
     public JsonObject? Root
     {

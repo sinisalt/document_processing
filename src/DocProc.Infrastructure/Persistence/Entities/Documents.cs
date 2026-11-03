@@ -77,6 +77,21 @@ public sealed class Document : ITenantScoped, IVersioned
     public string? Currency { get; set; }
     public decimal? TotalGross { get; set; }
 
+    /// <summary>The role <c>validFrom</c> (price lists, docs/11 §6.2), for the inbox.</summary>
+    public DateOnly? ValidFrom { get; set; }
+
+    /// <summary>The role <c>validUntil</c>, for the inbox.</summary>
+    public DateOnly? ValidUntil { get; set; }
+
+    /// <summary>The number of rows of the role <c>lineItems</c>, for the inbox (price lists show rows instead of a total).</summary>
+    public int? LineCount { get; set; }
+
+    /// <summary>
+    /// What the pipeline resolved for the document (docs/11 §6.2 <c>AppliedConfigJson</c>): the type version and its key,
+    /// the LLM schema sent and when it was resolved. Supplier, layout and identification parts arrive with P4.
+    /// </summary>
+    public string? AppliedConfigJson { get; set; }
+
     public DocumentCosts Costs { get; set; } = new();
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -92,6 +107,40 @@ public sealed class Document : ITenantScoped, IVersioned
     public ICollection<DocumentEvent> Events { get; } = [];
     public ICollection<ReviewTask> ReviewTasks { get; } = [];
     public ICollection<Correction> Corrections { get; } = [];
+    public ICollection<DocumentFieldIndexEntry> FieldIndex { get; } = [];
+}
+
+/// <summary>
+/// One value of an <c>indexed</c> field of a document (docs/11 §6.2 <c>DocumentFieldIndex</c>): what the inbox filters
+/// on (<c>?field.&lt;key&gt;=value</c>) and the duplicate check reads for key components other than the document number.
+/// <see cref="FieldKey"/> is the field's definition path (<c>supplierCustomerRef</c>, <c>lines[*].supplierSku</c>);
+/// <see cref="Ordinal"/> tells the values of a list or of the rows of an array apart (0 for a single value). Exactly
+/// one of the value columns is set: strings (identifiers by their normalised form) in <see cref="StringValue"/>,
+/// numbers and amounts in <see cref="NumberValue"/>, dates in <see cref="DateValue"/>. Written with the list columns by
+/// <c>DocumentRoleColumns</c>, from the stored tree.
+/// </summary>
+public sealed class DocumentFieldIndexEntry : ITenantScoped
+{
+    public const int MaxFieldKeyLength = 200;
+    public const int MaxStringLength = 400;
+
+    public Guid TenantId { get; set; }
+    public Guid DocumentId { get; set; }
+    public required string FieldKey { get; set; }
+    public int Ordinal { get; set; }
+    public string? StringValue { get; set; }
+    public decimal? NumberValue { get; set; }
+    public DateOnly? DateValue { get; set; }
+
+    public Document? Document { get; set; }
+}
+
+/// <summary>How urgent a review task is (docs/11 §6.2, from the type's <c>review.priority</c>); the queue sorts by it first.</summary>
+public enum ReviewPriority
+{
+    Normal,
+    High,
+    Urgent,
 }
 
 /// <summary>Persisted <see cref="DocumentFlag"/>.</summary>
@@ -188,6 +237,10 @@ public sealed class ReviewTask : ITenantScoped, IVersioned
 
     public string? AssignedTo { get; set; }
     public ReviewTaskStatus Status { get; set; } = ReviewTaskStatus.Open;
+
+    /// <summary>From the type's <c>review.priority</c> (docs/11 §6.2); Normal for every task before it existed.</summary>
+    public ReviewPriority Priority { get; set; } = ReviewPriority.Normal;
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? SlaDueAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }

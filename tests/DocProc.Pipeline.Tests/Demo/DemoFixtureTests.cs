@@ -1,7 +1,10 @@
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
+using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Persistence;
+using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm;
 using DocProc.Llm.Gateway;
 using DocProc.Llm.Providers;
@@ -11,6 +14,7 @@ using DocProc.Pipeline.Tests.Pdf;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 
 namespace DocProc.Pipeline.Tests.Demo;
@@ -80,6 +84,23 @@ public sealed class DemoFixtureTests
                 var deliveryNote = documents.Single(d => d.IngestionItem!.FileName == DemoPdfs.DeliveryNoteFileName);
                 deliveryNote.Type.ShouldBe(DocumentTypeKey.DeliveryNote);
                 deliveryNote.TypeSource.ShouldBe(TypeSource.Llm);
+
+                // docs/09 "Document types": the tenant forks Invoice with the demo custom field and reprocesses the PDF
+                // invoice with configMode current; the x_custom extraction it then sends has a fixture of its own.
+                await ForkInvoiceWithCustomFieldAsync(host, invoice.TenantId);
+                await ReprocessFromExtractWithCurrentConfigAsync(host, invoice);
+                await host.Services.GetRequiredService<InProcessPipelineQueue>().WaitForIdleAsync(cts.Token);
+                var custom = capture.Requests.Where(r => r.DocumentId == invoice.Id && r.Stage == LlmStage.Extract).ToList();
+                custom.Count.ShouldBe(2);
+                custom[1].OutputSchema!.Version.ShouldStartWith("1+x.", customMessage: "the reprocess after the fork asks for the custom field in x_custom");
+                await using (var after = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+                {
+                    var reprocessed = await after.Documents.AsNoTracking().SingleAsync(d => d.Id == invoice.Id, Ct);
+                    reprocessed.CanonicalSchemaVersion.ShouldBe(2);
+                    JsonNode.Parse(reprocessed.CanonicalJson!)!["supplierCustomerRef"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe(DemoAnswers.CustomerNumber);
+                }
+
+                requests.Add((DemoPdfs.InvoiceFileName, custom[1]));
 
                 var generated = Path.Combine(work, "llm-replay");
                 var store = new FileReplayStore(generated, new FakeTimeProvider(RecordedAt));
@@ -157,6 +178,48 @@ public sealed class DemoFixtureTests
             File.Exists(path).ShouldBeTrue($"{path} is missing; run the tests once with {RegeneratePdfsVariable}=1 and then {UpdateVariable}=1, and commit both.");
             File.ReadAllBytes(path).AsSpan(0, 5).SequenceEqual("%PDF-"u8).ShouldBeTrue($"{path} is not a PDF.");
         }
+    }
+
+    /// <summary>The demo custom field of docs/09 "Document types" (<c>fixtures/demo/types</c>), as the curl steps there add it.</summary>
+    internal static string CustomFieldPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "types", "invoice-customer-number.field.json");
+
+    /// <summary>What <c>POST /document-types {from: std.invoice, copy}</c>, the draft <c>PUT</c> with the field appended and <c>:publish</c> do.</summary>
+    private static async Task ForkInvoiceWithCustomFieldAsync(IHost host, Guid tenantId)
+    {
+        await using var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
+        var tenant = await db.Tenants.SingleAsync(t => t.Id == tenantId, Ct);
+        tenant.Settings.Features!.ConfigurableTypes = true;
+        await db.SaveChangesAsync(Ct);
+
+        var catalogue = new DocumentTypeCatalogue(db, TimeProvider.System);
+        var copied = await catalogue.CopyAsync(tenantId, "std.invoice", null, "tenant-a-admin", Ct);
+        copied.Status.ShouldBe(CatalogueStatus.Ok, copied.Detail);
+        var draft = copied.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
+        var definition = JsonNode.Parse(draft.DefinitionJson)!.AsObject();
+        definition["fields"]!.AsArray().Add(JsonNode.Parse(await File.ReadAllTextAsync(CustomFieldPath(), Ct)));
+        var saved = await catalogue.SaveDraftAsync(tenantId, "Invoice", draft.Version, definition.ToJsonString(), draft.Revision, "tenant-a-admin", Ct);
+        saved.Status.ShouldBe(CatalogueStatus.Ok, saved.Detail);
+        var published = await catalogue.PublishAsync(tenantId, "Invoice", draft.Version, null, "Customer number at supplier", "tenant-a-admin", Ct);
+        published.Status.ShouldBe(CatalogueStatus.Ok, published.Detail);
+    }
+
+    /// <summary>What <c>POST /documents/{id}:reprocess {fromStage: Extract, configMode: current}</c> does.</summary>
+    private static async Task ReprocessFromExtractWithCurrentConfigAsync(IHost host, Document invoice)
+    {
+        await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+        {
+            var document = await db.Documents.SingleAsync(d => d.Id == invoice.Id, Ct);
+            document.Status = DocumentStatus.Matched;
+            document.DocumentTypeVersionId = null;
+            foreach (var task in await db.ReviewTasks.Where(t => t.DocumentId == invoice.Id && t.Status == ReviewTaskStatus.Open).ToListAsync(Ct))
+            {
+                task.Status = ReviewTaskStatus.Skipped;
+            }
+
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await host.Services.GetRequiredService<InProcessPipelineQueue>().EnqueueAsync(new ProcessDocument(invoice.TenantId, invoice.Id, PipelineStage.Extract), Ct);
     }
 
     /// <param name="generated">The fixtures the current code produces.</param>
