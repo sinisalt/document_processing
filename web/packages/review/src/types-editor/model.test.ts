@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addField, childrenOf, fieldAt, fieldIssues, isDefinition, moveField, newFieldId, newFieldKey, newTypeDefinition, normalizeKind, removeField, updateField, type Definition } from "./model";
+import { addField, childrenOf, fieldAt, fieldIssues, isDefinition, isRowField, moveField, newFieldId, newFieldKey, newTypeDefinition, normalizeKind, removeField, updateField, type Definition } from "./model";
 
 const definition: Definition = {
   key: "CreditNote",
@@ -23,6 +23,12 @@ describe("definition editing", () => {
     expect(fieldAt(definition, [1, 1])?.key).toBe("quantity");
     expect(fieldAt(definition, [5])).toBeNull();
     expect(childrenOf(definition.fields[1]!)?.map((f) => f.key)).toEqual(["description", "quantity"]);
+  });
+
+  it("knows a row field, whose index holds only the first rows' values", () => {
+    expect(isRowField(definition, [1, 1])).toBe(true);
+    expect(isRowField(definition, [1])).toBe(false);
+    expect(isRowField(definition, [0])).toBe(false);
   });
 
   it("changes a field without touching the rest, and keeps what the editor does not edit", () => {

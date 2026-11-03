@@ -644,6 +644,7 @@ When a tenant fallback rule decided the type, `identification` holds `{"scope": 
 - PK `(DocumentId, FieldKey, Ordinal)`; indexes `(TenantId, FieldKey, StringValue)` and `(TenantId, FieldKey, DateValue)`.
 - Written by the `RoleProjector` for fields marked `indexed`. It works the same on SQL Server and on SQLite in dev.
 - Correction (P1): the Application layer cannot see the entity, so `DocumentFieldIndexWriter` (`src/DocProc.Infrastructure/Persistence`) writes the rows from the stored tree, next to `DocumentRoleColumns` and in the same save (the Extract stage and every correction). `FieldKey` is the field's definition path (`supplierCustomerRef`, `lines[*].supplierSku`), and identifiers are indexed by their normalised form.
+- Bounds (`FieldIndexLimits`): a row field or a list has one value per row, so at most the first 100 values of a field and 2,000 rows per document are indexed, every field's first value (`Ordinal` 0) before any field's further ones. A later row's value is neither an inbox column nor found by `?field.`; the inbox column reads `Ordinal` 0 only. Publishing warns when a row field is `indexed` (5.8 advises against it).
 
 **Correction** (extended)
 - `Op nvarchar(16)`: `set | append | remove | move | setType | split | join`.
@@ -1269,6 +1270,7 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 1. **Structural** (`validate.schema`) runs JsonSchema.Net on the values view against `CompiledJsonSchema`. JSON Pointer errors map to the path grammar (`/lines/2/lineNet` becomes `lines[2].lineNet`).
    - `FIELD_REQUIRED {path}` (blocking) replaces the hard-coded lists at `RequiredFieldsRule.cs:38-54` and `InvoiceExtractionMapper.cs:103-121`.
    - `FIELD_INVALID {path, keyword}` is blocking for required fields and a warning otherwise.
+   - Bounds per document: one check (a field pattern, a field's schema keyword, one rule) raises at most 50 flags; the rest become one summary flag of the same code and severity at the first value left out, with `reason: capped` (they failed too) and `count`. A pattern stops matching at the cap (`reason: notChecked`). The field patterns and the `pattern` rules share one budget per validation (50,000 matches or 2 s of matching); a value past it is skipped, not failed, and one blocking `CHECKS_SKIPPED {reason: patternBudget, count}` sends the document to review.
    - The layout's `requiredFields` is applied as an overlay.
 2. **Rule kinds** implement `IDocumentRule.Evaluate(DocumentView view, RuleParams p, ValidationContext ctx)`:
    - Generic kinds: `required`, `requiredIf`, `pattern`, `range`, `enumMember`, `compare`, `sumEquals` (for example `lines[*].lineNet.amount` equals `net.amount`, with a tolerance), `arithmetic` (`quantity*unitPrice-discountAmount = lineNet` per row), `dateOrder`, `datePlausibility`, `lookupExists`, `duplicate` (the role `duplicateKey`), `confidence`, `customerMatch` (receiving entities), and `expression` (a sandboxed JSONata predicate).
@@ -1305,6 +1307,7 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 **Flags.** `FlagCodes.Catalogue` (`DocumentFlag.cs:63-83`) gains:
 
 - `FIELD_REQUIRED`, `FIELD_INVALID`, `RULE_FAILED {ruleId, typeKey, message}`
+- `CHECKS_SKIPPED {reason, count}` (blocking): checks did not run because the document reached a per-document limit (the pattern budget of layer 1 above).
 - `SUPPLIER_CONFLICT`, `SUPPLIER_AMBIGUOUS`, `SUPPLIER_SOURCE_UNVERIFIED`
 - Existing codes the text relies on, listed for completeness: `TYPE_UNKNOWN` (blocking; Classify raises it today, and Extract now raises it too in place of `UNSUPPORTED_TYPE`, which is retired, 9.2), `SUPPLIER_UNMATCHED` (unchanged; "create supplier from review", section 14) and `DUPLICATE_SUSPECTED` (unchanged; raised by the `duplicate` rule with `onMatch: "block"`).
 - `NEW_LAYOUT {supplierId, proposedType, suggestions, pendingLayoutVersionId?}` (blocking; the same params as in 8.4): the supplier is known and layout-managed, but none of its Active layouts' identification rules holds. `pendingLayoutVersionId` is set when a Candidate layout's rule holds. It replaces the earlier draft's `MAPPING_NO_VARIANT` (info). Raised by `classify.identification` or `match.layout` (9.4). It is resolved by approval in review, either with "save as layout" (`learnLayout`), or with it unchecked, in which case the resolution is recorded as `approvedWithoutLayout`, nothing is learned, and the next document in that design gets `NEW_LAYOUT` again; or by a reprocess after a matching layout was activated.

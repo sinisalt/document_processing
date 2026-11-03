@@ -203,7 +203,9 @@
       "default": "Line {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, but the line net is {{actual}}."
     },
     "LOW_CONFIDENCE": {
-      "default": "{{field}} was read with {{confidence}} confidence, below the threshold of {{threshold}}."
+      "default": "{{field}} was read with {{confidence}} confidence, below the threshold of {{threshold}}.",
+      "capped_one": "{{count}} more value, at {{field}}, was read below the confidence threshold too.",
+      "capped_other": "{{count}} more values, starting at {{field}}, were read below the confidence threshold too."
     },
     "DUPLICATE_SUSPECTED": {
       "default": "Another document of this supplier carries the number {{number}}."
@@ -224,7 +226,9 @@
       "dueBeforeIssue": "The due date {{dueDate}} is before the issue date {{issueDate}}.",
       "servicePeriodInverted": "The service period ends before it starts.",
       "pathFuture": "The date {{field}} ({{date}}) is more than {{maxFutureDays}} days in the future.",
-      "pathTooOld": "The date {{field}} ({{date}}) is more than {{maxAgeDays}} days in the past."
+      "pathTooOld": "The date {{field}} ({{date}}) is more than {{maxAgeDays}} days in the past.",
+      "capped_one": "{{count}} more date, at {{field}}, is implausible too.",
+      "capped_other": "{{count}} more dates, starting at {{field}}, are implausible too."
     },
     "INVALID_VALUE": {
       "currencyCode": "“{{currency}}” is not a valid ISO 4217 currency code.",
@@ -235,13 +239,23 @@
       "definition": "The document type {{type}} has no automatic extraction yet; fill in its fields here."
     },
     "FIELD_REQUIRED": {
-      "default": "The required field {{field}} has no value."
+      "default": "The required field {{field}} has no value.",
+      "capped_one": "{{count}} more required value, at {{field}}, is missing too.",
+      "capped_other": "{{count}} more required values, starting at {{field}}, are missing too."
     },
     "FIELD_INVALID": {
-      "default": "The value of {{field}} does not fit its field definition ({{keyword}})."
+      "default": "The value of {{field}} does not fit its field definition ({{keyword}}).",
+      "capped_one": "{{count}} more value, at {{field}}, does not fit its field definition ({{keyword}}) either.",
+      "capped_other": "{{count}} more values, starting at {{field}}, do not fit their field definition ({{keyword}}) either.",
+      "notChecked_one": "{{count}} more value, at {{field}}, was not checked against the pattern: the check stopped after the first failures.",
+      "notChecked_other": "{{count}} more values, starting at {{field}}, were not checked against the pattern: the check stopped after the first failures."
     },
     "REVISION_OF": {
       "default": "An earlier document with the same key exists ({{status}}); this one may replace it."
+    },
+    "CHECKS_SKIPPED": {
+      "patternBudget_one": "{{count}} pattern check was skipped: the document reached the limit for pattern checks. Check the values by hand.",
+      "patternBudget_other": "{{count}} pattern checks were skipped: the document reached the limit for pattern checks. Check the values by hand."
     }
   },
   "apiErrors": {

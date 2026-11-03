@@ -55,6 +55,22 @@ describe("flagMessage", () => {
     expect(flagMessage(split("1"), { language: "en" })).toBe("The attachment was split into 1 document.");
   });
 
+  it("phrases the summary of a capped check and the skipped pattern checks with their count", () => {
+    const notChecked: FlagText = {
+      code: "FIELD_INVALID",
+      message: "250 more values, starting at 'lines[50].code', were not checked: the check stopped after 50 values failed it.",
+      field: "lines[50].code",
+      params: { reason: "notChecked", field: "lines[50].code", keyword: "pattern", count: "250" },
+    };
+    expect(flagMessage(notChecked, { language: "en", fieldLabel: () => "Article 51 · Code" })).toBe(
+      "250 more values, starting at Article 51 · Code, were not checked against the pattern: the check stopped after the first failures.",
+    );
+    const required: FlagText = { code: "FIELD_REQUIRED", message: "x", field: "lines[50].sku", params: { reason: "capped", field: "lines[50].sku", count: "1" } };
+    expect(flagMessage(required, { language: "de", fieldLabel: () => "Art.-Nr." })).toBe("Noch 1 Pflichtwert, bei Art.-Nr., fehlt ebenfalls.");
+    const skipped: FlagText = { code: "CHECKS_SKIPPED", message: "x", params: { reason: "patternBudget", count: "12" } };
+    expect(flagMessage(skipped, { language: "de" })).toBe("12 Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.");
+  });
+
   it("falls back to the API's message for an unknown code or variant", () => {
     expect(flagMessage({ code: "SOMETHING_NEW", message: "A new check failed.", params: {} }, { language: "de" })).toBe("A new check failed.");
     expect(flagMessage({ code: "TOTALS_MISMATCH", message: "Something else is off.", params: { reason: "brandNew" } }, { language: "de" })).toBe("Something else is off.");
@@ -134,6 +150,8 @@ describe("the flag message catalogue", () => {
       "FIELD_REQUIRED.default",
       "FIELD_INVALID.default",
       "REVISION_OF.default",
+      // The summaries of the per-check flag cap (FlagCap) and the pattern budget (PatternBudget), plural by `count`.
+      ...["LOW_CONFIDENCE.capped", "DATE_IMPLAUSIBLE.capped", "FIELD_REQUIRED.capped", "FIELD_INVALID.capped", "FIELD_INVALID.notChecked", "CHECKS_SKIPPED.patternBudget"].flatMap((key) => [`${key}_one`, `${key}_other`]),
     ];
     expect(variants.filter((key) => !enMessages.has(key))).toEqual([]);
   });

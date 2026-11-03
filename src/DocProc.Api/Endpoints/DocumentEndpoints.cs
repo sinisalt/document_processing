@@ -254,21 +254,21 @@ public static partial class DocumentEndpoints
 
     /// <summary>
     /// The page's rows with the asked-for indexed values in <see cref="DocumentSummary.Fields"/>: per field the first
-    /// value the index holds (by ordinal; a row field such as <c>lines[*].supplierSku</c> has one per row).
+    /// value the index holds (ordinal 0; a row field such as <c>lines[*].supplierSku</c> has one per row, and only the
+    /// first is read, so a page costs at most one index row per document and key).
     /// </summary>
     private static async Task<List<DocumentSummary>> WithFieldColumnsAsync(DocProcDbContext db, List<DocumentSummary> items, List<string> keys, CancellationToken ct)
     {
         var ids = items.Select(i => i.Id).ToList();
         var entries = await db.DocumentFieldIndex.AsNoTracking()
-            .Where(e => ids.Contains(e.DocumentId) && keys.Contains(e.FieldKey))
-            .Select(e => new { e.DocumentId, e.FieldKey, e.Ordinal, e.StringValue, e.NumberValue, e.DateValue })
+            .Where(e => ids.Contains(e.DocumentId) && keys.Contains(e.FieldKey) && e.Ordinal == 0)
+            .Select(e => new { e.DocumentId, e.FieldKey, e.StringValue, e.NumberValue, e.DateValue })
             .ToListAsync(ct);
         var byDocument = entries
             .GroupBy(e => e.DocumentId)
             .ToDictionary(
                 g => g.Key,
-                g => (IReadOnlyDictionary<string, string>)g.GroupBy(e => e.FieldKey)
-                    .Select(f => f.OrderBy(e => e.Ordinal).First())
+                g => (IReadOnlyDictionary<string, string>)g
                     .Select(e => (e.FieldKey, Value: e.DateValue?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
                                                      ?? e.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture)
                                                      ?? e.StringValue))

@@ -593,6 +593,23 @@ public sealed class DefinitionCompilerTests
         Publish(ReturnSlipJson()).Warnings.ShouldNotContain(w => w.Where == "processing.review.autoApprove");
     }
 
+    /// <summary>
+    /// An indexed row field publishes, with a warning: only the first rows' values are indexed (FieldIndexLimits), and
+    /// docs/11 §5.8 advises against it. A header field that is indexed raises nothing.
+    /// </summary>
+    [Fact]
+    public void An_indexed_row_field_is_published_with_a_warning_that_only_the_first_rows_are_indexed()
+    {
+        var indexedSku = ReturnSlipJson().Replace("""{"id":"fld_i_sku","key":"supplierSku","kind":"identifier"}""", """{"id":"fld_i_sku","key":"supplierSku","kind":"identifier","indexed":true}""", StringComparison.Ordinal);
+        var report = Publish(indexedSku);
+        report.CanPublish.ShouldBeTrue(string.Join("\n", report.Problems));
+        var warning = report.Warnings.Single(w => w.Where == "items[*].supplierSku");
+        warning.Message.ShouldContain($"only the values of its first {FieldIndexLimits.MaxValuesPerField} rows are indexed", Case.Sensitive);
+        warning.Message.ShouldContain("§5.8", Case.Sensitive);
+
+        Publish(ReturnSlipJson()).Warnings.ShouldNotContain(w => w.Message.Contains("is indexed but lies under an array", StringComparison.Ordinal), "returnNumber is a header field");
+    }
+
     [Fact]
     public void A_renamed_field_names_its_former_keys_in_the_descriptors_of_the_new_version()
     {

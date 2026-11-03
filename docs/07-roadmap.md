@@ -518,6 +518,20 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       start, PDF rendering, JIT) passed while every stage still completed (`SplitPartTests`), and two full-screen
       review renders passed vitest's 5 s default. The pipeline wait now fails only when no item finishes for 30 s
       (`InProcessPipelineQueue.Acknowledged`), and the two apps' vitest `testTimeout` is 30 s.
+  - Fixed after the fifth P1 review:
+    - an `indexed` row field (`lines[*].x`) wrote one `DocumentFieldIndex` row per row, up to 20,000 per field and 300
+      fields, all rewritten on every Extract, Validate and correction, and the inbox read every row of every asked-for
+      key of the page to keep the first. `DocumentFieldIndexWriter` now indexes at most the first 100 values of a field
+      and 2,000 rows per document (`FieldIndexLimits`; every field's first value first, so the inbox column and the
+      duplicate check keep theirs), the inbox column reads `Ordinal` 0 only, publishing warns on an indexed row field
+      (docs/11 §5.8), and the type editor's hint says only the first rows are indexed;
+    - pattern checks were bounded per value only (100 ms each), and every failing value raised its own flag: up to 300
+      field patterns and 200 `pattern` rules over 20,000 rows, in the worker and inline on `PATCH …/fields`. One check
+      (a field pattern, a field's schema keyword, one generic rule of any kind) now raises at most 50 flags per document
+      and then one summary of the same code (`reason: capped` with `count`; a pattern stops matching there,
+      `reason: notChecked`), and the field patterns and `pattern` rules share a budget per validation (50,000 matches
+      or 2 s, `PatternBudget`): a value past it is skipped, and one blocking `CHECKS_SKIPPED` keeps the document out of
+      auto-approval. The web phrases the summaries and the new code.
   - Left for the rest of P1:
     - restructuring the invoice family (docs/11 §5.1): coded invoice kinds that declare the roles and kinds they need,
       a publish report that disables them ("invoice.totals disabled: role `net` missing") and the generic `sumEquals`
@@ -551,6 +565,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - retiring `invoice.required`, `invoice.datePlausibility` and `invoice.confidence` from the std templates in favour of
       `validate.schema` and the generic kinds (needs template v2 of the invoice family with the flag parity test); the
       invoice family still runs the eight coded rules;
+    - the coded invoice rules (`invoice.lineArithmetic` and the others through `InvoiceRuleAdapter`) are not capped per
+      check like the generic kinds (one `LINE_ARITHMETIC` per wrong line);
     - `LookupTables`/`LookupEntry` (docs/11 §6.1): `lookupExists` and `enumMember` read the platform `uom` list built in
       code (`CodeLists.Platform`); tenant aliases need the tables;
     - `review.dueBy` (setting `SlaDueAt`) and `?sort=reviewDue`; `DocumentSummary.typeName`/`typeVersion`; the

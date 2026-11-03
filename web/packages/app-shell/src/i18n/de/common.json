@@ -203,7 +203,9 @@
       "default": "Position {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, der Positionsbetrag ist aber {{actual}}."
     },
     "LOW_CONFIDENCE": {
-      "default": "{{field}} wurde mit {{confidence}} Sicherheit gelesen, unter dem Schwellenwert von {{threshold}}."
+      "default": "{{field}} wurde mit {{confidence}} Sicherheit gelesen, unter dem Schwellenwert von {{threshold}}.",
+      "capped_one": "Noch {{count}} Wert, bei {{field}}, wurde ebenfalls unter dem Schwellenwert gelesen.",
+      "capped_other": "Noch {{count}} Werte, ab {{field}}, wurden ebenfalls unter dem Schwellenwert gelesen."
     },
     "DUPLICATE_SUSPECTED": {
       "default": "Ein anderes Dokument dieses Lieferanten trägt die Nummer {{number}}."
@@ -224,7 +226,9 @@
       "dueBeforeIssue": "Das Fälligkeitsdatum {{dueDate}} liegt vor dem Rechnungsdatum {{issueDate}}.",
       "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt.",
       "pathFuture": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxFutureDays}} Tage in der Zukunft.",
-      "pathTooOld": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxAgeDays}} Tage zurück."
+      "pathTooOld": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxAgeDays}} Tage zurück.",
+      "capped_one": "Noch {{count}} Datum, bei {{field}}, ist ebenfalls unplausibel.",
+      "capped_other": "Noch {{count}} Daten, ab {{field}}, sind ebenfalls unplausibel."
     },
     "INVALID_VALUE": {
       "currencyCode": "„{{currency}}“ ist kein gültiger ISO-4217-Währungscode.",
@@ -235,13 +239,23 @@
       "definition": "Für die Dokumentart {{type}} gibt es noch keine automatische Erfassung; bitte die Felder hier ausfüllen."
     },
     "FIELD_REQUIRED": {
-      "default": "Das Pflichtfeld {{field}} hat keinen Wert."
+      "default": "Das Pflichtfeld {{field}} hat keinen Wert.",
+      "capped_one": "Noch {{count}} Pflichtwert, bei {{field}}, fehlt ebenfalls.",
+      "capped_other": "Noch {{count}} Pflichtwerte, ab {{field}}, fehlen ebenfalls."
     },
     "FIELD_INVALID": {
-      "default": "Der Wert von {{field}} passt nicht zur Felddefinition ({{keyword}})."
+      "default": "Der Wert von {{field}} passt nicht zur Felddefinition ({{keyword}}).",
+      "capped_one": "Noch {{count}} Wert, bei {{field}}, passt ebenfalls nicht zur Felddefinition ({{keyword}}).",
+      "capped_other": "Noch {{count}} Werte, ab {{field}}, passen ebenfalls nicht zur Felddefinition ({{keyword}}).",
+      "notChecked_one": "Noch {{count}} Wert, bei {{field}}, wurde nicht gegen das Muster geprüft: die Prüfung endete nach den ersten Fehlern.",
+      "notChecked_other": "Noch {{count}} Werte, ab {{field}}, wurden nicht gegen das Muster geprüft: die Prüfung endete nach den ersten Fehlern."
     },
     "REVISION_OF": {
       "default": "Ein früheres Dokument mit demselben Schlüssel existiert ({{status}}); dieses ersetzt es womöglich."
+    },
+    "CHECKS_SKIPPED": {
+      "patternBudget_one": "{{count}} Musterprüfung wurde übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
+      "patternBudget_other": "{{count}} Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen."
     }
   },
   "apiErrors": {

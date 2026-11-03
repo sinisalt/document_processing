@@ -64,6 +64,9 @@ public static class FlagCodes
     public const string RuleFailed = "RULE_FAILED";
     public const string RevisionOf = "REVISION_OF";
 
+    /// <summary>Checks the document reached a per-document limit for (docs/11 §11, <c>PatternBudget</c>) did not run.</summary>
+    public const string ChecksSkipped = "CHECKS_SKIPPED";
+
     /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
     public static readonly string DefinitionScopedPrefix = "X_";
 
@@ -93,6 +96,7 @@ public static class FlagCodes
         new(FieldInvalid, FlagSeverity.Warning, "A value does not fit its field's definition (format, range, length or code); blocking for a required field."),
         new(RuleFailed, FlagSeverity.Warning, "A rule of the document type's definition failed; the message is the rule's."),
         new(RevisionOf, FlagSeverity.Warning, "An earlier document with the same duplicate key exists; this one may replace it."),
+        new(ChecksSkipped, FlagSeverity.Blocking, "Checks were skipped because the document reached a per-document limit (pattern evaluations); a reviewer checks the values."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);

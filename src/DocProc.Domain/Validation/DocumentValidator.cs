@@ -89,8 +89,9 @@ public sealed class DocumentValidator(RuleRegistry registry)
             ["ruleKind"] = entry.Kind,
             ["typeKey"] = typeKey,
         };
+        // A summary of the flag cap (FlagCap) keeps its own sentence after the rule's: the count is its point.
         var message = entry.Message is { } messages && messages.TryGetValue("en", out var english) && !string.IsNullOrWhiteSpace(english)
-            ? english
+            ? FlagCap.IsSummary(flag) ? $"{english.TrimEnd()} {flag.Message}" : english
             : flag.Message;
         return flag with { Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
     }

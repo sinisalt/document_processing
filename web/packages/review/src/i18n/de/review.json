@@ -325,6 +325,7 @@
     "requiredHint": "Ein Dokument ohne Wert wird markiert und geht in die Prüfung.",
     "indexed": "Indiziert",
     "indexedHint": "Im Posteingang durchsuchbar und als Spalte verfügbar.",
+    "indexedRowHint": "Im Posteingang durchsuchbar. Ein Zeilenfeld hat einen Wert je Zeile: nur die ersten 100 Zeilen werden indiziert; Zeilenfelder zu indizieren wird nicht empfohlen.",
     "fixedField": "Dieses Element gehört zu den gespeicherten Daten des Standardtyps und lässt sich nicht ändern.",
     "moveUp": "Nach oben",
     "moveDown": "Nach unten",

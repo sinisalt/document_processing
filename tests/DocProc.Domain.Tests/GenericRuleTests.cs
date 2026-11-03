@@ -275,4 +275,102 @@ public sealed class GenericRuleTests
         ValuePaths.IsUnder("lines[3].price", "lines[*]").ShouldBeTrue();
         ValuePaths.IsUnder("linesX", "lines").ShouldBeFalse();
     }
+
+    /// <summary>A price list with <paramref name="rows"/> rows, each with the SKU <c>X-&lt;i&gt;</c> and the price -1.</summary>
+    private static JsonObject LongList(int rows) => Values(v =>
+    {
+        var lines = new JsonArray();
+        for (var i = 0; i < rows; i++)
+        {
+            lines.Add(new JsonObject { ["supplierSku"] = $"X-{i}", ["price"] = JsonNode.Parse("""{"amount":-1,"currency":"EUR"}""") });
+        }
+
+        v["lines"] = lines;
+    });
+
+    /// <summary>
+    /// A pattern rule over a long list flags at most FlagCap.MaxFlagsPerCheck values, then stops matching: one summary
+    /// (RULE_FAILED, reason notChecked) at the first value left counts the values not checked, and keeps the rule's
+    /// severity and its own sentence after the rule's message.
+    /// </summary>
+    [Fact]
+    public void A_pattern_rule_flags_at_most_the_cap_and_stops_matching_there()
+    {
+        var context = ValidationContext.For(Today);
+        var flags = Run(LongList(500), Rule("pattern", """{"path":"lines[*].supplierSku","pattern":"^[0-9]+$"}""", "blocking", "SKUs are numeric."), context);
+
+        flags.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        flags.Take(FlagCap.MaxFlagsPerCheck).ShouldAllBe(f => f.Params!["reason"] == "pattern" && f.Message == "SKUs are numeric.");
+        var summary = flags[^1];
+        summary.Code.ShouldBe(FlagCodes.RuleFailed);
+        summary.Severity.ShouldBe(FlagSeverity.Blocking);
+        summary.Field.ShouldBe($"lines[{FlagCap.MaxFlagsPerCheck}].supplierSku");
+        summary.Params!["reason"].ShouldBe(FlagCap.NotCheckedReason);
+        summary.Params["count"].ShouldBe((500 - FlagCap.MaxFlagsPerCheck).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        summary.Params["ruleId"].ShouldBe("r_pattern");
+        summary.Params["pattern"].ShouldBe("^[0-9]+$");
+        summary.Message.ShouldStartWith("SKUs are numeric. 450 more values, starting at 'lines[50].supplierSku', were not checked");
+        context.PatternBudget.Evaluations.ShouldBe(FlagCap.MaxFlagsPerCheck, "matching stopped at the cap");
+    }
+
+    /// <summary>The other generic kinds are capped the same way, and count the values past the cap that failed too.</summary>
+    [Fact]
+    public void Other_generic_rules_flag_at_most_the_cap_and_summarise_the_rest()
+    {
+        var flags = Run(LongList(130), Rule("range", """{"path":"lines[*].price.amount","min":0}"""));
+        flags.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        var summary = flags[^1];
+        summary.Code.ShouldBe(FlagCodes.RuleFailed);
+        summary.Severity.ShouldBe(FlagSeverity.Warning);
+        summary.Field.ShouldBe("lines[50].price.amount");
+        summary.Params!["reason"].ShouldBe(FlagCap.CappedReason);
+        summary.Params["count"].ShouldBe("80");
+        summary.Params.ShouldNotContainKey("value");
+
+        var required = Run(Values(v => v["lines"] = new JsonArray([.. Enumerable.Range(0, 60).Select(_ => (JsonNode)new JsonObject())])), Rule("required", """{"path":"lines[*].packSize"}"""));
+        required.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        required[^1].ShouldSatisfyAllConditions(
+            f => f.Code.ShouldBe(FlagCodes.FieldRequired),
+            f => f.Severity.ShouldBe(FlagSeverity.Blocking),
+            f => f.Params!["reason"].ShouldBe(FlagCap.CappedReason),
+            f => f.Params!["count"].ShouldBe("10"));
+
+        // Up to the cap nothing changes.
+        Run(LongList(FlagCap.MaxFlagsPerCheck), Rule("range", """{"path":"lines[*].price.amount","min":0}""")).Count.ShouldBe(FlagCap.MaxFlagsPerCheck);
+    }
+
+    /// <summary>
+    /// The pattern evaluations of one validation are bounded across rules: past the budget a value is skipped (not
+    /// failed), and the budget raises one blocking CHECKS_SKIPPED with the count, which keeps the document in review.
+    /// </summary>
+    [Fact]
+    public void Pattern_rules_share_a_budget_per_validation_and_say_what_they_skipped()
+    {
+        var budget = new PatternBudget(maxEvaluations: 30, maxTime: TimeSpan.FromMinutes(1));
+        var context = ValidationContext.For(Today) with { PatternBudget = budget };
+        var view = View(LongList(20));
+        var rules = new[]
+        {
+            Rule("pattern", """{"path":"lines[*].supplierSku","pattern":"^X-[0-9]+$"}"""),
+            Rule("pattern", """{"path":"lines[*].supplierSku","pattern":"^[A-Z]-[0-9]+$"}""") with { Id = "r_pattern2" },
+        };
+
+        var result = DocumentValidator.Default.Validate(view, rules, context);
+
+        result.Flags.ShouldBeEmpty("a skipped value is not a failure");
+        budget.Evaluations.ShouldBe(30);
+        budget.Skipped.ShouldBe(10);
+        var skipped = budget.SkippedFlag().ShouldNotBeNull();
+        skipped.Code.ShouldBe(FlagCodes.ChecksSkipped);
+        skipped.Severity.ShouldBe(FlagSeverity.Blocking);
+        skipped.Params!["reason"].ShouldBe(PatternBudget.SkippedReason);
+        skipped.Params["count"].ShouldBe("10");
+        new ValidationResult([skipped]).IsEligibleForAutoApproval.ShouldBeFalse();
+
+        // A budget with room raises nothing; the time budget counts too.
+        new PatternBudget().SkippedFlag().ShouldBeNull();
+        var spent = new PatternBudget(maxEvaluations: 1000, maxTime: TimeSpan.Zero);
+        spent.IsMatch(new Regex("^a$", RegexOptions.NonBacktracking), "a").ShouldBeNull();
+        spent.Skipped.ShouldBe(1);
+    }
 }

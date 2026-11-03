@@ -50,6 +50,7 @@ import {
   fieldAt,
   fieldIssues,
   isDefinition,
+  isRowField,
   moveField,
   newFieldId,
   newFieldKey,
@@ -564,7 +565,7 @@ function FieldForm({ definition, location, field, editable, issues, onChange, on
         <div className="flex items-center justify-between gap-4 rounded-md border p-3">
           <div>
             <Label htmlFor={id("indexed")}>{t("types.indexed")}</Label>
-            <p className="text-xs text-muted-foreground">{t("types.indexedHint")}</p>
+            <p className="text-xs text-muted-foreground">{t(isRowField(definition, location) ? "types.indexedRowHint" : "types.indexedHint")}</p>
           </div>
           <Switch id={id("indexed")} checked={!!field.indexed} disabled={!canChange || !SCALAR_INDEXABLE.has(field.kind) || field.list === true} onCheckedChange={(indexed) => onChange({ indexed: indexed || undefined })} />
         </div>

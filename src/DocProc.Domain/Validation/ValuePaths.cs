@@ -94,6 +94,13 @@ public static class ValuePaths
                || normalized.StartsWith(prefix + "[", StringComparison.Ordinal);
     }
 
+    /// <summary>A concrete path with every index written as <c>[*]</c> (<c>lines[3].sku</c> is <c>lines[*].sku</c>).</summary>
+    public static string Generalize(string concretePath)
+    {
+        ArgumentNullException.ThrowIfNull(concretePath);
+        return Normalize(concretePath);
+    }
+
     private static string Normalize(string path)
     {
         var result = new StringBuilder(path.Length);

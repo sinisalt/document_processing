@@ -13,10 +13,21 @@ namespace DocProc.Infrastructure.Persistence;
 /// <summary>
 /// Writes <c>DocumentFieldIndex</c> (docs/11 §6.2): one row per value of every field the document's type marks
 /// <c>indexed</c>, read from the stored tree like the list columns, and replaced with them whenever the tree changes
-/// (the Extract stage, a reviewer's correction). Rows of fields the type no longer indexes are removed.
+/// (the Extract stage, a reviewer's correction). Rows of fields the type no longer indexes are removed. A row field or
+/// a list has one value per row; at most <see cref="MaxValuesPerField"/> of them are indexed, and at most
+/// <see cref="MaxEntriesPerDocument"/> rows per document (<see cref="FieldIndexLimits"/>).
 /// </summary>
 public static class DocumentFieldIndexWriter
 {
+    /// <summary>The most values of one field a document indexes (<see cref="FieldIndexLimits.MaxValuesPerField"/>): its first ones, in row order.</summary>
+    public const int MaxValuesPerField = FieldIndexLimits.MaxValuesPerField;
+
+    /// <summary>
+    /// The most index rows of one document (<see cref="FieldIndexLimits.MaxEntriesPerDocument"/>). Every field's first
+    /// value comes first; the further values fill the rest, field by field in definition order.
+    /// </summary>
+    public const int MaxEntriesPerDocument = FieldIndexLimits.MaxEntriesPerDocument;
+
     /// <summary>The index rows of <paramref name="canonicalJson"/> for <paramref name="indexed"/>; a malformed tree has none.</summary>
     public static IReadOnlyList<DocumentFieldIndexEntry> Entries(Guid tenantId, Guid documentId, string? canonicalJson, IReadOnlyList<FieldDescriptor> indexed)
     {
@@ -41,7 +52,8 @@ public static class DocumentFieldIndexWriter
             return [];
         }
 
-        var entries = new List<DocumentFieldIndexEntry>();
+        // Per field its first values (at most MaxValuesPerField; the walk stops there, whatever the row count).
+        var byField = new List<List<DocumentFieldIndexEntry>>();
         foreach (var field in indexed)
         {
             if (field.Path.Length > DocumentFieldIndexEntry.MaxFieldKeyLength)
@@ -49,15 +61,34 @@ public static class DocumentFieldIndexWriter
                 continue;
             }
 
-            var ordinal = 0;
+            var values = new List<DocumentFieldIndexEntry>();
             foreach (var envelope in Envelopes(root, field))
             {
-                if (Entry(tenantId, documentId, field, ordinal, DefinitionTree.ValueOf(envelope)) is { } entry)
+                if (Entry(tenantId, documentId, field, values.Count, DefinitionTree.ValueOf(envelope)) is { } entry)
                 {
-                    entries.Add(entry);
-                    ordinal++;
+                    values.Add(entry);
+                    if (values.Count == MaxValuesPerField)
+                    {
+                        break;
+                    }
                 }
             }
+
+            byField.Add(values);
+        }
+
+        // Every field's first value before any field's second: the inbox column and the duplicate check read ordinal 0.
+        var entries = new List<DocumentFieldIndexEntry>();
+        entries.AddRange(byField.Where(v => v.Count > 0).Select(v => v[0]).Take(MaxEntriesPerDocument));
+        foreach (var values in byField)
+        {
+            var room = MaxEntriesPerDocument - entries.Count;
+            if (room <= 0)
+            {
+                break;
+            }
+
+            entries.AddRange(values.Skip(1).Take(room));
         }
 
         return entries;

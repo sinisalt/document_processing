@@ -237,6 +237,32 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         (await reviewer.GetAsync($"/api/v1/documents?fields={many}", Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    /// <summary>
+    /// A row field's column is its first value (ordinal 0), read alone, not every row's; the <c>?field.</c> filter
+    /// still finds a document by any value the index holds for it.
+    /// </summary>
+    [Fact]
+    public async Task A_row_fields_column_is_its_first_value_and_the_filter_finds_any_indexed_row()
+    {
+        var tenant = NewTenant("Row column tenant", configurable: true);
+        var id = await SeedEmptyAsync(tenant, "PurchaseOrder");
+        const string key = "lines[*].supplierSku";
+        factory.Run(db =>
+        {
+            for (var ordinal = 0; ordinal < 3; ordinal++)
+            {
+                db.DocumentFieldIndex.Add(new DocumentFieldIndexEntry { TenantId = tenant, DocumentId = id, FieldKey = key, Ordinal = ordinal, StringValue = $"SKU-{ordinal}" });
+            }
+        });
+        using var reviewer = Reviewer(tenant);
+
+        var page = (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>($"/api/v1/documents?type=PurchaseOrder&fields={key}", ApiFactory.Json, Ct))!;
+        page.Items.Single(d => d.Id == id).Fields.ShouldNotBeNull().ShouldBe(new Dictionary<string, string> { [key] = "SKU-0" });
+
+        (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>($"/api/v1/documents?field.{key}=sku-2", ApiFactory.Json, Ct))!.Items.ShouldHaveSingleItem().Id.ShouldBe(id);
+        (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>($"/api/v1/documents?field.{key}=SKU-3", ApiFactory.Json, Ct))!.Items.ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task Without_configurable_types_a_purchase_order_has_nothing_to_correct_as_before()
     {

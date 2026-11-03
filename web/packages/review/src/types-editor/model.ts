@@ -94,6 +94,17 @@ export function fieldAt(definition: Definition, location: FieldLocation): Defini
   return field;
 }
 
+/**
+ * Whether the field at `location` lies under a repeating group (a row field such as `lines[*].supplierSku`): it has
+ * one value per row, and the field index holds only the first rows' values (docs/11 §5.8 advises against indexing it).
+ */
+export function isRowField(definition: Definition, location: FieldLocation): boolean {
+  for (let depth = 1; depth < location.length; depth++) {
+    if (fieldAt(definition, location.slice(0, depth))?.kind === "array") return true;
+  }
+  return false;
+}
+
 /** The sibling list a location is in, changed by `change`, rebuilt up to the root. */
 function changeList(definition: Definition, parent: FieldLocation, change: (list: DefinitionField[]) => DefinitionField[]): Definition {
   const rebuild = (list: DefinitionField[], depth: number): DefinitionField[] => {

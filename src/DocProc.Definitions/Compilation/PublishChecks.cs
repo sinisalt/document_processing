@@ -103,6 +103,8 @@ public static class PublishChecks
                 "has no effect yet: until a type can name the rules that vouch for it (review.requirePassedRules, docs/11 §11), only an invoice or credit note with its invoice.totals rule is approved without a reviewer. Documents of this type always go to review."));
         }
 
+        warnings.AddRange(IndexedRowFields(definition));
+
         CompiledDefinition? compiled = null;
         if (problems.Count == 0)
         {
@@ -400,6 +402,19 @@ public static class PublishChecks
                && !(Domain.Documents.DocumentTypeKey.TryParse(definition.Key, out var key) && key.IsInvoiceFamily
                     && definition.Rules.Any(r => r.Kind == Domain.Validation.InvoiceRuleKinds.Totals));
     }
+
+    /// <summary>
+    /// A warning for every <c>indexed</c> field under an array (a row field such as <c>lines[*].supplierSku</c>): it has
+    /// one value per row, of which the field index holds only the first <see cref="FieldIndexLimits.MaxValuesPerField"/>
+    /// (and at most <see cref="FieldIndexLimits.MaxEntriesPerDocument"/> rows per document), and docs/11 §5.8 advises
+    /// against it. Publishing it is allowed.
+    /// </summary>
+    private static IEnumerable<DefinitionProblem> IndexedRowFields(TypeDefinition definition) =>
+        DefinitionPaths.Enumerate(definition)
+            .Where(f => f.Field.Indexed && f.Path.Contains("[*]", StringComparison.Ordinal))
+            .Select(f => new DefinitionProblem(
+                f.Path,
+                $"is indexed but lies under an array: only the values of its first {FieldIndexLimits.MaxValuesPerField} rows are indexed (and at most {FieldIndexLimits.MaxEntriesPerDocument} index rows per document), so the inbox neither shows nor finds a later row's value. docs/11 §5.8 advises against indexing row fields; index a header field instead where one fits."));
 
     private static IEnumerable<DefinitionProblem> CheckDuplicateKey(TypeDefinition definition)
     {

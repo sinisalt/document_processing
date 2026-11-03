@@ -17,7 +17,9 @@ namespace DocProc.Domain.Validation.Rules;
 /// paths their parameters name, the provenance of the canonical tree (<see cref="DocumentView.Root"/>) and the data
 /// the stage looked up for them (<see cref="ValidationContext.Data"/>). A view without values (no definition) raises
 /// nothing. Each flag carries its field's concrete path; the validator adds the rule id and applies the rule's
-/// severity and message.
+/// severity and message. One rule raises at most <see cref="FlagCap.MaxFlagsPerCheck"/> flags per document, then one
+/// summary for the rest (<see cref="FlagCap"/>); a <c>pattern</c> rule stops matching there, and every match draws on
+/// the validation's <see cref="ValidationContext.PatternBudget"/>.
 /// </summary>
 public static class GenericRules
 {
@@ -36,7 +38,7 @@ public static class GenericRules
     public static IReadOnlyList<IDocumentRule> All { get; } =
     [
         new Rule(Required, EvaluateRequired),
-        new Rule(Pattern, EvaluatePattern),
+        new Rule(Pattern, EvaluatePattern, capped: false),
         new Rule(Range, EvaluateRange),
         new Rule(EnumMember, EvaluateEnumMember),
         new Rule(DateOrder, EvaluateDateOrder),
@@ -96,7 +98,11 @@ public static class GenericRules
         }
     }
 
-    private sealed class Rule(string kind, Func<DocumentView, RuleParams, ValidationContext, IEnumerable<DocumentFlag>> evaluate) : IDocumentRule
+    /// <summary>
+    /// A generic kind. Its flags are capped (<see cref="FlagCap.Apply"/>) unless the kind caps them itself
+    /// (<paramref name="capped"/> false: <c>pattern</c>, which stops matching at the cap).
+    /// </summary>
+    private sealed class Rule(string kind, Func<DocumentView, RuleParams, ValidationContext, IEnumerable<DocumentFlag>> evaluate, bool capped = true) : IDocumentRule
     {
         public string Kind { get; } = kind;
 
@@ -105,7 +111,13 @@ public static class GenericRules
             ArgumentNullException.ThrowIfNull(view);
             ArgumentNullException.ThrowIfNull(parameters);
             ArgumentNullException.ThrowIfNull(context);
-            return view.Values is null ? [] : evaluate(view, parameters, context).ToList();
+            if (view.Values is null)
+            {
+                return [];
+            }
+
+            var flags = evaluate(view, parameters, context);
+            return capped ? FlagCap.Apply(flags) : flags.ToList();
         }
     }
 
@@ -146,6 +158,12 @@ public static class GenericRules
             yield break;
         }
 
+        // At most FlagCap.MaxFlagsPerCheck failures are flagged; then matching stops and one summary counts the values
+        // left unchecked. Each match draws on the validation's budget; a value it has no room for is skipped (the
+        // budget's CHECKS_SKIPPED says so), not failed.
+        var failures = 0;
+        string? stoppedAt = null;
+        var notChecked = 0;
         foreach (var (at, value) in ValuePaths.Select(view.Values, path))
         {
             if (ValuePaths.Text(value) is not { } text)
@@ -153,20 +171,23 @@ public static class GenericRules
                 continue;
             }
 
-            bool matches;
-            try
+            if (failures == FlagCap.MaxFlagsPerCheck)
             {
-                matches = regex.IsMatch(text);
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                matches = false;
+                stoppedAt ??= at;
+                notChecked++;
+                continue;
             }
 
-            if (!matches)
+            if (context.PatternBudget.IsMatch(regex, text) is false)
             {
+                failures++;
                 yield return RuleFailed(at, $"'{at}' ({text}) does not match the expected format.", "pattern", ("field", at), ("value", ValuePaths.Describe(value)), ("pattern", pattern));
             }
+        }
+
+        if (stoppedAt is not null)
+        {
+            yield return FlagCap.Summary(RuleFailed(stoppedAt, string.Empty, "pattern", ("pattern", pattern)), FlagCap.NotCheckedReason, notChecked, "pattern");
         }
     }
 

@@ -69,7 +69,7 @@ public static class DocumentChecks
     [
         FlagCodes.MissingRequired, FlagCodes.InvalidValue, FlagCodes.TotalsMismatch, FlagCodes.TaxMismatch, FlagCodes.LineArithmetic,
         FlagCodes.DateImplausible, FlagCodes.CustomerMismatch, FlagCodes.LowConfidence, FlagCodes.CurrencyInferred, FlagCodes.DuplicateSuspected,
-        FlagCodes.FieldRequired, FlagCodes.FieldInvalid, FlagCodes.RuleFailed, FlagCodes.RevisionOf,
+        FlagCodes.FieldRequired, FlagCodes.FieldInvalid, FlagCodes.RuleFailed, FlagCodes.RevisionOf, FlagCodes.ChecksSkipped,
     ];
 
     /// <summary>The checks' flags and the rule result (null when the type lists no rules).</summary>
@@ -80,10 +80,13 @@ public static class DocumentChecks
     /// the structural check (for a type without <c>validate.schema</c>, its <c>FIELD_REQUIRED</c> part for the fields
     /// <see cref="EffectiveType.RequiredOutsideSchemaStep"/> names), the rule list (with the duplicate check of the type's key for a <c>duplicate</c> rule) and
     /// the coded duplicate check, each when the type runs it. Also what a correction re-validates inline (docs/11 §12.8).
+    /// The field patterns and the <c>pattern</c> rules share one <see cref="PatternBudget"/>; values it had no room for
+    /// raise one blocking <c>CHECKS_SKIPPED</c>, so the document goes to review.
     /// </summary>
     public static async Task<CheckRun> RunAsync(DocProcDbContext db, Document document, EffectiveType type, Tenant tenant, DateOnly today, DocumentValidator validator, CancellationToken cancellationToken)
     {
         var flags = new List<DocumentFlag>();
+        var budget = new PatternBudget();
         var view = DocumentView.FromJson(document.Type, document.CanonicalJson);
         var compiled = type.Compiled;
         if (compiled is not null && view.Root is { } root)
@@ -93,7 +96,7 @@ public static class DocumentChecks
 
         if (type.RunsValidateStep(ValidateStepKinds.Schema) && compiled is not null && view.Values is { } values)
         {
-            flags.AddRange(StructuralValidator.Validate(values, compiled));
+            flags.AddRange(StructuralValidator.Validate(values, compiled, budget));
         }
         else if (type.RequiredOutsideSchemaStep.Count > 0 && compiled is not null && view.Values is { } partial)
         {
@@ -115,7 +118,7 @@ public static class DocumentChecks
                 today,
                 ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
                 new Domain.Validation.TenantContext(tenant.LegalName, tenant.VatId, tenant.DefaultCurrency, tenant.NameAliases))
-            { Data = data };
+            { Data = data, PatternBudget = budget };
             result = validator.Validate(view, type.Rules, context);
             flags.AddRange(result.Flags);
         }
@@ -123,6 +126,11 @@ public static class DocumentChecks
         if (type.Rules.Count > 0 && type.RunsValidateStep(ValidateStepKinds.Duplicate) && await IsDuplicateAsync(db, document, cancellationToken).ConfigureAwait(false))
         {
             flags.Add(FlagCodes.Create(FlagCodes.DuplicateSuspected, $"Another document of this supplier carries the number {document.DocumentNumber}.", "invoiceNumber", FlagParams.Of(("number", document.DocumentNumber))));
+        }
+
+        if (budget.SkippedFlag() is { } skipped)
+        {
+            flags.Add(skipped);
         }
 
         return new CheckRun(flags, result);

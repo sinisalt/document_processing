@@ -325,6 +325,7 @@
     "requiredHint": "A document without a value is flagged and goes to review.",
     "indexed": "Indexed",
     "indexedHint": "Searchable in the inbox and offered as a column.",
+    "indexedRowHint": "Searchable in the inbox. A row field has one value per row: only the first 100 rows are indexed, and indexing row fields is not advised.",
     "fixedField": "This member belongs to the stored data of the standard type and cannot be changed.",
     "moveUp": "Move up",
     "moveDown": "Move down",

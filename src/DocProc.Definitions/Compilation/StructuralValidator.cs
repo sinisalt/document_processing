@@ -25,6 +25,14 @@ namespace DocProc.Definitions.Compilation;
 /// worker every tenant shares). The validator evaluates the schema without those keywords and checks the field
 /// patterns itself, with a non-backtracking regex and <see cref="PatternTimeout"/>, reporting
 /// <c>FIELD_INVALID {field, keyword: pattern}</c> the same way; a match the timeout cuts short counts as no match.
+/// <para>
+/// Bounds (docs/11 §11): a field pattern flags at most <see cref="FlagCap.MaxFlagsPerCheck"/> values, then stops
+/// matching and raises one <c>FIELD_INVALID {reason: notChecked, keyword: pattern, count}</c> for the values left; every
+/// match draws on the validation's <see cref="PatternBudget"/>, and a value it has no room for is skipped, not failed
+/// (the caller raises the budget's <c>CHECKS_SKIPPED</c>). The other flags are capped the same way per field and
+/// keyword (<see cref="FlagCap.ApplyPerCheck"/>): a schema error or a missing required value on every row of a long
+/// list raises <see cref="FlagCap.MaxFlagsPerCheck"/> flags and one <c>reason: capped</c> summary, not one per row.
+/// </para>
 /// </summary>
 public static class StructuralValidator
 {
@@ -36,10 +44,14 @@ public static class StructuralValidator
 
     private static readonly ConditionalWeakTable<CompiledDefinition, Prepared> Schemas = new();
 
-    public static IReadOnlyList<DocumentFlag> Validate(JsonObject values, CompiledDefinition compiled)
+    public static IReadOnlyList<DocumentFlag> Validate(JsonObject values, CompiledDefinition compiled) => Validate(values, compiled, new PatternBudget());
+
+    /// <summary><see cref="Validate(JsonObject, CompiledDefinition)"/> with the field patterns drawing on <paramref name="budget"/>, which the rules of the same validation share.</summary>
+    public static IReadOnlyList<DocumentFlag> Validate(JsonObject values, CompiledDefinition compiled, PatternBudget budget)
     {
         ArgumentNullException.ThrowIfNull(values);
         ArgumentNullException.ThrowIfNull(compiled);
+        ArgumentNullException.ThrowIfNull(budget);
         var flags = new List<DocumentFlag>();
         var missing = new HashSet<string>(StringComparer.Ordinal);
         Required(values, compiled.Descriptors.Roots, compiled.Descriptors, prefix: null, flags, missing, only: null);
@@ -47,10 +59,10 @@ public static class StructuralValidator
         var prepared = Schemas.GetValue(compiled, Prepare);
         var instance = JsonSerializer.SerializeToElement(values);
         var results = prepared.Schema.Evaluate(instance, new EvaluationOptions { OutputFormat = OutputFormat.List, RequireFormatValidation = true });
-        Patterns(values, prepared.Patterns, compiled.Descriptors, flags, missing);
+        Patterns(values, prepared.Patterns, compiled.Descriptors, flags, missing, budget);
         if (results.IsValid)
         {
-            return flags;
+            return Capped(flags);
         }
 
         var seen = new HashSet<(string, string)>();
@@ -80,11 +92,18 @@ public static class StructuralValidator
             }
         }
 
-        return flags;
+        return Capped(flags);
     }
 
+    /// <summary>The flags capped per check: per code, field (its definition path) and keyword.</summary>
+    private static List<DocumentFlag> Capped(IEnumerable<DocumentFlag> flags) =>
+        FlagCap.ApplyPerCheck(
+            flags,
+            f => (f.Code, ValuePaths.Generalize(f.Field ?? string.Empty), f.Params is { } p && p.TryGetValue("keyword", out var keyword) ? keyword : string.Empty),
+            "keyword");
+
     /// <summary>
-    /// Only the <c>FIELD_REQUIRED</c> part of <see cref="Validate"/>, for the required fields among
+    /// Only the <c>FIELD_REQUIRED</c> part of <see cref="Validate(JsonObject, CompiledDefinition)"/>, for the required fields among
     /// <paramref name="paths"/> (definition paths, <c>lines[*].sku</c>): what the validate stage checks for a type that
     /// does not list <c>validate.schema</c> (<c>EffectiveType.RequiredOutsideSchemaStep</c>).
     /// </summary>
@@ -99,7 +118,7 @@ public static class StructuralValidator
             Required(values, compiled.Descriptors.Roots, compiled.Descriptors, prefix: null, flags, new HashSet<string>(StringComparer.Ordinal), paths);
         }
 
-        return flags;
+        return Capped(flags);
     }
 
     /// <summary>
@@ -159,11 +178,14 @@ public static class StructuralValidator
         }
     }
 
-    private static void Patterns(JsonObject values, IReadOnlyList<FieldPattern> patterns, DescriptorIndex descriptors, List<DocumentFlag> flags, HashSet<string> missing)
+    private static void Patterns(JsonObject values, IReadOnlyList<FieldPattern> patterns, DescriptorIndex descriptors, List<DocumentFlag> flags, HashSet<string> missing, PatternBudget budget)
     {
         foreach (var field in patterns)
         {
             var required = descriptors.Find(field.Path) is { Required: true, Deprecated: false };
+            var failures = 0;
+            string? stoppedAt = null;
+            var notChecked = 0;
             foreach (var (path, node) in ValuePaths.Select(values, field.Path))
             {
                 if (missing.Contains(path) || ValuePaths.Text(node) is not { } text)
@@ -171,29 +193,41 @@ public static class StructuralValidator
                     continue;
                 }
 
-                bool matches;
-                try
+                if (failures == FlagCap.MaxFlagsPerCheck)
                 {
-                    matches = field.Regex?.IsMatch(text) ?? false;
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    matches = false;
+                    // The cap is reached: the further values are counted, not matched.
+                    stoppedAt ??= path;
+                    notChecked++;
+                    continue;
                 }
 
-                if (matches)
+                // A pattern that does not compile matches nothing (and costs no match); a value the budget has no room
+                // for is skipped, not failed.
+                var matches = field.Regex is { } regex ? budget.IsMatch(regex, text) : false;
+                if (matches is not false)
                 {
                     continue;
                 }
 
-                var flag = FlagCodes.Create(
-                    FlagCodes.FieldInvalid,
-                    $"'{path}' does not fit its definition: the value does not match the pattern '{field.Pattern}'.",
-                    path,
-                    FlagParams.Of(("field", path), ("keyword", "pattern")));
-                flags.Add(required ? flag with { Severity = FlagSeverity.Blocking } : flag);
+                failures++;
+                flags.Add(PatternFlag(path, field.Pattern, required));
+            }
+
+            if (stoppedAt is not null)
+            {
+                flags.Add(FlagCap.Summary(PatternFlag(stoppedAt, field.Pattern, required), FlagCap.NotCheckedReason, notChecked, "keyword"));
             }
         }
+    }
+
+    private static DocumentFlag PatternFlag(string path, string pattern, bool required)
+    {
+        var flag = FlagCodes.Create(
+            FlagCodes.FieldInvalid,
+            $"'{path}' does not fit its definition: the value does not match the pattern '{pattern}'.",
+            path,
+            FlagParams.Of(("field", path), ("keyword", "pattern")));
+        return required ? flag with { Severity = FlagSeverity.Blocking } : flag;
     }
 
     private sealed record FieldPattern(string Path, string Pattern, Regex? Regex);

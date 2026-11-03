@@ -59,7 +59,8 @@
     "FIELD_REQUIRED": "Required field missing",
     "FIELD_INVALID": "Invalid value",
     "RULE_FAILED": "Rule failed",
-    "REVISION_OF": "Revision of an earlier document"
+    "REVISION_OF": "Revision of an earlier document",
+    "CHECKS_SKIPPED": "Checks skipped"
   },
   "stages": {
     "Normalize": "Normalize",

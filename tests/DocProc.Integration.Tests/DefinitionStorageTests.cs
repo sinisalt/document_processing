@@ -12,6 +12,7 @@ using DocProc.Domain.Fields;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
 using DocProc.Domain.PurchaseOrders;
+using DocProc.Domain.Validation;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Llm.Schema;
 
@@ -244,6 +245,128 @@ public sealed class DefinitionStorageTests
         var rows = DocumentFieldIndexWriter.Entries(Guid.Empty, document, """{"lines":[{"supplierSku":{"value":"a-1","status":"Extracted"}},{"supplierSku":{"status":"Missing"}},{"supplierSku":{"value":"b 2","status":"Corrected"}}]}""",
             [new FieldDescriptor { Path = "lines[*].supplierSku", FieldId = "f", Key = "supplierSku", Kind = FieldKinds.Identifier, Indexed = true }]);
         rows.Select(e => (e.FieldKey, e.Ordinal, e.StringValue)).ShouldBe([("lines[*].supplierSku", 0, "A-1"), ("lines[*].supplierSku", 1, "B 2")]);
+    }
+
+    /// <summary>
+    /// A row field has a value per row, up to 20,000: the index holds the first FieldIndexLimits.MaxValuesPerField of
+    /// each field and at most MaxEntriesPerDocument rows per document, every field's first value before any field's
+    /// further ones (the inbox column and the duplicate check read ordinal 0).
+    /// </summary>
+    [Fact]
+    public void The_field_index_holds_the_first_values_of_a_row_field_and_a_bounded_number_per_document()
+    {
+        var lines = new JsonArray();
+        for (var i = 0; i < 5_000; i++)
+        {
+            lines.Add(new JsonObject { ["supplierSku"] = Envelope(JsonValue.Create($"sku-{i}")) });
+        }
+
+        var tree = new JsonObject { ["lines"] = lines, ["priceListNumber"] = Envelope(JsonValue.Create("PL-1")) };
+        var sku = RowField(0);
+        var number = new FieldDescriptor { Path = "priceListNumber", FieldId = "n", Key = "priceListNumber", Kind = FieldKinds.Identifier, Indexed = true };
+
+        var entries = DocumentFieldIndexWriter.Entries(Guid.Empty, Guid.NewGuid(), tree.ToJsonString(), [sku, number]);
+
+        entries.Where(e => e.FieldKey == sku.Path).Select(e => e.Ordinal).ShouldBe(Enumerable.Range(0, DocumentFieldIndexWriter.MaxValuesPerField));
+        entries.Single(e => e.FieldKey == sku.Path && e.Ordinal == DocumentFieldIndexWriter.MaxValuesPerField - 1).StringValue.ShouldBe($"SKU-{DocumentFieldIndexWriter.MaxValuesPerField - 1}");
+        entries.Single(e => e.FieldKey == "priceListNumber").Ordinal.ShouldBe(0);
+
+        // Thirty indexed row fields: the document's cap holds, and the header field listed last keeps its value.
+        var wide = new JsonArray();
+        for (var i = 0; i < 200; i++)
+        {
+            var row = new JsonObject();
+            for (var n = 0; n < 30; n++)
+            {
+                row[RowField(n).Key] = Envelope(JsonValue.Create($"v{i}"));
+            }
+
+            wide.Add(row);
+        }
+
+        var many = Enumerable.Range(0, 30).Select(RowField).Append(number).ToList();
+        var bounded = DocumentFieldIndexWriter.Entries(Guid.Empty, Guid.NewGuid(), new JsonObject { ["lines"] = wide, ["priceListNumber"] = Envelope(JsonValue.Create("PL-1")) }.ToJsonString(), many);
+        bounded.Count.ShouldBe(DocumentFieldIndexWriter.MaxEntriesPerDocument);
+        bounded.Where(e => e.Ordinal == 0).Select(e => e.FieldKey).ShouldBe(many.Select(f => f.Path), ignoreOrder: true);
+        bounded.Single(e => e.FieldKey == "priceListNumber").StringValue.ShouldBe("PL-1");
+        bounded.GroupBy(e => e.FieldKey).ShouldAllBe(g => g.Count() <= DocumentFieldIndexWriter.MaxValuesPerField);
+        bounded.Select(e => (e.FieldKey, e.Ordinal)).Distinct().Count().ShouldBe(bounded.Count);
+
+        static FieldDescriptor RowField(int n)
+        {
+            var key = n == 0 ? "supplierSku" : $"supplierSku{n.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            return new FieldDescriptor { Path = $"lines[*].{key}", FieldId = $"f{n}", Key = key, Kind = FieldKinds.Identifier, Indexed = true };
+        }
+    }
+
+    /// <summary>
+    /// A field pattern on a row field flags at most FlagCap.MaxFlagsPerCheck rows, then stops matching and raises one
+    /// FIELD_INVALID {reason: notChecked, count}; a schema error or a missing required value on every row is capped the
+    /// same way per field (reason capped); the patterns draw on the validation's budget, and a value it has no room
+    /// for is skipped, not failed.
+    /// </summary>
+    [Fact]
+    public void The_structural_check_caps_its_flags_per_field_and_shares_the_pattern_budget()
+    {
+        var template = StandardTemplates.Find("std.price-list")!;
+        var lines = template.Fields.Single(f => f.Key == "lines");
+        var definition = template with
+        {
+            Key = "PatternRows",
+            Fields =
+            [
+                .. template.Fields.Select(f => f.Key != "lines" ? f : lines with
+                {
+                    Item = lines.Item! with { Fields = [.. lines.Item!.Fields, new FieldDefinition { Id = "fld_c_code", Key = "code", Kind = FieldKinds.String, Pattern = "^[0-9]+$" }] },
+                }),
+            ],
+        };
+        var compiled = Compile(definition);
+        var tree = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        var rows = new JsonArray();
+        for (var i = 0; i < 300; i++)
+        {
+            var code = $"C-{i}";
+            rows.Add(Row(compiled, row =>
+            {
+                row["code"] = Envelope(JsonValue.Create(code));
+                row["packSize"] = Envelope(JsonValue.Create("many"));
+            }));
+        }
+
+        tree["lines"] = rows;
+        var values = DocumentDataView.Values(tree, compiled.Descriptors);
+        var budget = new PatternBudget();
+
+        var flags = StructuralValidator.Validate(values, compiled, budget);
+
+        var pattern = flags.Where(f => f.Field is { } path && path.EndsWith(".code", StringComparison.Ordinal)).ToList();
+        pattern.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        pattern.ShouldAllBe(f => f.Code == FlagCodes.FieldInvalid && f.Params!["keyword"] == "pattern");
+        var notChecked = pattern[^1];
+        notChecked.Params!["reason"].ShouldBe(FlagCap.NotCheckedReason);
+        notChecked.Params["count"].ShouldBe("250");
+        notChecked.Field.ShouldBe("lines[50].code");
+        budget.Evaluations.ShouldBe(FlagCap.MaxFlagsPerCheck, "matching stopped at the cap");
+
+        var packSize = flags.Where(f => f.Field is { } path && path.EndsWith(".packSize", StringComparison.Ordinal)).ToList();
+        packSize.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        packSize[^1].ShouldSatisfyAllConditions(
+            f => f.Code.ShouldBe(FlagCodes.FieldInvalid),
+            f => f.Field.ShouldBe("lines[50].packSize"),
+            f => f.Params!["reason"].ShouldBe(FlagCap.CappedReason),
+            f => f.Params!["keyword"].ShouldBe("type"),
+            f => f.Params!["count"].ShouldBe("250"));
+        var sku = flags.Where(f => f.Code == FlagCodes.FieldRequired && f.Field!.EndsWith(".supplierSku", StringComparison.Ordinal)).ToList();
+        sku.Count.ShouldBe(FlagCap.MaxFlagsPerCheck + 1);
+        sku[^1].Severity.ShouldBe(FlagSeverity.Blocking);
+        sku[^1].Params!["reason"].ShouldBe(FlagCap.CappedReason);
+
+        // A spent budget skips the pattern instead of failing it.
+        var spent = new PatternBudget(maxEvaluations: 0, maxTime: TimeSpan.FromMinutes(1));
+        StructuralValidator.Validate(values, compiled, spent).ShouldNotContain(f => f.Field != null && f.Field.EndsWith(".code", StringComparison.Ordinal));
+        spent.Skipped.ShouldBe(300);
+        spent.SkippedFlag().ShouldNotBeNull().Code.ShouldBe(FlagCodes.ChecksSkipped);
     }
 
     [Fact]
