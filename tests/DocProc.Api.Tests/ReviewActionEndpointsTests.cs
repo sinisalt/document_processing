@@ -398,6 +398,15 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
         (await reviewer.PostAsJsonAsync(Doc(other, ":create-supplier"), new CreateSupplierRequest(" ", null, null, null, null, null, null, null), Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         factory.Query(db => db.Documents.Single(d => d.Id == other).SupplierId).ShouldBeNull("nothing was assigned");
 
+        // The caps of POST /suppliers too: before, a reviewer stored 20,000 IBANs of 222 characters, or "not an iban at all".
+        var many = await reviewer.PostAsJsonAsync(Doc(other, ":create-supplier"), new CreateSupplierRequest("Südhof Feinkost", null, null, [.. Enumerable.Range(0, 20_000).Select(i => $"DE{i:0000}" + new string('9', 216))], null, null, null, null), Ct);
+        many.StatusCode.ShouldBeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.RequestEntityTooLarge);
+        var notAnIban = await reviewer.PostAsJsonAsync(Doc(other, ":create-supplier"), new CreateSupplierRequest("Südhof Feinkost", null, null, ["not an iban at all"], null, null, null, null), Ct);
+        notAnIban.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ProblemOf(notAnIban)).GetProperty("errorCodes").GetProperty("ibans").GetProperty("code").GetString().ShouldBe("iban");
+        factory.Query(db => db.Suppliers.Any(s => s.TenantId == tenant && s.Name == "Südhof Feinkost")).ShouldBeFalse();
+        factory.Query(db => db.Documents.Single(d => d.Id == other).SupplierId).ShouldBeNull("nothing was assigned");
+
         // A supplier belongs to a tenant: an operator in platform scope names one first.
         using var operatorClient = factory.ClientFor(new TokenSpec("ops", [Roles.Operator]));
         (await operatorClient.PostAsJsonAsync(Doc(other, ":create-supplier"), new CreateSupplierRequest("Platform GmbH", null, null, null, null, null, null, null), Ct)).IsSuccessStatusCode.ShouldBeFalse();

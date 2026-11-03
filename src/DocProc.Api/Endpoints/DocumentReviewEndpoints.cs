@@ -52,25 +52,35 @@ public static partial class DocumentEndpoints
     /// <summary>The most parts one split may make, and the most documents one join may take.</summary>
     public const int MaxParts = 100;
 
+    /// <summary>
+    /// The body of a review action (<c>:set-type</c>, <c>:assign-supplier</c>, <c>:create-supplier</c>, <c>:split</c>,
+    /// <c>:join</c>); a split of <see cref="MaxParts"/> parts or a supplier with every list at its cap takes a few KB.
+    /// </summary>
+    public const int MaxReviewActionRequestBytes = SupplierEndpoints.MaxRequestBytes;
+
     private static void MapReviewActions(RouteGroupBuilder documents)
     {
         documents.MapPost("/{id:guid}:set-type", SetTypeAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("SetDocumentType")
             .WithSummary("Gives a document in review a type (docs/11 §12.1): pinned to the tenant's published version of it (or the version named), with prefill none (the empty fields of the type at once, 200) or auto (extracted again for that type, 202). A setType correction records it.");
 
         documents.MapPost("/{id:guid}:assign-supplier", AssignSupplierAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("AssignDocumentSupplier")
             .WithSummary("Assigns a supplier of the document's tenant to a document in review (docs/11 §12.1); the Match stage keeps it from then on, and the document is checked again with it.");
 
         documents.MapPost("/{id:guid}:create-supplier", CreateSupplierAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("CreateSupplierFromDocument")
             .WithSummary("Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403).");
 
         documents.MapPost("/{id:guid}:split", SplitAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("SplitDocument")
             .WithSummary("Splits a document in review into several documents by page (docs/11 §12.7): the first part keeps the id, the others are new documents of the same attachment; each is classified again, or extracted for the type a part names. 202.");
 
@@ -81,6 +91,7 @@ public static partial class DocumentEndpoints
 
         documents.MapPost("/{id:guid}:join", JoinAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("JoinDocuments")
             .WithSummary("Joins other parts of the same attachment into this document, pages in attachment order (docs/11 §12.7); the others are cancelled with a link to it, and the joined document is classified again. 202.");
     }

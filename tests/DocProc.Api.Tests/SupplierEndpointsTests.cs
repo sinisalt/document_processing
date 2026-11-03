@@ -4,6 +4,9 @@ using DocProc.Api.Auth;
 using DocProc.Api.Endpoints;
 using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.Api.Tests;
 
@@ -57,6 +60,96 @@ public sealed class SupplierEndpointsTests(ApiFactory factory) : IClassFixture<A
         var required = System.Text.Json.JsonDocument.Parse(await blank.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("errorCodes").GetProperty("name");
         required.GetProperty("code").GetString().ShouldBe("requiredMaxLength");
         required.GetProperty("params").GetProperty("maxLength").GetString().ShouldBe(SupplierEndpoints.MaxNameLength.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>The field's code and parameters in a 400's <c>errorCodes</c>.</summary>
+    private static async Task<(string Code, System.Text.Json.JsonElement Params)> ErrorCodeOf(HttpResponseMessage response, string field)
+    {
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, field);
+        using var problem = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        var entry = problem.RootElement.GetProperty("errorCodes").GetProperty(field);
+        return (entry.GetProperty("code").GetString()!, entry.GetProperty("params").Clone());
+    }
+
+    [Fact]
+    public async Task The_ibans_email_domains_and_aliases_of_a_supplier_are_capped_and_ibans_and_domains_checked()
+    {
+        using var admin = TenantAdminClient();
+        static CreateSupplierRequest With(IReadOnlyList<string>? ibans = null, IReadOnlyList<string>? domains = null, IReadOnlyList<string>? aliases = null) =>
+            new("Listen GmbH", null, null, ibans, domains, aliases, null, null);
+        string Iban(int i) => $"DE{i % 100:00}37040044{i:0000000000}";
+
+        foreach (var (request, field, code) in new[]
+        {
+            (With(ibans: [.. Enumerable.Range(0, SupplierEndpoints.MaxIbans + 1).Select(Iban)]), "ibans", "maxItems"),
+            (With(ibans: ["not an iban at all"]), "ibans", "iban"),
+            (With(ibans: ["DE89 3704"]), "ibans", "iban"),
+            (With(ibans: [new string('D', 222)]), "ibans", "maxLength"),
+            (With(domains: [.. Enumerable.Range(0, SupplierEndpoints.MaxEmailDomains + 1).Select(i => $"d{i}.example")]), "emailDomains", "maxItems"),
+            (With(domains: ["@nordwind.example"]), "emailDomains", "emailDomain"),
+            (With(domains: ["nordwind"]), "emailDomains", "emailDomain"),
+            (With(domains: ["info@nordwind.example"]), "emailDomains", "emailDomain"),
+            (With(aliases: [.. Enumerable.Range(0, SupplierEndpoints.MaxAliases + 1).Select(i => $"Alias {i}")]), "aliases", "maxItems"),
+            (With(aliases: [new string('a', SupplierEndpoints.MaxNameLength + 1)]), "aliases", "maxLength"),
+        })
+        {
+            var refused = await admin.PostAsJsonAsync(SuppliersUri, request, Ct);
+            (await ErrorCodeOf(refused, field)).Code.ShouldBe(code, $"{field}: {code}");
+        }
+
+        factory.Query(db => db.Suppliers.Any(s => s.Name == "Listen GmbH")).ShouldBeFalse("nothing was stored");
+        var tooMany = await admin.PostAsJsonAsync(SuppliersUri, With(ibans: [.. Enumerable.Range(0, SupplierEndpoints.MaxIbans + 1).Select(Iban)]), Ct);
+        (await ErrorCodeOf(tooMany, "ibans")).Params.GetProperty("maxItems").GetString().ShouldBe(SupplierEndpoints.MaxIbans.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        // At the caps, with a repeat that counts once and IBANs grouped as printed.
+        var full = With(
+            ibans: [.. Enumerable.Range(0, SupplierEndpoints.MaxIbans).Select(Iban), "DE00 3704 0044 0000 0000 00"],
+            domains: [.. Enumerable.Range(0, SupplierEndpoints.MaxEmailDomains).Select(i => $"d{i}.example"), "D0.Example"],
+            aliases: [.. Enumerable.Range(0, SupplierEndpoints.MaxAliases).Select(i => $"Alias {i}")]);
+        var created = await admin.PostAsJsonAsync(SuppliersUri, full, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var supplier = (await created.Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        supplier.Ibans.Count.ShouldBe(SupplierEndpoints.MaxIbans);
+        supplier.Ibans[0].ShouldBe("DE0037040044" + "0000000000");
+        supplier.EmailDomains.Count.ShouldBe(SupplierEndpoints.MaxEmailDomains);
+        supplier.Aliases.Count.ShouldBe(SupplierEndpoints.MaxAliases);
+
+        // PATCH checks the lists it is given, and leaves the others as they are.
+        var patch = await admin.PatchAsJsonAsync(SupplierUri(supplier.Id), new PatchSupplierRequest(null, null, null, ["NOTANIBANATALL"], null, null, null, null), Ct);
+        (await ErrorCodeOf(patch, "ibans")).Code.ShouldBe("iban");
+        var domains = await admin.PatchAsJsonAsync(SupplierUri(supplier.Id), new PatchSupplierRequest(null, null, null, null, ["nordwind .example"], null, null, null), Ct);
+        (await ErrorCodeOf(domains, "emailDomains")).Code.ShouldBe("emailDomain");
+        var ok = await admin.PatchAsJsonAsync(SupplierUri(supplier.Id), new PatchSupplierRequest(null, null, null, ["AT61 1904 3002 3457 3201"], ["müller-bio.example"], null, null, null), Ct);
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(Ct));
+        var after = (await ok.Content.ReadFromJsonAsync<SupplierResponse>(Ct))!;
+        after.Ibans.ShouldBe(["AT611904300234573201"]);
+        after.EmailDomains.ShouldBe(["müller-bio.example"]);
+        after.Aliases.Count.ShouldBe(SupplierEndpoints.MaxAliases);
+    }
+
+    [Fact]
+    public void Supplier_writes_and_the_review_actions_refuse_a_body_larger_than_a_legitimate_one()
+    {
+        _ = factory.Server;
+        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+        foreach (var (name, limit) in new[]
+        {
+            ("CreateSupplier", SupplierEndpoints.MaxRequestBytes),
+            ("UpdateSupplier", SupplierEndpoints.MaxRequestBytes),
+            ("SetDocumentType", DocumentEndpoints.MaxReviewActionRequestBytes),
+            ("AssignDocumentSupplier", DocumentEndpoints.MaxReviewActionRequestBytes),
+            ("CreateSupplierFromDocument", DocumentEndpoints.MaxReviewActionRequestBytes),
+            ("SplitDocument", DocumentEndpoints.MaxReviewActionRequestBytes),
+            ("JoinDocuments", DocumentEndpoints.MaxReviewActionRequestBytes),
+        })
+        {
+            var endpoint = endpoints.Single(e => e.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == name);
+            endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>().ShouldNotBeNull(name).MaxRequestBodySize.ShouldBe(limit, name);
+        }
+
+        // A split of the most parts it may make, each with a type and a page list, fits with room to spare.
+        var split = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { parts = Enumerable.Range(1, DocumentEndpoints.MaxParts).Select(i => new { pages = $"{i}-{i + 1},{i + 3}", typeKey = "std.delivery-note" }) });
+        split.Length.ShouldBeLessThan(DocumentEndpoints.MaxReviewActionRequestBytes / 4);
     }
 
     [Fact]

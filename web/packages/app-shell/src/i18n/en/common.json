@@ -269,7 +269,10 @@
     "slug": "Lowercase letters, digits and single dashes, at most {{maxLength}} characters.",
     "range": "Between {{min}} and {{max}}.",
     "positive": "Must be greater than zero.",
-    "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters."
+    "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters.",
+    "maxItems": "At most {{maxItems}} entries.",
+    "iban": "Not an IBAN: a country code, two check digits and 11 to 30 letters or digits.",
+    "emailDomain": "A domain name such as example.com, without the @."
   },
   "dateInput": {
     "pick": "Choose a date",

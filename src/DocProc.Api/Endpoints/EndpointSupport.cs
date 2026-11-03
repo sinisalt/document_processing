@@ -232,6 +232,15 @@ internal static partial class EndpointSupport
         /// <summary>Not an absolute http(s) URL of at most <c>maxLength</c> characters.</summary>
         public const string HttpUrl = "httpUrl";
 
+        /// <summary>A list with more than <c>maxItems</c> entries.</summary>
+        public const string MaxItems = "maxItems";
+
+        /// <summary>Not an IBAN (a country code, two check digits and 11 to 30 letters or digits).</summary>
+        public const string Iban = "iban";
+
+        /// <summary>Not a domain name such as <c>example.com</c>.</summary>
+        public const string EmailDomain = "emailDomain";
+
         /// <summary>A code's parameters, numbers as invariant strings.</summary>
         public static IReadOnlyDictionary<string, string> Params(params (string Key, IFormattable Value)[] pairs) =>
             pairs.ToDictionary(p => p.Key, p => p.Value.ToString(null, CultureInfo.InvariantCulture), StringComparer.Ordinal);

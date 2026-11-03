@@ -878,6 +878,13 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       on the mapping page lies above the band read there is a running title and left out, and only a repeated line
       without such a copy may open a page as a heading. Before, the third review's heading rule made the title the
       category of every row from page 2 on (`ColumnTableEngineTests`);
+    - a supplier's lists are bounded on every write (`POST` and `PATCH /suppliers`, `:create-supplier`): at most 20
+      IBANs, each checked as an IBAN (country code, two check digits, 11 to 30 letters or digits; the check digits
+      are not verified), 20 e-mail domains, each a domain name, and 50 aliases of at most 300 characters, with
+      `400` validation problems (`maxItems`, `iban`, `emailDomain`, `maxLength`); the supplier writes and the review
+      actions (`:set-type`, `:assign-supplier`, `:create-supplier`, `:split`, `:join`) take at most 64 KB. Before, a
+      reviewer stored 20,000 IBANs of 222 characters through `:create-supplier`, which every Match stage run of the
+      tenant then loaded, or "not an iban at all" (`SupplierEndpointsTests`, `ReviewActionEndpointsTests`);
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
@@ -898,7 +905,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       mapping page above the band read there, is read as that heading and listed under the page's headings: a title
       printed from page 2 on only, or a page-opening "Rotweine trocken, Fortsetzung", cannot be told from a heading
       that opens every page by its place. "Leave out lines like …" beside it, or a top margin, leaves it out;
-    - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document;
+    - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document, and
+      an IBAN's check digits (mod 97) are not verified, only its format;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
       `column-table` (P4) are not implemented;

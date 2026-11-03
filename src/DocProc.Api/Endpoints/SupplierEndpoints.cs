@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using DocProc.Api.Auth;
 using DocProc.Domain.Common;
 using DocProc.Infrastructure.Persistence;
@@ -58,12 +60,42 @@ public sealed record SupplierActivityItem(Guid Id, string Status, string Type, s
 /// <see cref="Identifiers.NormalizeName"/>, the same function stage 5 matches with, so what the portal creates and
 /// what the pipeline looks up agree.
 /// </summary>
-public static class SupplierEndpoints
+public static partial class SupplierEndpoints
 {
     private const int ActivitySize = 20;
 
     /// <summary>Column width of <c>Name</c> and <c>NormalizedName</c>; folding can lengthen a name ("ß" becomes "SS").</summary>
     public const int MaxNameLength = 300;
+
+    /// <summary>
+    /// The most IBANs, e-mail domains and aliases one supplier holds. Every Match stage run of the tenant loads every
+    /// supplier and walks these lists in the shared worker, and since P2 a reviewer creates suppliers too
+    /// (<c>:create-supplier</c>), so they are bounded like the name.
+    /// </summary>
+    public const int MaxIbans = 20;
+
+    /// <inheritdoc cref="MaxIbans"/>
+    public const int MaxEmailDomains = 20;
+
+    /// <inheritdoc cref="MaxIbans"/>
+    public const int MaxAliases = 50;
+
+    /// <summary>The longest IBAN as typed, with the spaces that group it (34 characters at most once compacted).</summary>
+    public const int MaxIbanLength = 64;
+
+    /// <summary>The longest domain name (RFC 1035).</summary>
+    public const int MaxEmailDomainLength = 253;
+
+    /// <summary>The body of a supplier write (<c>POST</c> and <c>PATCH /suppliers</c>, <c>:create-supplier</c>); the lists at their caps take a few KB.</summary>
+    public const int MaxRequestBytes = 64 * 1024;
+
+    /// <summary>An IBAN once compacted: a country code, two check digits and 11 to 30 letters or digits (ISO 13616); the check digits are not verified.</summary>
+    [GeneratedRegex("^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$", RegexOptions.CultureInvariant)]
+    private static partial Regex IbanPattern();
+
+    /// <summary>A domain name as a sender's address ends with it: labels of letters, digits and inner dashes, joined by dots, two at least.</summary>
+    [GeneratedRegex(@"^[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?)+$", RegexOptions.CultureInvariant)]
+    private static partial Regex DomainPattern();
 
     public static RouteGroupBuilder MapSuppliers(this RouteGroupBuilder group)
     {
@@ -131,6 +163,7 @@ public static class SupplierEndpoints
             return TypedResults.Created($"/api/v1/suppliers/{supplier.Id}", SupplierResponse.From(supplier));
         })
         .RequireAuthorization(Policies.TenantAdmin)
+        .WithMetadata(new RequestSizeLimitAttribute(MaxRequestBytes))
         .WithName("CreateSupplier")
         .WithSummary("Creates a supplier; the folded name used for matching is derived server-side.");
 
@@ -156,6 +189,7 @@ public static class SupplierEndpoints
             }
 
             var errors = new Errors().Optional("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
+            ValidateLists(errors, request.Ibans, request.EmailDomains, request.Aliases);
             string? normalizedName = null;
             if (request.Name is not null)
             {
@@ -202,12 +236,12 @@ public static class SupplierEndpoints
 
             if (request.Ibans is not null)
             {
-                supplier.Ibans = CleanList(request.Ibans).Select(i => Identifiers.NormalizeCompact(i)!).ToList();
+                supplier.Ibans = CleanIbans(request.Ibans);
             }
 
             if (request.EmailDomains is not null)
             {
-                supplier.EmailDomains = CleanList(request.EmailDomains).Select(d => d.ToLowerInvariant()).ToList();
+                supplier.EmailDomains = CleanDomains(request.EmailDomains);
             }
 
             if (request.Aliases is not null)
@@ -230,6 +264,7 @@ public static class SupplierEndpoints
             return TypedResults.Ok(SupplierResponse.From(supplier));
         })
         .RequireAuthorization(Policies.TenantAdmin)
+        .WithMetadata(new RequestSizeLimitAttribute(MaxRequestBytes))
         .WithName("UpdateSupplier")
         .WithSummary("Changes a supplier's identifiers, aliases, domains or review setting.");
 
@@ -313,6 +348,7 @@ public static class SupplierEndpoints
     internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct)
     {
         var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
+        ValidateLists(errors, request.Ibans, request.EmailDomains, request.Aliases);
         if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
         {
             errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
@@ -347,8 +383,8 @@ public static class SupplierEndpoints
             NormalizedName = normalizedName,
             VatId = Identifiers.NormalizeCompact(request.VatId),
             TaxId = TrimToNull(request.TaxId),
-            Ibans = CleanList(request.Ibans).Select(i => Identifiers.NormalizeCompact(i)!).ToList(),
-            EmailDomains = CleanList(request.EmailDomains).Select(d => d.ToLowerInvariant()).ToList(),
+            Ibans = CleanIbans(request.Ibans),
+            EmailDomains = CleanDomains(request.EmailDomains),
             Aliases = CleanList(request.Aliases),
             DefaultCurrency = request.DefaultCurrency,
             AlwaysReview = request.AlwaysReview ?? false,
@@ -357,6 +393,71 @@ public static class SupplierEndpoints
         };
         db.Suppliers.Add(supplier);
         return new SupplierCreation(supplier, null, null);
+    }
+
+    private static List<string> CleanIbans(IEnumerable<string>? ibans) =>
+        CleanList(ibans).Select(i => Identifiers.NormalizeCompact(i)!).Distinct(StringComparer.Ordinal).ToList();
+
+    private static List<string> CleanDomains(IEnumerable<string>? domains) =>
+        CleanList(domains).Select(d => d.ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// The lists of a supplier write, each counted as it is stored (trimmed, compacted or lower-cased, without blanks and
+    /// repeats): at most
+    /// <see cref="MaxIbans"/> IBANs that read as one, <see cref="MaxEmailDomains"/> domain names and
+    /// <see cref="MaxAliases"/> aliases of at most <see cref="MaxNameLength"/> characters. A list not given is not checked.
+    /// </summary>
+    private static void ValidateLists(Errors errors, IReadOnlyList<string>? ibans, IReadOnlyList<string>? emailDomains, IReadOnlyList<string>? aliases)
+    {
+        if (ibans is not null)
+        {
+            var entries = CleanList(ibans);
+            if (entries.Any(i => i.Length > MaxIbanLength))
+            {
+                errors.Add("ibans", $"An IBAN is at most {MaxIbanLength} characters.", ValidationCodes.MaxLength, ValidationCodes.Params(("maxLength", MaxIbanLength)));
+            }
+            else if (CleanIbans(entries).Count > MaxIbans)
+            {
+                TooMany(errors, "ibans", MaxIbans);
+            }
+            else if (entries.FirstOrDefault(i => !IbanPattern().IsMatch(Identifiers.NormalizeCompact(i)!)) is { } notAnIban)
+            {
+                errors.Add("ibans", $"'{notAnIban}' is not an IBAN: a country code, two check digits and 11 to 30 letters or digits (spaces, dots and dashes are ignored).", ValidationCodes.Iban);
+            }
+        }
+
+        if (emailDomains is not null)
+        {
+            var entries = CleanList(emailDomains);
+            if (entries.Any(d => d.Length > MaxEmailDomainLength))
+            {
+                errors.Add("emailDomains", $"A domain name is at most {MaxEmailDomainLength} characters.", ValidationCodes.MaxLength, ValidationCodes.Params(("maxLength", MaxEmailDomainLength)));
+            }
+            else if (CleanDomains(entries).Count > MaxEmailDomains)
+            {
+                TooMany(errors, "emailDomains", MaxEmailDomains);
+            }
+            else if (entries.FirstOrDefault(d => !DomainPattern().IsMatch(d.ToLowerInvariant())) is { } notADomain)
+            {
+                errors.Add("emailDomains", $"'{notADomain}' is not a domain name such as example.com (the part of a sender's address after the @).", ValidationCodes.EmailDomain);
+            }
+        }
+
+        if (aliases is not null)
+        {
+            var entries = CleanList(aliases);
+            if (entries.Any(a => a.Length > MaxNameLength))
+            {
+                errors.Add("aliases", $"An alias is at most {MaxNameLength} characters.", ValidationCodes.MaxLength, ValidationCodes.Params(("maxLength", MaxNameLength)));
+            }
+            else if (entries.Count > MaxAliases)
+            {
+                TooMany(errors, "aliases", MaxAliases);
+            }
+        }
+
+        static void TooMany(Errors errors, string field, int max) =>
+            errors.Add(field, $"{field} holds at most {max.ToString(CultureInfo.InvariantCulture)} entries.", ValidationCodes.MaxItems, ValidationCodes.Params(("maxItems", max)));
     }
 
     private static void ValidateNormalizedName(Errors errors, string normalizedName)
