@@ -441,13 +441,19 @@
     "strip": {
       "label": "Tabellenbericht",
       "pages": "Seiten",
-      "totals": "{{rows}} Zeilen, {{rejected}} abgelehnt, {{pages}} Seiten gelesen",
+      "totals": "{{rows}}, {{rejected}}, {{pages}}",
+      "rowCount_one": "{{count}} Zeile",
+      "rowCount_other": "{{count}} Zeilen",
+      "rejectedCount_one": "{{count}} abgelehnt",
+      "rejectedCount_other": "{{count}} abgelehnt",
+      "pagesRead_one": "{{count}} Seite gelesen",
+      "pagesRead_other": "{{count}} Seiten gelesen",
       "pagesWithoutRows_one": "({{count}} Seite ohne Zeilen)",
       "pagesWithoutRows_other": "({{count}} Seiten ohne Zeilen)",
       "rows_one": "S. {{page}}: {{count}} Zeile",
       "rows_other": "S. {{page}}: {{count}} Zeilen",
-      "rejected_one": "S. {{page}}: {{rows}} Zeilen, {{count}} abgelehnt",
-      "rejected_other": "S. {{page}}: {{rows}} Zeilen, {{count}} abgelehnt",
+      "rejected_one": "S. {{page}}: {{rows}}, {{count}} abgelehnt",
+      "rejected_other": "S. {{page}}: {{rows}}, {{count}} abgelehnt",
       "noRows": "S. {{page}}: keine Zeilen",
       "headerFound": "Die Kopfzeile wurde auf dieser Seite gefunden",
       "headerReused": "Keine Kopfzeile auf dieser Seite: Die Trennlinien der vorigen Seite wurden verwendet",
@@ -459,7 +465,8 @@
       "repeatedLines_one": "{{count}} Zeile, die auf den meisten Seiten an derselben Stelle steht (Kopf- oder Fußzeile, Seitenzahl), wurde ausgelassen.",
       "repeatedLines_other": "{{count}} Zeilen, die auf den meisten Seiten an derselben Stelle stehen (Kopf- und Fußzeilen, Seitenzahlen), wurden ausgelassen.",
       "leftOutLines_one": "{{count}} Zeile mit Text nur in ausgelassenen Spalten wurde übersprungen.",
-      "leftOutLines_other": "{{count}} Zeilen mit Text nur in ausgelassenen Spalten wurden übersprungen."
+      "leftOutLines_other": "{{count}} Zeilen mit Text nur in ausgelassenen Spalten wurden übersprungen.",
+      "repeatedTexts": "Ausgelassen auf Seite {{page}}:"
     },
     "reasons": {
       "unreadable": "nicht lesbar",

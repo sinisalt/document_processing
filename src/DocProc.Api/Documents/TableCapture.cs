@@ -23,6 +23,18 @@ public static partial class TableCapture
     public const int MaxPatterns = 20;
     public const int MaxPatternLength = 200;
 
+    /// <summary>The longest <c>pages</c> expression (<c>1-*</c>, <c>2-5,7,9-12</c>); a longer one is refused before it is parsed.</summary>
+    public const int MaxPagesLength = 200;
+
+    /// <summary>
+    /// The largest <c>regions:table</c> body: at most 40 columns, 40 patterns of 200 characters and one page override
+    /// per page of 40 dividers come to a few KB, and about 1 KB per overridden page; a larger body is refused (413).
+    /// </summary>
+    public const long MaxTableRequestBytes = 2L * 1024 * 1024;
+
+    /// <summary>The largest <c>regions:read</c> body: a page, a box and a locale.</summary>
+    public const long MaxReadRequestBytes = 16 * 1024;
+
     /// <summary>The problem code of a table read that ran past its time budget (<see cref="TableToolOptions.ReadBudget"/>) or whose pattern ran out of time.</summary>
     public const string TooSlow = "TABLE_READ_TOO_SLOW";
 
@@ -378,6 +390,12 @@ public static partial class TableCapture
             return [page];
         }
 
+        if (expression.Length > MaxPagesLength)
+        {
+            errors["pages"] = [$"Pages are at most {MaxPagesLength} characters, like 1-*, 2-5,7 or *."];
+            return null;
+        }
+
         var pages = new SortedSet<int>();
         foreach (var part in expression.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
@@ -534,7 +552,8 @@ public static partial class TableCapture
                     p.Bottom,
                     p.Headings ?? [],
                     p.RepeatedLines,
-                    p.LeftOutLines)),
+                    p.LeftOutLines,
+                    [.. (p.RepeatedTexts ?? []).Select(t => Truncate(t, CorrectionSources.MaxRawTextLength))])),
             ]);
     }
 

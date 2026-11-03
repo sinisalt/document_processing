@@ -395,6 +395,7 @@
       "vatId": "USt-IdNr.",
       "iban": "IBAN",
       "emailDomain": "E-Mail-Domain",
+      "adminOnly": "E-Mail-Domains und Aliasnamen, über die spätere Dokumente diesem Lieferanten zugeordnet werden, trägt ein Mandanten-Admin unter Lieferanten ein.",
       "createSubmit": "Anlegen und zuordnen",
       "assigned": "Lieferant {{name}} zugeordnet.",
       "created": "Lieferant {{name}} angelegt und zugeordnet."

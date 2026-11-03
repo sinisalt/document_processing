@@ -151,7 +151,8 @@ internal sealed class ExtractHandler(
     /// tree the document already holds for this type (a retry, or a reprocess after a reviewer filled it, onto the
     /// pinned version or, with <c>configMode: current</c>, onto the published one), completed with the fields it
     /// lacks. A tree is the document's type's unless <c>AppliedConfigJson</c> names another type; the Classify stage
-    /// drops a tree when it changes the type. The reviewer fills it in review; <c>UNSUPPORTED_TYPE</c> says so.
+    /// drops a tree when it changes the type. The reviewer fills it in review; <c>UNSUPPORTED_TYPE</c> says so, unless a
+    /// reviewer set the type (<see cref="TypeSource.Human"/>) and knows it.
     /// </summary>
     private async Task StoreDefinitionTreeAsync(Document document, EffectiveType type, CancellationToken cancellationToken)
     {
@@ -184,10 +185,15 @@ internal sealed class ExtractHandler(
         DocumentRoleColumns.Refresh(document, type.Roles);
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
         document.AppliedConfigJson = AppliedConfig(type, llmSchema: null);
-        flags.Replace(document, OwnedFlags, [FlagCodes.Create(
-            FlagCodes.UnsupportedType,
-            $"No automatic extraction exists for {document.Type} documents yet; the fields of the type are filled in review.",
-            parameters: FlagParams.Of(("type", document.Type.ToString()), (FlagParams.Reason, "definition")))]);
+        // A type a reviewer set (:set-type, a typed split part) is filled in review by the reviewer who chose it, as
+        // :set-type says by raising no UNSUPPORTED_TYPE: a reprocess (from Classify, which keeps that type) or a
+        // prefill auto does not raise it either, so it does not come back as an open warning after the reviewer's work.
+        flags.Replace(document, OwnedFlags, document.TypeSource == TypeSource.Human
+            ? []
+            : [FlagCodes.Create(
+                FlagCodes.UnsupportedType,
+                $"No automatic extraction exists for {document.Type} documents yet; the fields of the type are filled in review.",
+                parameters: FlagParams.Of(("type", document.Type.ToString()), (FlagParams.Reason, "definition")))]);
         Timeline.Transition(document, DocumentStatus.Extracted, new { type = document.Type, skipped = true, definition = new { key = type.TypeKey, version = type.Version }, kept });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

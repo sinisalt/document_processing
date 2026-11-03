@@ -28,14 +28,15 @@ namespace DocProc.Mapping.Tables;
 /// <item><description><b>Running lines.</b> With <see cref="ColumnTableSpec.SkipRepeatedLines"/> (the default) a line
 /// printed at the same height with the same text (a number standing for any number) on at least half of the document's
 /// pages, two at least, is a running title, page number or footer and is left out, unless it reads as a row (a value in
-/// the row anchor column and a readable price). A row with a value only in the row anchor column, while the mapping
+/// the row anchor column and a readable price) or, printed above the page's first row, as a group heading for another
+/// category than the current one (a list may open every page with the same heading). A row with a value only in the row anchor column, while the mapping
 /// fills other columns, is rejected (<see cref="RejectionReasons.AnchorOnly"/>), not taken for an article.</description></item>
 /// <item><description><b>The band read.</b> On the mapping page, the box below its header row; a box drawn only around
 /// the header row (nothing printed below the header inside it) reads on down to the bottom page margin, or the foot of the
 /// page. On the other pages, from the top page margin (or the top of the page) to the bottom one (or the box's bottom,
 /// or the foot of the page for a box around the header only); a header row found there moves the top below it.</description></item>
 /// <item><description><b>Report.</b> Per page: rows, rejected lines with their text and reason, header found, the
-/// dividers used, the first three rows, the group headings read, the running lines left out; pages without rows; where
+/// dividers used, the first three rows, the group headings read, the running lines left out (with their text); pages without rows; where
 /// a <c>stopAt</c> line ended the table.</description></item>
 /// </list>
 /// Linear in the number of words; deterministic. A <c>skipRows</c> or <c>stopAt</c> pattern that runs out of time on a
@@ -70,46 +71,98 @@ public static partial class ColumnTableEngine
     }
 
     /// <summary>
-    /// A line's text as compared across pages for running lines: lower case, white space collapsed, and a number that is
-    /// the page's own number or the page count one <c>#</c> (<c>Seite 2 von 14</c> on page 2 and <c>Seite 13 von 14</c> on
-    /// page 13 are both <c>seite # von #</c>); any other number stays, so <c>Warengruppe 12</c> and <c>Warengruppe 13</c>
-    /// are two texts.
+    /// A line's text as compared across pages for running lines, as tokens: lower case, white space collapsed to one
+    /// <c>" "</c> token, every run of digits one token, every other run of characters one token (<c>Stand 01.11.2026</c>
+    /// is <c>stand</c>, <c>" "</c>, <c>01</c>, <c>.</c>, <c>11</c>, <c>.</c>, <c>2026</c>).
     /// </summary>
-    public static string RepeatSignature(string? text, int page, int pageCount)
+    public static IReadOnlyList<string> RepeatTokens(string? text)
     {
-        var builder = new StringBuilder();
+        var tokens = new List<string>();
         var source = text ?? string.Empty;
-        for (var i = 0; i < source.Length; i++)
+        var i = 0;
+        while (i < source.Length)
         {
             var c = source[i];
-            if (char.IsAsciiDigit(c))
+            var end = i + 1;
+            if (char.IsWhiteSpace(c))
             {
-                var end = i;
+                while (end < source.Length && char.IsWhiteSpace(source[end]))
+                {
+                    end++;
+                }
+
+                if (tokens.Count > 0 && end < source.Length)
+                {
+                    tokens.Add(" ");
+                }
+            }
+            else if (char.IsAsciiDigit(c))
+            {
                 while (end < source.Length && char.IsAsciiDigit(source[end]))
                 {
                     end++;
                 }
 
-                var digits = source[i..end];
-                var isPageNumber = digits.Length <= 6 && int.Parse(digits, CultureInfo.InvariantCulture) is var number && (number == page || number == pageCount);
-                builder.Append(isPageNumber ? "#" : digits);
-                i = end - 1;
-            }
-            else if (char.IsWhiteSpace(c))
-            {
-                if (builder.Length > 0 && builder[^1] != ' ')
-                {
-                    builder.Append(' ');
-                }
+                tokens.Add(source[i..end]);
             }
             else
             {
-                builder.Append(char.ToLowerInvariant(c));
+                while (end < source.Length && !char.IsWhiteSpace(source[end]) && !char.IsAsciiDigit(source[end]))
+                {
+                    end++;
+                }
+
+                tokens.Add(source[i..end].ToLowerInvariant());
+            }
+
+            i = end;
+        }
+
+        return tokens;
+    }
+
+    /// <summary>
+    /// Whether the line <paramref name="a"/> of page <paramref name="pageA"/> and the line <paramref name="b"/> of page
+    /// <paramref name="pageB"/> are the same running line: the same <see cref="RepeatTokens"/>, where a number matches
+    /// when it is the same on both pages or when on each page it is that page's own number (<c>Seite 2 von 14</c> on page
+    /// 2 and <c>Seite 13 von 14</c> on page 13). Numbers are compared token by token, never rewritten per page, so a date
+    /// whose day equals one page's number (<c>gültig ab 01.04.2026</c> on page 1) still matches the same date on the other
+    /// pages; <c>Warengruppe 12</c> on page 5 and <c>Warengruppe 13</c> on page 6 are two texts.
+    /// </summary>
+    public static bool SameRunningLine(string? a, int pageA, string? b, int pageB) =>
+        SameTokens(RepeatTokens(a), pageA, RepeatTokens(b), pageB);
+
+    private static bool SameTokens(IReadOnlyList<string> a, int pageA, IReadOnlyList<string> b, int pageB)
+    {
+        if (a.Count != b.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (string.Equals(a[i], b[i], StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!IsNumber(a[i]) || !IsNumber(b[i]) || !IsPageNumber(a[i], pageA) || !IsPageNumber(b[i], pageB))
+            {
+                return false;
             }
         }
 
-        return builder.ToString().TrimEnd();
+        return true;
     }
+
+    private static bool IsNumber(string token) => token.Length > 0 && char.IsAsciiDigit(token[0]);
+
+    private static bool IsPageNumber(string digits, int page) =>
+        digits.Length <= 6 && int.Parse(digits, CultureInfo.InvariantCulture) == page;
+
+    /// <summary>The tokens with every number as <c>#</c>: lines that may be the same running line share it.</summary>
+    private static string RepeatKey(IReadOnlyList<string> tokens) =>
+        string.Concat(tokens.Select(t => IsNumber(t) ? "#" : t));
 
     /// <summary>A header text as compared across pages: letters and digits only, lower case (<c>Art.-Nr.</c> is <c>artnr</c>).</summary>
     public static string NormalizeHeader(string? text)
@@ -186,7 +239,7 @@ public static partial class ColumnTableEngine
         private readonly int _minAnchors;
         private readonly bool _headerOnly;
         private readonly bool[] _leftOut;
-        private readonly Dictionary<int, HashSet<int>> _repeated;
+        private readonly Dictionary<int, PageRepeats> _repeated;
         private readonly CancellationToken _ct;
         private readonly List<TableRow> _rows = [];
         private readonly Dictionary<int, PageState> _reports = [];
@@ -247,23 +300,23 @@ public static partial class ColumnTableEngine
 
         /// <summary>
         /// The words of running lines, by page (their indexes): lines above the first or below the last line of the page
-        /// that reads as a row (by the mapping's dividers), with the same <see cref="RepeatSignature"/> and printed within
-        /// <see cref="RepeatTolerance"/> of the same height on at least half of the document's pages, two at least. Lines
-        /// between rows (continuation lines, headings inside the list) are never running lines, however alike they are.
-        /// Every page of the document counts, not only the pages read, so the proposal on one page knows them too.
+        /// that reads as a row (by the mapping's dividers), the same running line (<see cref="SameRunningLine"/>) printed
+        /// within <see cref="RepeatTolerance"/> of the same height on at least half of the document's pages, two at least.
+        /// Lines between rows (continuation lines, headings inside the list) are never running lines, however alike they
+        /// are. Every page of the document counts, not only the pages read, so the proposal on one page knows them too.
+        /// <see cref="PageRepeats.Above"/> holds the words of those printed above the page's first row.
         /// </summary>
-        private Dictionary<int, HashSet<int>> RepeatedWords()
+        private Dictionary<int, PageRepeats> RepeatedWords()
         {
-            var repeated = new Dictionary<int, HashSet<int>>();
+            var repeated = new Dictionary<int, PageRepeats>();
             if (_pages.Count < 2)
             {
                 return repeated;
             }
 
             var threshold = Math.Max(2, (_pages.Count + 1) / 2);
-            var pageCount = _pages.Keys.Max();
             var bounds = _spec.Columns.Select(c => new ColumnBounds(c.X0, c.X1)).ToList();
-            var candidates = new List<(string Signature, double Y, int Page, TextLine Line)>();
+            var candidates = new List<Candidate>();
             foreach (var page in _pages.Values)
             {
                 var lines = PageGeometry.Lines(page.Words);
@@ -290,15 +343,15 @@ public static partial class ColumnTableEngine
                         continue;
                     }
 
-                    var signature = RepeatSignature(lines[l].Text, page.Number, pageCount);
-                    if (signature.Length > 0)
+                    var tokens = RepeatTokens(lines[l].Text);
+                    if (tokens.Count > 0)
                     {
-                        candidates.Add((signature, lines[l].Box.CenterY, page.Number, lines[l]));
+                        candidates.Add(new Candidate(RepeatKey(tokens), tokens, lines[l].Box.CenterY, page.Number, lines[l], Above: first < 0 || l < first));
                     }
                 }
             }
 
-            foreach (var group in candidates.GroupBy(c => c.Signature, StringComparer.Ordinal))
+            foreach (var group in candidates.GroupBy(c => c.Key, StringComparer.Ordinal))
             {
                 var byHeight = group.OrderBy(c => c.Y).ToList();
                 for (var start = 0; start < byHeight.Count;)
@@ -309,17 +362,26 @@ public static partial class ColumnTableEngine
                         end++;
                     }
 
-                    var cluster = byHeight.GetRange(start, end - start + 1);
-                    if (cluster.Select(c => c.Page).Distinct().Count() >= threshold)
+                    foreach (var same in SameLines(byHeight.GetRange(start, end - start + 1)))
                     {
-                        foreach (var (_, _, number, line) in cluster)
+                        if (same.Select(c => c.Page).Distinct().Count() < threshold)
                         {
-                            if (!repeated.TryGetValue(number, out var words))
+                            continue;
+                        }
+
+                        foreach (var candidate in same)
+                        {
+                            if (!repeated.TryGetValue(candidate.Page, out var words))
                             {
-                                repeated[number] = words = [];
+                                repeated[candidate.Page] = words = new PageRepeats([], []);
                             }
 
-                            words.UnionWith(line.Words.Select(w => w.Index));
+                            var indexes = candidate.Line.Words.Select(w => w.Index).ToList();
+                            words.Words.UnionWith(indexes);
+                            if (candidate.Above)
+                            {
+                                words.Above.UnionWith(indexes);
+                            }
                         }
                     }
 
@@ -328,6 +390,38 @@ public static partial class ColumnTableEngine
             }
 
             return repeated;
+        }
+
+        /// <summary>
+        /// The lines of one height band split into the groups of one running line each: two lines are joined when
+        /// <see cref="SameTokens"/> holds for them (the numbers compared token by token, each against its own page).
+        /// </summary>
+        private static IEnumerable<List<Candidate>> SameLines(List<Candidate> band)
+        {
+            var parent = Enumerable.Range(0, band.Count).ToArray();
+            int Root(int i)
+            {
+                while (parent[i] != i)
+                {
+                    parent[i] = parent[parent[i]];
+                    i = parent[i];
+                }
+
+                return i;
+            }
+
+            for (var i = 0; i < band.Count; i++)
+            {
+                for (var j = i + 1; j < band.Count; j++)
+                {
+                    if (band[i].Page != band[j].Page && Root(i) != Root(j) && SameTokens(band[i].Tokens, band[i].Page, band[j].Tokens, band[j].Page))
+                    {
+                        parent[Root(j)] = Root(i);
+                    }
+                }
+            }
+
+            return Enumerable.Range(0, band.Count).GroupBy(Root).Select(g => g.Select(i => band[i]).ToList());
         }
 
         private int? IndexOf(string field)
@@ -468,17 +562,29 @@ public static partial class ColumnTableEngine
                     continue;
                 }
 
-                if (repeated is not null && line.Words.All(w => repeated.Contains(w.Index)) && !ReadsAsRow(cells))
+                var hasAnchor = cells[_anchor].Count > 0;
+                var spans = Spans(line, columns);
+                var headingLike = _spec.GroupHeader is not null && IsWithoutPrice(cells) && (spans || IsOneRun(line));
+                var continues = headingLike && !hasAnchor && !spans && _current is not null && _spec.Continuation == Continuation.AppendToPrevious && OnlyTextColumns(cells);
+                if (repeated is not null && line.Words.All(w => repeated.Words.Contains(w.Index)) && !ReadsAsRow(cells)
+                    && !(headingLike && !continues && line.Words.All(w => repeated.Above.Contains(w.Index)) && !string.Equals(_category?.Text, text, StringComparison.Ordinal)))
                 {
+                    // A running title, page number or footer: left out, and listed by its text. Not a line above the page's
+                    // first row that reads as a group heading for another category than the current one: a list may open
+                    // every page with the same heading at the same height, and leaving it out would give the rows under it
+                    // the category of the previous page's last heading. That line is read as a heading and listed as one.
                     state.Repeated++;
+                    if (state.RepeatedTexts.Count < MaxHeadingsListed)
+                    {
+                        state.RepeatedTexts.Add(text);
+                    }
+
                     continue;
                 }
 
-                var hasAnchor = cells[_anchor].Count > 0;
-                var spans = Spans(line, columns);
-                if (_spec.GroupHeader is not null && IsWithoutPrice(cells) && (spans || IsOneRun(line)))
+                if (headingLike)
                 {
-                    if (!hasAnchor && !spans && _current is not null && _spec.Continuation == Continuation.AppendToPrevious && OnlyTextColumns(cells))
+                    if (continues)
                     {
                         Continue(page.Number, line, cells, state);
                     }
@@ -862,6 +968,12 @@ public static partial class ColumnTableEngine
         }
     }
 
+    /// <summary>A line outside the rows of its page that may be a running line: its <see cref="RepeatKey"/>, tokens, height, page, and whether it is printed above the page's first row.</summary>
+    private sealed record Candidate(string Key, IReadOnlyList<string> Tokens, double Y, int Page, TextLine Line, bool Above);
+
+    /// <summary>The words of a page's running lines (their indexes), and of those printed above its first row.</summary>
+    private sealed record PageRepeats(HashSet<int> Words, HashSet<int> Above);
+
     /// <summary>A row being read: its lines (possibly over a page break) and the words of each column.</summary>
     private sealed class RowBuilder(int page, (string Text, int Page, BoundingBox Box)? category, int columns)
     {
@@ -930,6 +1042,8 @@ public static partial class ColumnTableEngine
 
         public List<string> Headings { get; } = [];
 
+        public List<string> RepeatedTexts { get; } = [];
+
         public IReadOnlyList<ColumnBounds> Columns { get; set; } = [];
 
         public double Top { get; set; }
@@ -947,6 +1061,6 @@ public static partial class ColumnTableEngine
         }
 
         public TablePageReport ToReport(int maxListed) =>
-            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows, Math.Round(Top, 2), Math.Round(Bottom, 2), [.. Headings], Repeated, LeftOut);
+            new(Page, HeaderFound, Rows, Rejected, [.. _rejected.Take(maxListed)], Skipped, GroupHeadings, Continuations, Columns, ColumnsFrom, FirstRows, Math.Round(Top, 2), Math.Round(Bottom, 2), [.. Headings], Repeated, LeftOut, [.. RepeatedTexts]);
     }
 }

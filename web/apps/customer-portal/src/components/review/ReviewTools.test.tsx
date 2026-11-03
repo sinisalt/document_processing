@@ -210,10 +210,21 @@ describe("review dialogs", () => {
     expect(toast.success).toHaveBeenCalledWith("The document is read again as a Price list.");
   });
 
-  it("creates a supplier from the document", async () => {
+  it("creates a supplier from the document with the name and identifiers only, for a reviewer", async () => {
+    client.POST.mockResolvedValue(ok({ supplier: { id: "s1", name: "Nordwind Großhandel GmbH" }, document: documentOf({ supplierName: "Nordwind Großhandel GmbH" }) }, 201));
+    const document = documentOf({ canonical: { supplier: { status: "Corrected", value: { name: "Nordwind Großhandel GmbH", vatId: "DE312456789", email: "info@nordwind.example" } } } as unknown as DocumentDetail["canonical"] });
+    render(<CreateSupplierDialog document={document} open onOpenChange={() => undefined} />, { wrapper });
+    expect(screen.queryByLabelText("E-mail domain")).toBeNull();
+    expect(screen.getByTestId("create-supplier-admin-note")).toHaveTextContent("added by a tenant admin under Suppliers");
+    fireEvent.click(screen.getByTestId("create-supplier-submit"));
+    await waitFor(() => expect(client.POST).toHaveBeenCalled());
+    expect(client.POST.mock.calls[0]![1].body).toMatchObject({ name: "Nordwind Großhandel GmbH", vatId: "DE312456789", emailDomains: null, aliases: null, alwaysReview: null });
+  });
+
+  it("creates a supplier from the document with its e-mail domain, for a tenant admin", async () => {
     client.POST.mockResolvedValue(ok({ supplier: { id: "s1", name: "Nordwind Großhandel GmbH" }, document: documentOf({ supplierName: "Nordwind Großhandel GmbH" }) }, 201));
     const document = documentOf({ canonical: { supplier: { status: "Corrected", value: { name: "Nordwind Großhandel GmbH", vatId: "DE312456789" } } } as unknown as DocumentDetail["canonical"] });
-    render(<CreateSupplierDialog document={document} open onOpenChange={() => undefined} />, { wrapper });
+    render(<CreateSupplierDialog document={document} open onOpenChange={() => undefined} canManageSuppliers />, { wrapper });
     expect(screen.getByLabelText("Name")).toHaveValue("Nordwind Großhandel GmbH");
     fireEvent.change(screen.getByLabelText("E-mail domain"), { target: { value: "nordwind.example" } });
     fireEvent.click(screen.getByTestId("create-supplier-submit"));

@@ -67,8 +67,9 @@ public static class ColumnsFrom
 /// read (<paramref name="Top"/> to <paramref name="Bottom"/>, in page units). <paramref name="Headings"/> are the texts of
 /// the group headings read on it (at most <see cref="ColumnTableEngine.MaxHeadingsListed"/>), so a running title or a
 /// footer taken for a heading shows; <paramref name="RepeatedLines"/> counts the lines left out as running titles,
-/// page numbers or footers (<see cref="ColumnTableSpec.SkipRepeatedLines"/>), and <paramref name="LeftOutLines"/> the
-/// lines with words only in columns the mapping leaves out.
+/// page numbers or footers (<see cref="ColumnTableSpec.SkipRepeatedLines"/>) and <paramref name="RepeatedTexts"/> lists
+/// their texts (at most <see cref="ColumnTableEngine.MaxHeadingsListed"/>), so nothing is left out unseen;
+/// <paramref name="LeftOutLines"/> counts the lines with words only in columns the mapping leaves out.
 /// </summary>
 public sealed record TablePageReport(
     int Page,
@@ -86,7 +87,8 @@ public sealed record TablePageReport(
     double? Bottom = null,
     IReadOnlyList<string>? Headings = null,
     int RepeatedLines = 0,
-    int LeftOutLines = 0);
+    int LeftOutLines = 0,
+    IReadOnlyList<string>? RepeatedTexts = null);
 
 /// <summary>
 /// The table report (docs/11 §8.6, §12.4): totals, the pages read, the pages that yielded no row, the page a

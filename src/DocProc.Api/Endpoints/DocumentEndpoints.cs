@@ -29,6 +29,15 @@ namespace DocProc.Api.Endpoints;
 /// </summary>
 public static partial class DocumentEndpoints
 {
+    /// <summary>The most corrections one <c>PATCH …/fields</c> carries.</summary>
+    public const int MaxCorrectionsPerRequest = 5_000;
+
+    /// <summary>
+    /// The largest <c>PATCH …/fields</c> body: a <c>set</c> of a 10,000-row list with its tiers is about 4.5 MB; a larger
+    /// body is refused (413) before it is read.
+    /// </summary>
+    public const long MaxCorrectionsRequestBytes = 8L * 1024 * 1024;
+
     /// <summary>Stages a reviewer may rerun with <c>:reprocess</c>, and the state the document is reset to for each (the output of the stage before it).</summary>
     private static readonly IReadOnlyDictionary<PipelineStage, DocumentStatus> ReprocessStart = new Dictionary<PipelineStage, DocumentStatus>
     {
@@ -107,6 +116,7 @@ public static partial class DocumentEndpoints
 
         documents.MapPatch("/{id:guid}/fields", CorrectFieldsAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxCorrectionsRequestBytes))
             .WithName("CorrectDocumentFields")
             .WithSummary("Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.");
 
@@ -727,6 +737,11 @@ public static partial class DocumentEndpoints
         if (request.Corrections is not { Count: > 0 })
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["corrections"] = ["At least one correction is required."] });
+        }
+
+        if (request.Corrections.Count > MaxCorrectionsPerRequest)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["corrections"] = [$"At most {MaxCorrectionsPerRequest} corrections in one request; save them in parts."] });
         }
 
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);

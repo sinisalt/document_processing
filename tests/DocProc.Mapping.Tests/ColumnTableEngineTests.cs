@@ -531,6 +531,7 @@ public sealed class ColumnTableEngineTests
                 result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(["Alpha", "Beta", "Alpha", "Beta"]);
                 result.Rows.Select(r => r.Cell("packDescription")!.Text).ShouldAllBe(t => t == "6 x 0,75 l");
                 result.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([1, 1]);
+                result.Report.PerPage.Select(p => p.RepeatedTexts!.Single()).ShouldBe(["Seite 1 von 2", "Seite 2 von 2"], "the page report names what it left out");
             }
         }
 
@@ -575,12 +576,106 @@ public sealed class ColumnTableEngineTests
     }
 
     [Fact]
-    public void Running_line_signatures_stand_a_number_for_the_page_number_or_the_page_count_only()
+    public void Running_lines_match_a_number_token_by_token_the_same_on_both_pages_or_each_page_s_own_number()
     {
-        ColumnTableEngine.RepeatSignature("Seite 2 von 14", 2, 14).ShouldBe("seite # von #");
-        ColumnTableEngine.RepeatSignature("Seite  13 von 14", 13, 14).ShouldBe("seite # von #");
-        ColumnTableEngine.RepeatSignature("Warengruppe 12", 5, 14).ShouldBe("warengruppe 12");
-        ColumnTableEngine.RepeatSignature("Stand 01.11.2026", 3, 14).ShouldBe("stand 01.11.2026");
+        ColumnTableEngine.RepeatTokens("Stand  01.11.2026").ShouldBe(["stand", " ", "01", ".", "11", ".", "2026"]);
+        ColumnTableEngine.SameRunningLine("Seite 2 von 14", 2, "Seite  13 von 14", 13).ShouldBeTrue();
+        ColumnTableEngine.SameRunningLine("Seite 14 von 14", 14, "Seite 1 von 14", 1).ShouldBeTrue();
+        ColumnTableEngine.SameRunningLine("Warengruppe 12", 5, "Warengruppe 13", 6).ShouldBeFalse();
+        ColumnTableEngine.SameRunningLine("Stand 01.11.2026", 3, "Stand 01.11.2026", 4).ShouldBeTrue();
+
+        // A date whose day is one page's number is the same date on every page; it is never rewritten for that page only.
+        ColumnTableEngine.SameRunningLine("Preise gültig ab 01.04.2026 Seite 1 von 4", 1, "Preise gültig ab 01.04.2026 Seite 2 von 4", 2).ShouldBeTrue();
+        ColumnTableEngine.SameRunningLine("Preise gültig ab 01.04.2026 Seite 4 von 4", 4, "Preise gültig ab 01.04.2026 Seite 1 von 4", 1).ShouldBeTrue();
+        ColumnTableEngine.SameRunningLine("Preise gültig ab 01.04.2026", 1, "Preise gültig ab 02.04.2026", 2).ShouldBeTrue("each is its page's own number");
+        ColumnTableEngine.SameRunningLine("Preise gültig ab 01.04.2026", 1, "Preise gültig ab 03.04.2026", 2).ShouldBeFalse();
+        ColumnTableEngine.SameRunningLine("Preisliste", 1, "Preisliste 2", 2).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_dated_footer_whose_day_is_a_page_number_is_a_running_line_on_that_page_too()
+    {
+        // The footer's "01" is page 1's number: compared token by token it is still the footer of pages 2 to 4.
+        var pages = Enumerable.Range(1, 4).Select(n => new PageBuilder(n).Header(100)
+            .Article(120, $"{n}001", $"Wein {n}a", "1,00").Article(135, $"{n}002", $"Wein {n}b", "2,00")
+            .Text(PriceList.Description, 920, $"Preise gültig ab 01.04.2026 Seite {n} von 4").Words()).ToList();
+
+        var result = Read(pages, PriceList.Spec(pages: [1, 2, 3, 4], bottom: 990));
+
+        result.Report.RejectedRows.ShouldBe(0);
+        result.Rows.Count.ShouldBe(8);
+        result.Rows.Select(r => r.Cell("description")!.Text).ShouldBe(Enumerable.Range(1, 4).SelectMany(n => new[] { $"Wein {n}a", $"Wein {n}b" }));
+        result.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([1, 1, 1, 1]);
+        result.Report.PerPage.Select(p => p.ContinuationLines).ShouldBe([0, 0, 0, 0]);
+        result.Report.PerPage[0].RepeatedTexts.ShouldBe(["Preise gültig ab 01.04.2026 Seite 1 von 4"]);
+    }
+
+    [Fact]
+    public void A_heading_that_opens_every_page_at_the_same_height_is_read_as_a_heading_not_left_out_as_a_running_line()
+    {
+        // Each page: "Rotweine trocken" centred at its top (across a divider), two articles, "Weißweine trocken", one more.
+        PageBuilder Page(int n)
+        {
+            var page = new PageBuilder(n);
+            var top = n == 1 ? 120 : 40;
+            if (n == 1)
+            {
+                page.Header(100);
+            }
+
+            return page.Text(460, top, "Rotweine trocken")
+                .Article(top + 15, $"{n}001", "Rot A", "1,00").Article(top + 30, $"{n}002", "Rot B", "2,00")
+                .Text(460, top + 45, "Weißweine trocken")
+                .Article(top + 60, $"{n}003", "Weiß A", "3,00");
+        }
+
+        var pages = Enumerable.Range(1, 4).Select(n => Page(n).Words()).ToList();
+        var spec = PriceList.Spec(pages: [1, 2, 3, 4], bottom: 990);
+
+        var result = Read(pages, spec);
+
+        result.Rows.Count.ShouldBe(12);
+        result.Rows.ShouldAllBe(r => r.Cell("category")!.Text == (r.Cell("description")!.Text.StartsWith("Rot", StringComparison.Ordinal) ? "Rotweine trocken" : "Weißweine trocken"));
+        result.Report.PerPage.ShouldAllBe(p => p.Headings!.SequenceEqual(new[] { "Rotweine trocken", "Weißweine trocken" }));
+        result.Report.PerPage.ShouldAllBe(p => p.RepeatedLines == 0);
+        result.Rows.Single(r => r.Cell("supplierSku")!.Text == "2001").Cell("category")!.Box.Y0.ShouldBe(40, "the heading of page 2 itself");
+
+        // The same with repeated lines kept: nothing changes.
+        Read(pages, spec with { SkipRepeatedLines = false }).Rows.Select(r => r.Cell("category")!.Text).ShouldBe(result.Rows.Select(r => r.Cell("category")!.Text));
+    }
+
+    [Fact]
+    public void A_repeated_heading_of_the_current_category_is_left_out_and_listed_by_its_text()
+    {
+        static WordPage Page(int n, string heading)
+        {
+            var page = new PageBuilder(n);
+            var y = n == 1 ? 135 : 55;
+            if (n == 1)
+            {
+                page.Header(100).Text(460, 120, "Rotweine trocken");
+            }
+            else
+            {
+                page.Text(460, 40, heading);
+            }
+
+            return page.Article(y, $"{n}001", "Rot A", "1,00").Article(y + 15, $"{n}002", "Rot B", "2,00").Words();
+        }
+
+        // Another text on pages 2 and 3 than page 1's heading: read as a heading on page 2; on page 3 it is the current
+        // category already, so it is left out as the running line it is, and the rows keep it.
+        var other = Read([.. Enumerable.Range(1, 3).Select(n => Page(n, "Rotweine trocken, Fortsetzung"))], PriceList.Spec(pages: [1, 2, 3], bottom: 990));
+        other.Rows.Count.ShouldBe(6);
+        other.Report.PerPage.Select(p => (string.Join(" | ", p.Headings!), p.RepeatedLines)).ShouldBe([("Rotweine trocken", 0), ("Rotweine trocken, Fortsetzung", 0), (string.Empty, 1)]);
+        other.Rows.Select(r => r.Cell("category")!.Text).ShouldBe(["Rotweine trocken", "Rotweine trocken", .. Enumerable.Repeat("Rotweine trocken, Fortsetzung", 4)]);
+
+        // The category the rows already have: leaving it out changes nothing, and the page names it.
+        var same = Read([.. Enumerable.Range(1, 3).Select(n => Page(n, "Rotweine trocken"))], PriceList.Spec(pages: [1, 2, 3], bottom: 990));
+        same.Rows.Count.ShouldBe(6);
+        same.Rows.ShouldAllBe(r => r.Cell("category")!.Text == "Rotweine trocken");
+        same.Report.PerPage.Select(p => p.RepeatedLines).ShouldBe([0, 1, 1]);
+        same.Report.PerPage.Skip(1).ShouldAllBe(p => p.RepeatedTexts!.Single() == "Rotweine trocken" && p.Headings!.Count == 0);
     }
 
     [Fact]

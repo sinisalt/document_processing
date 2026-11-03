@@ -125,8 +125,9 @@ public sealed record TableRejectedLineDto(int Page, string Text, SourceBox BBox,
 /// first three rows as printed, and the band of the page read (<c>top</c> to <c>bottom</c>, page units: below the header
 /// row, within the page margins; absent in a report stored before it was recorded). <c>headings</c> are the texts of the
 /// group headings read on the page (the first 20), so a running title or footer taken for one shows; <c>repeatedLines</c>
-/// counts the lines left out as running titles, page numbers or footers, <c>leftOutLines</c> the lines with words only in
-/// columns the mapping leaves out (all three absent in a report stored before they were recorded).
+/// counts the lines left out as running titles, page numbers or footers and <c>repeatedTexts</c> lists their texts (the
+/// first 20), <c>leftOutLines</c> the lines with words only in columns the mapping leaves out (absent in a report stored
+/// before they were recorded).
 /// </summary>
 public sealed record TablePageReportDto(
     int Page,
@@ -144,7 +145,8 @@ public sealed record TablePageReportDto(
     double? Bottom = null,
     IReadOnlyList<string>? Headings = null,
     int? RepeatedLines = null,
-    int? LeftOutLines = null);
+    int? LeftOutLines = null,
+    IReadOnlyList<string>? RepeatedTexts = null);
 
 /// <summary>The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page.</summary>
 public sealed record TableReportDto(int Rows, int RejectedRows, IReadOnlyList<int> Pages, IReadOnlyList<int> PagesWithoutRows, int? StoppedOnPage, IReadOnlyList<TablePageReportDto> PerPage);

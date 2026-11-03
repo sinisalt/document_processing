@@ -67,7 +67,7 @@ describe("TablePageStrip", () => {
     const onSkipLine = vi.fn();
     const withHeadings: TableReport = {
       ...report,
-      perPage: [{ ...report.perPage[0]!, headings: ["Nordwind Preisliste 2027 Fortsetzung"], repeatedLines: 2, leftOutLines: 1 }, ...report.perPage.slice(1)],
+      perPage: [{ ...report.perPage[0]!, headings: ["Nordwind Preisliste 2027 Fortsetzung"], repeatedLines: 2, leftOutLines: 1, repeatedTexts: ["Nordwind Großhandel GmbH · Preisliste 2027", "Seite 1 von 14"] }, ...report.perPage.slice(1)],
     };
     render(<TablePageStrip report={withHeadings} currentPage={1} onSkipLine={onSkipLine} />);
     const headings = screen.getByTestId("table-headings");
@@ -78,12 +78,31 @@ describe("TablePageStrip", () => {
     const leftOut = screen.getByTestId("table-left-out");
     expect(leftOut).toHaveTextContent("2 lines printed at the same place on most pages (running titles, page numbers, footers) were left out.");
     expect(leftOut).toHaveTextContent("1 line with text only in columns left out was skipped.");
+    // What was left out is named, not only counted.
+    const repeated = screen.getByTestId("table-repeated");
+    expect(repeated).toHaveTextContent("Left out on page 1:");
+    expect(within(repeated).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Nordwind Großhandel GmbH · Preisliste 2027", "Seite 1 von 14"]);
+  });
+
+  it("counts one row, one rejected line and one page in the singular", () => {
+    const one: TableReport = {
+      rows: 1,
+      rejectedRows: 1,
+      pages: [1],
+      pagesWithoutRows: [],
+      stoppedOnPage: null,
+      perPage: [{ ...report.perPage[0]!, rows: 1, rejected: 1, rejectedLines: [] }],
+    };
+    render(<TablePageStrip report={one} currentPage={1} />);
+    expect(screen.getByTestId("table-totals")).toHaveTextContent(/^1 row, 1 rejected, 1 page read$/);
+    expect(screen.getByTestId("strip-page-1")).toHaveTextContent(/^p\. 1: 1 row, 1 rejected$/);
   });
 
   it("shows neither for a page without them, or a report stored before they were recorded", () => {
     render(<TablePageStrip report={report} currentPage={1} />);
     expect(screen.queryByTestId("table-headings")).toBeNull();
     expect(screen.queryByTestId("table-left-out")).toBeNull();
+    expect(screen.queryByTestId("table-repeated")).toBeNull();
   });
 });
 

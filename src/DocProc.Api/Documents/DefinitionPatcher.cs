@@ -41,8 +41,29 @@ public static partial class DefinitionPatcher
     /// <summary>The operations this patcher applies.</summary>
     public static readonly IReadOnlyList<string> Operations = [CorrectionOps.Set, CorrectionOps.Append, CorrectionOps.Remove, CorrectionOps.Move];
 
-    /// <summary>The most rows an append may grow a repeating group to when the definition sets no <c>maxItems</c>.</summary>
+    /// <summary>The most rows an append or a <c>set</c> may give a top-level repeating group when the definition sets no <c>maxItems</c>.</summary>
     public const int DefaultMaxRows = 20_000;
+
+    /// <summary>
+    /// The most rows a repeating group inside a row (a price list's <c>tiers</c>) may hold when the definition sets no
+    /// <c>maxItems</c>: a row's tiers are a handful, never thousands.
+    /// </summary>
+    public const int DefaultMaxNestedRows = 100;
+
+    /// <summary>
+    /// The most rows a document's tree may hold across all its repeating groups, nested ones included (10,000 lines
+    /// with up to nine tiers each). Each group's own cap holds as well; this one keeps the product of the two (every
+    /// line with the most tiers) from making one correction write a tree of hundreds of megabytes.
+    /// </summary>
+    public const int MaxTreeRows = 100_000;
+
+    /// <summary>The cap on the rows of <paramref name="field"/>: its <c>maxItems</c>, or the default for a top-level or a nested group.</summary>
+    public static int MaxRowsOf(FieldDescriptor field, string definitionPath)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ArgumentNullException.ThrowIfNull(definitionPath);
+        return field.MaxItems ?? (definitionPath.Contains("[*]", StringComparison.Ordinal) ? DefaultMaxNestedRows : DefaultMaxRows);
+    }
 
     /// <summary>
     /// Applies every correction in order and returns the new JSON; throws <see cref="CanonicalPatchException"/> (and
@@ -125,7 +146,55 @@ public static partial class DefinitionPatcher
             $"The corrections would leave a document the invoice record cannot read{(at is null ? string.Empty : $" (at {at})")}; nothing was changed. {problem}");
     }
 
-    private sealed record Context(DescriptorIndex Descriptors, JsonObject Root, string By, DateTimeOffset At, string? FallbackCurrency, bool TypedRecord);
+    private sealed record Context(DescriptorIndex Descriptors, JsonObject Root, string By, DateTimeOffset At, string? FallbackCurrency, bool TypedRecord)
+    {
+        /// <summary>The rows the tree holds now across every repeating group (<see cref="CountRows"/>), counted once and kept up to date; null until counted.</summary>
+        public int? TreeRows { get; set; }
+    }
+
+    /// <summary>The rows of every repeating group in <paramref name="node"/>, nested groups included.</summary>
+    private static int CountRows(JsonNode? node)
+    {
+        var count = 0;
+        switch (node)
+        {
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    if (item is JsonObject row && !DefinitionTree.IsEnvelope(row))
+                    {
+                        count += 1 + CountRows(row);
+                    }
+                }
+
+                break;
+            case JsonObject fields when !DefinitionTree.IsEnvelope(fields):
+                foreach (var (_, child) in fields)
+                {
+                    if (child is JsonArray or JsonObject)
+                    {
+                        count += CountRows(child);
+                    }
+                }
+
+                break;
+        }
+
+        return count;
+    }
+
+    /// <summary>Refuses a change that would leave the tree with more than <see cref="MaxTreeRows"/> rows, and records the new count.</summary>
+    private static void TakeRows(Context context, string path, int removed, int added)
+    {
+        var now = context.TreeRows ??= CountRows(context.Root);
+        var after = now - removed + added;
+        if (added > removed && after > MaxTreeRows)
+        {
+            throw new CanonicalPatchException(path, $"The document would hold {after.ToString(CultureInfo.InvariantCulture)} rows across its repeating groups, more than the {MaxTreeRows.ToString(CultureInfo.InvariantCulture)} a document may hold.");
+        }
+
+        context.TreeRows = after;
+    }
 
     private static AppliedCorrection ApplyOne(Context context, FieldCorrection correction)
     {
@@ -195,6 +264,7 @@ public static partial class DefinitionPatcher
 
                     var removed = rows[segment.Index.Value];
                     rows.RemoveAt(segment.Index.Value);
+                    context.TreeRows = null;
                     return new AppliedCorrection(path, removed?.ToJsonString(), null, correction.Reason, op, correction.Source);
                 }
 
@@ -494,11 +564,13 @@ public static partial class DefinitionPatcher
 
     private static AppliedCorrection AppendRow(Context context, string path, JsonArray rows, FieldDescriptor field, string definitionPath, FieldCorrection correction)
     {
-        var max = field.MaxItems ?? DefaultMaxRows;
+        var max = MaxRowsOf(field, definitionPath);
         if (rows.Count >= max)
         {
             throw new CanonicalPatchException(path, $"'{field.Key}' already has {rows.Count} rows, the most it may have.");
         }
+
+        TakeRows(context, path, removed: 0, added: 1);
 
         var row = DefinitionTree.EmptyRow(context.Descriptors, definitionPath);
         if (context.Descriptors.Find($"{definitionPath}[*].{LineNumberKey}") is { Provenance: false, Kind: FieldKinds.Integer })

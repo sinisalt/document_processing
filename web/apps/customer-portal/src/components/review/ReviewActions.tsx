@@ -39,13 +39,15 @@ export interface ReviewActionsProps {
   onDecided?: () => void;
   /** The UI language, for type names. */
   locale?: string;
+  /** A tenant admin: "create supplier from this document" also sets the e-mail domain (docs/11 §14), which a reviewer leaves to the admin. */
+  canManageSuppliers?: boolean;
 }
 
 /** Which of the review actions' dialogs is open (docs/11 §19 "ReviewActions gains"). */
 type ActionDialog = "setType" | "assignSupplier" | "createSupplier" | "split" | "join" | null;
 
 /** Approve, Reject (with a required reason) and Reprocess (from a stage) with their confirmations. */
-export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided, locale = "en" }: ReviewActionsProps) {
+export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided, locale = "en", canManageSuppliers = false }: ReviewActionsProps) {
   const { t } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
@@ -256,7 +258,7 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
       )}
       <SetTypeDialog document={document} locale={locale} open={dialog === "setType"} onOpenChange={(open) => setDialog(open ? "setType" : null)} />
       <AssignSupplierDialog document={document} open={dialog === "assignSupplier"} onOpenChange={(open) => setDialog(open ? "assignSupplier" : null)} onCreate={() => setDialog("createSupplier")} />
-      {dialog === "createSupplier" && <CreateSupplierDialog document={document} open onOpenChange={(open) => setDialog(open ? "createSupplier" : null)} />}
+      {dialog === "createSupplier" && <CreateSupplierDialog document={document} open onOpenChange={(open) => setDialog(open ? "createSupplier" : null)} canManageSuppliers={canManageSuppliers} />}
       {dialog === "split" && <SplitDialog document={document} locale={locale} open onOpenChange={(open) => setDialog(open ? "split" : null)} />}
       {dialog === "join" && <JoinDialog document={document} open onOpenChange={(open) => setDialog(open ? "join" : null)} />}
       {approvalBlocked !== null && canDecide(document.status) && (

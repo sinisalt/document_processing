@@ -234,8 +234,22 @@ export function supplierDraftOf(document: DocumentDetail): { name: string; vatId
   return { name: text("name") || (document.supplierName ?? ""), vatId: text("vatId"), iban: text("iban"), emailDomain: email.includes("@") ? email.split("@")[1]! : "" };
 }
 
-/** `:create-supplier` (docs/11 §14): a new supplier from the document's supplier party, created and assigned in one save. */
-export function CreateSupplierDialog({ document, open, onOpenChange }: { document: DocumentDetail; open: boolean; onOpenChange: (open: boolean) => void }) {
+/**
+ * `:create-supplier` (docs/11 §14): a new supplier from the document's supplier party, created and assigned in one save.
+ * A reviewer gives the name and the identifiers printed on the document; the e-mail domain, which steers the matching of
+ * every later document, is a tenant admin's (`canManageSuppliers`), as the API requires.
+ */
+export function CreateSupplierDialog({
+  document,
+  open,
+  onOpenChange,
+  canManageSuppliers = false,
+}: {
+  document: DocumentDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  canManageSuppliers?: boolean;
+}) {
   const { t } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
@@ -255,7 +269,7 @@ export function CreateSupplierDialog({ document, open, onOpenChange }: { documen
             vatId: vatId.trim() || null,
             taxId: null,
             ibans: iban.trim() ? [iban.trim()] : null,
-            emailDomains: domain.trim() ? [domain.trim()] : null,
+            emailDomains: canManageSuppliers && domain.trim() ? [domain.trim()] : null,
             aliases: null,
             alwaysReview: null,
             defaultCurrency: null,
@@ -296,10 +310,16 @@ export function CreateSupplierDialog({ document, open, onOpenChange }: { documen
             <Label htmlFor="new-supplier-iban">{t("review.supplier.iban")}</Label>
             <Input id="new-supplier-iban" value={iban} onChange={(event) => setIban(event.target.value)} />
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor="new-supplier-domain">{t("review.supplier.emailDomain")}</Label>
-            <Input id="new-supplier-domain" value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="nordwind.example" />
-          </div>
+          {canManageSuppliers ? (
+            <div className="grid gap-1">
+              <Label htmlFor="new-supplier-domain">{t("review.supplier.emailDomain")}</Label>
+              <Input id="new-supplier-domain" value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="nordwind.example" />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="create-supplier-admin-note">
+              {t("review.supplier.adminOnly")}
+            </p>
+          )}
           <DialogFooter>
             <Button type="submit" disabled={!name.trim() || create.isPending} data-testid="create-supplier-submit">
               {create.isPending ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}

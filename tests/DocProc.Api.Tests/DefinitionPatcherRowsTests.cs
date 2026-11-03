@@ -102,6 +102,45 @@ public sealed class DefinitionPatcherRowsTests
         Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(capped.Descriptors, tree, [new FieldCorrection("lines", four, null)], "anna", At, "EUR")).Message.ShouldContain("at most 3");
     }
 
+    /// <summary>A <c>set</c> of <paramref name="lines"/> empty lines with <paramref name="tiers"/> empty tiers each, as the JSON a PATCH body carries.</summary>
+    private static JsonElement EmptyLines(int lines, int tiers)
+    {
+        var line = "{\"tiers\":[" + string.Join(',', Enumerable.Repeat("{}", tiers)) + "]}";
+        return JsonDocument.Parse("[" + string.Join(',', Enumerable.Repeat(line, lines)) + "]").RootElement.Clone();
+    }
+
+    [Fact]
+    public void A_group_inside_a_row_without_max_items_holds_a_handful_of_rows_and_the_tree_a_bounded_number_in_all()
+    {
+        // std.price-list caps lines at 10,000 and leaves tiers without maxItems. Without a nested cap, 50 lines of 20,000
+        // empty tiers (a 3 MB body) made one correction write a tree of 92 MB; they are refused before a row is built.
+        var tree = DefinitionTree.CreateEmpty(PriceList.Descriptors).ToJsonString();
+        PriceList.Descriptors.Find("lines[*].tiers").ShouldNotBeNull().MaxItems.ShouldBeNull();
+        DefinitionPatcher.MaxRowsOf(PriceList.Descriptors.Find("lines[*].tiers")!, "lines[*].tiers").ShouldBe(DefinitionPatcher.DefaultMaxNestedRows);
+        DefinitionPatcher.MaxRowsOf(PriceList.Descriptors.Find("lines")!, "lines").ShouldBe(10_000);
+
+        var attack = Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, tree, [new FieldCorrection("lines", EmptyLines(50, 20_000), null)], "anna", At, "EUR"));
+        attack.Path.ShouldBe("lines[0].tiers");
+        attack.Message.ShouldContain($"at most {DefinitionPatcher.DefaultMaxNestedRows}");
+        Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, tree, [new FieldCorrection("lines", EmptyLines(2, DefinitionPatcher.DefaultMaxNestedRows + 1), null)], "anna", At, "EUR")).Path.ShouldBe("lines[0].tiers");
+        DefinitionPatcher.Apply(PriceList.Descriptors, tree, [new FieldCorrection("lines", EmptyLines(2, DefinitionPatcher.DefaultMaxNestedRows), null)], "anna", At, "EUR").Applied.Count.ShouldBe(1);
+
+        // Every group within its cap, but the rows in all past the tree's: 10,000 lines of 11 tiers are 120,000 rows.
+        var many = Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, tree, [new FieldCorrection("lines", EmptyLines(10_000, 11), null)], "anna", At, "EUR"));
+        many.Message.ShouldContain("120000 rows");
+        many.Message.ShouldContain($"{DefinitionPatcher.MaxTreeRows}");
+
+        // The table tool's write is held to the same caps.
+        var row = Row("1", 1, tiers: [.. Enumerable.Range(1, DefinitionPatcher.DefaultMaxNestedRows + 1).Select(i => ((decimal)i, 1m))]);
+        Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.SetRows(PriceList.Descriptors, tree, "lines", [row], "anna", At, "EUR")).Path.ShouldBe("lines[0].tiers");
+
+        // An append to a nested group stops at its cap too.
+        var one = DefinitionPatcher.Apply(PriceList.Descriptors, tree, [new FieldCorrection("lines", EmptyLines(1, DefinitionPatcher.DefaultMaxNestedRows - 1), null)], "anna", At, "EUR").Json;
+        var full = DefinitionPatcher.Apply(PriceList.Descriptors, one, [new FieldCorrection("lines[0].tiers", null, null, CorrectionOps.Append)], "anna", At, "EUR").Json;
+        JsonNode.Parse(full)!["lines"]![0]!["tiers"]!.AsArray().Count.ShouldBe(DefinitionPatcher.DefaultMaxNestedRows);
+        Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, full, [new FieldCorrection("lines[0].tiers", null, null, CorrectionOps.Append)], "anna", At, "EUR")).Message.ShouldContain("the most it may have");
+    }
+
     [Fact]
     public void Set_rows_refuses_a_value_that_does_not_fit_its_field_and_changes_nothing()
     {

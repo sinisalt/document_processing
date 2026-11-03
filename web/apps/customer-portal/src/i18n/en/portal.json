@@ -395,6 +395,7 @@
       "vatId": "VAT ID",
       "iban": "IBAN",
       "emailDomain": "E-mail domain",
+      "adminOnly": "E-mail domains and aliases, which match later documents to this supplier, are added by a tenant admin under Suppliers.",
       "createSubmit": "Create and assign",
       "assigned": "Supplier {{name}} assigned.",
       "created": "Supplier {{name}} created and assigned."

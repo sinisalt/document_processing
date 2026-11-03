@@ -65,10 +65,12 @@ export interface ReviewScreenProps {
   canReview: boolean;
   threshold: number;
   locale: string;
+  /** A tenant admin (the supplier master data of "create supplier from this document"). */
+  canManageSuppliers?: boolean;
 }
 
 /** Remounted (by key) whenever the server's version of the document changes, so the form always starts from it. */
-export function ReviewScreen({ document, canReview, threshold, locale }: ReviewScreenProps) {
+export function ReviewScreen({ document, canReview, threshold, locale, canManageSuppliers = false }: ReviewScreenProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { client } = useApi();
@@ -419,7 +421,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                     {t("review.save.button")}
                   </Button>
                 )}
-                <ReviewActions document={document} approveOpen={approveOpen} onApproveOpenChange={setApproveOpen} hasUnsavedChanges={hasChanges} locale={locale} />
+                <ReviewActions document={document} approveOpen={approveOpen} onApproveOpenChange={setApproveOpen} hasUnsavedChanges={hasChanges} locale={locale} canManageSuppliers={canManageSuppliers} />
               </>
             ) : undefined
           }

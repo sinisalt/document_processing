@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using DocProc.Api.Documents;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,6 +65,55 @@ public sealed class TableToolLimitsTests(ApiFactory factory) : MapModeTestBase(f
         var options = Factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<TableToolOptions>>().Value;
         options.ReadBudget.ShouldBe(TimeSpan.FromSeconds(10));
         options.ConcurrentReadsPerTenant.ShouldBe(2);
+    }
+
+    [Fact]
+    public void The_table_tool_region_ocr_and_the_fields_patch_refuse_a_body_larger_than_a_legitimate_one()
+    {
+        _ = Factory.Server;
+        var endpoints = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+        foreach (var (name, limit) in new[]
+        {
+            ("ReadDocumentTable", TableCapture.MaxTableRequestBytes),
+            ("ReadDocumentRegion", TableCapture.MaxReadRequestBytes),
+            ("CorrectDocumentFields", DocProc.Api.Endpoints.DocumentEndpoints.MaxCorrectionsRequestBytes),
+        })
+        {
+            var endpoint = endpoints.Single(e => e.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == name);
+            endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>().ShouldNotBeNull(name).MaxRequestBodySize.ShouldBe(limit, name);
+        }
+    }
+
+    [Fact]
+    public void A_pages_expression_longer_than_its_bound_is_refused_before_it_is_parsed()
+    {
+        // Ten million characters of "*," cost seconds and gigabytes before the read budget started.
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        TableCapture.Pages(string.Concat(Enumerable.Repeat("*,", 5_000_000)), 1, 14, errors).ShouldBeNull();
+        errors["pages"].ShouldHaveSingleItem().ShouldContain($"at most {TableCapture.MaxPagesLength} characters");
+
+        errors.Clear();
+        var bound = string.Concat(Enumerable.Repeat("*,", TableCapture.MaxPagesLength / 2));
+        bound.Length.ShouldBe(TableCapture.MaxPagesLength);
+        TableCapture.Pages(bound, 1, 14, errors).ShouldBe(Enumerable.Range(1, 14));
+        errors.ShouldBeEmpty();
+        TableCapture.Pages(bound + "1", 1, 14, errors).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_fields_patch_with_more_corrections_than_one_request_carries_is_refused()
+    {
+        var tenant = NewTenant("Corrections per request");
+        var id = await SeedAsync(tenant, PriceListPages.Layer(pages: 1, rowsPerPage: 1), pages: 1);
+        using var reviewer = Reviewer(tenant);
+        await SetTypeAsync(reviewer, id);
+        var corrections = Enumerable.Range(0, DocProc.Api.Endpoints.DocumentEndpoints.MaxCorrectionsPerRequest + 1).Select(_ => new { path = "title", value = "Preisliste" }).ToArray();
+
+        var response = await reviewer.PatchAsJsonAsync(Doc(id, "/fields"), new { corrections }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+        (await ProblemOf(response)).GetProperty("errors").GetProperty("corrections")[0].GetString()!.ShouldContain($"At most {DocProc.Api.Endpoints.DocumentEndpoints.MaxCorrectionsPerRequest}");
+        Factory.Query(db => db.Corrections.Count(c => c.DocumentId == id && c.FieldPath == "title")).ShouldBe(0);
     }
 }
 

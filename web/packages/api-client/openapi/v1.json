@@ -968,7 +968,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14).",
+        "summary": "Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403).",
         "operationId": "CreateSupplierFromDocument",
         "parameters": [
           {
@@ -7396,9 +7396,18 @@
               "string"
             ],
             "format": "int32"
+          },
+          "repeatedTexts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its\nfirst three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header\nrow, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the\ngroup headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`\ncounts the lines left out as running titles, page numbers or footers, `leftOutLines` the lines with words only in\ncolumns the mapping leaves out (all three absent in a report stored before they were recorded)."
+        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its\nfirst three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header\nrow, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the\ngroup headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`\ncounts the lines left out as running titles, page numbers or footers and `repeatedTexts` lists their texts (the\nfirst 20), `leftOutLines` the lines with words only in columns the mapping leaves out (absent in a report stored\nbefore they were recorded)."
       },
       "TableRejectedLineDto": {
         "required": [

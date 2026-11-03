@@ -664,7 +664,9 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    drawn on the page, and the three required flags resolve.
 5. **Supplier.** More > Create supplier from this document: the dialog is filled from the supplier party
    (Nordwind Großhandel GmbH); Create and assign. `SUPPLIER_UNMATCHED` resolves and the header names the supplier.
-   More > Assign supplier picks an existing one instead.
+   More > Assign supplier picks an existing one instead. A reviewer gives the name and the identifiers printed on the
+   document (VAT id, IBAN); the dialog says that e-mail domains and aliases are added by a tenant admin under
+   Suppliers, and offers the e-mail domain only to `tenant-a-admin` (the API answers 403 to a reviewer who sends one).
 6. **The table, once.** Click Table in the toolbar (the Table tab opens) and drag a box on page 1 from just above and
    left of "Art.-Nr." down to just above the footer rule and across to the right of "ab 50". The proposal names the
    columns Article no., Description, Pack as printed, Price, Tier price from 10 and Tier price from 50 and draws the
@@ -678,15 +680,17 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    strip (also after a reload).
    A box drawn down to the foot of the page holds the footer of every page. It is printed at the same place on all 14
    pages, so it is left out by itself: still `412 rows, 0 rejected`, and each page says "2 lines printed at the same
-   place on most pages (running titles, page numbers, footers) were left out." Lines inside the box that are not rows
-   and do not repeat go under "Lines that are not rows" with their reason; "Leave out lines like …" beside a rejected
+   place on most pages (running titles, page numbers, footers) were left out." and lists them under "Left out on page
+   n". A group heading that opens most pages for another category than the rows above it is read as a heading, not
+   left out. Lines inside the box that are not rows and do not repeat go under "Lines that are not rows" with their reason; "Leave out lines like …" beside a rejected
    line (or beside a heading under "Group headings on page n", where a title printed on one page only shows up) adds a
    skip line for that kind of line only, so a footer of two different lines needs two clicks; typing the start of a
    line under "Leave out lines that start with" (a number stands for any number) does the same, and "On the other
    pages, read the part of the page from … to … %" cuts off running titles and footers by position instead. A box
    drawn only around the header row reads every page down to its foot (or the bottom margin). Choosing "(leave out)"
    for a tier column leaves its prices out of the rows, and its words out of every decision.
-   A reprocess from Classify (Reprocess, From stage = Classify) keeps the type set in review, and with it the rows.
+   A reprocess from Classify (Reprocess, From stage = Classify) keeps the type set in review, and with it the rows,
+   and raises no `UNSUPPORTED_TYPE` again (the reviewer set the type and fills it).
 7. **Approve by hand.** Approve: no open flag is left, and the document is Approved. Price lists are always reviewed in
    this phase (`review.autoApprove: false`, docs/11 §5.8).
 

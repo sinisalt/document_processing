@@ -21,7 +21,8 @@ export interface TablePageStripProps {
  * The table report as a page strip (docs/11 §12.4): the totals, then one chip per page read ("p. 1: 22 rows",
  * "p. 7: 2 rejected", "p. 12: no rows"), the rejected lines of the current page with their text and reason, the group
  * headings read on it (a running title or a footer taken for a heading shows there, to be left out), and how many
- * lines were left out by themselves (printed at the same place on most pages) or skipped (text only in left-out columns).
+ * lines were left out by themselves (printed at the same place on most pages, each listed by its text) or skipped (text
+ * only in left-out columns).
  */
 export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected, onSkipLine, className }: TablePageStripProps) {
   const { t } = useTranslation(REVIEW_NS);
@@ -32,11 +33,16 @@ export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected
   const rejectedCount = Number(here?.rejected ?? 0);
   const headings = here?.headings ?? [];
   const repeated = Number(here?.repeatedLines ?? 0);
+  const repeatedTexts = here?.repeatedTexts ?? [];
   const leftOut = Number(here?.leftOutLines ?? 0);
   return (
     <section className={cn("flex flex-col gap-2", className)} aria-label={t("table.strip.label")} data-testid="table-page-strip">
       <p className="text-sm" data-testid="table-totals" data-rows={totals.rows} data-rejected={totals.rejected}>
-        {t("table.strip.totals", { rows: totals.rows, rejected: totals.rejected, pages: totals.pages })}
+        {t("table.strip.totals", {
+          rows: t("table.strip.rowCount", { count: totals.rows }),
+          rejected: t("table.strip.rejectedCount", { count: totals.rejected }),
+          pages: t("table.strip.pagesRead", { count: totals.pages }),
+        })}
         {totals.pagesWithoutRows > 0 && <span className="ml-1 text-muted-foreground">{t("table.strip.pagesWithoutRows", { count: totals.pagesWithoutRows })}</span>}
       </p>
       <ol className="flex flex-wrap gap-1" aria-label={t("table.strip.pages")}>
@@ -57,7 +63,7 @@ export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected
               {entry.status === "empty"
                 ? t("table.strip.noRows", { page: entry.page })
                 : entry.status === "rejected"
-                  ? t("table.strip.rejected", { page: entry.page, rows: entry.rows, count: entry.rejected })
+                  ? t("table.strip.rejected", { page: entry.page, rows: t("table.strip.rowCount", { count: entry.rows }), count: entry.rejected })
                   : t("table.strip.rows", { page: entry.page, count: entry.rows })}
             </Button>
           </li>
@@ -129,6 +135,18 @@ export function TablePageStrip({ report, currentPage, onPickPage, onPickRejected
           {repeated > 0 && leftOut > 0 && " "}
           {leftOut > 0 && t("table.strip.leftOutLines", { count: leftOut })}
         </p>
+      )}
+      {repeatedTexts.length > 0 && (
+        <div className="rounded-md border p-2" data-testid="table-repeated">
+          <p className="mb-1 text-xs text-muted-foreground">{t("table.strip.repeatedTexts", { page: currentPage })}</p>
+          <ul className="flex flex-col gap-1">
+            {repeatedTexts.map((text, index) => (
+              <li key={index} className="px-1 font-mono text-xs text-muted-foreground">
+                {text}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

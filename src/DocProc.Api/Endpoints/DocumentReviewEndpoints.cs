@@ -67,7 +67,7 @@ public static partial class DocumentEndpoints
         documents.MapPost("/{id:guid}:create-supplier", CreateSupplierAsync)
             .RequireAuthorization(Policies.Review)
             .WithName("CreateSupplierFromDocument")
-            .WithSummary("Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14).");
+            .WithSummary("Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403).");
 
         documents.MapPost("/{id:guid}:split", SplitAsync)
             .RequireAuthorization(Policies.Review)
@@ -320,6 +320,17 @@ public static partial class DocumentEndpoints
             return scope;
         }
 
+        // Separation of duties (docs/11 §14): a reviewer creates the supplier the document names, with the name and the
+        // identifiers printed on it; email domains, aliases and alwaysReview, which steer the Match stage and the review
+        // of every later document of the tenant, stay master data of a tenant admin (POST /suppliers, PATCH /suppliers/{id}).
+        if (!Policies.Satisfies(user, Policies.TenantAdmin) && AdminOnlySupplierFields(request) is { Count: > 0 } adminOnly)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Tenant admin only",
+                detail: $"A reviewer creates a supplier with its name, VAT id, tax id, IBANs and currency; {string.Join(", ", adminOnly)} are set by a tenant admin under Suppliers.");
+        }
+
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
         if (row is null)
         {
@@ -355,6 +366,28 @@ public static partial class DocumentEndpoints
         await RecheckAsync(db, document, configs, validator, now, ct);
         var detail = await FreshDetailAsync(db, id, configs, features, ct);
         return TypedResults.Created($"/api/v1/suppliers/{supplier.Id}", new SupplierFromReviewResponse(SupplierResponse.From(supplier), detail));
+    }
+
+    /// <summary>The members of a <c>:create-supplier</c> body only a tenant admin may set.</summary>
+    private static List<string> AdminOnlySupplierFields(CreateSupplierRequest request)
+    {
+        var fields = new List<string>();
+        if (request.EmailDomains is { Count: > 0 })
+        {
+            fields.Add("emailDomains");
+        }
+
+        if (request.Aliases is { Count: > 0 })
+        {
+            fields.Add("aliases");
+        }
+
+        if (request.AlwaysReview is not null)
+        {
+            fields.Add("alwaysReview");
+        }
+
+        return fields;
     }
 
     private static async Task<Results<Accepted<SplitDocumentResponse>, ValidationProblem, ProblemHttpResult>> SplitAsync(

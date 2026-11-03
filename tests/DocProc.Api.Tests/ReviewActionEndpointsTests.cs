@@ -404,6 +404,43 @@ public sealed class ReviewActionEndpointsTests(ApiFactory factory) : IClassFixtu
     }
 
     [Fact]
+    public async Task Create_supplier_from_review_leaves_email_domains_aliases_and_always_review_to_a_tenant_admin()
+    {
+        // Separation of duties (docs/11 §14): what steers the Match stage and the review of later documents beyond the
+        // identifiers printed on the document is master data of a tenant admin, as with POST /suppliers.
+        var tenant = NewTenant("Create supplier roles", configurable: true);
+        var id = await SeedUnknownAsync(tenant);
+        using var reviewer = Reviewer(tenant);
+        foreach (var (request, field) in new[]
+        {
+            (new CreateSupplierRequest("Nordwind Großhandel GmbH", null, null, null, ["nordwind.example"], null, null, null), "emailDomains"),
+            (new CreateSupplierRequest("Nordwind Großhandel GmbH", null, null, null, null, ["Nordwind"], null, null), "aliases"),
+            (new CreateSupplierRequest("Nordwind Großhandel GmbH", null, null, null, null, null, null, false), "alwaysReview"),
+        })
+        {
+            var refused = await reviewer.PostAsJsonAsync(Doc(id, ":create-supplier"), request, Ct);
+            refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden, field);
+            (await ProblemOf(refused)).GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain(field);
+        }
+
+        factory.Query(db => db.Suppliers.Count(s => s.TenantId == tenant)).ShouldBe(0, "nothing was created");
+        factory.Query(db => db.Documents.Single(d => d.Id == id).SupplierId).ShouldBeNull();
+
+        // The name and the identifiers printed on the document are the reviewer's.
+        var printed = await reviewer.PostAsJsonAsync(Doc(id, ":create-supplier"), new CreateSupplierRequest("Nordwind Großhandel GmbH", "DE 811 111 111", "12/345/67890", ["DE89 3704 0044 0532 0130 00"], [], [], "EUR", null), Ct);
+        printed.StatusCode.ShouldBe(HttpStatusCode.Created, await printed.Content.ReadAsStringAsync(Ct));
+
+        // A tenant admin sets the rest.
+        var second = await SeedUnknownAsync(tenant);
+        using var admin = factory.ClientFor(new TokenSpec("adm-" + tenant.ToString("N")[..8], [Roles.TenantAdmin], tenant.ToString()));
+        var full = await admin.PostAsJsonAsync(Doc(second, ":create-supplier"), new CreateSupplierRequest("Südhof Feinkost", null, null, null, ["suedhof.example"], ["Suedhof"], null, true), Ct);
+        full.StatusCode.ShouldBe(HttpStatusCode.Created, await full.Content.ReadAsStringAsync(Ct));
+        var created = (await full.Content.ReadFromJsonAsync<SupplierFromReviewResponse>(ApiFactory.Json, Ct))!;
+        created.Supplier.EmailDomains.ShouldBe(["suedhof.example"]);
+        created.Supplier.AlwaysReview.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Split_cuts_the_pages_into_documents_of_the_same_attachment_and_join_puts_them_back()
     {
         var tenant = NewTenant("Split and join", configurable: true);

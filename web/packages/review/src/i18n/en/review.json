@@ -441,13 +441,19 @@
     "strip": {
       "label": "Table report",
       "pages": "Pages",
-      "totals": "{{rows}} rows, {{rejected}} rejected, {{pages}} pages read",
+      "totals": "{{rows}}, {{rejected}}, {{pages}}",
+      "rowCount_one": "{{count}} row",
+      "rowCount_other": "{{count}} rows",
+      "rejectedCount_one": "{{count}} rejected",
+      "rejectedCount_other": "{{count}} rejected",
+      "pagesRead_one": "{{count}} page read",
+      "pagesRead_other": "{{count}} pages read",
       "pagesWithoutRows_one": "({{count}} page without rows)",
       "pagesWithoutRows_other": "({{count}} pages without rows)",
       "rows_one": "p. {{page}}: {{count}} row",
       "rows_other": "p. {{page}}: {{count}} rows",
-      "rejected_one": "p. {{page}}: {{rows}} rows, {{count}} rejected",
-      "rejected_other": "p. {{page}}: {{rows}} rows, {{count}} rejected",
+      "rejected_one": "p. {{page}}: {{rows}}, {{count}} rejected",
+      "rejected_other": "p. {{page}}: {{rows}}, {{count}} rejected",
       "noRows": "p. {{page}}: no rows",
       "headerFound": "The header row was found on this page",
       "headerReused": "No header row on this page: the dividers of the page before were used",
@@ -459,7 +465,8 @@
       "repeatedLines_one": "{{count}} line printed at the same place on most pages (a running title, page number or footer) was left out.",
       "repeatedLines_other": "{{count}} lines printed at the same place on most pages (running titles, page numbers, footers) were left out.",
       "leftOutLines_one": "{{count}} line with text only in columns left out was skipped.",
-      "leftOutLines_other": "{{count}} lines with text only in columns left out were skipped."
+      "leftOutLines_other": "{{count}} lines with text only in columns left out were skipped.",
+      "repeatedTexts": "Left out on page {{page}}:"
     },
     "reasons": {
       "unreadable": "unreadable",

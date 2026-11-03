@@ -46,12 +46,14 @@ public static partial class DocumentEndpoints
 
         documents.MapPost("/{id:guid}/regions:read", ReadRegionAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(TableCapture.MaxReadRequestBytes))
             .RequireRateLimiting(TableCapture.RateLimitPolicy)
             .WithName("ReadDocumentRegion")
             .WithSummary("Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. A few reads run at a time per tenant (429 beyond).");
 
         documents.MapPost("/{id:guid}/regions:table", ReadTableAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(TableCapture.MaxTableRequestBytes))
             .RequireRateLimiting(TableCapture.RateLimitPolicy)
             .WithName("ReadDocumentTable")
             .WithSummary("The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. One read has a time budget (422 TABLE_READ_TOO_SLOW past it), and a few run at a time per tenant (429 beyond).");

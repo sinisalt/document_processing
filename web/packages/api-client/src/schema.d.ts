@@ -274,7 +274,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). */
+        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403). */
         post: operations["CreateSupplierFromDocument"];
         delete?: never;
         options?: never;
@@ -2088,8 +2088,9 @@ export interface components {
          *     first three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header
          *     row, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the
          *     group headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`
-         *     counts the lines left out as running titles, page numbers or footers, `leftOutLines` the lines with words only in
-         *     columns the mapping leaves out (all three absent in a report stored before they were recorded).
+         *     counts the lines left out as running titles, page numbers or footers and `repeatedTexts` lists their texts (the
+         *     first 20), `leftOutLines` the lines with words only in columns the mapping leaves out (absent in a report stored
+         *     before they were recorded).
          */
         TablePageReportDto: {
             /** Format: double */
@@ -2114,6 +2115,7 @@ export interface components {
             rejectedLines: components["schemas"]["TableRejectedLineDto"][];
             /** Format: int32 */
             repeatedLines?: null | number | string;
+            repeatedTexts?: null | string[];
             /** Format: int32 */
             rows: number | string;
             /** Format: int32 */

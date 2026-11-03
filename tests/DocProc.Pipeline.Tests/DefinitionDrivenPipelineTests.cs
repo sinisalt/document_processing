@@ -198,6 +198,8 @@ public sealed class DefinitionDrivenPipelineTests
         kept["lines"]![0]!["description"]!["value"]!.GetValue<string>().ShouldBe("Rioja Crianza");
         (await host.WithDbAsync(db => db.DocumentTableReports.CountAsync(r => r.DocumentId == document.Id))).ShouldBe(1);
         host.Llm.Remaining.ShouldBe(1, "the classifier was not asked for a type a reviewer set");
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.UnsupportedType && f.ResolvedAt == null, "the type the pipeline found had no extraction path");
+        after.Flags.ShouldNotContain(f => f.Code == FlagCodes.UnsupportedType && f.ResolvedAt == null, "the reviewer set the type and fills it: no warning comes back with a reprocess");
         (await host.EventsAsync(document.Id)).Last(e => e.ToStatus == DocumentStatus.Classified).DetailsJson.ShouldNotBeNull().ShouldContain("\"kept\":true");
 
         // A type the pipeline found itself is classified again, as before.

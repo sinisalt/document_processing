@@ -23,7 +23,8 @@ public static partial class DefinitionPatcher
     /// Replaces every row of the top-level repeating group <paramref name="path"/> with <paramref name="rows"/> as one
     /// correction (docs/11 §12.4 "the result is written as one Correction with op <c>set</c> on <c>lines</c>"): each
     /// value is converted by its field's kind and stored with its own place on the page (<see cref="CapturedCell.Source"/>),
-    /// the group's <c>maxItems</c> (or <see cref="DefaultMaxRows"/>) holds, and the audit record carries the rows' values
+    /// the group's <c>maxItems</c> (or <see cref="DefaultMaxRows"/>, <see cref="DefaultMaxNestedRows"/> for a group inside
+    /// a row) holds, so does <see cref="MaxTreeRows"/> for the whole tree, and the audit record carries the rows' values
     /// before and after. Every other field of the tree stays as stored. Throws <see cref="CanonicalPatchException"/> and
     /// changes nothing when a row does not fit.
     /// </summary>
@@ -124,19 +125,54 @@ public static partial class DefinitionPatcher
     private static AppliedCorrection ReplaceRows(Context context, JsonObject owner, string path, string definitionPath, FieldDescriptor field, IReadOnlyList<CapturedRow> rows, string? reason, CorrectionSource? source)
     {
         var old = owner[field.Key] as JsonArray;
+        // Counted before anything is built: every row, nested ones included, against the group's cap and the tree's.
+        CheckCaps(context, path, definitionPath, field, rows);
+        TakeRows(context, path, removed: CountRows(old), added: CountCaptured(rows));
         var oldValues = old is null ? null : RowValues(old).ToJsonString();
         var built = BuildRows(context, path, definitionPath, field, rows);
         owner[field.Key] = built;
         return new AppliedCorrection(path, oldValues, RowValues(built).ToJsonString(), reason, CorrectionOps.Set, source);
     }
 
-    private static JsonArray BuildRows(Context context, string path, string definitionPath, FieldDescriptor field, IReadOnlyList<CapturedRow> rows)
+    /// <summary>The rows given, nested ones included.</summary>
+    private static int CountCaptured(IReadOnlyList<CapturedRow> rows)
     {
-        var max = field.MaxItems ?? DefaultMaxRows;
+        var count = rows.Count;
+        foreach (var row in rows)
+        {
+            foreach (var (_, nested) in row.Groups ?? new Dictionary<string, IReadOnlyList<CapturedRow>>())
+            {
+                count += CountCaptured(nested);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Refuses rows beyond the cap of their group (<see cref="MaxRowsOf"/>), at every level, before any row is built.</summary>
+    private static void CheckCaps(Context context, string path, string definitionPath, FieldDescriptor field, IReadOnlyList<CapturedRow> rows)
+    {
+        var max = MaxRowsOf(field, definitionPath);
         if (rows.Count > max)
         {
             throw new CanonicalPatchException(path, $"{rows.Count.ToString(CultureInfo.InvariantCulture)} rows do not fit: '{field.Key}' holds at most {max.ToString(CultureInfo.InvariantCulture)}.");
         }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            foreach (var (name, nested) in rows[i].Groups ?? new Dictionary<string, IReadOnlyList<CapturedRow>>())
+            {
+                var groupPath = $"{definitionPath}[*].{name}";
+                if (context.Descriptors.Find(groupPath) is { Kind: FieldKinds.Array } group)
+                {
+                    CheckCaps(context, $"{path}[{i.ToString(CultureInfo.InvariantCulture)}].{name}", groupPath, group, nested);
+                }
+            }
+        }
+    }
+
+    private static JsonArray BuildRows(Context context, string path, string definitionPath, FieldDescriptor field, IReadOnlyList<CapturedRow> rows)
+    {
 
         var numbered = context.Descriptors.Find($"{definitionPath}[*].{LineNumberKey}") is { Provenance: false, Kind: FieldKinds.Integer };
         var array = new JsonArray();

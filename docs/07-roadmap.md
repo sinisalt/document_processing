@@ -810,8 +810,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       value" (`ReviewActionEndpointsTests`, `DefinitionStorageTests`);
     - running titles, page numbers and footers are left out by themselves (`repeatedLines: skip`, the default;
       `keep` reads them): a line above the first or below the last row of its page, printed at the same height with the
-      same text on at least half of the document's pages (two at least; a number that is the page number or the page
-      count stands for any), unless it reads as a row. A row with a value in the anchor column only (a footer or title
+      same text on at least half of the document's pages (two at least; a number matches when it is the same on both
+      pages or each page's own number, since the third review below), unless it reads as a row. A row with a value in the anchor column only (a footer or title
       printed there, or a heading read without group headings) is rejected as `anchorOnly`, not taken for an article.
       Each page of the report lists its group headings (`headings`) and counts the lines left out (`repeatedLines`,
       `leftOutLines`), and the page strip shows them for the page in view, with "Leave out lines like …" beside each
@@ -840,6 +840,33 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - docs/09's split and join of the demo invoice: joined back, the invoice is read from its fixture only while no other
       Bio-Hof Müller document is approved, because the extraction then carries the supplier's last approved document
       as hints and its request changes (`DemoFixtureTests`).
+  - Fixed after the third review of P2:
+    - a group heading that opens most pages at the same height ("Rotweine trocken" at the top of every page, then
+      "Weißweine trocken" further down) is read as a heading again, not left out as a running line: a line above the
+      page's first row that reads as a group heading for another category than the current one is never a running
+      line. Before, the rows under it took the category of the previous page's last heading, with nothing rejected. A
+      repeated heading of the category the rows already have is still left out, which changes nothing;
+    - each page of the table report lists the texts of the lines it left out as running lines (`repeatedTexts`, the
+      first 20), and the page strip shows them under "Left out on page n", so nothing is left out unseen;
+    - running lines are compared token by token: a number matches when it is the same on both pages, or when on each
+      page it is that page's own number. Before, a number equal to one page's number was rewritten on that page only,
+      so a dated footer ("Preise gültig ab 01.04.2026 Seite 1 von 4") was not recognised on page 1 and was appended to
+      the last row's description there (`ColumnTableEngineTests`);
+    - a reprocess (from Classify, which keeps a type set in review) or `:set-type` with prefill auto no longer raises
+      `UNSUPPORTED_TYPE` for a definition-driven type a reviewer set (`TypeSource=Human`): the reviewer who chose the
+      type fills it, as `:set-type` with prefill none already said by raising none (`DefinitionDrivenPipelineTests`);
+    - the table strip's totals and page chips count in the singular and plural ("1 row, 0 rejected, 1 page read");
+    - rows are capped across nesting: a repeating group inside a row without `maxItems` (the price list's `tiers`)
+      holds at most 100 rows (`DefinitionPatcher.DefaultMaxNestedRows`), and a tree at most 100,000 rows across all its
+      groups (`MaxTreeRows`), checked before any row is built, for `set` on a group, `append` and the table tool's
+      write. Before, `set` on `lines` with 50 lines of 20,000 empty tiers (a 3 MB body) took a minute and wrote a 92 MB
+      tree; `PATCH …/fields` takes at most 5,000 corrections and an 8 MB body (413 beyond), `regions:table` 2 MB and
+      `regions:read` 16 KB, and a `pages` expression is at most 200 characters, refused before it is parsed
+      (`DefinitionPatcherRowsTests`, `TableToolLimitsTests`);
+    - `:create-supplier` keeps the master data that steers matching with the tenant admin (docs/11 §14, a permission
+      decision): a reviewer gives the name, VAT id, tax id, IBANs and currency printed on the document; `emailDomains`,
+      `aliases` and `alwaysReview` answer 403 for anyone but a tenant admin, who also sets them under Suppliers. The
+      portal's dialog offers the e-mail domain to a tenant admin only (`ReviewActionEndpointsTests`, `ReviewTools`).
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
@@ -855,7 +882,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the header row band cannot be redrawn by hand (the proposal's is used);
     - running lines are recognised by repetition only: a running title or a footer printed on one page only is read
       like any line (a heading, a continuation, a rejected line) until the reviewer leaves it out; on a document of one
-      page nothing repeats;
+      page nothing repeats. A running title above the rows that reads as a group heading (one run of text, or printed
+      across a divider, with no price) for another category than the current one is read as that heading and listed
+      under the page's headings, because nothing but the reviewer tells it from a heading that opens every page;
+      "Leave out lines like …" beside it, or a top margin, leaves it out;
+    - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document;
     - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
       list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
       `column-table` (P4) are not implemented;
