@@ -5,6 +5,7 @@ using DocProc.Definitions.Compilation;
 using DocProc.Domain.Common;
 using DocProc.Domain.Fields;
 using DocProc.Domain.Invoices;
+using DocProc.Domain.Validation.Rules;
 using DocProc.Llm.Schema;
 using Json.Schema;
 
@@ -346,6 +347,58 @@ public sealed class DefinitionCompilerTests
         Compile(Definition([Field("fld_e", "e", "enum") with { Options = options }])).Problems.ShouldContain(p => p.Message.Contains("at most 200"));
 
         static CompileResult Compile(TypeDefinition definition) => DefinitionSchemaCompiler.Compile(definition);
+    }
+
+    /// <summary>
+    /// docs/11 §5.7: the rule list and the duplicate key are capped too. Every rule runs on every validation of a
+    /// document and each duplicate-key component is one more EXISTS over the field index, so without a cap a definition
+    /// under the 1 MiB length (thousands of pattern rules, dozens of key components) cost seconds per document. The
+    /// caps hold in the compile (and so on save and publish) and in the meta-schema.
+    /// </summary>
+    [Fact]
+    public void The_rule_list_and_the_duplicate_key_are_capped()
+    {
+        var fields = Enumerable.Range(0, DefinitionCompiler.MaxDuplicateKeyComponents + 1).Select(i => Field($"fld_k{i}", $"k{i}", "string") with { Indexed = true }).ToList();
+        List<RuleDefinition> Rules(int count) => [.. Enumerable.Range(0, count).Select(i => new RuleDefinition { Id = $"r{i}", Kind = "pattern", Params = new JsonObject { ["path"] = "k0", ["pattern"] = $"^A{i}$" } })];
+        DefinitionRoles Key(int count) => new() { DuplicateKey = [.. fields.Take(count).Select(f => f.Key)] };
+
+        var atCaps = Definition(fields) with { Rules = Rules(DefinitionCompiler.MaxRules), Roles = Key(DefinitionCompiler.MaxDuplicateKeyComponents) };
+        DefinitionCompiler.CheckSizeCaps(atCaps).ShouldBeEmpty();
+        DefinitionSchemaCompiler.Compile(atCaps).Problems.ShouldBeEmpty();
+        DefinitionMetaSchema.Validate(DefinitionSerializer.Write(atCaps)).ShouldBeEmpty();
+
+        var tooMany = atCaps with { Rules = Rules(DefinitionCompiler.MaxRules + 1), Roles = Key(DefinitionCompiler.MaxDuplicateKeyComponents + 1) };
+        var problems = DefinitionSchemaCompiler.Compile(tooMany).Problems;
+        problems.ShouldContain(p => p.Where == "rules" && p.Message == $"lists {DefinitionCompiler.MaxRules + 1} rules; at most {DefinitionCompiler.MaxRules} are allowed.");
+        problems.ShouldContain(p => p.Where == "roles.duplicateKey" && p.Message == $"has {DefinitionCompiler.MaxDuplicateKeyComponents + 1} components; at most {DefinitionCompiler.MaxDuplicateKeyComponents} are allowed.");
+        var meta = DefinitionMetaSchema.Validate(DefinitionSerializer.Write(tooMany));
+        meta.ShouldContain(p => p.Where == "/rules" && p.Message.Contains("(maxItems)"));
+        meta.ShouldContain(p => p.Where == "/roles/duplicateKey" && p.Message.Contains("(maxItems)"));
+
+        // Every standard template stays well inside the caps.
+        foreach (var template in StandardTemplates.All)
+        {
+            DefinitionCompiler.CheckSizeCaps(template).ShouldBeEmpty(template.Key);
+        }
+    }
+
+    /// <summary>
+    /// The rule references of a definition object are built once, so what a rule kind compiles from its parameters
+    /// (the regex of a pattern rule) is compiled once per published version, whose definition object the process-wide
+    /// cache shares between resolves, instead of once per evaluation.
+    /// </summary>
+    [Fact]
+    public void The_rule_references_of_a_definition_are_built_once()
+    {
+        var definition = Definition([Field("fld_k", "k", "string")]) with
+        {
+            Rules = [new RuleDefinition { Id = "r_p", Kind = "pattern", Params = new JsonObject { ["path"] = "k", ["pattern"] = "^A[0-9]+$" } }],
+        };
+
+        var references = definition.ToRuleReferences();
+        definition.ToRuleReferences().ShouldBeSameAs(references);
+        GenericRules.PatternRegexOf(definition.ToRuleReferences()[0].Params).ShouldNotBeNull().ShouldBeSameAs(GenericRules.PatternRegexOf(references[0].Params));
+        (definition with { }).ToRuleReferences().ShouldNotBeSameAs(references, "another definition object has its own");
     }
 
     [Fact]

@@ -125,11 +125,19 @@ internal sealed class PipelineTestHost : IAsyncDisposable
     /// Waits until the queue has nothing queued, delayed or running. A retry waits on the fake clock: whenever every
     /// in-flight item is a delayed one (nothing runs, nothing is queued), the clock is moved past the longest backoff
     /// so the retry is queued at once instead of after real seconds.
+    /// <para>
+    /// <paramref name="stallTimeout"/> (30 s by default) is how long the queue may go without finishing a single item
+    /// before the wait fails as stuck. It is not a budget for the whole run: with the whole suite in parallel on a few
+    /// cores, a cold first pipeline run (host start, PDF rendering, JIT) took more than 30 s while every stage still
+    /// completed, and a wall-clock budget failed such a test although nothing was wrong.
+    /// </para>
     /// </summary>
-    public async Task RunUntilIdleAsync(TimeSpan? timeout = null)
+    public async Task RunUntilIdleAsync(TimeSpan? stallTimeout = null)
     {
-        using var cts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(30));
-        var idle = Queue.WaitForIdleAsync(cts.Token);
+        var stall = stallTimeout ?? TimeSpan.FromSeconds(30);
+        var idle = Queue.WaitForIdleAsync(CancellationToken.None);
+        var acknowledged = Queue.Acknowledged;
+        var sinceProgress = System.Diagnostics.Stopwatch.StartNew();
         while (!idle.IsCompleted)
         {
             var delayed = Queue.Delayed;
@@ -138,7 +146,17 @@ internal sealed class PipelineTestHost : IAsyncDisposable
                 Clock.Advance(Options.MaxRetryDelay);
             }
 
-            await Task.WhenAny(idle, Task.Delay(TimeSpan.FromMilliseconds(5), cts.Token));
+            if (Queue.Acknowledged != acknowledged)
+            {
+                acknowledged = Queue.Acknowledged;
+                sinceProgress.Restart();
+            }
+            else if (sinceProgress.Elapsed > stall)
+            {
+                throw new TimeoutException($"The pipeline finished no item for {stall.TotalSeconds:0} s ({Queue.InFlight} in flight, {Queue.Delayed} delayed, {acknowledged} done).");
+            }
+
+            await Task.WhenAny(idle, Task.Delay(TimeSpan.FromMilliseconds(5)));
         }
 
         await idle;

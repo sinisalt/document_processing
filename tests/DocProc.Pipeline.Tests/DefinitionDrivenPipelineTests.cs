@@ -310,6 +310,52 @@ public sealed class DefinitionDrivenPipelineTests
         (await host.DocumentAsync(document.Id)).CanonicalJson.ShouldBe(moved.CanonicalJson);
     }
 
+    /// <summary>
+    /// The artifacts of a resolved type are those stored with the version the resolver read, even when the shared
+    /// <see cref="PublishedDefinitionCache"/> is cleared (by another request's add passing the size budget) between the
+    /// resolve and the first read of <see cref="Application.Configuration.EffectiveType.Compiled"/>. Before, the
+    /// artifacts were looked up by version id on that first read and, with the entry gone, compiled again without the
+    /// stored former keys, so a renamed field's value was not moved.
+    /// </summary>
+    [Fact]
+    public async Task A_cache_clear_after_resolve_keeps_the_stored_former_keys_of_a_renamed_field()
+    {
+        await using var host = await StartAsync();
+        await SetConfigurableAsync(host, true);
+        await ForkAsync(host, "std.invoice", json => json["fields"]!.AsArray().Add(JsonNode.Parse("""
+            { "id": "fld_c_scr", "key": "supplierCustomerRef", "kind": "identifier", "indexed": true }
+            """)));
+        await NewVersionAsync(host, "Invoice", json => json["fields"]!.AsArray().Single(f => f!["id"]!.GetValue<string>() == "fld_c_scr")!["key"] = "ourCustomerNo");
+
+        var cache = host.Services.GetRequiredService<PublishedDefinitionCache>();
+        foreach (var cachedBefore in new[] { false, true })
+        {
+            using var scope = host.CreateTenantScope(PipelineTestHost.TenantA);
+            var resolver = scope.ServiceProvider.GetRequiredService<Application.Configuration.IEffectiveConfigResolver>();
+            var resolved = await resolver.ResolveAsync(new Application.Configuration.EffectiveConfigRequest(PipelineTestHost.TenantA, DocumentTypeKey.Invoice), CancellationToken.None);
+            var type = resolved.Type.ShouldNotBeNull();
+            type.VersionId.ShouldNotBeNull();
+            if (cachedBefore)
+            {
+                cache.TryGet(type.VersionId.Value, out _).ShouldBeTrue("the first round cached the version");
+            }
+
+            // Another request adds a version heavy enough to clear the shared cache before this one reads the artifacts.
+            cache.Add(Guid.NewGuid(), type.Definition, characters: PublishedDefinitionCache.DefaultMaxCharacters);
+            cache.TryGet(type.VersionId.Value, out _).ShouldBeFalse();
+
+            type.Compiled.ShouldNotBeNull().Descriptors.Find("ourCustomerNo").ShouldNotBeNull().FormerKeys.ShouldBe(["supplierCustomerRef"], $"cached before the resolve: {cachedBefore}");
+
+            // Resolved again for the second round, the version is read and cached afresh.
+            if (!cachedBefore)
+            {
+                using var again = host.CreateTenantScope(PipelineTestHost.TenantA);
+                await again.ServiceProvider.GetRequiredService<Application.Configuration.IEffectiveConfigResolver>()
+                    .ResolveAsync(new Application.Configuration.EffectiveConfigRequest(PipelineTestHost.TenantA, DocumentTypeKey.Invoice), CancellationToken.None);
+            }
+        }
+    }
+
     /// <summary>Starts the next version of <paramref name="key"/> as a draft, lets <paramref name="edit"/> change it and publishes it.</summary>
     private static async Task NewVersionAsync(PipelineTestHost host, string key, Action<JsonObject> edit)
     {

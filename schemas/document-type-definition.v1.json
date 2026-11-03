@@ -179,7 +179,8 @@
           ],
           "items": {
             "type": "string"
-          }
+          },
+          "maxItems": 8
         }
       },
       "additionalProperties": false
@@ -551,7 +552,8 @@
           "kind"
         ],
         "additionalProperties": false
-      }
+      },
+      "maxItems": 200
     },
     "processing": {
       "type": "object",

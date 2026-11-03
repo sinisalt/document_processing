@@ -80,7 +80,8 @@ public sealed record CompileResult(CompiledDefinition? Compiled, IReadOnlyList<D
 /// <item><description><b>The descriptor index</b> (<see cref="DescriptorIndex"/>).</description></item>
 /// </list>
 /// Compilation also enforces the size caps of §5.7: at most <see cref="MaxFields"/> fields, a depth of
-/// <see cref="MaxDepth"/> and <see cref="MaxEnumValues"/> codes per enum. The structural checks are
+/// <see cref="MaxDepth"/>, <see cref="MaxEnumValues"/> codes per enum, <see cref="MaxRules"/> rules and
+/// <see cref="MaxDuplicateKeyComponents"/> components of <c>roles.duplicateKey</c>. The structural checks are
 /// <see cref="DefinitionChecker"/>'s; the compiler assumes they passed and refuses nothing they already cover.
 /// </summary>
 public static partial class DefinitionCompiler
@@ -93,6 +94,18 @@ public static partial class DefinitionCompiler
 
     /// <summary>The most inline codes an enum may list.</summary>
     public const int MaxEnumValues = 200;
+
+    /// <summary>
+    /// The most rules a definition may list. Every rule runs on every validation of a document (in the worker and on
+    /// each inline re-validation after a correction), so their number bounds the cost per document.
+    /// </summary>
+    public const int MaxRules = 200;
+
+    /// <summary>
+    /// The most components of <c>roles.duplicateKey</c>. The duplicate check matches each indexed component with one
+    /// more correlated EXISTS over the field index, whose plan compile grows fast with their number.
+    /// </summary>
+    public const int MaxDuplicateKeyComponents = 8;
 
     /// <summary>The adapter id of the coded invoice extraction (docs/11 §9.3).</summary>
     public const string InvoiceAdapter = "invoice_extraction@1";
@@ -172,8 +185,9 @@ public static partial class DefinitionCompiler
     }
 
     /// <summary>
-    /// The size caps of docs/11 §5.7: at most <see cref="MaxFields"/> fields, a depth of <see cref="MaxDepth"/> and
-    /// <see cref="MaxEnumValues"/> codes per enum. Compiling checks them, and so does saving a draft.
+    /// The size caps of docs/11 §5.7: at most <see cref="MaxFields"/> fields, a depth of <see cref="MaxDepth"/>,
+    /// <see cref="MaxEnumValues"/> codes per enum, <see cref="MaxRules"/> rules and
+    /// <see cref="MaxDuplicateKeyComponents"/> duplicate-key components. Compiling checks them, and so does saving a draft.
     /// </summary>
     public static IReadOnlyList<DefinitionProblem> CheckSizeCaps(TypeDefinition definition)
     {
@@ -183,6 +197,16 @@ public static partial class DefinitionCompiler
         if (all.Count > MaxFields)
         {
             problems.Add(new("fields", $"declares {all.Count} fields; at most {MaxFields} are allowed."));
+        }
+
+        if (definition.Rules.Count > MaxRules)
+        {
+            problems.Add(new("rules", $"lists {definition.Rules.Count} rules; at most {MaxRules} are allowed."));
+        }
+
+        if (definition.Roles.DuplicateKey is { Count: > MaxDuplicateKeyComponents } duplicateKey)
+        {
+            problems.Add(new("roles.duplicateKey", $"has {duplicateKey.Count} components; at most {MaxDuplicateKeyComponents} are allowed."));
         }
 
         foreach (var (path, field) in all)

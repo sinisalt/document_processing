@@ -432,7 +432,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - an invoice or credit note type (from `std.invoice` or `std.credit-note`, or with the `invoice_extraction@1`
       adapter) keeps the key `Invoice` or `CreditNote`: adopt, copy, create and save refuse another key, because the
       invoice extraction, the coded invoice rules and the invoice record's corrections are chosen by the key until P2;
-    - saving a draft checks the size caps of docs/11 §5.7 (fields, depth, enum codes) and a length of 1 MiB, and the
+    - saving a draft checks the size caps of docs/11 §5.7 (fields, depth, enum codes; later also rules and
+      duplicate-key components) and a length of 1 MiB, and the
       catalogue write endpoints take at most that much (`RequestSizeLimit`); a 30 MB draft was stored before;
     - both P1 migrations migrate down on SQL Server (the old policy is created after the drops of the temporal
       `Documents` columns, `TypeCatalogueSqlTests`);
@@ -495,6 +496,28 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the one version the indexed fields come from is read, `GET …/versions/{v}` reads that version alone, and publish
       reads the earlier versions' keys one definition at a time. `PublishedDefinitionCache` is bounded by the size of
       the stored JSON it holds (64 M characters) as well as by its 2048 entries.
+  - Fixed after the fourth P1 review:
+    - a renamed field could still lose its value: the resolver read the definition from `PublishedDefinitionCache` but
+      looked the version's artifacts up by id only when `EffectiveType.Compiled` was first read; a clear of the shared
+      cache in between (another request's add passing the size budget) compiled the definition again without the
+      stored descriptors, so without `FormerKeys`, and Validate or Extract stored the renamed field as Missing under its
+      new key (`FIELD_REQUIRED`, or an approval without the value) with no later repair. `EffectiveType` now takes the
+      artifacts of the cache entry read at resolve time;
+    - `GET /documents` takes at most 5 `?field.<path>=` filters (`DocumentEndpoints.MaxFieldFilters`), one value
+      each, else a 400 on `field.*` (or on the key given twice): each filter is a correlated EXISTS over the field
+      index, and any reader could send dozens, which kept SQL Server compiling a plan for seconds and then failed with
+      a 500 ("ran out of internal resources"), for every tenant, the feature switched on or not;
+    - the size caps of docs/11 §5.7 also bound the rule list (at most 200 rules) and `roles.duplicateKey` (at most 8
+      components), in the compile, on save and publish, and in the meta-schema (`maxItems`): thousands of `pattern`
+      rules under the 1 MiB length cost seconds of CPU per validation, and dozens of key components made the duplicate
+      check's query as costly as the filters above. A `pattern` rule's regex is compiled once per published version
+      (the rule references are built once per definition object, which the cache shares; `GenericRules.PatternRegexOf`
+      keeps the regex per parameters), not on every evaluation. A version published before the caps keeps running;
+    - two waits failed under load although nothing was wrong (the whole .NET suite and the web tests on the same four
+      cores): `PipelineTestHost.RunUntilIdleAsync` gave the whole run 30 s, which a cold first pipeline run (host
+      start, PDF rendering, JIT) passed while every stage still completed (`SplitPartTests`), and two full-screen
+      review renders passed vitest's 5 s default. The pipeline wait now fails only when no item finishes for 30 s
+      (`InProcessPipelineQueue.Acknowledged`), and the two apps' vitest `testTimeout` is 30 s.
   - Left for the rest of P1:
     - restructuring the invoice family (docs/11 §5.1): coded invoice kinds that declare the roles and kinds they need,
       a publish report that disables them ("invoice.totals disabled: role `net` missing") and the generic `sumEquals`

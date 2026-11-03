@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -48,6 +49,53 @@ public static class GenericRules
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
+    /// <summary>
+    /// The compiled regex of each pattern rule's parameters, built once per parameters instance. The rule references of
+    /// a definition are built once per definition object (<c>TypeDefinitionExtensions.ToRuleReferences</c>), and a
+    /// published version's definition object lives in the process-wide cache, so a pattern is compiled once per
+    /// published version instead of on every evaluation; the table holds nothing alive past its definition.
+    /// </summary>
+    private static readonly ConditionalWeakTable<RuleParams, CompiledPattern> Patterns = new();
+
+    private sealed record CompiledPattern(string Pattern, Regex? Regex);
+
+    /// <summary>
+    /// The regex of a <c>pattern</c> rule's <c>pattern</c> parameter (NonBacktracking, with a match timeout), compiled
+    /// once per <paramref name="parameters"/> instance; null when the parameter is missing or the pattern does not
+    /// compile (a syntax error, or a construct NonBacktracking cannot run).
+    /// </summary>
+    public static Regex? PatternRegexOf(RuleParams parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        if (String(parameters, "pattern") is not { } pattern)
+        {
+            return null;
+        }
+
+        var compiled = Patterns.GetValue(parameters, p => CompilePattern(String(p, "pattern")!));
+
+        // RuleParams wraps a read-only view of a dictionary; should the dictionary behind it change, compile again.
+        return compiled.Pattern == pattern ? compiled.Regex : CompilePattern(pattern).Regex;
+    }
+
+    private static CompiledPattern CompilePattern(string pattern)
+    {
+        try
+        {
+            return new CompiledPattern(pattern, new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, RegexTimeout));
+        }
+        catch (ArgumentException)
+        {
+            return new CompiledPattern(pattern, null);
+        }
+        catch (NotSupportedException)
+        {
+            // A construct NonBacktracking cannot run (backreference, lookaround, atomic group). The publish checks refuse
+            // it; a version published before they did must not crash validation, so it fails the rule instead.
+            return new CompiledPattern(pattern, null);
+        }
+    }
+
     private sealed class Rule(string kind, Func<DocumentView, RuleParams, ValidationContext, IEnumerable<DocumentFlag>> evaluate) : IDocumentRule
     {
         public string Kind { get; } = kind;
@@ -91,22 +139,7 @@ public static class GenericRules
             yield break;
         }
 
-        Regex regex;
-        try
-        {
-            regex = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, RegexTimeout);
-        }
-        catch (ArgumentException)
-        {
-            regex = null!;
-        }
-        catch (NotSupportedException)
-        {
-            // A construct NonBacktracking cannot run (backreference, lookaround, atomic group). The publish checks refuse
-            // it; a version published before they did must not crash validation, so it fails the rule instead.
-            regex = null!;
-        }
-
+        var regex = PatternRegexOf(p);
         if (regex is null)
         {
             yield return RuleFailed(path, $"The pattern of the rule on '{path}' is not a valid regular expression.", "invalidPattern", ("field", path), ("pattern", pattern));

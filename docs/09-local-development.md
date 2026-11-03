@@ -380,7 +380,8 @@ and answers with the new flags. A document of such a type read before the switch
 tree; while it is correctable (`NeedsReview`, `Validated`, `Failed`) `GET /documents/{id}` answers the
 empty tree of its type version (`canonicalSchemaVersion` 2) as `canonical`, which the first correction
 stores, and a stored tree that lacks fields its version has is answered completed with them; nothing is
-written by a read. Indexed fields are filtered with `?field.<path>=value` on `GET /documents`, compared
+written by a read. Indexed fields are filtered with `?field.<path>=value` on `GET /documents` (at most
+5 such filters, one value each, else a 400), compared
 as the index stores them (identifiers trimmed, repeated spaces collapsed and upper-cased, so
 `104 220815` is found as `104 220815` but not as `104220815`; a number of 10^17 or more is compared as
 text only, the index holds no number that large); `validFrom`, `validUntil`, `lineCount`

@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -105,13 +106,21 @@ public static class StandardTemplates
 public static class TypeDefinitionExtensions
 {
     /// <summary>
+    /// The rule references of each definition object. A definition is immutable, and a published version's object is
+    /// shared by every resolve through the process-wide cache, so the references (and what the rule kinds build from
+    /// their parameters once, such as the regex of a pattern rule) are made once per published version instead of on
+    /// every validation. The table keeps nothing alive past its definition.
+    /// </summary>
+    private static readonly ConditionalWeakTable<TypeDefinition, IReadOnlyList<RuleReference>> References = new();
+
+    /// <summary>
     /// The rule list as the validator runs it (docs/11 §11): one <see cref="RuleReference"/> per entry, in order,
-    /// with its parameters as raw JSON values.
+    /// with its parameters as raw JSON values. Built once per definition object.
     /// </summary>
     public static IReadOnlyList<RuleReference> ToRuleReferences(this TypeDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        return [.. definition.Rules.Select(ToRuleReference)];
+        return References.GetValue(definition, d => [.. d.Rules.Select(ToRuleReference)]);
     }
 
     private static RuleReference ToRuleReference(RuleDefinition rule)

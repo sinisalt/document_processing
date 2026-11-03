@@ -46,22 +46,20 @@ public sealed class PublishedDefinitionCache
     /// <summary>The characters of stored JSON the cached versions were read from.</summary>
     public long Characters => Interlocked.Read(ref _characters);
 
-    public bool TryGet(Guid versionId, [NotNullWhen(true)] out TypeDefinition? definition)
-    {
-        definition = _definitions.TryGetValue(versionId, out var entry) ? entry.Definition : null;
-        return definition is not null;
-    }
+    public bool TryGet(Guid versionId, [NotNullWhen(true)] out Entry? entry) => _definitions.TryGetValue(versionId, out entry);
 
     /// <summary>
     /// Caches <paramref name="definition"/> of the published version <paramref name="versionId"/>;
     /// <paramref name="characters"/> is the length of the stored JSON it was read from (its weight in the size budget).
+    /// Returns the cached entry (the one already there if another request added the version first), which keeps its
+    /// definition and artifacts together even after the cache is cleared.
     /// </summary>
-    public TypeDefinition Add(Guid versionId, TypeDefinition definition, StoredArtifacts? stored = null, long characters = 0)
+    public Entry Add(Guid versionId, TypeDefinition definition, StoredArtifacts? stored = null, long characters = 0)
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (_definitions.TryGetValue(versionId, out var cached))
         {
-            return cached.Definition;
+            return cached;
         }
 
         if (_definitions.Count >= MaxEntries || Interlocked.Read(ref _characters) + characters > _maxCharacters)
@@ -77,7 +75,7 @@ public sealed class PublishedDefinitionCache
             Interlocked.Add(ref _characters, Math.Max(0, characters));
         }
 
-        return added.Definition;
+        return added;
     }
 
     /// <summary>The characters of stored JSON of one version row, its weight in the size budget.</summary>
@@ -91,18 +89,28 @@ public sealed class PublishedDefinitionCache
     }
 
     /// <summary>
-    /// The artifacts of a cached version (docs/11 §5.5): the stored ones, read once on first use; for a row without
-    /// them, compiled with this deployment's adapter schemas.
+    /// One cached version: its parsed definition and its artifacts (docs/11 §5.5), the stored ones, read once on first
+    /// use; for a row without them, compiled with this deployment's adapter schemas. A caller holds on to the entry, not
+    /// to the version id: the artifacts stay those of the row it was read from even if the cache is cleared before they
+    /// are first read (compiling the definition again would lose what only the stored artifacts know, such as the former
+    /// keys of a renamed field).
     /// </summary>
-    public CompiledDefinition? CompiledOf(Guid versionId) => _definitions.TryGetValue(versionId, out var entry) ? entry.Compiled.Value : null;
-
-    private sealed class Entry(TypeDefinition definition, StoredArtifacts? stored)
+    public sealed class Entry
     {
-        public TypeDefinition Definition { get; } = definition;
+        private readonly Lazy<CompiledDefinition?> _compiled;
 
-        public Lazy<CompiledDefinition?> Compiled { get; } = new(() =>
-            (stored is null ? null : DefinitionCompiler.FromStored(definition, stored))
-            ?? StandardTemplateConfigResolver.CompileOrNull(definition, DefinitionSchemaCompiler.Options));
+        internal Entry(TypeDefinition definition, StoredArtifacts? stored)
+        {
+            Definition = definition;
+            _compiled = new Lazy<CompiledDefinition?>(() =>
+                (stored is null ? null : DefinitionCompiler.FromStored(definition, stored))
+                ?? StandardTemplateConfigResolver.CompileOrNull(definition, DefinitionSchemaCompiler.Options));
+        }
+
+        public TypeDefinition Definition { get; }
+
+        /// <summary>The artifacts of the version, built on first read.</summary>
+        public CompiledDefinition? Compiled => _compiled.Value;
     }
 }
 
@@ -153,14 +161,16 @@ public sealed class CatalogueConfigResolver(DocProcDbContext db, ITenantFeatures
             return new EffectiveConfig(request, Templates.Find(request.Type));
         }
 
-        var definition = await DefinitionOfAsync(row.Id, cancellationToken).ConfigureAwait(false);
+        var entry = await EntryOfAsync(row.Id, cancellationToken).ConfigureAwait(false);
+        var definition = entry.Definition;
         var templateKey = definition.Base?.Template ?? row.BaseKey ?? definition.Key;
         var templateVersion = definition.Base?.Version ?? row.BaseVersion ?? definition.Version;
-        var versionId = row.Id;
-        return new EffectiveConfig(request, new EffectiveType(key, definition, row.Origin, templateKey, templateVersion, versionId, () => cache.CompiledOf(versionId) ?? StandardTemplateConfigResolver.CompileOrNull(definition, DefinitionSchemaCompiler.Options)));
+        // The artifacts come from the entry read now, not from a later lookup by id: a clear of the shared cache in
+        // between must not swap the stored artifacts for a fresh compile without the version's history.
+        return new EffectiveConfig(request, new EffectiveType(key, definition, row.Origin, templateKey, templateVersion, row.Id, () => entry.Compiled));
     }
 
-    private async Task<TypeDefinition> DefinitionOfAsync(Guid versionId, CancellationToken cancellationToken)
+    private async Task<PublishedDefinitionCache.Entry> EntryOfAsync(Guid versionId, CancellationToken cancellationToken)
     {
         if (cache.TryGet(versionId, out var cached))
         {

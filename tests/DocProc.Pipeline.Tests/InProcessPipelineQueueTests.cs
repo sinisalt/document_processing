@@ -19,6 +19,7 @@ public class InProcessPipelineQueueTests
         await queue.EnqueueAsync(ingestion, CancellationToken.None);
         await queue.EnqueueAsync(document, CancellationToken.None);
         queue.InFlight.ShouldBe(2);
+        queue.Acknowledged.ShouldBe(0);
         var idle = queue.WaitForIdleAsync(CancellationToken.None);
         idle.IsCompleted.ShouldBeFalse();
 
@@ -40,6 +41,7 @@ public class InProcessPipelineQueueTests
         items[1].Key.ShouldBe(new PipelineWorkKey(PipelineWorkKind.Document, document.DocumentId));
         await idle.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         queue.InFlight.ShouldBe(0);
+        queue.Acknowledged.ShouldBe(2, "the count of finished items is what tests watch for progress");
     }
 
     [Fact]

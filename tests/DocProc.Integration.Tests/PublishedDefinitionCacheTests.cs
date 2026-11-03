@@ -19,7 +19,9 @@ public sealed class PublishedDefinitionCacheTests
         var first = Guid.NewGuid();
         var second = Guid.NewGuid();
         cache.Add(first, Definition, characters: 600);
-        cache.Add(first, Definition, characters: 600).ShouldBeSameAs(Definition, "a version already cached is not counted twice");
+        var entry = cache.Add(first, Definition, characters: 600);
+        cache.Add(first, Definition, characters: 600).ShouldBeSameAs(entry, "a version already cached is not counted twice");
+        entry.Definition.ShouldBeSameAs(Definition);
         cache.Count.ShouldBe(1);
         cache.Characters.ShouldBe(600);
 
@@ -28,7 +30,7 @@ public sealed class PublishedDefinitionCacheTests
         cache.Count.ShouldBe(1, "the budget would have passed, so the cache started again");
         cache.TryGet(first, out _).ShouldBeFalse();
         cache.TryGet(second, out var kept).ShouldBeTrue();
-        kept.ShouldBeSameAs(Definition);
+        kept.Definition.ShouldBeSameAs(Definition);
         cache.Characters.ShouldBe(600);
     }
 

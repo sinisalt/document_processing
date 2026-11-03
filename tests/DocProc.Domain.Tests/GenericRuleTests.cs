@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Validation;
@@ -114,6 +115,26 @@ public sealed class GenericRuleTests
         Run(Values(), Rule("enumMember", """{"path":"listScope","values":["Full","Changes"]}""")).ShouldBeEmpty();
         Run(Values(v => v["listScope"] = "Partial"), Rule("enumMember", """{"path":"listScope","values":["Full","Changes"]}""")).ShouldHaveSingleItem().Params!["value"].ShouldBe("Partial");
         Run(Values(), Rule("enumMember", """{"path":"lines[*].unit","codeList":"uom"}""")).ShouldHaveSingleItem().Field.ShouldBe("lines[1].unit");
+    }
+
+    /// <summary>
+    /// The regex of a pattern rule is compiled once per parameters instance, not on every evaluation: a type with many
+    /// pattern rules cost a fresh NonBacktracking compile per rule and document (in the worker and on every inline
+    /// re-validation after a correction).
+    /// </summary>
+    [Fact]
+    public void A_pattern_rule_compiles_its_regex_once_per_parameters()
+    {
+        var rule = Rule("pattern", """{"path":"lines[*].supplierSku","pattern":"^47[0-9]{2}$"}""");
+        var first = GenericRules.PatternRegexOf(rule.Params).ShouldNotBeNull();
+        GenericRules.PatternRegexOf(rule.Params).ShouldBeSameAs(first);
+        Run(Values(), rule).ShouldBeEmpty();
+        GenericRules.PatternRegexOf(rule.Params).ShouldBeSameAs(first, "the evaluation used the compiled regex");
+        first.Options.ShouldBe(RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
+        first.MatchTimeout.ShouldBe(TimeSpan.FromMilliseconds(100));
+
+        GenericRules.PatternRegexOf(Rule("pattern", """{"path":"priceListNumber","pattern":"("}""").Params).ShouldBeNull();
+        GenericRules.PatternRegexOf(Rule("pattern", """{"path":"priceListNumber"}""").Params).ShouldBeNull();
     }
 
     /// <summary>

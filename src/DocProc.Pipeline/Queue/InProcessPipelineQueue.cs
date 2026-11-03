@@ -59,6 +59,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
     private readonly Lock _gate = new();
     private int _inFlight;
     private int _delayed;
+    private long _acknowledged;
     private bool _disposed;
     private TaskCompletionSource _idle = Completed();
 
@@ -79,6 +80,12 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
             }
         }
     }
+
+    /// <summary>
+    /// How many items the runner has acknowledged since the queue was created. Tests watch it to tell a pipeline that is
+    /// slow (a loaded machine) from one that is stuck (no item finishes).
+    /// </summary>
+    public long Acknowledged => Interlocked.Read(ref _acknowledged);
 
     /// <summary>Items still waiting on a delay (a subset of <see cref="InFlight"/>); tests advance the clock while this is positive.</summary>
     public int Delayed
@@ -143,6 +150,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
     public void Acknowledge(PipelineWorkItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        Interlocked.Increment(ref _acknowledged);
         Untrack();
     }
 

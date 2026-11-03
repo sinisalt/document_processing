@@ -123,6 +123,35 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         applied.GetProperty("typeKey").GetString().ShouldBe("PurchaseOrder");
     }
 
+    /// <summary>
+    /// Each <c>field.</c> filter is one more correlated EXISTS over the field index, and SQL Server's plan compile grows
+    /// fast with their number, so a list request carries at most <see cref="DocumentEndpoints.MaxFieldFilters"/> of
+    /// them, with one value each, for every tenant (also one that never switched <c>configurableTypes</c> on).
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_list_request_with_more_field_filters_than_the_cap_is_refused(bool configurable)
+    {
+        var tenant = NewTenant($"Filter cap tenant {configurable}", configurable);
+        using var reviewer = Reviewer(tenant);
+        static string Filters(int count) => string.Join('&', Enumerable.Range(0, count).Select(i => $"field.f{i}=1"));
+
+        (await reviewer.GetAsync($"/api/v1/documents?{Filters(DocumentEndpoints.MaxFieldFilters)}", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var tooMany = await reviewer.GetAsync($"/api/v1/documents?{Filters(DocumentEndpoints.MaxFieldFilters + 1)}", Ct);
+        tooMany.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = (await tooMany.Content.ReadFromJsonAsync<ValidationProblemDetails>(ApiFactory.Json, Ct))!;
+        problem.Errors.Keys.ShouldBe([DocumentEndpoints.FieldFiltersErrorKey]);
+        problem.Errors[DocumentEndpoints.FieldFiltersErrorKey].ShouldBe([$"At most {DocumentEndpoints.MaxFieldFilters} field filters."]);
+
+        // Mixed case still counts as the same prefix, and a key given twice is one filter with two values: refused.
+        (await reviewer.GetAsync("/api/v1/documents?field.a=1&FIELD.b=1&Field.c=1&field.d=1&field.e=1&fIeLd.f=1", Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var twice = await reviewer.GetAsync("/api/v1/documents?field.poNumber=1&field.poNumber=2", Ct);
+        twice.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await twice.Content.ReadFromJsonAsync<ValidationProblemDetails>(ApiFactory.Json, Ct))!.Errors["field.poNumber"].ShouldBe(["One value per field filter."]);
+    }
+
     [Fact]
     public async Task A_delivery_note_read_before_the_switch_opens_with_the_empty_tree_of_its_type_and_keeps_its_definition_on_decisions()
     {

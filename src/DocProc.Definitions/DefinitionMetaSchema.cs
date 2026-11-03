@@ -158,6 +158,12 @@ public static class DefinitionMetaSchema
             case (nameof(FieldDefinition), "kind"):
                 Enum(schema, [.. FieldKinds.All.Order(StringComparer.Ordinal)]);
                 break;
+            case (nameof(TypeDefinition), "rules"):
+                schema["maxItems"] = Compilation.DefinitionCompiler.MaxRules;
+                break;
+            case (nameof(DefinitionRoles), "duplicateKey"):
+                schema["maxItems"] = Compilation.DefinitionCompiler.MaxDuplicateKeyComponents;
+                break;
             case (nameof(FieldDefinition), "maxItems"):
                 schema["minimum"] = 1;
                 schema["maximum"] = DefinitionChecker.MaxItemsLimit;

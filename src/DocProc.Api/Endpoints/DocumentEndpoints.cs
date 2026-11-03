@@ -991,13 +991,31 @@ public static partial class DocumentEndpoints
     /// <summary>The prefix of the indexed-field filters of the document list (docs/11 §18).</summary>
     public const string FieldFilterPrefix = "field.";
 
+    /// <summary>
+    /// The most indexed-field filters one list request may carry. Each one is a correlated EXISTS over the field index,
+    /// and the cost of compiling the query plan grows fast with their number (a few dozen keep SQL Server busy for
+    /// seconds and then fail), so the count is capped like <see cref="MaxFieldColumns"/>.
+    /// </summary>
+    public const int MaxFieldFilters = 5;
+
+    /// <summary>The error key of a list request with more than <see cref="MaxFieldFilters"/> field filters.</summary>
+    public const string FieldFiltersErrorKey = FieldFilterPrefix + "*";
+
     private static List<DocumentFieldFilter> ParseFieldFilters(IQueryCollection query, Dictionary<string, string[]> errors)
     {
         var filters = new List<DocumentFieldFilter>();
-        foreach (var (name, values) in query)
+        var requested = query.Where(p => p.Key.StartsWith(FieldFilterPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (requested.Count > MaxFieldFilters)
         {
-            if (!name.StartsWith(FieldFilterPrefix, StringComparison.OrdinalIgnoreCase))
+            errors[FieldFiltersErrorKey] = [$"At most {MaxFieldFilters} field filters."];
+            return filters;
+        }
+
+        foreach (var (name, values) in requested)
+        {
+            if (values.Count > 1)
             {
+                errors[name] = ["One value per field filter."];
                 continue;
             }
 
