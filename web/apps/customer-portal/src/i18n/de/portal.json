@@ -238,6 +238,9 @@
       "fromStage": "Ab Schritt",
       "fromStageLoading": "Verlauf wird geladen…",
       "reprocessing": "Neuverarbeitung ab {{stage}}.",
+      "useCurrentVersion": "Veröffentlichte Version des Belegtyps verwenden",
+      "useCurrentVersionNewer": "Dieser Beleg wurde mit {{type}} v{{version}} gelesen; veröffentlicht ist v{{published}}. Ohne diese Option behält der Beleg v{{version}}.",
+      "useCurrentVersionSame": "Dieser Beleg wurde mit {{type}} v{{version}} gelesen, der veröffentlichten Version.",
       "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Korrekturen.",
       "shortcutApple": "⌘↵",
       "shortcutOther": "Strg+Enter"

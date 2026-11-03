@@ -84,6 +84,12 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
   };
 }
 
+/** A timeline that reached review, so every reprocess stage is offered. */
+const reviewTimeline = [
+  { id: 1, eventType: "document.stage_completed", fromStatus: "Extracted", toStatus: "Validated", actor: "pipeline", details: null, at: "2026-11-03T10:00:01Z" },
+  { id: 2, eventType: "document.review_requested", fromStatus: "Validated", toStatus: "NeedsReview", actor: "pipeline", details: null, at: "2026-11-03T10:00:02Z" },
+];
+
 function renderScreen(document: DocumentDetail) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -106,6 +112,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  client.GET.mockReset();
+  client.GET.mockImplementation(async () => ({ data: [], error: undefined, response: new Response(null, { status: 200 }) }));
   client.PATCH.mockReset();
   client.PATCH.mockImplementation(async () => ({ data: documentOf({ updatedAt: "2026-11-03T10:01:00Z" }), error: undefined, response: new Response(null, { status: 200 }) }));
 });
@@ -175,6 +183,55 @@ describe("review screen of a definition-driven document", () => {
     expect(screen.getByLabelText("Invoice number")).toHaveValue("INV-1");
     expect(screen.queryByRole("button", { name: "Add row" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("type-version")).not.toBeInTheDocument();
+  });
+
+  it("reprocesses onto the published version of the type from Extract when a newer one is published", async () => {
+    client.GET.mockImplementation((async (path: string) =>
+      path === "/api/v1/document-types/{key}"
+        ? { data: { key: "DeliveryNote", publishedVersion: 2 }, error: undefined, response: new Response(null, { status: 200 }) }
+        : path === "/api/v1/documents/{id}/events"
+          ? { data: reviewTimeline, error: undefined, response: new Response(null, { status: 200 }) }
+          : { data: [], error: undefined, response: new Response(null, { status: 200 }) }) as unknown as typeof client.GET);
+    client.POST.mockReset();
+    client.POST.mockImplementation(async () => ({ data: documentOf({ status: "Extracted" }), error: undefined, response: new Response(null, { status: 200 }) }));
+    renderScreen(documentOf());
+    fireEvent.click(screen.getByTestId("reprocess-button"));
+    const dialog = await screen.findByRole("alertdialog");
+    const option = within(dialog).getByTestId("reprocess-config-mode");
+    await waitFor(() => expect(option).toHaveTextContent("This document was read with Delivery note v1; v2 is published."));
+    expect(within(option).getByRole("checkbox")).toBeChecked();
+    await waitFor(() => expect(within(dialog).getByRole("combobox")).toHaveTextContent("Extract"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reprocess" }));
+    await waitFor(() => expect(client.POST).toHaveBeenCalledTimes(1));
+    expect((client.POST.mock.calls[0] as unknown[])[1]).toEqual({ params: { path: { id: "6f1c1d2e-0000-4000-8000-000000000009" } }, body: { fromStage: "Extract", configMode: "current" } });
+  });
+
+  it("keeps the pinned version when the reviewer leaves the published one unticked", async () => {
+    client.GET.mockImplementation((async (path: string) =>
+      path === "/api/v1/document-types/{key}"
+        ? { data: { key: "DeliveryNote", publishedVersion: 1 }, error: undefined, response: new Response(null, { status: 200 }) }
+        : path === "/api/v1/documents/{id}/events"
+          ? { data: reviewTimeline, error: undefined, response: new Response(null, { status: 200 }) }
+          : { data: [], error: undefined, response: new Response(null, { status: 200 }) }) as unknown as typeof client.GET);
+    client.POST.mockReset();
+    client.POST.mockImplementation(async () => ({ data: documentOf({ status: "Validated" }), error: undefined, response: new Response(null, { status: 200 }) }));
+    renderScreen(documentOf());
+    fireEvent.click(screen.getByTestId("reprocess-button"));
+    const dialog = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(within(dialog).getByTestId("reprocess-config-mode")).toHaveTextContent("the published version."));
+    expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
+    await waitFor(() => expect(within(dialog).getByRole("combobox")).toHaveTextContent("Validate"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reprocess" }));
+    await waitFor(() => expect(client.POST).toHaveBeenCalledTimes(1));
+    expect(((client.POST.mock.calls[0] as unknown[])[1] as { body: unknown }).body).toEqual({ fromStage: "Validate", configMode: "pinned" });
+  });
+
+  it("opens a delivery note read before the switch with the empty tree the API answers, so it can be filled", () => {
+    const empty = { ...deliveryNoteTree, deliveryNoteNumber: missing(), lines: [] };
+    renderScreen(documentOf({ canonical: empty as unknown as DocumentDetail["canonical"], documentNumber: null, lineCount: null }));
+    expect(screen.getByLabelText("Delivery note no.")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Add row" })).toBeInTheDocument();
+    expect(screen.queryByText(/No extracted data/)).not.toBeInTheDocument();
   });
 
   it("says a type without a definition has no form", () => {

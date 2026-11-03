@@ -298,28 +298,69 @@ public static partial class DocumentEndpoints
             return NotFound(id);
         }
 
-        return TypedResults.Ok(DocumentQueries.ToDetail(row, await DefinitionOfAsync(row.Document, configs, features, ct)));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+    }
+
+    /// <summary>
+    /// The detail of a document as every endpoint answers it: with the type version it is shown with
+    /// (<see cref="DefinitionOfAsync"/>), and, for a correctable document, the tree the next <c>PATCH …/fields</c> starts
+    /// from: for a definition-driven type that has no stored tree yet (a delivery note extracted before the tenant
+    /// switched <c>configurableTypes</c> on) the empty tree of its version with <c>canonicalSchemaVersion</c> 2, so the
+    /// generated form can be filled at once instead of showing "no extracted data"; for a stored version 2 tree, the
+    /// tree completed with the fields its version has and it lacks. Nothing is written.
+    /// </summary>
+    private static async Task<DocumentDetail> DetailAsync(DocumentRow row, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
+    {
+        var document = row.Document;
+        var (definition, type) = await DefinitionOfAsync(document, configs, features, ct);
+        var detail = DocumentQueries.ToDetail(row, definition);
+        if (type?.Compiled is not { } compiled || !Correctable.Contains(document.Status))
+        {
+            return detail;
+        }
+
+        string? view = null;
+        if (string.IsNullOrWhiteSpace(document.CanonicalJson))
+        {
+            view = CanonicalStorage.IsDefinitionDriven(type, configurable: true) ? DefinitionTree.CreateEmpty(compiled.Descriptors).ToJsonString() : null;
+        }
+        else if (document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion
+                 && System.Text.Json.Nodes.JsonNode.Parse(document.CanonicalJson) is System.Text.Json.Nodes.JsonObject stored
+                 && DefinitionTree.Complete(stored, compiled.Descriptors))
+        {
+            // A tree of an earlier version (reprocessed from Validate onto a newer one) lacks the fields the version
+            // added; PATCH completes it the same way before it applies a correction.
+            view = stored.ToJsonString();
+        }
+
+        if (view is not null)
+        {
+            using var tree = System.Text.Json.JsonDocument.Parse(view);
+            detail = detail with { Canonical = tree.RootElement.Clone(), CanonicalSchemaVersion = DefinitionTree.SchemaVersion };
+        }
+
+        return detail;
     }
 
     /// <summary>
     /// The type version a document is shown with (<see cref="DocumentDefinitionRef"/>): for a definition-driven document,
     /// and for every document of a tenant with <c>configurableTypes</c> on; null otherwise, so a tenant that is not on the
-    /// feature gets the payload it got before.
+    /// feature gets the payload it got before. Also answers the resolved type, which is null exactly when the reference is.
     /// </summary>
-    private static async Task<DocumentDefinitionRef?> DefinitionOfAsync(Document document, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
+    private static async Task<(DocumentDefinitionRef? Definition, EffectiveType? Type)> DefinitionOfAsync(Document document, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
     {
         if (document.Type.IsUnknown)
         {
-            return null;
+            return (null, null);
         }
 
         if (document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion && !await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct))
         {
-            return null;
+            return (null, null);
         }
 
         var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), ct);
-        return config.Type is { Compiled: { } compiled } type ? DefinitionRef(type, compiled) : null;
+        return config.Type is { Compiled: { } compiled } type ? (DefinitionRef(type, compiled), type) : (null, null);
     }
 
     private static DocumentDefinitionRef DefinitionRef(EffectiveType type, Definitions.Compilation.CompiledDefinition compiled)
@@ -441,6 +482,8 @@ public static partial class DocumentEndpoints
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
@@ -495,7 +538,7 @@ public static partial class DocumentEndpoints
         document.Version++;
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> RejectAsync(
@@ -505,6 +548,8 @@ public static partial class DocumentEndpoints
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var reason = Clean(request.Reason, 2000);
@@ -559,7 +604,7 @@ public static partial class DocumentEndpoints
         document.Version++;
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> ReprocessAsync(
@@ -569,6 +614,8 @@ public static partial class DocumentEndpoints
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var stage = PipelineStage.Extract;
@@ -656,7 +703,7 @@ public static partial class DocumentEndpoints
         }
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, stage), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> CorrectFieldsAsync(
@@ -772,7 +819,7 @@ public static partial class DocumentEndpoints
             };
         }
 
-        return TypedResults.Ok(DocumentQueries.ToDetail(row, await DefinitionOfAsync(document, configs, features, ct)));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     /// <summary>The stored tree of a definition-driven document, completed with the fields of its version; an empty tree when it has none yet.</summary>

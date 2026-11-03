@@ -553,6 +553,7 @@ function FieldForm({ definition, location, field, editable, issues, onChange, on
           <Textarea id={id("description")} value={field.description ?? ""} disabled={!editable} rows={2} onChange={(event) => onChange({ description: event.target.value || undefined })} />
           <p className="text-xs text-muted-foreground">{t("types.descriptionHint")}</p>
         </div>
+        {SCALAR_INDEXABLE.has(field.kind) && <ExtractionHintsInputs key={field.id} field={field} locales={locales} editable={editable} onChange={onChange} />}
         <div className="flex items-center justify-between gap-4 rounded-md border p-3">
           <div>
             <Label htmlFor={id("required")}>{t("types.required")}</Label>
@@ -570,6 +571,63 @@ function FieldForm({ definition, location, field, editable, issues, onChange, on
       </div>
       {field.kind === "enum" && <OptionsEditor field={field} editable={canChange} onChange={onChange} />}
     </div>
+  );
+}
+
+/** A field's extraction hints (docs/11 §5.2 `extraction`): the labels it is printed with per language, and a pattern. */
+function ExtractionHintsInputs({ field, locales, editable, onChange }: { field: DefinitionField; locales: readonly string[]; editable: boolean; onChange: (patch: Partial<DefinitionField>) => void }) {
+  const { t } = useTranslation(REVIEW_NS);
+  const extraction = (field.extraction ?? {}) as { labels?: Record<string, string[]> | null; pattern?: string | null; [other: string]: unknown };
+  // The typed text per language, so a trailing comma survives until the next label is typed.
+  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(locales.map((locale) => [locale, (extraction.labels?.[locale] ?? []).join(", ")])));
+  const update = (patch: Partial<typeof extraction>) => {
+    const next: Record<string, unknown> = { ...extraction, ...patch };
+    for (const key of Object.keys(next)) {
+      if (next[key] === undefined || next[key] === null) delete next[key];
+    }
+    onChange({ extraction: Object.keys(next).length > 0 ? next : undefined });
+  };
+  const setLabels = (locale: string, text: string) => {
+    setTexts((current) => ({ ...current, [locale]: text }));
+    const labels = { ...(extraction.labels ?? {}) };
+    const list = text
+      .split(",")
+      .map((label) => label.trim())
+      .filter((label) => label.length > 0);
+    if (list.length > 0) labels[locale] = list;
+    else delete labels[locale];
+    update({ labels: Object.keys(labels).length > 0 ? labels : undefined });
+  };
+  const pattern = extraction.pattern ?? "";
+  const patternValid = (() => {
+    if (pattern === "") return true;
+    try {
+      new RegExp(pattern);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const id = (part: string) => `field-${field.id}-${part}`;
+  return (
+    <>
+      {locales.map((locale) => (
+        <div key={locale} className="grid gap-1.5">
+          <Label htmlFor={id(`printed-${locale}`)}>{t("types.printedAs", { locale: locale.toUpperCase() })}</Label>
+          <Input id={id(`printed-${locale}`)} value={texts[locale] ?? ""} disabled={!editable} onChange={(event) => setLabels(locale, event.target.value)} />
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground sm:col-span-2">{t("types.printedAsHint")}</p>
+      {(field.kind === "string" || field.kind === "text" || field.kind === "identifier") && (
+        <div className="grid gap-1.5 sm:col-span-2">
+          <Label htmlFor={id("pattern")}>{t("types.pattern")}</Label>
+          <Input id={id("pattern")} className="font-mono" value={pattern} disabled={!editable} aria-invalid={!patternValid || undefined} onChange={(event) => update({ pattern: event.target.value === "" ? undefined : event.target.value })} />
+          <p className={patternValid ? "text-xs text-muted-foreground" : "text-xs text-destructive"} role={patternValid ? undefined : "alert"}>
+            {patternValid ? t("types.patternHint") : t("types.patternInvalid")}
+          </p>
+        </div>
+      )}
+    </>
   );
 }
 

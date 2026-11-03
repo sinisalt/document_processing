@@ -204,6 +204,41 @@ describe("type editor", () => {
     expect(saved.fields.at(-1)).toEqual({ id: "fld_c1", key: "supplierCustomerRef", kind: "string", label: { en: "Our customer no. at supplier", de: "Unsere Kundennummer beim Lieferanten" }, section: "document", indexed: true, required: true });
   });
 
+  it("edits the printed labels and the pattern of a field as its extraction hints (docs/11 §5.3)", async () => {
+    editorRoutes();
+    handlers.set("PUT /api/v1/document-types/{key}/versions/{version}", () => ({ status: 200, etag: '"4"', data: version(2, "Draft", { revision: 4 }) }));
+    await openCreditNote();
+    fireEvent.click(screen.getByTestId("add-field"));
+    const form = await screen.findByTestId("field-form");
+    fireEvent.change(within(form).getByLabelText("Key"), { target: { value: "supplierCustomerRef" } });
+    // Typed as a list: a trailing comma stays in the box until the next label follows.
+    const de = within(form).getByLabelText("Printed as (DE)");
+    fireEvent.change(de, { target: { value: "Kunden-Nr.," } });
+    expect(de).toHaveValue("Kunden-Nr.,");
+    fireEvent.change(de, { target: { value: "Kunden-Nr., Kd.-Nr.,  Kundennummer" } });
+    fireEvent.change(within(form).getByLabelText("Printed as (EN)"), { target: { value: "Customer No." } });
+    const pattern = within(form).getByLabelText("Pattern");
+    fireEvent.change(pattern, { target: { value: "^([0-9]{3}" } });
+    expect(within(form).getByRole("alert")).toHaveTextContent("Not a valid regular expression.");
+    fireEvent.change(pattern, { target: { value: "^[0-9]{3}\\s?[0-9]{6}$" } });
+    expect(within(form).queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("save-draft"));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const saved = calls.find((c) => c.method === "PUT")!.options.body as typeof creditNoteDefinition;
+    expect(saved.fields.at(-1)).toMatchObject({
+      key: "supplierCustomerRef",
+      extraction: { labels: { de: ["Kunden-Nr.", "Kd.-Nr.", "Kundennummer"], en: ["Customer No."] }, pattern: "^[0-9]{3}\\s?[0-9]{6}$" },
+    });
+
+    // Cleared again, the hints leave no empty extraction object behind.
+    fireEvent.change(within(form).getByLabelText("Printed as (DE)"), { target: { value: "" } });
+    fireEvent.change(within(form).getByLabelText("Printed as (EN)"), { target: { value: " " } });
+    fireEvent.change(within(form).getByLabelText("Pattern"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("save-draft"));
+    await waitFor(() => expect(calls.filter((c) => c.method === "PUT").length).toBe(2));
+    expect(JSON.parse(JSON.stringify(calls.filter((c) => c.method === "PUT")[1]!.options.body)).fields.at(-1)).not.toHaveProperty("extraction");
+  });
+
   it("shows the meta-schema errors of a refused save", async () => {
     editorRoutes();
     handlers.set("PUT /api/v1/document-types/{key}/versions/{version}", () => ({ status: 400, error: { title: "Invalid", status: 400, errors: { "fields[2].kind": ["Not a kind."] } } }));

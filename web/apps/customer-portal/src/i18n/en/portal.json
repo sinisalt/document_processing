@@ -238,6 +238,9 @@
       "fromStage": "From stage",
       "fromStageLoading": "Loading the timeline…",
       "reprocessing": "Reprocessing from {{stage}}.",
+      "useCurrentVersion": "Use the published version of the type",
+      "useCurrentVersionNewer": "This document was read with {{type}} v{{version}}; v{{published}} is published. Without this, the document keeps v{{version}}.",
+      "useCurrentVersionSame": "This document was read with {{type}} v{{version}}, the published version.",
       "saveFirst": "Save or discard your corrections first.",
       "shortcutApple": "⌘↵",
       "shortcutOther": "Ctrl+Enter"

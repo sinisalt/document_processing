@@ -118,6 +118,62 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
     }
 
     [Fact]
+    public async Task A_delivery_note_read_before_the_switch_opens_with_the_empty_tree_of_its_type_and_keeps_its_definition_on_decisions()
+    {
+        // Found by the P1 demo (docs/09 "Demo: types as data"): the demo delivery note was extracted while the switch was
+        // off, so it has no tree; after the switch the review screen said "no extracted data" although PATCH could fill it.
+        var tenant = NewTenant("DN before switch", configurable: true);
+        var id = await SeedEmptyAsync(tenant, "DeliveryNote");
+        using var reviewer = Reviewer(tenant);
+
+        var detail = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!;
+        detail.CanonicalSchemaVersion.ShouldBe(DefinitionTree.SchemaVersion);
+        var canonical = JsonNode.Parse(detail.Canonical.ShouldNotBeNull().GetRawText())!;
+        canonical["deliveryNoteNumber"]!["status"]!.GetValue<string>().ShouldBe("Missing");
+        canonical["lines"]!.AsArray().ShouldBeEmpty();
+        detail.Definition.ShouldNotBeNull().Key.ShouldBe("DeliveryNote");
+        factory.Query(db => db.Documents.Single(d => d.Id == id).CanonicalJson).ShouldBeNull("the empty tree is only what the first correction starts from; nothing is written");
+
+        // The first correction stores the tree; a stored tree that lacks a field of its version (read under an earlier
+        // one) is answered completed, as PATCH completes it.
+        (await Patch(reviewer, id, new FieldCorrection("deliveryNoteNumber", V("L-2026-0457"), null))).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Run(db =>
+        {
+            var document = db.Documents.Single(d => d.Id == id);
+            var stored = JsonNode.Parse(document.CanonicalJson!)!.AsObject();
+            stored.Remove("carrier").ShouldBeTrue();
+            document.CanonicalJson = stored.ToJsonString();
+        });
+        detail = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!;
+        canonical = JsonNode.Parse(detail.Canonical!.Value.GetRawText())!;
+        canonical["carrier"]!["status"]!.GetValue<string>().ShouldBe("Missing");
+        canonical["deliveryNoteNumber"]!["value"]!["verbatim"]!.GetValue<string>().ShouldBe("L-2026-0457");
+
+        // Approve, reject and reprocess answer with the definition too, so the screen that shows their answer keeps the form.
+        var approved = await reviewer.PostAsJsonAsync($"/api/v1/documents/{id}:approve", new ApproveDocumentRequest(null), Ct);
+        approved.StatusCode.ShouldBe(HttpStatusCode.OK, await approved.Content.ReadAsStringAsync(Ct));
+        var afterApprove = (await approved.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!;
+        afterApprove.Definition.ShouldNotBeNull().Key.ShouldBe("DeliveryNote");
+        afterApprove.TypeVersion.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Without_the_switch_a_document_without_a_tree_is_answered_as_before()
+    {
+        var tenant = NewTenant("DN switch off", configurable: false);
+        var id = await SeedEmptyAsync(tenant, "DeliveryNote");
+        using var reviewer = Reviewer(tenant);
+
+        var detail = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!;
+        detail.Canonical.ShouldBeNull();
+        detail.Definition.ShouldBeNull();
+        detail.CanonicalSchemaVersion.ShouldNotBe(DefinitionTree.SchemaVersion);
+        var rejected = await reviewer.PostAsJsonAsync($"/api/v1/documents/{id}:reject", new RejectDocumentRequest("not ours"), Ct);
+        rejected.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await rejected.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.Definition.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task The_inbox_gets_indexed_values_as_columns_and_the_type_list_names_the_indexed_fields()
     {
         var tenant = NewTenant("Columns tenant", configurable: true);

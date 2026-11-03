@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, RotateCcw, X } from "lucide-react";
-import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
+import { Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
 import { ConfirmDialog, canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, queryKeys, reprocessStages, unwrap, useApi, type ReprocessStage } from "@docproc/app-shell";
 import { isApplePlatform } from "@/lib/platform";
 import { useDocumentEvents, type DocumentDetail } from "@/lib/queries";
@@ -41,7 +41,21 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   const timeline = useDocumentEvents(document.id, reprocessOpen);
   const furthest = timeline.data ? furthestPipelineStatus(timeline.data, document.status) : timeline.isError ? furthestPipelineStatus([], document.status) : null;
   const [picked, setPicked] = useState<ReprocessStage | null>(null);
-  const stage: ReprocessStage | null = furthest === null ? null : picked !== null && canReprocessFrom(picked, furthest) ? picked : defaultReprocessStage(furthest);
+  // A document keeps the type version it was read with (docs/11 §15.1); a reprocess can take the published one instead
+  // (`configMode: current`), e.g. after the tenant added fields to the type. Offered when the document has a definition.
+  const definition = document.definition ?? null;
+  const typeQuery = useQuery({
+    queryKey: queryKeys.documentTypes.detail(definition?.key ?? ""),
+    queryFn: async () => unwrap(await client.GET("/api/v1/document-types/{key}", { params: { path: { key: definition!.key } } })),
+    enabled: reprocessOpen && definition !== null,
+  });
+  const published = typeQuery.data?.publishedVersion == null ? null : Number(typeQuery.data.publishedVersion);
+  const newerPublished = definition !== null && published !== null && published !== definition.version;
+  const [currentPicked, setCurrentPicked] = useState<boolean | null>(null);
+  const useCurrent = definition !== null && (currentPicked ?? newerPublished);
+  // The fields a newer version adds are read in Extract, so taking the published version defaults to Extract.
+  const fallbackStage = (reached: NonNullable<typeof furthest>): ReprocessStage => (useCurrent && canReprocessFrom("Extract", reached) ? "Extract" : defaultReprocessStage(reached));
+  const stage: ReprocessStage | null = furthest === null ? null : picked !== null && canReprocessFrom(picked, furthest) ? picked : fallbackStage(furthest);
 
   const settle = (updated: DocumentDetail, message: string) => {
     queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
@@ -63,7 +77,13 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
     },
   });
   const reprocess = useMutation({
-    mutationFn: async (fromStage: ReprocessStage) => unwrap(await client.POST("/api/v1/documents/{id}:reprocess", { params: { path: { id: document.id } }, body: { fromStage } })),
+    mutationFn: async (fromStage: ReprocessStage) =>
+      unwrap(
+        await client.POST("/api/v1/documents/{id}:reprocess", {
+          params: { path: { id: document.id } },
+          body: definition === null ? { fromStage } : { fromStage, configMode: useCurrent ? "current" : "pinned" },
+        }),
+      ),
     onSuccess: (updated, fromStage) => settle(updated, t("review.actions.reprocessing", { stage: t(`stages.${fromStage}`) })),
   });
 
@@ -143,6 +163,21 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
             </SelectContent>
           </Select>
         </div>
+        {definition !== null && (
+          <div className="flex items-start gap-2" data-testid="reprocess-config-mode">
+            <Checkbox id="reprocess-current" checked={useCurrent} onCheckedChange={(checked) => setCurrentPicked(checked === true)} className="mt-0.5" />
+            <div className="grid gap-1">
+              <Label htmlFor="reprocess-current">{t("review.actions.useCurrentVersion")}</Label>
+              {published !== null && (
+                <p className="text-xs text-muted-foreground">
+                  {newerPublished
+                    ? t("review.actions.useCurrentVersionNewer", { type: document.typeName ?? definition.key, version: definition.version, published })
+                    : t("review.actions.useCurrentVersionSame", { type: document.typeName ?? definition.key, version: definition.version })}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </ConfirmDialog>
     </div>
   );
