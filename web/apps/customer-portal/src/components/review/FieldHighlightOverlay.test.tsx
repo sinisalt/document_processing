@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { i18n } from "@/i18n";
-import { FieldHighlightOverlay, boxClassName } from "./FieldHighlightOverlay";
+import { FieldHighlightOverlay, boxClassName, shareBoxes } from "./FieldHighlightOverlay";
 import type { ProvenanceBox } from "@/lib/overlay";
 
 const boxes: ProvenanceBox[] = [
@@ -91,5 +91,19 @@ describe("FieldHighlightOverlay", () => {
   it("renders nothing before the image has a size", () => {
     const { container } = render(<FieldHighlightOverlay rendered={{ width: 0, height: 0 }} boxes={boxes} highlightedPath={null} />);
     expect(container.querySelector("svg")).toBeNull();
+  });
+  it("draws one box for the fields read from the same place, so the fills do not stack over the text", () => {
+    const heading = { x0: 40, y0: 400, x1: 120, y1: 415 };
+    const rows: ProvenanceBox[] = [0, 1, 2].map((i) => ({ path: `lines[${i}].category`, page: 1, box: heading, historical: false }));
+    const onSelect = vi.fn();
+    render(<FieldHighlightOverlay rendered={{ width: 1000, height: 1000 }} boxes={[...rows, rows[0]!, { ...rows[0]!, historical: true }]} highlightedPath="lines[2].category" onSelect={onSelect} />);
+    const current = screen.getByRole("button", { name: "Field lines[2].category and 2 more fields" });
+    expect(current).toHaveAttribute("data-active", "true");
+    expect(current).toHaveAttribute("data-path", "lines[2].category");
+    fireEvent.click(current);
+    expect(onSelect).toHaveBeenCalledWith("lines[2].category");
+    // The history box at the same place stays a box of its own.
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(shareBoxes(rows)).toEqual([{ box: heading, historical: false, paths: ["lines[0].category", "lines[1].category", "lines[2].category"] }]);
   });
 });

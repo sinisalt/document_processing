@@ -287,6 +287,8 @@
       "label_one": "{{count}} highlighted field on this page",
       "label_other": "{{count}} highlighted fields on this page",
       "box": "Field {{field}}",
+      "shared_one": "{{field}} and {{count}} more field",
+      "shared_other": "{{field}} and {{count}} more fields",
       "divider": "Column divider {{n}}"
     },
     "timeline": {

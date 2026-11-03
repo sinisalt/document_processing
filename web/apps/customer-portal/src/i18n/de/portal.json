@@ -287,6 +287,8 @@
       "label_one": "{{count}} markiertes Feld auf dieser Seite",
       "label_other": "{{count}} markierte Felder auf dieser Seite",
       "box": "Feld {{field}}",
+      "shared_one": "{{field}} und {{count}} weiteres Feld",
+      "shared_other": "{{field}} und {{count}} weitere Felder",
       "divider": "Spaltentrenner {{n}}"
     },
     "timeline": {

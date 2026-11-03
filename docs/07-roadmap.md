@@ -898,6 +898,11 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       `ReviewActions` therefore leaves a joined-away part `Rejected` (up again it stays so); the document it was
       joined into stays in its `document.joined` event (`into`) once `JoinedIntoDocumentId` is dropped
       (`TypeCatalogueSqlTests`, on SQL Server);
+  - Fixed from the final compose demo of P2:
+    - the page viewer draws one box for the fields read from the same place, named after the first of them "and n
+      more fields" (the highlighted one when it is among them). Every row a table mapping writes under a group heading
+      takes the heading's box as its category's source, so page 7 of the demo list drew 55 translucent boxes over
+      "Spirituosen", whose fills stacked into an opaque one that hid the heading (`FieldHighlightOverlay.test.tsx`);
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their

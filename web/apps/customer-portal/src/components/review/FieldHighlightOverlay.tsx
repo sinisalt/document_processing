@@ -50,6 +50,29 @@ export interface FieldHighlightOverlayProps {
 
 const rawPath = (path: string) => path;
 
+/** One drawn box: the fields read from the same place on the page share it. */
+interface SharedBox {
+  box: ProvenanceBox["box"];
+  historical: boolean;
+  paths: string[];
+}
+
+/**
+ * Groups boxes that cover the same place (and are both current or both history) into one. Every row a table mapping
+ * wrote under a group heading carries that heading's box as its category's source, so a page held 30 boxes at the
+ * same place; their translucent fills stacked into an opaque one that hid the heading.
+ */
+export function shareBoxes(boxes: readonly ProvenanceBox[]): SharedBox[] {
+  const byPlace = new Map<string, SharedBox>();
+  for (const { box, historical, path } of boxes) {
+    const key = `${box.x0}|${box.y0}|${box.x1}|${box.y1}|${historical}`;
+    const shared = byPlace.get(key);
+    if (!shared) byPlace.set(key, { box, historical, paths: [path] });
+    else if (!shared.paths.includes(path)) shared.paths.push(path);
+  }
+  return [...byPlace.values()];
+}
+
 /**
  * A box's colours. The rendered page is a white image in either theme, so they are fixed colours, never theme tokens:
  * `primary` is near-white in dark mode, which made the highlighted box vanish on the page.
@@ -133,10 +156,13 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
             </rect>
           );
         })}
-      {boxes.map((box, index) => {
-        const rect = mapBox(box.box, rendered);
-        const active = highlightedPath !== null && box.path === highlightedPath;
-        const label = labelOf(box.path);
+      {shareBoxes(boxes).map((shared, index) => {
+        const rect = mapBox(shared.box, rendered);
+        const active = highlightedPath !== null && shared.paths.includes(highlightedPath);
+        // The highlighted field when it shares the box, else the first one read there.
+        const box = { path: active ? highlightedPath! : shared.paths[0]!, historical: shared.historical };
+        const others = shared.paths.length - 1;
+        const label = others > 0 ? t("review.overlay.shared", { field: labelOf(box.path), count: others }) : labelOf(box.path);
         return (
           <rect
             key={`${box.path}-${index}`}
