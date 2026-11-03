@@ -236,9 +236,10 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
     `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
     (docs/11 §21 step 1).
-- **P1, types as data and custom fields – parts A, B and C done; the items under "Left" are open.** Part A (the type
-  catalogue backend), part B (pipeline, storage and rules) and part C (the web part: the generated review form, the
-  type editor, the inbox filters and the feature switches) are done.
+- **P1, types as data and custom fields – parts A to D done, the P1 demo runs in the compose stack; the items under
+  "Left" are open.** Part A (the type catalogue backend), part B (pipeline, storage and rules), part C (the web part:
+  the generated review form, the type editor, the inbox filters and the feature switches) and part D (the end-to-end
+  demo of docs/11 §23 and the gaps it exposed) are done.
   - Done (part A):
     - the `DocumentTypeKey` string switch in one change: the `DocumentType` enum is gone, `DocumentTypeKey` (a
       `readonly record struct`) and `WellKnownTypeKeys` replace it; `Documents.Type` keeps its `nvarchar(64)` column and
@@ -360,13 +361,55 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       labels and indexed, saved, validated (`invoice_extraction@1+x.f68b208b`, the field listed as added) and published
       as v2; the inbox filtered by `CreditNote` showed the field as a column; the demo PDF invoice was drawn from its
       definition with the line check. No browser console errors.
+  - Done (part D, the demo and its gaps):
+    - the P1 demo of docs/11 §23 (docs/09 "Demo: types as data"; docs/11's tenant "Acme" is the demo tenant A,
+      Gasthaus zur Post GmbH): a credit note PDF from Getränke Hoffmann that prints "Kd.-Nr. 104 220815"
+      (`fixtures/demo/uploads/tenant-a`, uploaded by hand, not ingested by the demo data), the field of docs/11 §5.3
+      (`fixtures/demo/types/credit-note-supplier-customer-ref.field.json`) and the fourth replay fixture, its
+      extraction with `x_custom` (`invoice_extraction@1+x.58a31050`), captured by `DemoFixtureTests` after forking
+      `CreditNote` and uploading the PDF; `REGENERATE_DEMO_PDFS` also takes a file name;
+    - fixed, found by the demo: a supplier's mailbox `rechnung@…` in a letterhead scored as the title "Rechnung"
+      and pushed the credit note below the keyword threshold; keywords inside e-mail, `://` and `www.` addresses no
+      longer count, for the classifier and the splitter;
+    - fixed: a document of a definition-driven type read before the switch (the demo delivery note) had no tree, and
+      the review screen said "no extracted data" although `PATCH /fields` could fill it. Every document endpoint
+      answers a correctable document without a tree with the empty tree of its version (`canonicalSchemaVersion`
+      2), and a stored version 2 tree completed with the fields its version added (read only, nothing written);
+      approve, reject and reprocess answer with `definition` too;
+    - fixed: the review screen could not move a document onto a newer published type version; the Reprocess dialog
+      offers "Use the published version of the type" (`configMode: current`), ticked when a newer version is
+      published, then from Extract;
+    - the type editor edits a field's extraction hints (printed labels per language and a pattern, docs/11 §5.2),
+      so the field of §5.3 can be entered in the UI as written; they are stored with the type and not sent to the
+      LLM (the schema takes key, kind and description);
+    - fixed: `docker compose up --build` failed at the portal image since part C (the review tests import
+      `schemas/templates` from outside `web/`, which `web/Dockerfile` did not copy); the image copies it and
+      `ComposeParityTests` checks every folder outside `web/` a web source imports from;
+    - fixed: a list query the inbox cancels (a filter changed) made SqlClient throw a `SqlException`, logged as an
+      unhandled error and answered 500 to a client that had gone; an aborted request is a closed request (499, debug
+      log) now (`ClientAbortedRequests`), every other failure is still a logged 500;
+    - run in the compose stack (project `p1d`, a fresh `docker compose up --build`, SQL Server, Keycloak sign-in,
+      Playwright as `superadmin`, `tenant-a-admin` and `tenant-a-reviewer`): the demo documents ended as docs/09
+      says; the switches went on in the admin console; the price list was adopted; `CreditNote` was forked with the
+      field typed in the editor (labels, description, printed labels, pattern, indexed), validated
+      (`invoice_extraction@1+x.58a31050`, the field Added) and published as v2; the uploaded credit note was
+      classified by keywords, extracted from the replay fixture with `supplierCustomerRef` `104 220815` (LLM
+      provenance on page 1), pinned to v2 (checked in SQL with the platform scope), Needs review with
+      `LOW_CONFIDENCE` on the due date only, shown in the generated form, corrected, and found by the inbox field
+      filter with the field as a column (`DocumentFieldIndex` row checked in SQL; tenant B found nothing); the demo
+      delivery note, read before the switch, showed the generated form, `DeliveryNote` was forked with `tour` and
+      `supplierCustomerRef`, the note reprocessed onto v2 from the dialog, filled (number, round, customer number, a
+      row), approved, and found by `?field.tour=Rosenheim Nord`; the METRO credit note stayed on v1 (version 1 tree).
+      No browser console errors and no 5xx after the fixes above.
   - Left for the rest of P1:
     - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
       nor are a row's `ext` bag and composites inside rows; the grid pages instead of virtualising (docs/11 §12.2); the
-      type editor reorders with up and down buttons (no dnd-kit), edits neither sections, roles, extraction labels,
-      patterns nor `sensitive`, has no diff view (no `:diff` route) and no Rules, Processing or Classification tab, and
-      its JSON tab is a text area (no Monaco); the inbox shows an indexed value as the field index stores it
-      (identifiers normalised); the admin console's document page keeps its own read-only view (the shared review is
+      type editor reorders with up and down buttons (no dnd-kit), edits neither sections, roles nor `sensitive`, has no
+      diff view (no `:diff` route) and no Rules, Processing or Classification tab, and its JSON tab is a text area (no
+      Monaco); the extraction hints it edits have no run-time use yet (supplier layouts read them from P4); the inbox
+      shows an indexed value as the field index stores it and filters by that form (identifiers trimmed, spaces
+      collapsed, upper-cased, so `104220815` does not find `104 220815`); a credit note's custom field is read only
+      by the LLM path (an e-invoice XML credit note gets the field Missing, to fill in review); the admin console's document page keeps its own read-only view (the shared review is
       P6) and its hard-coded type lists (`lib/documents.ts`, `lib/review.ts`); the line check is still computed in the
       browser (`lineArithmetic.ts`), not from server results per path (`DocumentDetail.validation[]`, docs/11 §11);
     - retiring `invoice.required`, `invoice.datePlausibility` and `invoice.confidence` from the std templates in favour of

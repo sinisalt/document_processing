@@ -297,11 +297,15 @@ catalogue on with them). The same tenant page has a Document types tab. In the c
 admin (`tenant-a-admin`) finds the catalogue under Settings > Document types (`/settings?tab=types`):
 the templates with Adopt and Copy, the tenant's types with Fork (an adopted type, such as `CreditNote`,
 becomes the tenant's copy under the same key) and the type editor (fields, labels in English and German,
-required, indexed, options, a preview of the generated review form, validate and publish with the
-publish report, the versions, the JSON). With the switch off the catalogue is read only. Once a type is
-definition-driven, its documents open in review with the generated form (delivery notes, purchase
-orders, price lists, custom fields), and the inbox filters by the type's indexed fields and shows them as
-columns (`GET /documents?fields=<path>,…` returns the values in `DocumentSummary.fields`).
+the labels a value is printed with and a pattern as extraction hints, required, indexed, options, a
+preview of the generated review form, validate and publish with the publish report, the versions, the
+JSON). With the switch off the catalogue is read only. Once a type is definition-driven, its documents
+open in review with the generated form (delivery notes, purchase orders, price lists, custom fields),
+and the inbox filters by the type's indexed fields and shows them as columns
+(`GET /documents?fields=<path>,…` returns the values in `DocumentSummary.fields`). A document keeps the
+type version it was read with; the review screen's Reprocess dialog offers "Use the published version of
+the type" (`configMode: current`), ticked when a newer version is published, and then starts from
+Extract, where the added fields are read.
 
 With the dev issuer:
 
@@ -343,10 +347,11 @@ curl -s "http://localhost:5100/api/v1/documents?field.supplierCustomerRef=0815" 
 curl -s "http://localhost:5100/api/v1/documents/$DOC" -H "$H" | jq '{canonicalSchemaVersion, typeVersion, ref: .canonical.supplierCustomerRef.value}'
 ```
 
-The fixture matches only this exact field (its description and labels are part of the LLM schema and
-therefore of the request hash) on a demo database where the PDF invoice is still as the demo data
-left it; another field, or another PDF, gets a replay miss and ends `Failed` as described under
-"Demo data".
+The fixture matches only this field: its key, kind and description (with `extraction.llmHint`, if
+any) are part of the LLM schema and therefore of the request hash; its labels, printed labels, pattern,
+section and `indexed` are not. It also needs a demo database where the PDF invoice is still as the
+demo data left it; another field, or another PDF, gets a replay miss and ends `Failed` as described
+under "Demo data".
 
 Documents of a definition-driven type (docs/11 §5.6) are stored and corrected by their type
 version: with `configurableTypes` on, a purchase order or delivery note gets the empty tree of its
@@ -354,9 +359,14 @@ type in Extract (`UNSUPPORTED_TYPE` with `reason: definition` says it is filled 
 price list adopted from the catalogue is checked by `validate.schema` and its rules. `PATCH
 /documents/{id}/fields` then takes `append` (a row, with an object of its values, or a list entry)
 and `remove` (a row, a list entry or an `ext` key) besides `set`, re-validates the document at once
-and answers with the new flags. Indexed fields are filtered with `?field.<path>=value` on
-`GET /documents`; `validFrom`, `validUntil`, `lineCount` and the open review task's
-`reviewPriority` are in every inbox row.
+and answers with the new flags. A document of such a type read before the switch was turned on has no
+tree; while it is correctable (`NeedsReview`, `Validated`, `Failed`) `GET /documents/{id}` answers the
+empty tree of its type version (`canonicalSchemaVersion` 2) as `canonical`, which the first correction
+stores, and a stored tree that lacks fields its version has is answered completed with them; nothing is
+written by a read. Indexed fields are filtered with `?field.<path>=value` on `GET /documents`, compared
+as the index stores them (identifiers trimmed, repeated spaces collapsed and upper-cased, so
+`104 220815` is found as `104 220815` but not as `104220815`); `validFrom`, `validUntil`, `lineCount`
+and the open review task's `reviewPriority` are in every inbox row.
 
 ### Demo data
 
@@ -436,7 +446,10 @@ stack with the API's `appsettings.json` and `appsettings.Development.json`, lets
 provider in place of the replay store, hashes every request the real stages send and compares the resulting files
 with the committed ones. It then forks tenant A's `Invoice` with the demo custom field (`fixtures/demo/types`, see
 "Document types" above) and reprocesses the PDF invoice with `configMode: "current"`, which adds the third fixture:
-the extraction with `x_custom`. After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
+the extraction with `x_custom`. Last it forks `CreditNote` with the field of docs/11 §5.3
+(`fixtures/demo/types/credit-note-supplier-customer-ref.field.json`) and uploads the credit note of
+`fixtures/demo/uploads/tenant-a`, which adds the fourth: that credit note's extraction with `x_custom` ("Demo: types
+as data" below). After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
 demo PDF it fails and says so; regenerate and commit:
 
 ```bash
@@ -444,11 +457,14 @@ UPDATE_DEMO_FIXTURES=1 dotnet test --project tests/DocProc.Pipeline.Tests -c Rel
 git add fixtures/demo/llm-replay
 ```
 
-The two PDFs are committed bytes, drawn once by `tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` with PDFsharp
-(test-only, see below). PDFsharp writes a new document id on every save, so the normal run never rewrites them;
-after editing `DemoPdfs`, run once with `REGENERATE_DEMO_PDFS=1` and then with `UPDATE_DEMO_FIXTURES=1`. To add a
-demo document, drop the file into the tenant folder; if it is a PDF that needs an LLM call, add its answer to
-`DemoAnswers` (and its expected request to the fixture test) and regenerate.
+The three PDFs (the two of `tenant-a` and the credit note of `uploads/tenant-a`) are committed bytes, drawn once by
+`tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` with PDFsharp (test-only, see below). PDFsharp writes a new document
+id on every save, so the normal run never rewrites them; after editing `DemoPdfs`, run once with
+`REGENERATE_DEMO_PDFS=1` (every PDF) or `REGENERATE_DEMO_PDFS=<file name>` (that one only, so the others' bytes and
+fixtures stay as they are) and then with `UPDATE_DEMO_FIXTURES=1`. To add a demo document, drop the file into the
+tenant folder (or into `uploads/<tenant slug>` for one a demo uploads by hand: the demo data does not ingest it);
+if it is a PDF that needs an LLM call, add its answer to `DemoAnswers` (and its expected request to the fixture
+test) and regenerate. `DemoPdfClassificationTests` holds which demo PDFs the keyword rules classify.
 
 The classification hash covers the PNG that PDFium renders. The committed fixtures are generated on linux-x64 (the
 CI platform, `DemoData.FixtureCapturePlatform`); a machine whose PDFium build rasterises the page differently gets a
@@ -459,6 +475,75 @@ fixture, which hashes the PDF bytes and is platform-independent, `UPDATE_DEMO_FI
 Do not commit a classification fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
 keeps every file's bytes exactly as committed on every checkout, whatever `core.autocrlf` says, since the bytes key
 the request hashes.
+
+### Demo: types as data
+
+The P1 demo of docs/11 §23, run as the product owner needs it: a tenant gets a document type the system has no
+fields for, or a supplier-specific identifier on a known one, and defines the fields itself, custom fields
+included, without a code change. docs/11 tells it for the tenant "Acme"; in the demo data that is tenant A,
+Gasthaus zur Post GmbH (`tenant-a`). Run it on a fresh stack (`docker compose up --build`, README "With Docker
+Compose"; no LLM key needed) or in the dependency-free dev mode (the same screens with the dev sign-in, API on
+port 5100). The screens are the portal on http://localhost:5173 and the admin console on http://localhost:5174.
+
+1. **Before.** As `tenant-a-reviewer`, open the Bio-Hof Müller delivery note ("(no number)", Needs review) from the
+   inbox: it says "This document type has no form to review yet", the gap the product owner hit. The tenant's
+   catalogue is read only, because `configurableTypes` is off.
+2. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types on (Types of the tenant's own as well, to offer New type for a type no
+   template covers).
+3. **Adopt and fork.** As `tenant-a-admin` in the portal: Settings > Document types. Price list > Adopt (`std.price-list`
+   v1, published at once). Credit note > Fork to edit (a v2 draft under the key `CreditNote`). Add field, with the
+   values of `fixtures/demo/types/credit-note-supplier-customer-ref.field.json` (the field of docs/11 §5.3):
+
+   | Field | Value |
+   |---|---|
+   | Key / Kind | `supplierCustomerRef` / Number / identifier |
+   | Label (EN) / (DE) | Our customer no. at supplier / Unsere Kundennummer beim Lieferanten |
+   | Section | Document |
+   | Description | `The account number the supplier assigned to us, printed as Kunden-Nr. or Kd.-Nr.` (exactly: with the key and kind it keys the replay fixture) |
+   | Printed as (DE) / (EN) | Kunden-Nr., Kd.-Nr., Kundennummer / Customer No., Account No. |
+   | Pattern | `^[0-9]{3}\s?[0-9]{6}$` |
+   | Indexed | on |
+
+   Save draft, then Validate: "The checks passed", extraction schema `invoice_extraction@1+x.58a31050`, the field
+   listed as Added. Versions > Publish (v2; v1 becomes Deprecated).
+4. **A credit note with that field arrives.** Inbox > Upload > `fixtures/demo/uploads/tenant-a/Getraenke-Hoffmann_Gutschrift_GS-2026-0918.pdf`
+   (a Getränke Hoffmann credit note for empties, "Kd.-Nr. 104 220815"). The keyword rules classify it ("Gutschrift"),
+   the Extract stage asks the LLM for the field in `x_custom` and is answered by the fourth replay fixture, and it is
+   stored as a version 2 tree pinned to CreditNote v2, Needs review with one warning: `LOW_CONFIDENCE` on the due
+   date, which the model worked out from "spätestens nach 30 Tagen" and which is not printed.
+5. **Review.** As `tenant-a-reviewer`, open GS-2026-0918: the header says Credit note v2, and the generated form
+   shows "Our customer no. at supplier" = `104 220815` with its AI provenance on page 1 (highlighted on the page).
+   Change it and Save corrections: the field is Corrected, re-validated at once.
+6. **Inbox.** Tab All, Type Credit note, Field "Our customer no. at supplier", value `104 220815`, Apply: the credit
+   note alone, with the field as a column (the value is compared as the index stores it, see "Document types").
+   Through the API: `GET /api/v1/documents?type=CreditNote&field.supplierCustomerRef=104%20220815&fields=supplierCustomerRef`;
+   tenant B finds nothing.
+7. **The delivery note gets a defined type with fields.** Open the delivery note again: it now shows the generated
+   form of Delivery note v1 with empty fields (it was read before the switch; the API answers the empty tree of its
+   type) and can be filled, rows included. To add fields of the tenant's own: as `tenant-a-admin`, Delivery note >
+   Fork to edit, add `tour` (Delivery round / Tour, indexed) and `supplierCustomerRef` (Number / identifier),
+   Save draft, Validate, Publish v2. As the reviewer, Reprocess: "Use the published version of the type" is ticked
+   ("This document was read with Delivery note v1; v2 is published"), from Extract. The form now has the two
+   fields; fill Delivery note no. `L-2026-0457`, Delivery round `Rosenheim Nord`, the customer number `0815` and a
+   row, Save corrections, Approve. `GET /api/v1/documents?field.tour=Rosenheim%20Nord` finds it.
+
+In the compose stack the API takes Keycloak tokens; for curl, the portal client allows the password grant:
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password \
+  -d client_id=docproc-portal -d username=tenant-a-reviewer -d password=tenant-a-reviewer | jq -r .access_token)
+curl -s "http://localhost:5100/api/v1/documents?type=CreditNote&field.supplierCustomerRef=104%20220815&fields=supplierCustomerRef" \
+  -H "authorization: Bearer $TOKEN" | jq '.items[] | {documentNumber, status, fields}'
+```
+
+The replay fixture answers only this field and this PDF (see "Replay fixtures" above); a field with another key,
+kind or description sends another schema and gets a replay miss, and the credit note then ends `Failed`.
+`docker compose down -v` resets the stack (in dev mode, delete `src/DocProc.Api/data/`). What the demo shows is
+held by tests too: `DemoFixtureTests` (fork, upload, x_custom, the tree, the index row), `DemoPdfClassificationTests`,
+`DefinitionDrivenDocumentEndpointsTests` (the empty tree, the completed tree, definitions on decisions), the portal's
+`ReviewScreen.definition` tests (the reprocess option, the empty delivery note) and `DocumentTypesPanel` tests (the
+extraction hints).
 
 ## Settings reference
 
