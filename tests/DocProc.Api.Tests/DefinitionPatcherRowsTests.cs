@@ -141,6 +141,81 @@ public sealed class DefinitionPatcherRowsTests
         Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, full, [new FieldCorrection("lines[0].tiers", null, null, CorrectionOps.Append)], "anna", At, "EUR")).Message.ShouldContain("the most it may have");
     }
 
+    /// <summary>The price list's empty tree with <paramref name="lines"/> lines of <paramref name="tiers"/> tiers each.</summary>
+    private static string PriceListWith(int lines, int tiers) =>
+        DefinitionPatcher.Apply(PriceList.Descriptors, DefinitionTree.CreateEmpty(PriceList.Descriptors).ToJsonString(), [new FieldCorrection("lines", EmptyLines(lines, tiers), null)], "anna", At, "EUR").Json;
+
+    /// <summary>
+    /// The bound of the timing tests below: generous, so a loaded build machine does not fail them, and far below what
+    /// the quadratic versions took (84 s for the pairs, over 20 s for the sets).
+    /// </summary>
+    private static readonly TimeSpan Quickly = TimeSpan.FromSeconds(10);
+
+    [Fact]
+    public void Alternating_removes_and_appends_on_a_full_price_list_keep_the_row_count_without_recounting_the_tree()
+    {
+        var full = PriceListWith(10_000, 2);
+        var pairs = Enumerable.Range(0, 2_500)
+            .SelectMany(_ => new[] { new FieldCorrection("lines[0]", null, null, CorrectionOps.Remove), new FieldCorrection("lines", null, null, CorrectionOps.Append) })
+            .ToList();
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = DefinitionPatcher.Apply(PriceList.Descriptors, full, pairs, "anna", At, "EUR");
+        clock.Stop();
+
+        clock.Elapsed.ShouldBeLessThan(Quickly);
+        result.Applied.Count.ShouldBe(5_000);
+        var lines = JsonNode.Parse(result.Json)!["lines"]!.AsArray();
+        lines.Count.ShouldBe(10_000);
+        lines[^1]!["tiers"]!.AsArray().ShouldBeEmpty();
+        lines[0]!["tiers"]!.AsArray().Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void A_removed_row_gives_back_its_rows_and_nested_rows_to_the_tree_cap_exactly()
+    {
+        // 10,000 lines of 9 tiers: the tree holds exactly MaxTreeRows rows.
+        var full = PriceListWith(10_000, 9);
+        Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, full, [new FieldCorrection("lines[0].tiers", null, null, CorrectionOps.Append)], "anna", At, "EUR"))
+            .Message.ShouldContain($"{DefinitionPatcher.MaxTreeRows + 1} rows");
+
+        // Removing a line frees it and its 9 tiers: 10 rows may come back, the 11th is refused.
+        var remove = new FieldCorrection("lines[0]", null, null, CorrectionOps.Remove);
+        var tenTiers = Enumerable.Repeat(new FieldCorrection("lines[0].tiers", null, null, CorrectionOps.Append), 10).ToList();
+        var refilled = DefinitionPatcher.Apply(PriceList.Descriptors, full, [remove, .. tenTiers], "anna", At, "EUR");
+        JsonNode.Parse(refilled.Json)!["lines"]![0]!["tiers"]!.AsArray().Count.ShouldBe(19);
+
+        var over = Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(PriceList.Descriptors, full, [remove, .. tenTiers, tenTiers[0]], "anna", At, "EUR"));
+        over.Message.ShouldContain($"{DefinitionPatcher.MaxTreeRows + 1} rows");
+    }
+
+    [Fact]
+    public void Five_thousand_sets_of_one_cell_keep_its_whole_history_and_take_linear_time()
+    {
+        var full = PriceListWith(10_000, 2);
+        var first = DefinitionPatcher.Apply(PriceList.Descriptors, full, [new FieldCorrection("lines[0].description", V("erste"), null)], "anna", At, "EUR").Json;
+        var stored = JsonNode.Parse(first)!["lines"]![0]!["description"]!["history"]![0]!.ToJsonString();
+        var sets = Enumerable.Range(1, 5_000).Select(i => new FieldCorrection("lines[0].description", V($"Fassung {i}"), null)).ToList();
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = DefinitionPatcher.Apply(PriceList.Descriptors, first, sets, "anna", At, "EUR");
+        clock.Stop();
+
+        clock.Elapsed.ShouldBeLessThan(Quickly);
+        var envelope = JsonNode.Parse(result.Json)!["lines"]![0]!["description"]!;
+        var field = envelope.Deserialize<FieldValue<JsonNode>>(CanonicalJson.Options)!;
+        field.Value!.GetValue<string>().ShouldBe("Fassung 5000");
+        field.Status.ShouldBe(FieldStatus.Corrected);
+        field.History.Count.ShouldBe(5_001);
+        field.History[0].Status.ShouldBe(FieldStatus.Missing);
+        field.History[1].Value!.GetValue<string>().ShouldBe("erste");
+        field.History[^1].Value!.GetValue<string>().ShouldBe("Fassung 4999");
+        field.History[^1].By.ShouldBe("anna");
+
+        // The trail stored before the request is carried over as it was.
+        envelope["history"]![0]!.ToJsonString().ShouldBe(stored);
+    }
+
     [Fact]
     public void Set_rows_refuses_a_value_that_does_not_fit_its_field_and_changes_nothing()
     {

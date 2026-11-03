@@ -867,6 +867,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       decision): a reviewer gives the name, VAT id, tax id, IBANs and currency printed on the document; `emailDomains`,
       `aliases` and `alwaysReview` answer 403 for anyone but a tenant admin, who also sets them under Suppliers. The
       portal's dialog offers the e-mail domain to a tenant admin only (`ReviewActionEndpointsTests`, `ReviewTools`).
+  - Fixed after the fourth review of P2:
+    - one `PATCH …/fields` of the most corrections it may carry runs in linear time: the tree's row count is taken once
+      per request and kept up to date through removes as well as appends (a remove cleared it, so 2,500 remove/append
+      pairs on a 10,000-line price list recounted the tree 2,500 times and took 84 s), and a correction carries a
+      field's stored history over as it is instead of reading and writing it again (5,000 sets of one cell, each one
+      rewriting a history one entry longer, took over 20 s); both now take about a second (`DefinitionPatcherRowsTests`);
   - Left for later:
     - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
       expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their

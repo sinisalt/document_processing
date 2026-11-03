@@ -264,7 +264,9 @@ public static partial class DefinitionPatcher
 
                     var removed = rows[segment.Index.Value];
                     rows.RemoveAt(segment.Index.Value);
-                    context.TreeRows = null;
+                    // Kept up to date rather than recounted: alternating removes and appends would otherwise walk the
+                    // whole tree once per pair.
+                    context.TreeRows -= removed is JsonObject gone && !DefinitionTree.IsEnvelope(gone) ? 1 + CountRows(gone) : 0;
                     return new AppliedCorrection(path, removed?.ToJsonString(), null, correction.Reason, op, correction.Source);
                 }
 
@@ -346,7 +348,7 @@ public static partial class DefinitionPatcher
         var moved = DefinitionTree.IsEnvelope(sourceNode) && sourceNode!["value"] is { } value && !IsWithoutValue(sourceNode)
             ? value
             : throw new CanonicalPatchException(from, $"'{from}' has no value to move.");
-        var sourceField = ReadEnvelope(from, sourceNode);
+        var sourceField = ReadEnvelope(from, sourceNode, withoutHistory: true);
 
         var target = Resolve(context, path, create: true);
         var targetNode = target.Get();
@@ -364,7 +366,7 @@ public static partial class DefinitionPatcher
         var location = CorrectionSources.ToFieldSource(correction.Source) ?? sourceField.Source;
         var corrected = CorrectEnvelope(context, path, targetNode, newValue, location is { Page: null, BBox: null, RawText: null } ? null : location);
         target.Set(corrected);
-        source.Set(MovedOut(context, sourceField));
+        source.Set(Rewrite(from, sourceNode, field => MovedOut(context, field)));
         return new AppliedCorrection(path, oldValue?.ToJsonString(), corrected["value"]?.ToJsonString(), correction.Reason, CorrectionOps.Move, correction.Source, from);
     }
 
@@ -398,19 +400,39 @@ public static partial class DefinitionPatcher
     }
 
     /// <summary>The field a value moved out of: its earlier state in the history, Missing now, the reviewer's provenance.</summary>
-    private static JsonObject MovedOut(Context context, FieldValue<JsonNode> field)
-    {
-        var moved = field.Correct(null, context.By, context.At) with { Status = FieldStatus.Missing, Confidence = null };
-        return (JsonObject)JsonSerializer.SerializeToNode(moved, CanonicalJson.Options)!;
-    }
+    private static FieldValue<JsonNode> MovedOut(Context context, FieldValue<JsonNode> field) =>
+        field.Correct(null, context.By, context.At) with { Status = FieldStatus.Missing, Confidence = null };
 
-    private static FieldValue<JsonNode> ReadEnvelope(string path, JsonNode? stored)
+    private const string HistoryKey = "history";
+
+    /// <summary>
+    /// The stored envelope (or Missing) read as <c>FieldValue&lt;JsonNode&gt;</c>; with <paramref name="withoutHistory"/>
+    /// its correction trail is left unread (the field comes back with an empty history).
+    /// </summary>
+    private static FieldValue<JsonNode> ReadEnvelope(string path, JsonNode? stored, bool withoutHistory = false)
     {
         try
         {
-            return stored is JsonObject envelope && DefinitionTree.IsEnvelope(envelope)
-                ? envelope.Deserialize<FieldValue<JsonNode>>(CanonicalJson.Options) ?? FieldValue<JsonNode>.Missing()
-                : FieldValue<JsonNode>.Missing();
+            if (stored is not JsonObject envelope || !DefinitionTree.IsEnvelope(envelope))
+            {
+                return FieldValue<JsonNode>.Missing();
+            }
+
+            if (withoutHistory && envelope.ContainsKey(HistoryKey))
+            {
+                var rest = new JsonObject();
+                foreach (var (key, node) in envelope)
+                {
+                    if (!string.Equals(key, HistoryKey, StringComparison.Ordinal))
+                    {
+                        rest[key] = node?.DeepClone();
+                    }
+                }
+
+                envelope = rest;
+            }
+
+            return envelope.Deserialize<FieldValue<JsonNode>>(CanonicalJson.Options) ?? FieldValue<JsonNode>.Missing();
         }
         catch (JsonException ex)
         {
@@ -682,11 +704,34 @@ public static partial class DefinitionPatcher
     private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldCorrection correction) =>
         CorrectEnvelope(context, path, current, newValue, CorrectionSources.ToFieldSource(correction.Source));
 
-    private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldSource? source)
+    private static JsonObject CorrectEnvelope(Context context, string path, JsonNode? current, JsonNode? newValue, FieldSource? source) =>
+        Rewrite(path, current, field => field.Correct(newValue?.DeepClone(), context.By, context.At, source));
+
+    /// <summary>
+    /// The envelope <paramref name="change"/> makes of the stored one (or of Missing). The stored correction trail is
+    /// not read and written again but carried over as it is, with the entries the change pushes appended: read and
+    /// rewritten whole, one field corrected n times in a request cost the square of n (5,000 sets of one cell took
+    /// over 20 s). The trail is moved out of <paramref name="current"/>, which the caller replaces with the result.
+    /// </summary>
+    private static JsonObject Rewrite(string path, JsonNode? current, Func<FieldValue<JsonNode>, FieldValue<JsonNode>> change)
     {
-        var field = ReadEnvelope(path, current);
-        var corrected = field.Correct(newValue?.DeepClone(), context.By, context.At, source);
-        return (JsonObject)JsonSerializer.SerializeToNode(corrected, CanonicalJson.Options)!;
+        var stored = current is JsonObject envelope && DefinitionTree.IsEnvelope(envelope) ? envelope : null;
+        var earlier = stored?[HistoryKey] as JsonArray;
+        var changed = (JsonObject)JsonSerializer.SerializeToNode(change(ReadEnvelope(path, current, withoutHistory: earlier is not null)), CanonicalJson.Options)!;
+        if (earlier is not null && changed[HistoryKey] is JsonArray pushed)
+        {
+            var entries = pushed.ToList();
+            pushed.Clear();
+            stored!.Remove(HistoryKey);
+            foreach (var entry in entries)
+            {
+                earlier.Add(entry);
+            }
+
+            changed[HistoryKey] = earlier;
+        }
+
+        return changed;
     }
 
     /// <summary>A member inside a composite value (<c>supplier.vatId</c>, <c>supplier.address.city</c>): set on a copy of the current value.</summary>
