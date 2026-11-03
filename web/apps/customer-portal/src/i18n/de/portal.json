@@ -192,7 +192,8 @@
     "tabs": {
       "fields": "Felder",
       "timeline": "Verlauf",
-      "original": "Original"
+      "original": "Original",
+      "table": "Tabelle"
     },
     "form": {
       "label": "Kanonische Daten"
@@ -253,7 +254,14 @@
         "NO_DATA": "Es wurde noch nichts erfasst; füllen Sie zuerst die Felder aus."
       },
       "shortcutApple": "⌘↵",
-      "shortcutOther": "Strg+Enter"
+      "shortcutOther": "Strg+Enter",
+      "approveRefused": "Das Dokument kann nicht freigegeben werden",
+      "more": "Mehr",
+      "changeType": "Typ ändern",
+      "assignSupplier": "Lieferant zuordnen",
+      "createSupplier": "Lieferant aus diesem Dokument anlegen",
+      "split": "In Dokumente aufteilen",
+      "join": "Teile zusammenführen"
     },
     "viewer": {
       "toolbar": "Seitenansicht",
@@ -267,12 +275,19 @@
       "pageAlt": "Seite {{page}} des Dokuments",
       "pageError": "Das Seitenbild konnte nicht geladen werden.",
       "noPagesTitle": "Keine Seitenbilder",
-      "noPages": "Dieses Dokument hat keine gerenderten Seiten (zum Beispiel eine XML-E-Rechnung); seine Daten stehen in den Feldern."
+      "noPages": "Dieses Dokument hat keine gerenderten Seiten (zum Beispiel eine XML-E-Rechnung); seine Daten stehen in den Feldern.",
+      "mapMode": "Von der Seite übernehmen",
+      "mapModeHint": "Von der Seite übernehmen (M): Wörter anklicken oder einen Rahmen ziehen, um das gewählte Feld zu füllen",
+      "map": "Übernehmen",
+      "tableTool": "Tabellenwerkzeug",
+      "tableToolHint": "Tabellenwerkzeug: die Tabelle einmal einzeichnen und auf alle Seiten anwenden",
+      "table": "Tabelle"
     },
     "overlay": {
       "label_one": "{{count}} markiertes Feld auf dieser Seite",
       "label_other": "{{count}} markierte Felder auf dieser Seite",
-      "box": "Feld {{field}}"
+      "box": "Feld {{field}}",
+      "divider": "Spaltentrenner {{n}}"
     },
     "timeline": {
       "title": "Verlauf",
@@ -339,7 +354,82 @@
       "extraction": "Extraktion",
       "download": "Original herunterladen"
     },
-    "typeVersion": "v{{version}}"
+    "typeVersion": "v{{version}}",
+    "map": {
+      "ocrNotConfigured": "Auf diesem Server ist keine OCR eingerichtet, ein Bereich ohne Text kann also nicht gelesen werden; tippen Sie den Wert in das Feld.",
+      "focusFirst": "Klicken Sie zuerst das zu füllende Feld im Formular an."
+    },
+    "table": {
+      "reason": "Tabelle in der Prüfung erfasst",
+      "written_one": "{{count}} Zeile als eine Korrektur geschrieben.",
+      "written_other": "{{count}} Zeilen als eine Korrektur geschrieben.",
+      "start": "Tabelle auf der Seite einzeichnen"
+    },
+    "setType": {
+      "title": "Typ ändern",
+      "description": "Das Dokument wird an die veröffentlichte Version des gewählten Typs gebunden; eine Korrektur hält die Änderung fest.",
+      "type": "Typ",
+      "loading": "Typen werden geladen …",
+      "pick": "Typ wählen",
+      "none": "Der Mandant hat keinen Typ mit veröffentlichter Version. Ein Admin übernimmt oder veröffentlicht einen unter Einstellungen > Dokumenttypen.",
+      "startWith": "Beginnen mit",
+      "empty": "Leer",
+      "emptyHint": "Alle Felder des Typs sind leer; füllen Sie sie von der Seite (Übernehmen und Tabellenwerkzeug) oder durch Eintippen.",
+      "auto": "Von der KI vorbefüllen",
+      "autoHint": "Das Dokument wird für den Typ neu gelesen (es durchläuft die Extraktion noch einmal) und kommt zurück in die Prüfung.",
+      "submit": "Typ setzen",
+      "done": "Das Dokument ist jetzt ein(e) {{type}}.",
+      "queued": "Das Dokument wird als {{type}} neu gelesen."
+    },
+    "supplier": {
+      "assignTitle": "Lieferant zuordnen",
+      "assignDescription": "Der Lieferant bleibt bei jedem weiteren Durchlauf zugeordnet; das Dokument wird mit ihm erneut geprüft.",
+      "pick": "Lieferant wählen",
+      "search": "Lieferanten suchen …",
+      "loading": "Wird geladen …",
+      "noMatch": "Kein Lieferant passt.",
+      "create": "Lieferant aus diesem Dokument anlegen",
+      "createTitle": "Lieferant aus diesem Dokument anlegen",
+      "createDescription": "Vorbefüllt mit dem Lieferanten des Dokuments, soweit erfasst. Der Lieferant wird in einem Schritt angelegt und zugeordnet.",
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "iban": "IBAN",
+      "emailDomain": "E-Mail-Domain",
+      "createSubmit": "Anlegen und zuordnen",
+      "assigned": "Lieferant {{name}} zugeordnet.",
+      "created": "Lieferant {{name}} angelegt und zugeordnet."
+    },
+    "split": {
+      "title": "In Dokumente aufteilen",
+      "description": "Markieren Sie die Seiten, mit denen ein neues Dokument beginnt. Jeder Teil wird neu klassifiziert oder für den angegebenen Typ sofort extrahiert.",
+      "pages": "Seiten",
+      "firstPage": "Seite 1 beginnt das erste Dokument",
+      "startsAt": "Mit Seite {{page}} beginnt ein neues Dokument",
+      "parts": "Teile",
+      "part": "Teil {{n}}: Seiten {{from}}–{{to}}",
+      "partType": "Typ von Teil {{n}}",
+      "classify": "Neu klassifizieren",
+      "submit_one": "In {{count}} Dokument aufteilen",
+      "submit_other": "In {{count}} Dokumente aufteilen",
+      "done_one": "In {{count}} Dokument aufgeteilt; die Teile werden verarbeitet.",
+      "done_other": "In {{count}} Dokumente aufgeteilt; die Teile werden verarbeitet."
+    },
+    "join": {
+      "title": "Teile zusammenführen",
+      "description": "Teile desselben Anhangs, die mit diesem einen zusammenhängenden Seitenbereich bilden, werden wieder ein Dokument; die anderen werden mit Verweis darauf storniert.",
+      "loading": "Teile werden geladen",
+      "none": "Dieser Anhang hat keinen weiteren Teil zum Zusammenführen.",
+      "part": "Seiten {{from}}–{{to}}: {{number}} ({{status}})",
+      "submit": "Zusammenführen",
+      "done_one": "{{count}} Teil zusammengeführt; das Dokument wird neu klassifiziert.",
+      "done_other": "{{count}} Teile zusammengeführt; das Dokument wird neu klassifiziert."
+    },
+    "mapDocument": {
+      "title": "Dieses Dokument zuordnen",
+      "unknown": "Der Dokumenttyp wurde nicht erkannt. Wählen Sie den Typ und beginnen Sie leer, um die Werte von der Seite zu übernehmen, oder lassen Sie die KI vorbefüllen.",
+      "noForm": "Für {{type}} gibt es kein Prüfformular. Geben Sie dem Dokument einen Typ mit Feldern: leer beginnen, um die Werte von der Seite zu übernehmen, oder von der KI vorbefüllen lassen.",
+      "supplier": "Lieferant"
+    }
   },
   "queue": {
     "title": "Prüfliste",

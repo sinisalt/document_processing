@@ -67,16 +67,28 @@ export function sameValue(kind: FieldKind, before: string, after: string): boole
  * `{ path, value }`; untouched fields (and fields retyped to the same value) are never sent, so the API keeps their
  * provenance byte for byte. Read-only specs are never sent.
  */
-export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, current: unknown, reason?: string | null): FieldCorrection[] {
+export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, current: unknown, reason?: string | null, mapped?: MappedSources): FieldCorrection[] {
   const corrections: FieldCorrection[] = [];
   for (const spec of specs) {
     if (spec.readOnly) continue;
     const before = normalize(getByPath(initial, spec.path));
     const after = normalize(getByPath(current, spec.path));
     if (sameValue(spec.kind, before, after)) continue;
-    corrections.push({ path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null });
+    const correction: FieldCorrection = { path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null };
+    // A value taken from the page (map mode) is saved with the place it was read from, unless it was retyped since.
+    const taken = mapped?.[spec.path];
+    if (taken && normalize(taken.text) === after) correction.source = taken.source;
+    corrections.push(correction);
   }
   return corrections;
+}
+
+/** Values the reviewer took from the page in map mode (docs/11 §12.3), by path: the text put into the form and where it was read. */
+export type MappedSources = Readonly<Record<string, { text: string; source: NonNullable<FieldCorrection["source"]> }>>;
+
+/** The `move` correction (docs/11 §12.3 "match fields"): the value of `from` goes into `path`, `from` is left Missing. */
+export function moveValue(from: string, path: string): FieldCorrection {
+  return { op: "move", path, from, value: null, reason: null };
 }
 
 /** `append` of an empty row to a repeating group (docs/11 §12.8): `{ op: "append", path: "lines" }`. */

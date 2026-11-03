@@ -55,6 +55,9 @@ export const queryKeys = {
     detail: (id: string) => ["documents", "detail", id] as const,
     events: (id: string) => ["documents", "detail", id, "events"] as const,
     text: (id: string) => ["documents", "detail", id, "text"] as const,
+    /** The stored table reports (the page strip, docs/11 §12.4) and the parts of the attachment (join, §12.7). */
+    tableReports: (id: string) => ["documents", "detail", id, "table-reports"] as const,
+    parts: (id: string) => ["documents", "detail", id, "parts"] as const,
   },
 
   /**

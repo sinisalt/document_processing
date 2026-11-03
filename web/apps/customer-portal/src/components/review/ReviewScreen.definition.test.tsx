@@ -91,11 +91,11 @@ const reviewTimeline = [
   { id: 2, eventType: "document.review_requested", fromStatus: "Validated", toStatus: "NeedsReview", actor: "pipeline", details: null, at: "2026-11-03T10:00:02Z" },
 ];
 
-function renderScreen(document: DocumentDetail) {
+function renderScreen(document: DocumentDetail, canReview = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ReviewScreen document={document} canReview threshold={0.8} locale="en" />
+      <ReviewScreen document={document} canReview={canReview} threshold={0.8} locale="en" />
     </QueryClientProvider>,
   );
 }
@@ -235,8 +235,16 @@ describe("review screen of a definition-driven document", () => {
     expect(screen.queryByText(/No extracted data/)).not.toBeInTheDocument();
   });
 
-  it("says a type without a definition has no form", () => {
-    renderScreen(documentOf({ type: "PurchaseOrder", canonical: null, definition: null, canonicalSchemaVersion: null }));
+  it("says a type without a definition has no form, and offers a reviewer to map the document (docs/11 §12.1)", () => {
+    const document = documentOf({ type: "PurchaseOrder", typeName: "Purchase order", canonical: null, definition: null, canonicalSchemaVersion: null });
+    const { unmount } = renderScreen(document, false);
     expect(screen.getByText(/no form to review yet/)).toBeInTheDocument();
+    unmount();
+
+    renderScreen(document);
+    const panel = screen.getByTestId("map-document-panel");
+    expect(within(panel).getByText(/Purchase order has no form to review/)).toBeInTheDocument();
+    expect(within(panel).getByTestId("set-type-form")).toBeInTheDocument();
+    expect(within(panel).getByTestId("supplier-picker")).toBeInTheDocument();
   });
 });

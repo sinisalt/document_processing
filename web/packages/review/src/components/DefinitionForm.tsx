@@ -1,14 +1,14 @@
-import { useState, type ReactNode } from "react";
+import { useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useWatch } from "react-hook-form";
-import { Plus, X } from "lucide-react";
-import { Button, Input, Label } from "@docproc/ui";
+import { GripVertical, Plus, X } from "lucide-react";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, Input, Label, cn } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, getByPath, isFieldValue } from "@docproc/app-shell";
 import { FieldInput, type HighlightHandler } from "./FieldInput";
 import { RepeatingGroupGrid } from "./RepeatingGroupGrid";
 import { OTHER_SECTION, type FieldSpec, type FormLayout, type FormNode, type FormSection } from "../lib/formSpec";
 import { REVIEW_NS, humanize, localized, useFieldLabel } from "../lib/labels";
-import { appendEntry, removeAt, setAttribute, type FieldCorrection } from "../lib/corrections";
+import { appendEntry, moveValue, removeAt, setAttribute, type FieldCorrection } from "../lib/corrections";
 import { currencyOf, fieldDomId, fieldOf, formName, rawValueOf, toEditable } from "../lib/values";
 
 export interface DefinitionFormProps {
@@ -24,8 +24,16 @@ export interface DefinitionFormProps {
    * definition-driven document; without it only values are edited.
    */
   onStructuralChange?: (correction: FieldCorrection) => void;
+  /**
+   * Offers "match fields" (docs/11 §12.3): a field's value is dragged onto another field, or moved there from its menu,
+   * and sent as one `move` correction. Without it no value can be moved.
+   */
+  onMove?: (correction: FieldCorrection) => void;
   busy?: boolean;
 }
+
+/** The drag-and-drop type of a value chip: its field's path. */
+export const MOVE_MIME = "application/x-docproc-field";
 
 interface Context extends Omit<DefinitionFormProps, "layout"> {
   layout: FormLayout;
@@ -168,13 +176,75 @@ function CompositeMembers({ specs, context }: { specs: FieldSpec[]; context: Con
   );
 }
 
+/** Whether a value can be moved from or to this spec: a whole field outside a repeating group. */
+function movable(spec: FieldSpec): boolean {
+  return spec.path === spec.fieldPath && !spec.readOnly && !spec.path.includes("[");
+}
+
+/** The value chip of a field ("match fields", docs/11 §12.3): drag it onto another field, or pick that field from its menu. */
+function MoveChip({ spec, context }: { spec: FieldSpec; context: Context }) {
+  const { t } = useTranslation(REVIEW_NS);
+  const targets = context.layout.specs.filter((other) => other.path !== spec.path && movable(other));
+  if (targets.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(MOVE_MIME, spec.path);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          className="inline-flex h-4 items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          aria-label={t("move.chip", { field: context.label(spec) })}
+          title={t("move.chip", { field: context.label(spec) })}
+          disabled={context.busy}
+          data-testid={`move-${spec.path}`}
+        >
+          <GripVertical className="size-3.5" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
+        <DropdownMenuLabel>{t("move.to")}</DropdownMenuLabel>
+        {targets.map((target) => (
+          <DropdownMenuItem key={target.path} onSelect={() => context.onMove?.(moveValue(spec.path, target.path))} data-testid={`move-target-${target.path}`}>
+            {context.label(target)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** A field with its label; hidden while its `visibleWhen` does not hold and it has no value. */
 function FieldCell({ spec, context, trailing }: { spec: FieldSpec; context: Context; trailing?: ReactNode }) {
   const { t } = useTranslation(REVIEW_NS);
+  const [dropping, setDropping] = useState(false);
   const field = fieldOf(context.canonical, spec);
   const wide = spec.kind === "text";
+  const canMove = !!context.onMove && !context.disabled && movable(spec);
+  const hasValue = !!field && field.status !== "Missing";
+  const dropTarget = canMove
+    ? {
+        onDragOver: (event: DragEvent) => {
+          if (!event.dataTransfer.types.includes(MOVE_MIME)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropping(true);
+        },
+        onDragLeave: () => setDropping(false),
+        onDrop: (event: DragEvent) => {
+          setDropping(false);
+          const from = event.dataTransfer.getData(MOVE_MIME);
+          if (!from || from === spec.path) return;
+          event.preventDefault();
+          context.onMove?.(moveValue(from, spec.path));
+        },
+      }
+    : {};
   const cell = (
-    <div className={wide ? "@lg:col-span-2" : undefined}>
+    <div className={cn(wide && "@lg:col-span-2", dropping && "rounded-md outline-2 outline-offset-2 outline-blue-500 outline-dashed")} data-drop-target={canMove || undefined} {...dropTarget}>
       <div className="mb-1 flex items-baseline gap-1">
         <Label htmlFor={fieldDomId(spec.path)} className="text-xs text-muted-foreground">
           {context.label(spec)}
@@ -184,6 +254,7 @@ function FieldCell({ spec, context, trailing }: { spec: FieldSpec; context: Cont
             *
           </span>
         )}
+        {canMove && hasValue && <MoveChip spec={spec} context={context} />}
       </div>
       <FieldInput
         spec={spec}

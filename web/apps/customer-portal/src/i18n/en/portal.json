@@ -192,7 +192,8 @@
     "tabs": {
       "fields": "Fields",
       "timeline": "Timeline",
-      "original": "Original"
+      "original": "Original",
+      "table": "Table"
     },
     "form": {
       "label": "Canonical data"
@@ -253,7 +254,14 @@
         "NO_DATA": "Nothing was captured yet; fill the fields before approving."
       },
       "shortcutApple": "⌘↵",
-      "shortcutOther": "Ctrl+Enter"
+      "shortcutOther": "Ctrl+Enter",
+      "approveRefused": "The document cannot be approved",
+      "more": "More",
+      "changeType": "Change type",
+      "assignSupplier": "Assign supplier",
+      "createSupplier": "Create supplier from this document",
+      "split": "Split into documents",
+      "join": "Join parts"
     },
     "viewer": {
       "toolbar": "Page viewer",
@@ -267,12 +275,19 @@
       "pageAlt": "Page {{page}} of the document",
       "pageError": "The page image could not be loaded.",
       "noPagesTitle": "No page images",
-      "noPages": "This document has no rendered pages (an XML e-invoice, for example); its data is in the fields."
+      "noPages": "This document has no rendered pages (an XML e-invoice, for example); its data is in the fields.",
+      "mapMode": "Map from page",
+      "mapModeHint": "Map from page (M): click words or drag a box to fill the focused field",
+      "map": "Map",
+      "tableTool": "Table tool",
+      "tableToolHint": "Table tool: draw the table once and apply it to all pages",
+      "table": "Table"
     },
     "overlay": {
       "label_one": "{{count}} highlighted field on this page",
       "label_other": "{{count}} highlighted fields on this page",
-      "box": "Field {{field}}"
+      "box": "Field {{field}}",
+      "divider": "Column divider {{n}}"
     },
     "timeline": {
       "title": "Timeline",
@@ -339,7 +354,82 @@
       "extraction": "Extraction",
       "download": "Download original"
     },
-    "typeVersion": "v{{version}}"
+    "typeVersion": "v{{version}}",
+    "map": {
+      "ocrNotConfigured": "No OCR is configured on this server, so a region without text cannot be read; type the value into the field.",
+      "focusFirst": "Click the field to fill in the form first."
+    },
+    "table": {
+      "reason": "Table captured in review",
+      "written_one": "{{count}} row written as one correction.",
+      "written_other": "{{count}} rows written as one correction.",
+      "start": "Draw the table on the page"
+    },
+    "setType": {
+      "title": "Change type",
+      "description": "The document is pinned to the published version of the type you pick; a correction records the change.",
+      "type": "Type",
+      "loading": "Loading the types…",
+      "pick": "Pick a type",
+      "none": "The tenant has no type with a published version. An admin adopts or publishes one under Settings > Document types.",
+      "startWith": "Start with",
+      "empty": "Empty",
+      "emptyHint": "Every field of the type is empty; fill them from the page (map mode and the table tool) or by typing.",
+      "auto": "Let AI pre-fill",
+      "autoHint": "The document is read again for the type (it goes back through extraction) and comes back to review.",
+      "submit": "Set type",
+      "done": "The document is now a {{type}}.",
+      "queued": "The document is read again as a {{type}}."
+    },
+    "supplier": {
+      "assignTitle": "Assign supplier",
+      "assignDescription": "The supplier stays assigned on every later run of the pipeline; the document is checked again with it.",
+      "pick": "Pick a supplier",
+      "search": "Search suppliers…",
+      "loading": "Loading…",
+      "noMatch": "No supplier matches.",
+      "create": "Create supplier from this document",
+      "createTitle": "Create supplier from this document",
+      "createDescription": "Filled from the supplier on the document where it was captured. The supplier is created and assigned in one step.",
+      "name": "Name",
+      "vatId": "VAT ID",
+      "iban": "IBAN",
+      "emailDomain": "E-mail domain",
+      "createSubmit": "Create and assign",
+      "assigned": "Supplier {{name}} assigned.",
+      "created": "Supplier {{name}} created and assigned."
+    },
+    "split": {
+      "title": "Split into documents",
+      "description": "Tick the pages where a new document starts. Each part is classified again, or extracted at once for the type you give it.",
+      "pages": "Pages",
+      "firstPage": "Page 1 starts the first document",
+      "startsAt": "A new document starts at page {{page}}",
+      "parts": "Parts",
+      "part": "Part {{n}}: pages {{from}}–{{to}}",
+      "partType": "Type of part {{n}}",
+      "classify": "Classify again",
+      "submit_one": "Split into {{count}} document",
+      "submit_other": "Split into {{count}} documents",
+      "done_one": "Split into {{count}} document; the parts are being processed.",
+      "done_other": "Split into {{count}} documents; the parts are being processed."
+    },
+    "join": {
+      "title": "Join parts",
+      "description": "Parts of the same attachment that, with this one, make one run of pages become one document again; the others are cancelled with a link to it.",
+      "loading": "Loading the parts",
+      "none": "This attachment has no other part to join.",
+      "part": "Pages {{from}}–{{to}}: {{number}} ({{status}})",
+      "submit": "Join",
+      "done_one": "{{count}} part joined; the document is being classified again.",
+      "done_other": "{{count}} parts joined; the document is being classified again."
+    },
+    "mapDocument": {
+      "title": "Map this document",
+      "unknown": "The document type was not recognised. Pick its type and start empty, to capture the values from the page, or let AI pre-fill it.",
+      "noForm": "{{type}} has no form to review. Give the document a type with fields: start empty, to capture the values from the page, or let AI pre-fill it.",
+      "supplier": "Supplier"
+    }
   },
   "queue": {
     "title": "Review queue",

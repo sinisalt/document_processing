@@ -7,14 +7,38 @@ import { toast } from "sonner";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, cn, ResizableHandle, ResizablePanel, ResizablePanelGroup, Tabs, TabsContent, TabsList, TabsTrigger, useIsMobile } from "@docproc/ui";
 import { ApiError, ConfirmDialog, EmptyState, PageHeader, StatusBadge, formatDate, formatMoney, isCorrectable, isInFlight, queryKeys, unwrap, useApi } from "@docproc/app-shell";
-import { DefinitionForm, diffCorrections, fieldDomId, formName, isFormSpec, legacyFormSpec, localized, specsFromDefinition, toFormValues, useFieldLabel, type FieldCorrection, type FormSpec, type HighlightReason } from "@docproc/review";
+import {
+  DefinitionForm,
+  MapPreview,
+  TableToolPanel,
+  defaultTablePath,
+  diffCorrections,
+  fieldDomId,
+  formName,
+  isFormSpec,
+  legacyFormSpec,
+  localized,
+  nextEmptyRequired,
+  rawValueOf,
+  specsFromDefinition,
+  toFormValues,
+  useFieldLabel,
+  type FieldCorrection,
+  type FormSpec,
+  type HighlightReason,
+  type MappedSources,
+} from "@docproc/review";
 import { FlagsList, sortFlags } from "./FlagsList";
+import { MapDocumentPanel } from "./MapDocumentPanel";
 import { OriginalTab } from "./OriginalTab";
-import { PageViewer } from "./PageViewer";
+import { PageViewer, type PageViewerTools } from "./PageViewer";
 import { ReviewActions } from "./ReviewActions";
 import { Timeline } from "./Timeline";
+import { useMapMode } from "./useMapMode";
+import { useTableTool } from "./useTableTool";
 import { collectProvenanceBoxes } from "@/lib/overlay";
 import { useDocumentEvents, type DocumentDetail, type DocumentFlag } from "@/lib/queries";
+import { useSessionState } from "@/lib/reviewSession";
 import { reviewReasonLabels, reviewRequestReason } from "@/lib/reviewReason";
 import { validationState } from "@/lib/validation";
 
@@ -83,6 +107,8 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const settled = !isCorrectable(document.status) && !isInFlight(document.status);
 
   const form = useForm<Record<string, unknown>>({ defaultValues: initial, mode: "onBlur" });
+  // Values taken from the page in map mode (docs/11 §12.3): saved with the place they were read from.
+  const [mapped, setMapped] = useState<MappedSources>({});
   // "Unsaved" means a correction would be sent, not that an input was touched: "58,80" for 58.8 changes nothing.
   const [hasChanges, setHasChanges] = useState(false);
   useEffect(() => {
@@ -99,12 +125,29 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const highlightedPath = hoveredPath ?? focusedPath;
-  const [page, setPage] = useState(1);
-  const [tab, setTab] = useState("fields");
+  const [page, setPage] = useSessionState(document.id, "page", 1);
+  const [tab, setTab] = useSessionState(document.id, "tab", "fields");
   const [approveOpen, setApproveOpen] = useState(false);
   const [selectedFlag, setSelectedFlag] = useState(-1);
 
   const pageCount = Number(document.pageCount) || 0;
+
+  // Map mode and the table tool (docs/11 §12.3, §12.4). Map mode starts on for a document whose fields hold no value
+  // yet (a type just set in review); the choice, the field it fills and the table drawn survive the screen's remounts.
+  const mapAvailable = editable && pageCount > 0;
+  const groupPath = useMemo(() => (layout?.structural ? defaultTablePath(formSpec) : null), [layout, formSpec]);
+  const tableAvailable = mapAvailable && groupPath !== null;
+  const noValues = useMemo(() => specs.length > 0 && specs.every((spec) => rawValueOf(canonical, spec) === undefined), [specs, canonical]);
+  const [mapModeChoice, setMapMode] = useSessionState(document.id, "mapMode", () => noValues);
+  const [tableModeChoice, setTableMode] = useSessionState(document.id, "tableMode", false);
+  const mapMode = mapAvailable && mapModeChoice && !(tableAvailable && tableModeChoice);
+  const tableMode = tableAvailable && tableModeChoice;
+  const [mapTarget, setMapTarget] = useSessionState(document.id, "mapTarget", null);
+  const targetSpec = useMemo(() => (mapTarget ? (specs.find((s) => s.path === mapTarget) ?? null) : null), [specs, mapTarget]);
+  const map = useMapMode(document.id, targetSpec, locale);
+  const table = useTableTool(document, formSpec, groupPath, groupPath !== null && pageCount > 0);
+  // The Table tab: the tool while the document can be corrected, and the stored report (page strip) afterwards.
+  const showTableTab = tableAvailable || (groupPath !== null && table.report !== null);
 
   /** Hover and focus in the form highlight the field's box; focus also turns to its page, so the box is in sight. */
   const highlightField = useCallback(
@@ -161,7 +204,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
 
   const save = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
-      const corrections = diffCorrections(specs, initial, values);
+      const corrections = diffCorrections(specs, initial, values, undefined, mapped);
       if (corrections.length === 0) return null;
       return unwrap(await client.PATCH("/api/v1/documents/{id}/fields", { params: { path: { id: document.id } }, body: { corrections } }));
     },
@@ -192,7 +235,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   // nothing typed is lost and row indexes still mean what the reviewer saw.
   const structure = useMutation({
     mutationFn: async (operation: FieldCorrection) => {
-      const corrections = [...diffCorrections(specs, initial, form.getValues()), operation];
+      const corrections = [...diffCorrections(specs, initial, form.getValues(), undefined, mapped), operation];
       return unwrap(await client.PATCH("/api/v1/documents/{id}/fields", { params: { path: { id: document.id } }, body: { corrections } }));
     },
     onSuccess: (updated) => {
@@ -201,12 +244,104 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
     },
   });
 
+  /** Map mode fills this field next: it is focused in the form and named in the preview. */
+  const targetField = useCallback(
+    (path: string | null) => {
+      setMapTarget(path);
+      if (path === null) return;
+      const element = window.document.getElementById(fieldDomId(path));
+      element?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      element?.focus({ preventScroll: true });
+    },
+    [setMapTarget],
+  );
+
+  /** Enter in map mode: the value goes into the form with its source, and the next empty required field is next. */
+  const assignMapped = useCallback(() => {
+    const taken = map.take();
+    if (!taken) return;
+    form.setValue(formName(taken.path), taken.text, { shouldDirty: true });
+    setMapped((current) => ({ ...current, [taken.path]: { text: taken.text, source: taken.source } }));
+    const next = nextEmptyRequired(specs, form.getValues(), taken.path);
+    targetField(next?.path ?? taken.path);
+  }, [map, form, specs, targetField]);
+
+  const skipMapped = useCallback(() => {
+    map.cancel();
+    const next = nextEmptyRequired(specs, form.getValues(), mapTarget);
+    if (next) targetField(next.path);
+  }, [map, specs, form, mapTarget, targetField]);
+
+  const tools: PageViewerTools | undefined = mapAvailable
+    ? {
+        mapMode,
+        onMapModeChange: (on) => {
+          setMapMode(on);
+          if (on) setTableMode(false);
+          else map.cancel();
+        },
+        tableMode,
+        onTableModeChange: tableAvailable
+          ? (on) => {
+              setTableMode(on);
+              if (on) {
+                map.cancel();
+                setTab("table");
+              }
+            }
+          : undefined,
+        onPick: (onPage, pick) => {
+          if (tableMode) {
+            if (pick.kind === "region") table.onRegion(onPage, pick.box);
+            return;
+          }
+          if (!targetSpec) {
+            toast.info(t("review.map.focusFirst"));
+            return;
+          }
+          map.pick(onPage, pick);
+        },
+        selection: mapMode ? map.selectionBoxes(page) : undefined,
+        table: tableMode || tab === "table" ? table.drawing(page) : null,
+        banner: mapMode ? (
+          <MapPreview
+            fieldLabel={targetSpec ? fieldLabel(targetSpec) : null}
+            text={map.text}
+            value={map.value}
+            onValueChange={map.setValue}
+            fits={map.fits}
+            loading={map.loading}
+            noWords={map.noWords}
+            ocrPending={map.ocrPending}
+            error={map.error}
+            onAssign={assignMapped}
+            onSkip={skipMapped}
+            onCancel={map.cancel}
+            onOcr={() => void map.ocr()}
+          />
+        ) : undefined,
+      }
+    : undefined;
+
   // Keyboard: Ctrl/Cmd+Enter approve, Esc back, j/k next/previous flag (outside inputs). A key that a dialog or a
-  // popover handled (Radix marks its Esc with preventDefault) or that belongs to one is not the screen's.
+  // popover handled (Radix marks its Esc with preventDefault) or that belongs to one is not the screen's. In map mode,
+  // M toggles it and Esc first drops the selection.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const dialogOpen = window.document.querySelector(OVERLAY_SELECTOR) !== null;
+      if ((event.key === "m" || event.key === "M") && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditableTarget(event.target) && !dialogOpen && mapAvailable) {
+        event.preventDefault();
+        setMapMode(!mapMode);
+        if (!mapMode) setTableMode(false);
+        else map.cancel();
+        return;
+      }
+      if (event.key === "Escape" && !dialogOpen && mapMode && map.selection) {
+        event.preventDefault();
+        map.cancel();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         if (!dialogOpen && canReview && (document.status === "NeedsReview" || document.status === "Validated") && !hasChanges) {
           event.preventDefault();
@@ -230,7 +365,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canReview, document.status, hasChanges, flags, selectedFlag, selectFlag, navigate]);
+  }, [canReview, document.status, hasChanges, flags, selectedFlag, selectFlag, navigate, mapAvailable, mapMode, map, setMapMode, setTableMode]);
 
   const title = document.documentNumber ?? t("inbox.noNumber");
   const overlayLabel = useCallback((path: string) => fieldLabel(path, true), [fieldLabel]);
@@ -279,7 +414,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                     {t("review.save.button")}
                   </Button>
                 )}
-                <ReviewActions document={document} approveOpen={approveOpen} onApproveOpenChange={setApproveOpen} hasUnsavedChanges={hasChanges} />
+                <ReviewActions document={document} approveOpen={approveOpen} onApproveOpenChange={setApproveOpen} hasUnsavedChanges={hasChanges} locale={locale} />
               </>
             ) : undefined
           }
@@ -342,13 +477,29 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
         <div className={cn("shrink-0 overflow-hidden rounded-lg border", stacked ? (pageCount > 0 ? "h-[max(160vh,48rem)]" : "h-[max(120vh,40rem)]") : "h-[max(80vh,32rem)]")} data-testid="review-panels-frame">
           <ResizablePanelGroup key={stacked ? "vertical" : "horizontal"} orientation={stacked ? "vertical" : "horizontal"} data-testid="review-panels">
             <ResizablePanel defaultSize={stacked ? (pageCount > 0 ? "40%" : "25%") : pageCount > 0 ? "45%" : "30%"} minSize={stacked ? "15%" : "20%"} data-testid="viewer-panel">
-              <PageViewer documentId={document.id} pageCount={pageCount} boxes={boxes} highlightedPath={highlightedPath} onHover={setHoveredPath} onSelect={focusField} page={page} onPageChange={setPage} fieldLabel={overlayLabel} />
+              <PageViewer
+                documentId={document.id}
+                pageCount={pageCount}
+                boxes={boxes}
+                highlightedPath={highlightedPath}
+                onHover={setHoveredPath}
+                onSelect={focusField}
+                page={page}
+                onPageChange={setPage}
+                fieldLabel={overlayLabel}
+                tools={tools}
+              />
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={stacked ? "60%" : pageCount > 0 ? "55%" : "70%"} minSize="30%">
-              <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
+              <Tabs value={showTableTab ? tab : tab === "table" ? "fields" : tab} onValueChange={setTab} className="flex h-full flex-col">
                 <TabsList className="m-2 w-fit">
                   <TabsTrigger value="fields">{t("review.tabs.fields")}</TabsTrigger>
+                  {showTableTab && (
+                    <TabsTrigger value="table" data-testid="table-tab">
+                      {t("review.tabs.table")}
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="timeline">{t("review.tabs.timeline")}</TabsTrigger>
                   <TabsTrigger value="original">{t("review.tabs.original")}</TabsTrigger>
                 </TabsList>
@@ -356,7 +507,18 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                 <div className="@container relative min-h-0 min-w-0 flex-1 overflow-y-auto">
                   <TabsContent value="fields" className="p-4">
                     {hasCanonical ? (
-                      <form onSubmit={(event) => void onSave(event)} className="flex flex-col gap-6" aria-label={t("review.form.label")} data-editable={editable}>
+                      <form
+                        onSubmit={(event) => void onSave(event)}
+                        className="flex flex-col gap-6"
+                        aria-label={t("review.form.label")}
+                        data-editable={editable}
+                        onFocusCapture={(event) => {
+                          // The field map mode fills: the one the reviewer focused last (it stays the target when the
+                          // focus moves on to the page).
+                          const path = (event.target as HTMLElement).closest?.("[data-path]")?.getAttribute("data-path");
+                          if (path && specs.some((s) => s.path === path)) setMapTarget(path);
+                        }}
+                      >
                         <DefinitionForm
                           layout={layout!}
                           canonical={canonical}
@@ -365,6 +527,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                           onHighlight={highlightField}
                           flaggedPaths={flaggedPaths}
                           onStructuralChange={editable ? (operation) => structure.mutate(operation) : undefined}
+                          onMove={editable ? (operation) => structure.mutate(operation) : undefined}
                           busy={structure.isPending || save.isPending}
                         />
                         {editable && (
@@ -376,10 +539,45 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                           </div>
                         )}
                       </form>
+                    ) : canReview && isCorrectable(document.status) ? (
+                      // docs/11 §12.1: a document without a form or data gets the "Map this document" panel.
+                      <MapDocumentPanel document={document} locale={locale} />
                     ) : (
                       <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : formSpec ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />
                     )}
                   </TabsContent>
+                  {showTableTab && (
+                    <TabsContent value="table" className="p-4">
+                      <TableToolPanel
+                        state={table.state}
+                        rowFields={table.rowFields}
+                        hasTiers={table.hasTiers}
+                        hasCategory={table.hasCategory}
+                        report={table.report}
+                        reportKind={table.reportKind}
+                        currentPage={page}
+                        proposing={table.proposing}
+                        previewing={table.previewing}
+                        writing={table.writing}
+                        canWrite={editable && !hasChanges}
+                        error={table.error}
+                        onColumnTarget={table.onColumnTarget}
+                        onRemoveDivider={table.onRemoveDivider}
+                        onAllPagesChange={table.onAllPagesChange}
+                        onGroupHeadingsChange={table.onGroupHeadingsChange}
+                        onPreview={table.onPreview}
+                        onWrite={table.onWrite}
+                        onReset={table.onReset}
+                        onPickPage={setPage}
+                        onPickRejected={(line) => setPage(Number(line.page))}
+                      />
+                      {!tableMode && tableAvailable && (
+                        <Button type="button" variant="outline" className="mt-4" onClick={() => tools?.onTableModeChange?.(true)} data-testid="table-tool-start">
+                          {t("review.table.start")}
+                        </Button>
+                      )}
+                    </TabsContent>
+                  )}
                   <TabsContent value="timeline" className="p-4">
                     <Timeline documentId={document.id} enabled={tab === "timeline"} />
                   </TabsContent>

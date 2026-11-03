@@ -1,13 +1,30 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, FileText, Type, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, MousePointerClick, Table2, Type, ZoomIn, ZoomOut } from "lucide-react";
 import { Button, Skeleton, Toggle } from "@docproc/ui";
 import { EmptyState, queryKeys, unwrap, useApi } from "@docproc/app-shell";
-import { FieldHighlightOverlay } from "./FieldHighlightOverlay";
+import type { Box } from "@docproc/review";
+import { FieldHighlightOverlay, type PagePick, type TableDrawing } from "./FieldHighlightOverlay";
 import { normalizedWords, type ProvenanceBox, type Size, type TextLayer } from "@/lib/overlay";
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+
+/** Map mode and the table tool in the viewer's toolbar (docs/11 §12.3, §12.4); absent when the document cannot be mapped. */
+export interface PageViewerTools {
+  mapMode: boolean;
+  onMapModeChange: (on: boolean) => void;
+  /** The table tool is offered only for a type with a repeating group. */
+  tableMode?: boolean;
+  onTableModeChange?: (on: boolean) => void;
+  onPick: (page: number, pick: PagePick) => void;
+  /** The map selection on the page shown. */
+  selection?: readonly Box[];
+  /** The table tool's drawing on the page shown. */
+  table?: TableDrawing | null;
+  /** Shown between the toolbar and the page: map mode's preview. */
+  banner?: ReactNode;
+}
 
 export interface PageViewerProps {
   documentId: string;
@@ -20,6 +37,7 @@ export interface PageViewerProps {
   onPageChange: (page: number) => void;
   /** The field's label for the overlay boxes (their tooltip and accessible name). */
   fieldLabel?: (path: string) => string;
+  tools?: PageViewerTools;
 }
 
 /** Fetches a binary through the authenticated client and keeps an object URL for it while mounted. */
@@ -41,7 +59,7 @@ function useObjectUrl(blob: Blob | undefined): string | null {
  * The left half of the review screen: the rendered page (`GET /documents/{id}/pages/{n}.png`, fetched with the bearer
  * token, so an `<img src>` cannot be used directly), zoom, page navigation and the field highlight overlay on top.
  */
-export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHover, onSelect, page, onPageChange, fieldLabel }: PageViewerProps) {
+export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHover, onSelect, page, onPageChange, fieldLabel, tools }: PageViewerProps) {
   const { t } = useTranslation();
   const { client } = useApi();
   const [zoomIndex, setZoomIndex] = useState(2);
@@ -126,14 +144,54 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
           <Type aria-hidden />
           <span className="hidden lg:inline">{t("review.viewer.words")}</span>
         </Toggle>
+        {tools && (
+          <>
+            <Toggle
+              pressed={tools.mapMode}
+              onPressedChange={tools.onMapModeChange}
+              size="sm"
+              aria-label={t("review.viewer.mapMode")}
+              aria-keyshortcuts="M"
+              title={t("review.viewer.mapModeHint")}
+              data-testid="map-mode-toggle"
+            >
+              <MousePointerClick aria-hidden />
+              <span className="hidden lg:inline">{t("review.viewer.map")}</span>
+            </Toggle>
+            {tools.onTableModeChange && (
+              <Toggle pressed={!!tools.tableMode} onPressedChange={tools.onTableModeChange} size="sm" aria-label={t("review.viewer.tableTool")} title={t("review.viewer.tableToolHint")} data-testid="table-tool-toggle">
+                <Table2 aria-hidden />
+                <span className="hidden lg:inline">{t("review.viewer.table")}</span>
+              </Toggle>
+            )}
+          </>
+        )}
       </div>
+      {tools?.banner && (
+        <div className="border-b bg-background px-3 py-2" data-testid="viewer-banner">
+          {tools.banner}
+        </div>
+      )}
       <div className="relative min-h-0 flex-1 overflow-auto bg-muted/40 p-4">
         {image.isPending && <Skeleton className="mx-auto aspect-[1/1.414] w-full max-w-3xl" />}
         {image.isError && <EmptyState title={t("review.viewer.pageError")} className="mx-auto max-w-md" />}
         {imageUrl && (
           <div className="relative mx-auto w-fit" style={{ width: `${zoom * 100}%`, maxWidth: zoom <= 1 ? "48rem" : undefined }}>
             <img ref={imageRef} src={imageUrl} alt={t("review.viewer.pageAlt", { page })} className="block h-auto w-full select-none shadow-sm" draggable={false} />
-            <FieldHighlightOverlay rendered={rendered} boxes={pageBoxes} words={words} showWords={showWords} highlightedPath={highlightedPath} onHover={onHover} onSelect={onSelect} labelOf={fieldLabel} />
+            <FieldHighlightOverlay
+              rendered={rendered}
+              boxes={pageBoxes}
+              words={words}
+              showWords={showWords || !!tools?.mapMode}
+              highlightedPath={highlightedPath}
+              onHover={onHover}
+              onSelect={onSelect}
+              labelOf={fieldLabel}
+              interaction={tools?.tableMode ? "table" : tools?.mapMode ? "map" : null}
+              onPick={tools ? (pick) => tools.onPick(page, pick) : undefined}
+              selection={tools?.selection}
+              table={tools?.table}
+            />
           </div>
         )}
       </div>

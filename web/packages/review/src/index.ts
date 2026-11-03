@@ -5,10 +5,15 @@ export { legacyFormSpec, legacyInvoiceFormSpec } from "./lib/legacySpec";
 export * from "./lib/values";
 export * from "./lib/corrections";
 export * from "./lib/lineArithmetic";
+export * from "./lib/mapMode";
+export * from "./lib/tableTool";
 export { REVIEW_NS, fieldLabelKey, groupLabel, humanize, labelOf, localized, optionLabel, useFieldLabel } from "./lib/labels";
 export { FieldInput, type FieldInputProps, type HighlightHandler, type HighlightReason } from "./components/FieldInput";
 export { RepeatingGroupGrid, ArithmeticIndicator, PAGED_ABOVE, PAGE_SIZE, type RepeatingGroupGridProps } from "./components/RepeatingGroupGrid";
-export { DefinitionForm, type DefinitionFormProps } from "./components/DefinitionForm";
+export { DefinitionForm, MOVE_MIME, type DefinitionFormProps } from "./components/DefinitionForm";
+export { MapPreview, type MapPreviewProps } from "./components/MapPreview";
+export { TablePageStrip, type TablePageStripProps } from "./components/TablePageStrip";
+export { TableToolPanel, type TableToolPanelProps } from "./components/TableToolPanel";
 export { reviewResources } from "./i18n";
 
 // The document type editor (docs/11 §19, Settings > Document types).

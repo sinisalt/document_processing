@@ -1,13 +1,32 @@
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@docproc/ui";
-import { mapBox, type ProvenanceBox, type Size, type TextLayerWord } from "@/lib/overlay";
+import { boxFromDrag, isClick, wordAt, type Box } from "@docproc/review";
+import { mapBox, toNormalized, type ProvenanceBox, type Size, type TextLayerWord } from "@/lib/overlay";
+
+/** What a pointer on the page does: nothing special (boxes focus their fields), map mode, or the table tool. */
+export type OverlayInteraction = "map" | "table" | null;
+
+/** A pick on the page in page units: a word (by its index in the page's words) or a dragged box. */
+export type PagePick = { kind: "word"; index: number; box: Box; additive: boolean } | { kind: "region"; box: Box };
+
+/** The table tool's drawing on this page: the table's box, its dividers, the header band, rejected lines. */
+export interface TableDrawing {
+  box: Box;
+  dividers: readonly number[];
+  headerRow?: { y0: number; y1: number } | null;
+  rejected?: readonly Box[];
+  /** Moving a divider (drag, or arrow keys) and adding one (double-click inside the box); without them it is read-only. */
+  onDividerMove?: (index: number, x: number) => void;
+  onDividerAdd?: (x: number) => void;
+}
 
 export interface FieldHighlightOverlayProps {
   /** The rendered size of the page image in CSS pixels; the SVG covers exactly that area. */
   rendered: Size;
   /** Provenance boxes of this page (already filtered by page). */
   boxes: ProvenanceBox[];
-  /** Word boxes of this page in the normalized space; drawn faintly when `showWords`. */
+  /** Word boxes of this page in the normalized space; drawn faintly when `showWords`, hit-tested in map mode. */
   words?: TextLayerWord[];
   showWords?: boolean;
   /** The field whose boxes are highlighted (hovered or focused in the form). */
@@ -18,15 +37,19 @@ export interface FieldHighlightOverlayProps {
   /** The field's label in the UI language for a box's tooltip and accessible name; the raw path without it. */
   labelOf?: (path: string) => string;
   className?: string;
+  /**
+   * Map mode or the table tool (docs/11 §12.3, §12.4): a click picks the word under it (shift-click adds it), a drag
+   * draws a box. The boxes of the fields stay visible but take no pointer events then.
+   */
+  interaction?: OverlayInteraction;
+  onPick?: (pick: PagePick) => void;
+  /** The current selection (map mode), drawn in its own colour. */
+  selection?: readonly Box[];
+  table?: TableDrawing | null;
 }
 
 const rawPath = (path: string) => path;
 
-/**
- * The field highlight overlay (docs/05 "custom components"): an SVG in the page's coordinate space laid over the page
- * image. Every provenance box of the canonical JSON is a focusable rect; the one of the hovered/focused form field
- * is emphasised, and clicking a box focuses that field.
- */
 /**
  * A box's colours. The rendered page is a white image in either theme, so they are fixed colours, never theme tokens:
  * `primary` is near-white in dark mode, which made the highlighted box vanish on the page.
@@ -40,11 +63,49 @@ export function boxClassName(active: boolean, historical: boolean): string {
   );
 }
 
-export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className }: FieldHighlightOverlayProps) {
+/**
+ * The field highlight overlay (docs/05 "custom components"): an SVG in the page's coordinate space laid over the page
+ * image. Every provenance box of the canonical JSON is a focusable rect; the one of the hovered/focused form field
+ * is emphasised, and clicking a box focuses that field. In map mode and with the table tool a selection layer on top
+ * takes the pointer: clicks pick words, drags draw boxes, and the table's dividers can be moved.
+ */
+export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className, interaction = null, onPick, selection = [], table = null }: FieldHighlightOverlayProps) {
   const { t } = useTranslation();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const [divider, setDivider] = useState<{ index: number; x: number } | null>(null);
   if (rendered.width <= 0 || rendered.height <= 0) return null;
+
+  /** A pointer position on the page in page units. */
+  const pointOf = (event: { clientX: number; clientY: number }) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return toNormalized({ x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }, rendered);
+  };
+  const startDrag = (event: ReactPointerEvent<SVGRectElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const at = pointOf(event);
+    setDrag({ from: at, to: at });
+  };
+  const endDrag = (event: ReactPointerEvent<SVGRectElement>) => {
+    if (!drag) return;
+    const box = boxFromDrag(drag.from, pointOf(event));
+    setDrag(null);
+    if (isClick(box)) {
+      if (interaction !== "map") return;
+      const index = wordAt(words, drag.from);
+      if (index >= 0) onPick?.({ kind: "word", index, box: words[index]!.box, additive: event.shiftKey });
+      return;
+    }
+    onPick?.({ kind: "region", box });
+  };
+  const dragRect = drag ? mapBox(boxFromDrag(drag.from, drag.to), rendered) : null;
+  const tableRect = table ? mapBox(table.box, rendered) : null;
+  const headerRect = table?.headerRow ? mapBox({ x0: table.box.x0, y0: table.headerRow.y0, x1: table.box.x1, y1: table.headerRow.y1 }, rendered) : null;
+
   return (
     <svg
+      ref={svgRef}
       className={cn("absolute inset-0 overflow-visible", className)}
       width={rendered.width}
       height={rendered.height}
@@ -52,6 +113,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
       role="group"
       aria-label={t("review.overlay.label", { count: boxes.length })}
       data-testid="field-overlay"
+      data-interaction={interaction ?? undefined}
     >
       {showWords &&
         words.map((word, index) => {
@@ -83,7 +145,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
             width={rect.width + 4}
             height={rect.height + 4}
             rx={2}
-            tabIndex={0}
+            tabIndex={interaction ? -1 : 0}
             role="button"
             aria-label={t("review.overlay.box", { field: label })}
             data-path={box.path}
@@ -107,6 +169,88 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
           </rect>
         );
       })}
+      {selection.map((box, index) => {
+        const rect = mapBox(box, rendered);
+        return <rect key={`s-${index}`} x={rect.x - 1} y={rect.y - 1} width={rect.width + 2} height={rect.height + 2} className="fill-violet-500/20 stroke-violet-600" strokeWidth={1.5} pointerEvents="none" data-testid="map-selection" />;
+      })}
+      {table && tableRect && (
+        <g data-testid="table-drawing">
+          <rect x={tableRect.x} y={tableRect.y} width={tableRect.width} height={tableRect.height} className="fill-emerald-500/5 stroke-emerald-600/70 [stroke-dasharray:6_3]" strokeWidth={1.5} pointerEvents="none" />
+          {headerRect && <rect x={headerRect.x} y={headerRect.y} width={headerRect.width} height={headerRect.height} className="fill-emerald-500/15" pointerEvents="none" data-testid="table-header-band" />}
+          {(table.rejected ?? []).map((box, index) => {
+            const rect = mapBox(box, rendered);
+            return <rect key={`r-${index}`} x={rect.x - 1} y={rect.y - 1} width={rect.width + 2} height={rect.height + 2} className="fill-red-500/15 stroke-red-600" strokeWidth={1.5} pointerEvents="none" data-testid="table-rejected-box" />;
+          })}
+        </g>
+      )}
+      {interaction && (
+        <rect
+          x={0}
+          y={0}
+          width={rendered.width}
+          height={rendered.height}
+          className="cursor-crosshair fill-transparent"
+          data-testid="selection-layer"
+          onPointerDown={startDrag}
+          onPointerMove={(event) => {
+            if (drag) setDrag({ from: drag.from, to: pointOf(event) });
+          }}
+          onPointerUp={endDrag}
+          onPointerCancel={() => setDrag(null)}
+          onDoubleClick={(event) => {
+            if (interaction !== "table" || !table?.onDividerAdd) return;
+            const at = pointOf(event);
+            if (at.x > table.box.x0 && at.x < table.box.x1 && at.y > table.box.y0 && at.y < table.box.y1) table.onDividerAdd(at.x);
+          }}
+        />
+      )}
+      {table &&
+        tableRect &&
+        table.dividers.map((x, index) => {
+          const at = divider?.index === index ? divider.x : x;
+          const px = mapBox({ x0: at, y0: 0, x1: at, y1: 0 }, rendered).x;
+          const movable = !!table.onDividerMove && interaction === "table";
+          return (
+            <g key={`d-${index}`} data-testid="table-divider" data-x={at}>
+              <line x1={px} x2={px} y1={tableRect.y} y2={tableRect.y + tableRect.height} className="stroke-emerald-600" strokeWidth={divider?.index === index ? 2.5 : 1.5} pointerEvents="none" />
+              {movable && (
+                <rect
+                  x={px - 4}
+                  y={tableRect.y}
+                  width={8}
+                  height={tableRect.height}
+                  className="cursor-col-resize fill-transparent outline-none hover:fill-emerald-500/20 focus-visible:fill-emerald-500/30"
+                  role="slider"
+                  aria-orientation="horizontal"
+                  aria-valuemin={0}
+                  aria-valuemax={1000}
+                  aria-valuenow={Math.round(at)}
+                  aria-label={t("review.overlay.divider", { n: index + 1 })}
+                  tabIndex={0}
+                  data-testid={`divider-handle-${index}`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture?.(event.pointerId);
+                    setDivider({ index, x });
+                  }}
+                  onPointerMove={(event) => {
+                    if (divider?.index === index) setDivider({ index, x: pointOf(event).x });
+                  }}
+                  onPointerUp={() => {
+                    if (divider?.index === index) table.onDividerMove?.(index, divider.x);
+                    setDivider(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                    event.preventDefault();
+                    table.onDividerMove?.(index, x + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 2));
+                  }}
+                />
+              )}
+            </g>
+          );
+        })}
+      {dragRect && <rect x={dragRect.x} y={dragRect.y} width={dragRect.width} height={dragRect.height} className="fill-violet-500/10 stroke-violet-600 [stroke-dasharray:4_2]" strokeWidth={1.5} pointerEvents="none" data-testid="drag-rect" />}
     </svg>
   );
 }

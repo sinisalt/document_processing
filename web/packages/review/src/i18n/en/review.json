@@ -395,5 +395,70 @@
       "object": "Group",
       "bag": "Supplier-specific attributes"
     }
+  },
+  "move": {
+    "chip": "Move the value of {{field}} to another field (drag it onto the field, or pick it)",
+    "to": "Move value to"
+  },
+  "map": {
+    "focusHint": "Click a field in the form, then click or shift-click words on the page or drag a box around the value.",
+    "pickHint": "{{field}}: click a word (shift-click for more) or drag a box around the value on the page.",
+    "reading": "Reading the selection",
+    "noWords": "There is no text here.",
+    "ocr": "Read with OCR",
+    "value": "Value",
+    "valueAsText": "Value (as printed)",
+    "assign": "Assign",
+    "skip": "Next field",
+    "cancel": "Cancel the selection"
+  },
+  "table": {
+    "drawHint": "Drag a box around the table on the page, from its column header down to the last row (on a long list, down to just above the footer). The columns are proposed from it.",
+    "proposing": "Proposing the columns…",
+    "columnsHint": "Columns of the table drawn on page {{page}}: name the field each one fills.",
+    "columns": "Columns",
+    "columnN": "Column {{n}}",
+    "ignore": "(leave out)",
+    "tier": "Tier price from {{quantity}}",
+    "merge": "Merge column {{n}} into the one before it",
+    "dividerHint": "Drag a divider on the page to move it; double-click inside the table to add one.",
+    "allPages": "Apply to all pages (the header is found again on every page)",
+    "groupHeadings": "Group headings fill the category of the rows below them",
+    "problems": {
+      "noColumns": "Name the field of at least one column.",
+      "noAnchor": "The column of the row anchor (the field that starts a row) has to be mapped."
+    },
+    "preview": "Read this page",
+    "previewAll": "Read all pages",
+    "write_one": "Write {{count}} row",
+    "write_other": "Write {{count}} rows",
+    "reset": "Start over",
+    "reportProposal": "Proposal (page {{page}} only):",
+    "reportPreview": "Preview, not written yet:",
+    "reportStored": "Written:",
+    "strip": {
+      "label": "Table report",
+      "pages": "Pages",
+      "totals": "{{rows}} rows, {{rejected}} rejected, {{pages}} pages read",
+      "pagesWithoutRows_one": "({{count}} page without rows)",
+      "pagesWithoutRows_other": "({{count}} pages without rows)",
+      "rows_one": "p. {{page}}: {{count}} row",
+      "rows_other": "p. {{page}}: {{count}} rows",
+      "rejected_one": "p. {{page}}: {{rows}} rows, {{count}} rejected",
+      "rejected_other": "p. {{page}}: {{rows}} rows, {{count}} rejected",
+      "noRows": "p. {{page}}: no rows",
+      "headerFound": "The header row was found on this page",
+      "headerReused": "No header row on this page: the dividers of the page before were used",
+      "rejectedHeading_one": "Page {{page}}: {{count}} rejected line",
+      "rejectedHeading_other": "Page {{page}}: {{count}} rejected lines",
+      "moreRejected_one": "and {{count}} more",
+      "moreRejected_other": "and {{count}} more"
+    },
+    "reasons": {
+      "unreadable": "unreadable",
+      "noAnchor": "no row start",
+      "continuationConflict": "continuation"
+    },
+    "reportStale": "Preview of an earlier mapping (the mapping changed since; read the pages again):"
   }
 }

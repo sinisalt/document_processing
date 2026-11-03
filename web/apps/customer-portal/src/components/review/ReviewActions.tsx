@@ -2,15 +2,26 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, RotateCcw, X } from "lucide-react";
-import { Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
-import { ConfirmDialog, canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, queryKeys, reprocessStages, unwrap, useApi, type ReprocessStage } from "@docproc/app-shell";
+import { Building2, Check, ChevronDown, Combine, FileType2, Plus, RotateCcw, Scissors, X } from "lucide-react";
+import { Button, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
+import { ApiError, ConfirmDialog, canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, isCorrectable, queryKeys, reprocessStages, unwrap, useApi, type ReprocessStage } from "@docproc/app-shell";
 import { isApplePlatform } from "@/lib/platform";
 import { useDocumentEvents, type DocumentDetail } from "@/lib/queries";
+import { AssignSupplierDialog, CreateSupplierDialog, JoinDialog, SetTypeDialog, SplitDialog } from "./ReviewDialogs";
 
 /** Where `:approve` / `:reject` are allowed (docs/05). */
 export function canDecide(status: DocumentDetail["status"]): boolean {
   return status === "NeedsReview" || status === "Validated";
+}
+
+/** The approval gate's codes (docs/11 §11, `DocumentEndpoints.ApprovalBlockCodes`). */
+export const APPROVAL_BLOCK_CODES = ["TYPE_REQUIRED", "NO_DEFINITION", "NO_DATA"] as const;
+
+/** The code of a `409 Cannot approve` from the approval gate, or null for any other error. */
+export function approvalRefusalCode(error: unknown): (typeof APPROVAL_BLOCK_CODES)[number] | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const code = (error.problem as { code?: unknown } | undefined)?.code;
+  return typeof code === "string" && (APPROVAL_BLOCK_CODES as readonly string[]).includes(code) ? (code as (typeof APPROVAL_BLOCK_CODES)[number]) : null;
 }
 
 /** Where `:reprocess` is allowed (`DocumentStateMachine.CanReprocess`). */
@@ -26,13 +37,19 @@ export interface ReviewActionsProps {
   /** Unsaved corrections block approve, reject and reprocess, so no action discards what the reviewer typed. */
   hasUnsavedChanges: boolean;
   onDecided?: () => void;
+  /** The UI language, for type names. */
+  locale?: string;
 }
 
+/** Which of the review actions' dialogs is open (docs/11 §19 "ReviewActions gains"). */
+type ActionDialog = "setType" | "assignSupplier" | "createSupplier" | "split" | "join" | null;
+
 /** Approve, Reject (with a required reason) and Reprocess (from a stage) with their confirmations. */
-export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided }: ReviewActionsProps) {
+export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided, locale = "en" }: ReviewActionsProps) {
   const { t } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
+  const [dialog, setDialog] = useState<ActionDialog>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [reprocessOpen, setReprocessOpen] = useState(false);
@@ -68,6 +85,21 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
   const approve = useMutation({
     mutationFn: async () => unwrap(await client.POST("/api/v1/documents/{id}:approve", { params: { path: { id: document.id } }, body: { comment: null } })),
     onSuccess: (updated) => settle(updated, t("review.actions.approved")),
+    // A refusal by the approval gate (docs/11 §11) says why in its code: shown in the UI language, the document reloaded
+    // so the reason stays under the button. Any other error goes to the shell's toast.
+    onError: (error) => {
+      const code = approvalRefusalCode(error);
+      if (code === null) {
+        if (error instanceof ApiError && error.status === 401) return;
+        if (error instanceof ApiError) toast.error(error.title, { description: error.problem?.detail ?? undefined });
+        else toast.error(error instanceof Error ? error.message : String(error));
+        if (error instanceof ApiError && error.status === 409) void queryClient.invalidateQueries({ refetchType: "active" });
+        return;
+      }
+      toast.error(t("review.actions.approveRefused"), { description: t(`review.actions.approveBlocked.${code}`, { defaultValue: (error as ApiError).problem?.detail ?? code }) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documents.detail(document.id) });
+    },
+    meta: { silent: true },
   });
   const reject = useMutation({
     mutationFn: async (why: string) => unwrap(await client.POST("/api/v1/documents/{id}:reject", { params: { path: { id: document.id } }, body: { reason: why } })),
@@ -188,6 +220,44 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
           </div>
         )}
       </ConfirmDialog>
+      {isCorrectable(document.status) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" disabled={hasUnsavedChanges} title={hasUnsavedChanges ? t("review.actions.saveFirst") : undefined} data-testid="more-actions">
+              {t("review.actions.more")}
+              <ChevronDown aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setDialog("setType")} data-testid="action-set-type">
+              <FileType2 aria-hidden />
+              {t("review.actions.changeType")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("assignSupplier")} data-testid="action-assign-supplier">
+              <Building2 aria-hidden />
+              {t("review.actions.assignSupplier")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("createSupplier")} data-testid="action-create-supplier">
+              <Plus aria-hidden />
+              {t("review.actions.createSupplier")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setDialog("split")} disabled={(Number(document.pageCount) || 0) < 2} data-testid="action-split">
+              <Scissors aria-hidden />
+              {t("review.actions.split")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("join")} data-testid="action-join">
+              <Combine aria-hidden />
+              {t("review.actions.join")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <SetTypeDialog document={document} locale={locale} open={dialog === "setType"} onOpenChange={(open) => setDialog(open ? "setType" : null)} />
+      <AssignSupplierDialog document={document} open={dialog === "assignSupplier"} onOpenChange={(open) => setDialog(open ? "assignSupplier" : null)} onCreate={() => setDialog("createSupplier")} />
+      {dialog === "createSupplier" && <CreateSupplierDialog document={document} open onOpenChange={(open) => setDialog(open ? "createSupplier" : null)} />}
+      {dialog === "split" && <SplitDialog document={document} locale={locale} open onOpenChange={(open) => setDialog(open ? "split" : null)} />}
+      {dialog === "join" && <JoinDialog document={document} open onOpenChange={(open) => setDialog(open ? "join" : null)} />}
       {approvalBlocked !== null && canDecide(document.status) && (
         <p id="approve-blocked" className="basis-full text-xs text-muted-foreground" role="note" data-testid="approve-blocked" data-code={approvalBlocked.code}>
           {blockedReason}

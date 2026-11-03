@@ -395,5 +395,70 @@
       "object": "Gruppe",
       "bag": "Lieferantenspezifische Angaben"
     }
+  },
+  "move": {
+    "chip": "Den Wert von {{field}} in ein anderes Feld verschieben (auf das Feld ziehen oder auswählen)",
+    "to": "Wert verschieben nach"
+  },
+  "map": {
+    "focusHint": "Klicken Sie ein Feld im Formular an, dann Wörter auf der Seite anklicken (mit Umschalt mehrere) oder einen Rahmen um den Wert ziehen.",
+    "pickHint": "{{field}}: ein Wort anklicken (mit Umschalt mehrere) oder einen Rahmen um den Wert auf der Seite ziehen.",
+    "reading": "Auswahl wird gelesen",
+    "noWords": "Hier steht kein Text.",
+    "ocr": "Mit OCR lesen",
+    "value": "Wert",
+    "valueAsText": "Wert (wie gedruckt)",
+    "assign": "Übernehmen",
+    "skip": "Nächstes Feld",
+    "cancel": "Auswahl verwerfen"
+  },
+  "table": {
+    "drawHint": "Ziehen Sie auf der Seite einen Rahmen um die Tabelle, von der Spaltenüberschrift bis zur letzten Zeile (bei einer langen Liste bis knapp über die Fußzeile). Daraus werden die Spalten vorgeschlagen.",
+    "proposing": "Spalten werden vorgeschlagen …",
+    "columnsHint": "Spalten der Tabelle auf Seite {{page}}: Wählen Sie das Feld, das jede Spalte füllt.",
+    "columns": "Spalten",
+    "columnN": "Spalte {{n}}",
+    "ignore": "(weglassen)",
+    "tier": "Staffelpreis ab {{quantity}}",
+    "merge": "Spalte {{n}} mit der vorigen zusammenfassen",
+    "dividerHint": "Ziehen Sie eine Trennlinie auf der Seite, um sie zu verschieben; Doppelklick in die Tabelle fügt eine hinzu.",
+    "allPages": "Auf alle Seiten anwenden (die Kopfzeile wird auf jeder Seite wiedergefunden)",
+    "groupHeadings": "Zwischenüberschriften füllen die Warengruppe der Zeilen darunter",
+    "problems": {
+      "noColumns": "Wählen Sie für mindestens eine Spalte ein Feld.",
+      "noAnchor": "Die Spalte des Zeilenankers (des Felds, mit dem eine Zeile beginnt) muss zugeordnet sein."
+    },
+    "preview": "Diese Seite lesen",
+    "previewAll": "Alle Seiten lesen",
+    "write_one": "{{count}} Zeile schreiben",
+    "write_other": "{{count}} Zeilen schreiben",
+    "reset": "Neu beginnen",
+    "reportProposal": "Vorschlag (nur Seite {{page}}):",
+    "reportPreview": "Vorschau, noch nicht geschrieben:",
+    "reportStored": "Geschrieben:",
+    "strip": {
+      "label": "Tabellenbericht",
+      "pages": "Seiten",
+      "totals": "{{rows}} Zeilen, {{rejected}} abgelehnt, {{pages}} Seiten gelesen",
+      "pagesWithoutRows_one": "({{count}} Seite ohne Zeilen)",
+      "pagesWithoutRows_other": "({{count}} Seiten ohne Zeilen)",
+      "rows_one": "S. {{page}}: {{count}} Zeile",
+      "rows_other": "S. {{page}}: {{count}} Zeilen",
+      "rejected_one": "S. {{page}}: {{rows}} Zeilen, {{count}} abgelehnt",
+      "rejected_other": "S. {{page}}: {{rows}} Zeilen, {{count}} abgelehnt",
+      "noRows": "S. {{page}}: keine Zeilen",
+      "headerFound": "Die Kopfzeile wurde auf dieser Seite gefunden",
+      "headerReused": "Keine Kopfzeile auf dieser Seite: Die Trennlinien der vorigen Seite wurden verwendet",
+      "rejectedHeading_one": "Seite {{page}}: {{count}} abgelehnte Zeile",
+      "rejectedHeading_other": "Seite {{page}}: {{count}} abgelehnte Zeilen",
+      "moreRejected_one": "und {{count}} weitere",
+      "moreRejected_other": "und {{count}} weitere"
+    },
+    "reasons": {
+      "unreadable": "nicht lesbar",
+      "noAnchor": "kein Zeilenbeginn",
+      "continuationConflict": "Fortsetzung"
+    },
+    "reportStale": "Vorschau einer früheren Zuordnung (die Zuordnung hat sich seitdem geändert; lesen Sie die Seiten erneut):"
   }
 }

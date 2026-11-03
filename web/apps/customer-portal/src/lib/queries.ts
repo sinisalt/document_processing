@@ -107,6 +107,29 @@ export function useSuppliers(query: SupplierListQuery = {}, enabled = true) {
   });
 }
 
+export type DocumentPart = components["schemas"]["DocumentPartDto"];
+
+/** `GET /documents/{id}/table-reports`: the stored table reports, for the page strip after a reload (docs/11 §12.4). */
+export function useTableReports(id: string, enabled = true) {
+  const { client } = useApi();
+  return useQuery({
+    queryKey: queryKeys.documents.tableReports(id),
+    queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/table-reports", { params: { path: { id } } })),
+    enabled,
+    meta: { silent: true },
+  });
+}
+
+/** `GET /documents/{id}/parts`: the documents of the same attachment in page order (the join dialog, docs/11 §12.7). */
+export function useDocumentParts(id: string, enabled = true) {
+  const { client } = useApi();
+  return useQuery({
+    queryKey: queryKeys.documents.parts(id),
+    queryFn: async () => unwrap(await client.GET("/api/v1/documents/{id}/parts", { params: { path: { id } } })),
+    enabled,
+  });
+}
+
 export function useTenantSettings(enabled = true) {
   const { client } = useApi();
   return useQuery({
