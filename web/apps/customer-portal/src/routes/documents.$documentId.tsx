@@ -41,5 +41,5 @@ function ReviewPage() {
   }
 
   const threshold = Number(settings.data?.settings.autoApproveConfidenceThreshold ?? 0.8);
-  return <ReviewScreen key={`${document.data.id}:${document.data.updatedAt}`} document={document.data} canReview={hasPolicy(Policies.Review)} canManageSuppliers={hasPolicy(Policies.TenantAdmin)} threshold={threshold} locale={i18n.language} />;
+  return <ReviewScreen key={`${document.data.id}:${document.data.updatedAt}`} document={document.data} canReview={hasPolicy(Policies.Review)} canManageSuppliers={hasPolicy(Policies.TenantAdmin)} canRedeliver={hasPolicy(Policies.IntegrationAdmin)} threshold={threshold} locale={i18n.language} />;
 }

@@ -57,4 +57,23 @@ describe("queryKeys", () => {
     expect(client.getQueryState(queryKeys.documentTypes.list())?.isInvalidated).toBe(true);
     expect(client.getQueryState(queryKeys.documentTypes.templates())?.isInvalidated).toBe(true);
   });
+
+  it("keeps a mapping's versions under the mapping and deliveries apart from documents", async () => {
+    expect(queryKeys.outputs.version("article-price-import", 1)).toEqual(["outputs", "mappings", "article-price-import", "version", 1]);
+    expect(queryKeys.deliveries.list({ documentId: "d1", limit: 50, cursor: "c" })).toEqual(["deliveries", "list", { documentId: "d1", limit: 50 }]);
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.outputs.version("article-price-import", 1), 1);
+    client.setQueryData(queryKeys.outputs.version("erp-ap-import", 1), 2);
+    client.setQueryData(queryKeys.outputs.destinations(), 3);
+    client.setQueryData(queryKeys.deliveries.detail("x"), 4);
+
+    await client.invalidateQueries({ queryKey: queryKeys.outputs.mapping("article-price-import") });
+    expect(client.getQueryState(queryKeys.outputs.version("article-price-import", 1))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.outputs.version("erp-ap-import", 1))?.isInvalidated).toBe(false);
+
+    await client.invalidateQueries({ queryKey: queryKeys.documents.all });
+    expect(client.getQueryState(queryKeys.deliveries.detail("x"))?.isInvalidated).toBe(false);
+    await client.invalidateQueries({ queryKey: queryKeys.outputs.all });
+    expect(client.getQueryState(queryKeys.outputs.destinations())?.isInvalidated).toBe(true);
+  });
 });

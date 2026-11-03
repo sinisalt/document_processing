@@ -198,7 +198,8 @@
       "fields": "Felder",
       "timeline": "Verlauf",
       "original": "Original",
-      "table": "Tabelle"
+      "table": "Tabelle",
+      "deliveries": "Zustellungen"
     },
     "form": {
       "label": "Kanonische Daten"
@@ -438,6 +439,11 @@
       "noForm": "Für {{type}} gibt es kein Prüfformular. Geben Sie dem Dokument einen Typ mit Feldern: leer beginnen, um die Werte von der Seite zu übernehmen, oder von der KI vorbefüllen lassen.",
       "supplier": "Lieferant",
       "noData": "Für dieses Dokument ({{type}}) wurde noch nichts erfasst. Lesen Sie es für seinen Typ neu (von der KI vorbefüllen) oder beginnen Sie leer, um die Werte von der Seite zu übernehmen."
+    },
+    "deliveries": {
+      "description": "Wohin dieses Dokument zugestellt wurde: eine Zeile je Verknüpfung, die zu seiner Freigabe oder Ablehnung passte. Öffnen Sie eine Zeile für ihre Versuche, die Antworten des Empfängers und die gesendete Nutzlast.",
+      "empty": "Keine Zustellungen",
+      "emptyDescription": "Keine Verknüpfung passte zu diesem Dokument, oder es wurde noch nicht freigegeben oder abgelehnt."
     }
   },
   "queue": {
@@ -520,7 +526,10 @@
       "aliases": "Aliasnamen",
       "listHint": "Ein Eintrag pro Zeile oder durch Kommas getrennt.",
       "alwaysReview": "Immer prüfen",
-      "alwaysReviewHint": "Dokumente dieses Lieferanten werden nie automatisch freigegeben."
+      "alwaysReviewHint": "Dokumente dieses Lieferanten werden nie automatisch freigegeben.",
+      "attributes": "Attribute (für Ausgabe-Mappings)",
+      "attributesHint": "Eines je Zeile als Schlüssel = Wert, etwa erpVendorId = V-10042; Mappings lesen sie als supplier.attributes.",
+      "attributesInvalid": "Zeile {{line}} ist nicht Schlüssel = Wert (ein Schlüssel beginnt mit einem Buchstaben; höchstens 50 Attribute)."
     },
     "platformScopeTitle": "Mandant wählen",
     "platformScope": "Lieferanten gehören zu einem Mandanten; Plattformkonten verwalten die Lieferanten eines Mandanten in der Admin-Konsole."
@@ -540,7 +549,8 @@
       "apiKeys": "API-Schlüssel",
       "channels": "Kanäle",
       "ai": "KI-Anbieter",
-      "types": "Dokumenttypen"
+      "types": "Dokumenttypen",
+      "integrations": "Integrationen"
     },
     "general": {
       "identityTitle": "Organisation",
@@ -781,6 +791,463 @@
         "empty": "Noch keine Nutzung",
         "emptyDescription": "Die Nutzung erscheint, sobald Dokumente mit einem KI-Anbieter verarbeitet wurden."
       }
+    }
+  },
+  "integrations": {
+    "offTitle": "Ausgaben sind für diesen Mandanten aus",
+    "off": "Ziele, Ausgabe-Mappings und Zustellungen brauchen den Schalter „Ausgaben“ des Mandanten. Ein Plattform-Administrator schaltet ihn in der Admin-Konsole ein (Mandanten > Einstellungen > Funktionsschalter).",
+    "sectionsLabel": "Integrationen",
+    "sections": {
+      "destinations": "Ziele",
+      "mappings": "Ausgabe-Mappings",
+      "bindings": "Verknüpfungen",
+      "lookups": "Nachschlagetabellen",
+      "deliveries": "Zustellprotokoll"
+    },
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "save": "Speichern",
+    "back": "Zurück",
+    "open": "Öffnen",
+    "view": "Ansehen",
+    "required": "Pflichtangabe.",
+    "failed": "Das hat nicht geklappt.",
+    "anyType": "Jeder Typ",
+    "anySupplier": "Jeder Lieferant",
+    "anyChannel": "Jeder Kanal",
+    "noNumber": "(ohne Nummer)",
+    "transports": {
+      "http": "HTTP (JSON)",
+      "blob": "Dateiablage",
+      "pull": "Abruf-Feed"
+    },
+    "events": {
+      "document": {
+        "approved": "Freigegeben",
+        "rejected": "Abgelehnt",
+        "updated": "Aktualisiert (erneute Freigabe)"
+      }
+    },
+    "versionStates": {
+      "Draft": "Entwurf",
+      "Published": "veröffentlicht",
+      "Deprecated": "abgelöst"
+    },
+    "destinations": {
+      "title": "Ziele",
+      "description": "Die Systeme, an die Dokumente zugestellt werden: ein HTTP-Endpunkt, der je Dokument einen JSON-Body annimmt, ein Ordner, in den die Datei gelegt wird, oder ein Abruf-Feed, den der Empfänger mit einem API-Schlüssel liest.",
+      "create": "Neues Ziel",
+      "createTitle": "Neues Ziel",
+      "editTitle": "{{name}} bearbeiten",
+      "formDescription": "Die Einstellungen des Transports. Das Geheimnis (API-Schlüssel, Passwort, Token, Client-Secret oder Signaturschlüssel) wird nur geschrieben und nie wieder angezeigt.",
+      "empty": "Noch keine Ziele",
+      "emptyDescription": "Legen Sie zuerst das empfangende System an und verknüpfen Sie dann ein Ausgabe-Mapping damit.",
+      "enabled": "{{name}} ist aktiv.",
+      "disabled": "{{name}} ist deaktiviert: Es wird nichts dorthin gesendet.",
+      "deleted": "Ziel gelöscht.",
+      "created": "{{name}} angelegt.",
+      "updated": "{{name}} gespeichert.",
+      "toggle": "Aktiv: {{name}}",
+      "deleteLabel": "{{name}} löschen",
+      "deleteTitle": "{{name}} löschen?",
+      "deleteDescription": "Ein Ziel, das eine Verknüpfung, eine Zustellung oder eine externe Referenz nennt, kann nicht gelöscht werden; deaktivieren Sie es stattdessen.",
+      "secretSet": "Gesetzt",
+      "previousSecret": "vorheriges behalten",
+      "defaultMethod": "Standard (PUT)",
+      "columns": {
+        "name": "Name",
+        "transport": "Transport",
+        "target": "Sendet an",
+        "secret": "Geheimnis",
+        "status": "Status"
+      },
+      "statuses": {
+        "Active": "Aktiv",
+        "Disabled": "Deaktiviert"
+      },
+      "transportHints": {
+        "http": "Eine Anfrage je Dokument, wiederholt bei Netzwerkfehlern, 408, 425, 429 und 5xx.",
+        "blob": "Die Nutzlast wird als Datei unter dem Ablageordner des Hosts geschrieben, nie überschrieben.",
+        "pull": "Zustellungen warten in einem Feed, bis der Empfänger sie liest und bestätigt."
+      },
+      "problems": {
+        "headers": "Schreiben Sie einen Header je Zeile als Name: Wert.",
+        "number": "Zeitlimits, Statuscodes und Tage sind ganze Zahlen."
+      },
+      "fields": {
+        "name": "Name",
+        "transport": "Transport",
+        "method": "Methode",
+        "urlTemplate": "URL",
+        "timeoutSeconds": "Zeitlimit (Sekunden)",
+        "successCodes": "Erfolgscodes",
+        "authType": "Authentifizierung",
+        "headerName": "Header-Name",
+        "username": "Benutzername",
+        "tokenUrl": "Token-URL",
+        "clientId": "Client-ID",
+        "scope": "Scope",
+        "headers": "Zusätzliche Header",
+        "responseMapping": "Antwort-Mapping (externe ID)",
+        "updateMethod": "Methode für Aktualisierungen",
+        "updateUrlTemplate": "URL für Aktualisierungen",
+        "sendOriginal": "Auch die Originaldatei senden (Multipart: data und file)",
+        "path": "Ordner",
+        "fileNameTemplate": "Dateiname",
+        "retentionDays": "Einträge aufbewahren (Tage)",
+        "secret": "Geheimnis"
+      },
+      "hints": {
+        "urlTemplate": "Platzhalter: {{meta.documentId}}, {{meta.version}}, {{meta.event}}, {{meta.typeKey}}, {{meta.deliveryId}} und {{output.<Pfad>}} (ein Wert der erzeugten Nutzlast).",
+        "headers": "Einer je Zeile, Name: Wert. Zugangsdaten gehören ins Geheimnis, nicht hierher.",
+        "responseMapping": "Ein JSONata-Ausdruck über die Antwort des Empfängers, dessen Wert als externe ID des Dokuments gespeichert wird.",
+        "updateUrlTemplate": "Für ein erneut freigegebenes Dokument, das als Aktualisierung gesendet wird (Verknüpfung: bei erneuter Freigabe Aktualisieren). Leer: die URL oben.",
+        "fileNameTemplate": "Mit denselben Platzhaltern wie die URL; der Dateiname der Mapping-Version hat Vorrang.",
+        "pull": "Gelesen mit GET /api/v1/feeds/{id} und einem API-Schlüssel mit dem Scope deliveries:read; bestätigt mit :ack.",
+        "secret": "Wird im Geheimnisspeicher abgelegt und nie wieder angezeigt.",
+        "secretKeep": "Ein Geheimnis ist gesetzt. Leer lassen, um es zu behalten; ein neues ersetzt es, das alte bleibt als vorheriges Geheimnis erhalten."
+      },
+      "auth": {
+        "none": "Keine",
+        "apiKeyHeader": "API-Schlüssel im Header",
+        "basic": "Basic (Benutzername und Passwort)",
+        "bearer": "Bearer-Token",
+        "oauth2ClientCredentials": "OAuth 2 Client Credentials",
+        "hmacSha256": "HMAC-SHA256-Signatur"
+      }
+    },
+    "mappings": {
+      "title": "Ausgabe-Mappings",
+      "description": "Wie aus einem Dokument wird, was ein Empfänger importiert: ein JSONata-Ausdruck über die Werte des Dokuments, mit der visuellen Feldzuordnung gebaut oder als Code geschrieben, und vom Server für die Vorschau und jede Zustellung erzeugt.",
+      "create": "Neues Mapping",
+      "createTitle": "Neues Ausgabe-Mapping",
+      "createDescription": "Ein eigenes Mapping beginnt als leere visuelle Feldzuordnung im Entwurf Version 1.",
+      "copy": "Kopieren",
+      "copyTitle": "{{name}} kopieren",
+      "copyDescription": "Ausdruck und Zielschema der Vorlage werden Entwurf Version 1 Ihres Mappings.",
+      "created": "{{key}} angelegt.",
+      "empty": "Noch keine Ausgabe-Mappings",
+      "emptyDescription": "Kopieren Sie unten eine Integrationsvorlage oder beginnen Sie ein neues Mapping.",
+      "notFound": "Es gibt kein Ausgabe-Mapping {{key}}.",
+      "columns": {
+        "name": "Name",
+        "key": "Schlüssel",
+        "origin": "Herkunft",
+        "sourceType": "Dokumenttyp",
+        "published": "Veröffentlicht",
+        "draft": "Entwurf",
+        "updated": "Geändert",
+        "description": "Beschreibung",
+        "copiedAs": "Ihre Kopien"
+      },
+      "origins": {
+        "Copied": "Kopiert",
+        "Custom": "Eigenes",
+        "Platform": "Vorlage"
+      },
+      "fields": {
+        "key": "Schlüssel",
+        "keyHint": "Buchstaben, Ziffern, '.', '_' und '-', beginnend mit einem Buchstaben; nicht std.",
+        "name": "Name",
+        "sourceType": "Dokumenttyp",
+        "sourceTypeHint": "Der Typ, dessen Dokumente der Editor für die Vorschau anbietet."
+      }
+    },
+    "templates": {
+      "title": "Integrationsvorlagen",
+      "description": "Mappings, die die Plattform mitbringt: std.event (das schlanke Ereignis) und generic-ap-json (Kopf und Zeilen nach Rollen). Kopieren Sie eine, um sie zu ändern.",
+      "empty": "Keine Vorlagen."
+    },
+    "editor": {
+      "noValues": "Wählen Sie ein Dokument, um seine Werte zu sehen.",
+      "filterFields": "Felder filtern",
+      "collapse": "Zuklappen",
+      "expand": "Aufklappen",
+      "rows_one": "{{count}} Zeile",
+      "rows_other": "{{count}} Zeilen",
+      "pickHint": "Ein Klick auf ein Feld trägt es in die Zeile ein, die Sie gerade bearbeiten.",
+      "saved": "Entwurf v{{version}} gespeichert.",
+      "publishBlocked": "Die Version kann nicht veröffentlicht werden.",
+      "published": "Version {{version}} veröffentlicht.",
+      "version": "Version",
+      "versionOption": "v{{version}} ({{state}})",
+      "newVersion": "Neue Version",
+      "save": "Entwurf speichern",
+      "changeNote": "Änderungsnotiz",
+      "publish": "Veröffentlichen",
+      "saveFirst": "Speichern Sie zuerst den Entwurf.",
+      "platformReadOnly": "Eine Plattformvorlage ist schreibgeschützt; kopieren Sie sie, um sie zu ändern.",
+      "noRights": "Nur ein Integrations-Admin ändert Mappings.",
+      "publishedReadOnly": "Eine veröffentlichte Version ändert sich nicht; beginnen Sie eine neue Version, um zu bearbeiten.",
+      "sourceTitle": "Werte des Dokuments",
+      "sourceType": "Dokumenttyp",
+      "sampleDocument": "Vorschau-Dokument",
+      "chooseDocument": "Dokument wählen",
+      "visual": "Visuelle Zuordnung",
+      "code": "Code (JSONata)",
+      "schema": "Zielschema",
+      "outOfSyncTitle": "Der Code wurde von Hand geändert",
+      "outOfSync": "Der Ausdruck ist nicht mehr das, was die visuelle Zuordnung ergibt, deshalb wird sie nicht angezeigt. Arbeiten Sie im Code weiter oder ersetzen Sie den Code durch die Zuordnung (die Handänderungen gehen verloren).",
+      "rebuild": "Code durch die visuelle Zuordnung ersetzen",
+      "noMapTitle": "Als Code geschrieben",
+      "noMap": "Dieser Ausdruck wurde nicht mit der visuellen Zuordnung gebaut.",
+      "startMap": "Visuelle Zuordnung beginnen",
+      "startMapTitle": "Ausdruck durch eine visuelle Zuordnung ersetzen?",
+      "startMapDescription": "Der Ausdruck dieses Entwurfs wird durch eine leere visuelle Feldzuordnung ersetzt. Speichern Sie nur, wenn Sie das wollen.",
+      "codeFromMap": "Aus der visuellen Zuordnung erzeugt. Eine Änderung des Codes hier löst ihn von der Zuordnung.",
+      "codeHint": "JSONata über die Werte des Dokuments: doc, roles, supplier, entity, source, meta, links. $table, $fmtDate, $fmtNum, $today, $field und $required stehen bereit.",
+      "schemaInvalid": "Das Zielschema ist kein JSON-Objekt.",
+      "schemaHint": "Optionales JSON Schema des Empfängerformats: Jede Vorschau und jede Zustellung wird dagegen geprüft."
+    },
+    "preview": {
+      "title": "Vorschau",
+      "refresh": "Neu erzeugen",
+      "chooseDocument": "Wählen Sie ein Dokument, über das das Mapping erzeugt wird.",
+      "failed": "Die Vorschau ist fehlgeschlagen",
+      "rendering": "Wird erzeugt …",
+      "undefined": "Erzeugt nichts",
+      "ok": "Erzeugt",
+      "renderError": "Fehler beim Erzeugen",
+      "schemaErrors_one": "{{count}} Schemafehler",
+      "schemaErrors_other": "{{count}} Schemafehler",
+      "elapsed": "{{ms}} ms",
+      "list_one": "{{path}}: {{count}} Eintrag",
+      "list_other": "{{path}}: {{count}} Einträge",
+      "nestedList_one": "{{path}}: {{count}} Eintrag in {{rows}} Zeilen",
+      "nestedList_other": "{{path}}: {{count}} Einträge in {{rows}} Zeilen",
+      "position": "bei Zeichen {{position}}",
+      "errorKinds": {
+        "syntax": "Syntaxfehler",
+        "runtime": "Fehler beim Erzeugen",
+        "required": "Ein Pflichtwert fehlt",
+        "function": "Eine Funktion wurde falsch verwendet",
+        "schema": "Das Zielschema ist ungültig",
+        "timeLimit": "Das Erzeugen hat zu lange gedauert",
+        "sizeLimit": "Die Ausgabe ist zu groß",
+        "depthLimit": "Der Ausdruck ist zu tief verschachtelt",
+        "unavailable": "Der Renderer ist nicht verfügbar"
+      },
+      "columns": {
+        "path": "Pfad",
+        "keyword": "Regel",
+        "message": "Meldung"
+      },
+      "cut": "Die Ausgabe ist länger, als die Vorschau zeigt."
+    },
+    "fieldMap": {
+      "kind": "Art",
+      "target": "Zielfeld",
+      "source": "Quelle",
+      "addField": "Feld hinzufügen",
+      "addList": "Liste hinzufügen",
+      "addFieldInList": "Feld in der Liste hinzufügen",
+      "addListInList": "Liste in der Liste hinzufügen",
+      "kinds": {
+        "value": "Feld",
+        "constant": "Konstante",
+        "expression": "Ausdruck",
+        "list": "Liste"
+      },
+      "targetScalar": "(leer: eine Liste einfacher Werte)",
+      "targetPlaceholder": "header.vendorNo",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "remove": "Entfernen",
+      "problems": {
+        "targetMissing": "Geben Sie das Zielfeld an.",
+        "targetDuplicate": "Eine andere Zeile schreibt dieses Ziel.",
+        "targetConflict": "Ein Ziel ist zugleich Wert und Objekt (a.b neben a).",
+        "sourceMissing": "Geben Sie das Quellfeld an.",
+        "sourceInvalid": "Die Quelle ist kein Feldpfad.",
+        "expressionMissing": "Schreiben Sie den Ausdruck.",
+        "numberInvalid": "Keine Zahl (schreiben Sie 1.5, nicht 1,5).",
+        "lookupMissing": "Wählen Sie die Nachschlagetabelle.",
+        "listEmpty": "Eine Liste braucht mindestens ein Feld.",
+        "formatInvalid": "Die Einstellung des Formats fehlt oder liegt außerhalb des Bereichs."
+      },
+      "filter": "Nur Zeilen, für die gilt",
+      "sourcePlaceholder": "roles.validFrom",
+      "expression": "Ausdruck",
+      "literalType": "Werttyp",
+      "literalTypes": {
+        "text": "Text",
+        "number": "Zahl",
+        "boolean": "Ja/Nein",
+        "null": "null"
+      },
+      "value": "Wert",
+      "summary": {
+        "fallback": "oder {{path}}",
+        "lookup": "Nachschlagen in {{table}} (sonst {{value}})",
+        "date": "Datum {{pattern}}",
+        "number": "{{decimals}} Nachkommastellen",
+        "truncate": "erste {{length}} Zeichen",
+        "whenEmpty": "wenn leer {{value}}",
+        "required": "Pflicht"
+      },
+      "options": "Optionen",
+      "fallback": "Wenn leer, Feld verwenden",
+      "lookup": "Nachschlagetabelle",
+      "noLookup": "Keine",
+      "lookupDefault": "Sonst",
+      "format": "Format",
+      "formats": {
+        "none": "Unverändert",
+        "date": "Datum",
+        "number": "Zahl",
+        "truncate": "Text kürzen"
+      },
+      "pattern": "Muster",
+      "decimals": "Nachkommastellen",
+      "length": "Zeichen",
+      "whenEmpty": "Wenn leer, schreiben",
+      "nothing": "Nichts",
+      "constant": "Eine Konstante",
+      "required": "Pflicht: Meldung, wenn es fehlt",
+      "requiredPlaceholder": "Lieferant hat keine ERP-Kreditorennummer"
+    },
+    "bindings": {
+      "title": "Verknüpfungen",
+      "description": "Welche Dokumente wohin gehen: Eine Verknüpfung sendet die Dokumente eines Typs (oder eines Lieferanten oder Kanals) über ein Ausgabe-Mapping an ein Ziel, wenn sie freigegeben oder abgelehnt werden. Preislisten können an den Artikelimport gehen, während Rechnungen weiter an den Kreditorenimport gehen.",
+      "create": "Neue Verknüpfung",
+      "createTitle": "Neue Verknüpfung",
+      "editTitle": "{{name}} bearbeiten",
+      "formDescription": "Jede passende Verknüpfung wird ausgelöst; in einer exklusiven Gruppe nur die spezifischste.",
+      "empty": "Noch keine Verknüpfungen",
+      "emptyDescription": "Verknüpfen Sie ein Ausgabe-Mapping mit einem Ziel, um mit dem Zustellen zu beginnen.",
+      "deleted": "Verknüpfung gelöscht.",
+      "created": "{{name}} angelegt.",
+      "updated": "{{name}} gespeichert.",
+      "toggle": "Aktiv: {{name}}",
+      "deleteLabel": "{{name}} löschen",
+      "deleteTitle": "{{name}} löschen?",
+      "deleteDescription": "Eine Verknüpfung mit Zustellungen kann nicht gelöscht werden; deaktivieren Sie sie stattdessen.",
+      "unpublished": "nicht veröffentlicht",
+      "chooseMapping": "Mapping wählen",
+      "chooseDestination": "Ziel wählen",
+      "followPublished": "Veröffentlichte",
+      "columns": {
+        "name": "Name",
+        "type": "Dokumenttyp",
+        "events": "Bei",
+        "mapping": "Mapping",
+        "destination": "Ziel",
+        "condition": "Bedingung",
+        "onReapproval": "Bei erneuter Freigabe",
+        "enabled": "Aktiv"
+      },
+      "reapproval": {
+        "Resend": "Erneut senden",
+        "Skip": "Überspringen",
+        "Update": "Als Aktualisierung senden"
+      },
+      "fields": {
+        "name": "Name",
+        "events": "Senden, wenn das Dokument",
+        "type": "Dokumenttyp",
+        "supplier": "Lieferant",
+        "channel": "Kanal",
+        "mapping": "Ausgabe-Mapping",
+        "version": "Version",
+        "destination": "Ziel",
+        "condition": "Bedingung (JSONata)",
+        "onReapproval": "Bei erneuter Freigabe",
+        "exclusiveGroup": "Exklusive Gruppe",
+        "priority": "Priorität",
+        "updateMapping": "Mapping für Aktualisierungen",
+        "enabled": "Aktiv"
+      },
+      "hints": {
+        "condition": "Optional. Ist sie nicht wahr, wird die Zustellung als Übersprungen, „nicht zutreffend“ geführt."
+      }
+    },
+    "lookups": {
+      "title": "Nachschlagetabellen",
+      "description": "Codetabellen, die ein Mapping mit $table(\"Schlüssel\", Wert, Vorgabe) liest, etwa die Einheiten Ihres ERP. Ein Eintrag kann ab oder bis zu einem Tag gelten. Codelisten der Plattform sind schreibgeschützt.",
+      "create": "Neue Tabelle",
+      "createTitle": "Neue Nachschlagetabelle",
+      "createDescription": "Eine eigene Tabelle; ihre Einträge ordnen einem Wert den Code des Empfängers zu.",
+      "created": "{{key}} angelegt.",
+      "empty": "Keine Nachschlagetabellen.",
+      "platform": "Plattform",
+      "tenant": "Eigene",
+      "saved_one": "{{count}} Eintrag gespeichert.",
+      "saved_other": "{{count}} Einträge gespeichert.",
+      "invalidRow": "Zeile {{row}}: Geben Sie den Wert an, Daten als JJJJ-MM-TT.",
+      "entriesDescription": "Jeder Eintrag ordnet einem Wert den Code des Empfängers zu.",
+      "removeRow": "Zeile entfernen",
+      "addRow": "Eintrag hinzufügen",
+      "columns": {
+        "key": "Schlüssel",
+        "description": "Beschreibung",
+        "owner": "Eigentümer",
+        "entries": "Einträge",
+        "updated": "Geändert",
+        "from": "Wert",
+        "to": "Code",
+        "validFrom": "Gültig ab",
+        "validTo": "Gültig bis"
+      },
+      "fields": {
+        "key": "Schlüssel",
+        "description": "Beschreibung",
+        "caseSensitive": "Groß-/Kleinschreibung beachten"
+      }
+    },
+    "deliveries": {
+      "title": "Zustellungen",
+      "description": "Jede Zustellung jedes Dokuments: Wiederholungen warten auf ihren nächsten Versuch, ein unzustellbarer Eintrag (ein dauerhafter Fehler oder 15 Versuche) wartet auf eine erneute Zustellung.",
+      "empty": "Keine Zustellungen",
+      "emptyDescription": "Zustellungen erscheinen hier, wenn ein Dokument, das zu einer Verknüpfung passt, freigegeben oder abgelehnt wird.",
+      "allStatuses": "Alle Status",
+      "allDestinations": "Alle Ziele",
+      "statuses": {
+        "Pending": "Ausstehend",
+        "Sending": "Wird gesendet",
+        "Delivered": "Zugestellt",
+        "Failed": "Wiederholung ausstehend",
+        "DeadLettered": "Unzustellbar",
+        "Skipped": "Übersprungen",
+        "Cancelled": "Storniert"
+      },
+      "columns": {
+        "created": "Erstellt",
+        "document": "Dokument",
+        "destination": "Ziel",
+        "binding": "Verknüpfung",
+        "event": "Ereignis",
+        "revision": "Revision",
+        "status": "Status",
+        "attempts": "Versuche",
+        "lastStatus": "Letzte Antwort",
+        "note": "Hinweis"
+      },
+      "nextAttempt": "Nächster Versuch {{when}}",
+      "deliveredAt": "Zugestellt {{when}}",
+      "redelivered": "Erneute Zustellung {{key}} eingereiht.",
+      "idempotencyKey": "Idempotenzschlüssel",
+      "feedSequence": "Feed-Position",
+      "redeliveryOf": "Erneute Zustellung von",
+      "externalId": "Externe ID",
+      "lastError": "Letzter Fehler",
+      "noAttempts": "Noch kein Versuch.",
+      "attemptColumns": {
+        "at": "Zeitpunkt",
+        "status": "Status",
+        "class": "Ergebnis",
+        "duration": "Dauer",
+        "response": "Antwort (erste 4 KB)"
+      },
+      "errorClasses": {
+        "delivered": "Zugestellt",
+        "retryable": "Wird wiederholt",
+        "permanent": "Dauerhafter Fehler",
+        "published": "Im Feed"
+      },
+      "showPayload": "Nutzlast zeigen",
+      "hidePayload": "Nutzlast ausblenden",
+      "redeliverSnapshot": "Erneut zustellen",
+      "redeliverRerender": "Neu erzeugen und zustellen"
     }
   }
 }

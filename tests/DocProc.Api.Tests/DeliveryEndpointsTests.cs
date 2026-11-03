@@ -82,6 +82,18 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
     }
 
     [Fact]
+    public async Task The_document_detail_says_whether_its_tenant_has_outputs_so_the_review_screen_shows_the_deliveries_tab()
+    {
+        var setup = await SetupAsync("Deliveries tab", OutputTransports.Http);
+        using var reviewer = factory.ClientFor(new TokenSpec("rev", [Roles.Reviewer], setup.Tenant.ToString()));
+
+        (await reviewer.GetFromJsonAsync<DocProc.Api.Documents.DocumentDetail>($"/api/v1/documents/{setup.Document}", ApiFactory.Json, Ct))!.Outputs.ShouldBeTrue();
+
+        factory.Run(db => db.Tenants.Single(t => t.Id == setup.Tenant).Settings.Features!.Outputs = false);
+        (await reviewer.GetFromJsonAsync<DocProc.Api.Documents.DocumentDetail>($"/api/v1/documents/{setup.Document}", ApiFactory.Json, Ct))!.Outputs.ShouldBeFalse("a tenant without the switch sees the review screen as before");
+    }
+
+    [Fact]
     public async Task A_dead_letter_is_redelivered_from_its_snapshot_as_a_new_delivery()
     {
         var setup = await SetupAsync("Redeliver", OutputTransports.Http);

@@ -147,6 +147,13 @@ public sealed record DocumentDetail(
     /// then, so a tenant that is not on the feature reviews as before.
     /// </summary>
     public bool ConfigurableTypes { get; init; }
+
+    /// <summary>
+    /// Whether the document's tenant has <c>outputs</c> on (docs/11 §3 principle 6, P3): the review screen shows the
+    /// Deliveries tab (<c>GET /deliveries?documentId=</c>) only then, so a tenant that is not on the feature sees the
+    /// screen as before.
+    /// </summary>
+    public bool Outputs { get; init; }
 }
 
 /// <summary>

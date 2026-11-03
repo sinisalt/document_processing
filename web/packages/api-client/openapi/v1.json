@@ -6112,6 +6112,10 @@
           "configurableTypes": {
             "type": "boolean",
             "description": "Whether the document's tenant has `configurableTypes` on (docs/11 §3 principle 6): the review screen offers the\nreview tools of P2 (the Map this document panel, set type, assign or create the supplier, split and join) only\nthen, so a tenant that is not on the feature reviews as before."
+          },
+          "outputs": {
+            "type": "boolean",
+            "description": "Whether the document's tenant has `outputs` on (docs/11 §3 principle 6, P3): the review screen shows the\nDeliveries tab (`GET /deliveries?documentId=`) only then, so a tenant that is not on the feature sees the\nscreen as before."
           }
         },
         "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.\n`AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the\ntype version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract."

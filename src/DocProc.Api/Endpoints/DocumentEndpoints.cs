@@ -322,6 +322,7 @@ public static partial class DocumentEndpoints
         {
             ApprovalBlocked = await ApprovalBlockAsync(document, configs, features, ct),
             ConfigurableTypes = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct),
+            Outputs = await features.IsEnabledAsync(document.TenantId, TenantFeature.Outputs, ct),
         };
         if (type?.Compiled is not { } compiled || !Correctable.Contains(document.Status))
         {

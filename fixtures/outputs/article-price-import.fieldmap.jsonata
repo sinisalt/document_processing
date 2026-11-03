@@ -1,0 +1,34 @@
+/* docproc:fieldmap {"version":1,"rows":[{"kind":"value","target":"header.vendorNo","source":"supplier.attributes.erpVendorId","required":"Supplier has no ERP vendor id"},{"kind":"expression","target":"header.priceListId","expression":"roles.documentNumber ? roles.documentNumber : supplier.attributes.erpVendorId & \"-\" & roles.validFrom"},{"kind":"value","target":"header.validFrom","source":"roles.validFrom","format":{"kind":"date","pattern":"yyyyMMdd"}},{"kind":"value","target":"header.validTo","source":"roles.validUntil","format":{"kind":"date","pattern":"yyyyMMdd"},"whenEmpty":{"type":"text","value":"99991231"}},{"kind":"value","target":"header.currency","source":"roles.currency"},{"kind":"expression","target":"header.priceType","expression":"doc.priceBasis = \"Gross\" ? \"B\" : \"N\""},{"kind":"expression","target":"header.mode","expression":"doc.listScope = \"Changes\" ? \"UPSERT\" : \"REPLACE\""},{"kind":"value","target":"header.dmsId","source":"meta.documentId"},{"kind":"value","target":"header.revision","source":"meta.version"},{"kind":"list","target":"prices","source":"doc.lines","filter":"$not(status = \"Discontinued\")","rows":[{"kind":"value","target":"vendorArticleNo","source":"supplierSku"},{"kind":"value","target":"ean","source":"gtin"},{"kind":"value","target":"text","source":"description","format":{"kind":"truncate","length":40}},{"kind":"value","target":"group","source":"category"},{"kind":"value","target":"orderUnit","source":"unit","lookup":{"table":"erp-uom","default":"ST"}},{"kind":"value","target":"contentQty","source":"packSize"},{"kind":"value","target":"contentUnit","source":"packUnit","lookup":{"table":"erp-uom","default":"ST"}},{"kind":"value","target":"priceUnit","source":"priceQuantity","whenEmpty":{"type":"number","value":"1"}},{"kind":"value","target":"price","source":"price.amount"},{"kind":"value","target":"validFrom","source":"lineValidFrom","fallback":"$root.roles.validFrom","format":{"kind":"date","pattern":"yyyyMMdd"}},{"kind":"list","target":"scales","source":"tiers","rows":[{"kind":"value","target":"fromQty","source":"minQuantity"},{"kind":"value","target":"price","source":"price.amount"}]}]},{"kind":"list","target":"delist","source":"doc.lines","filter":"status = \"Discontinued\"","rows":[{"kind":"value","target":"","source":"supplierSku"}]}]} */
+(
+  $root := $;
+  {
+    "header": {
+      "vendorNo": $required(supplier.attributes.erpVendorId, "Supplier has no ERP vendor id"),
+      "priceListId": roles.documentNumber ? roles.documentNumber : supplier.attributes.erpVendorId & "-" & roles.validFrom,
+      "validFrom": $fmtDate(roles.validFrom, "yyyyMMdd"),
+      "validTo": (roles.validUntil ? $fmtDate(roles.validUntil, "yyyyMMdd") : "99991231"),
+      "currency": roles.currency,
+      "priceType": doc.priceBasis = "Gross" ? "B" : "N",
+      "mode": doc.listScope = "Changes" ? "UPSERT" : "REPLACE",
+      "dmsId": meta.documentId,
+      "revision": meta.version
+    },
+    "prices": [ doc.lines[$not(status = "Discontinued")].{
+      "vendorArticleNo": supplierSku,
+      "ean": gtin,
+      "text": $substring(description, 0, 40),
+      "group": category,
+      "orderUnit": $table("erp-uom", unit, "ST"),
+      "contentQty": packSize,
+      "contentUnit": $table("erp-uom", packUnit, "ST"),
+      "priceUnit": (priceQuantity ? priceQuantity : 1),
+      "price": price.amount,
+      "validFrom": $fmtDate((lineValidFrom ? lineValidFrom : $root.roles.validFrom), "yyyyMMdd"),
+      "scales": [ tiers.{
+        "fromQty": minQuantity,
+        "price": price.amount
+      } ]
+    } ],
+    "delist": [ doc.lines[status = "Discontinued"].supplierSku ]
+  }
+)

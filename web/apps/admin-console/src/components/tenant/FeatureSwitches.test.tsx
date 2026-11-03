@@ -36,4 +36,16 @@ describe("feature switches", () => {
     await waitFor(() => expect(screen.getByRole("switch", { name: /Configurable document types/ })).toBeChecked());
     expect(screen.getByRole("switch", { name: /Types of the tenant's own/ })).not.toBeChecked();
   });
+
+  it("switches outputs on by itself, leaving the type catalogue as it is (docs/11 P3)", async () => {
+    expect(withSwitch(off, "outputs", true)).toEqual({ ...off, outputs: true });
+    answer("GET /api/v1/settings", { tenant: {}, settings });
+    shell.handlers.set("PUT /api/v1/settings", ({ init }) => ({ body: { tenant: {}, settings: (init as { body: unknown }).body } }));
+    renderScreen(<FeatureSwitches />);
+    const outputs = await screen.findByRole("switch", { name: /Outputs/ });
+    fireEvent.click(outputs);
+    await waitFor(() => expect(shell.calls).toContain("PUT /api/v1/settings"));
+    const put = shell.requests.find((r) => r.route === "PUT /api/v1/settings")!.init as { body: unknown };
+    expect(put.body).toEqual({ ...settings, features: { ...off, outputs: true } });
+  });
 });

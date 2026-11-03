@@ -123,6 +123,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("review screen of a definition-driven document", () => {
+  it("shows the Deliveries tab only for a tenant with the outputs switch, and reads the document's deliveries there", async () => {
+    renderScreen(documentOf({ outputs: false }));
+    expect(screen.queryByRole("tab", { name: "Deliveries" })).not.toBeInTheDocument();
+    cleanup();
+
+    client.GET.mockImplementation((async (...args: unknown[]) => ({ data: String(args[0]) === "/api/v1/deliveries" ? { items: [], nextCursor: null } : [], error: undefined, response: new Response(null, { status: 200 }) })) as never);
+    renderScreen(documentOf({ outputs: true, status: "Approved" }));
+    const tab = screen.getByRole("tab", { name: "Deliveries" });
+    fireEvent.mouseDown(tab);
+    fireEvent.click(tab);
+    expect(await screen.findByText("No deliveries")).toBeInTheDocument();
+    expect(client.GET.mock.calls.map((call: unknown[]) => call[0])).toContain("/api/v1/deliveries");
+  });
+
   it("renders a delivery note from its form spec, with type and version in the header", () => {
     renderScreen(documentOf());
     expect(screen.getByTestId("document-type")).toHaveTextContent("Delivery note");

@@ -1767,6 +1767,12 @@ export interface components {
             joinedIntoDocumentId?: null | string;
             /** Format: int32 */
             lineCount: null | number | string;
+            /**
+             * @description Whether the document's tenant has `outputs` on (docs/11 §3 principle 6, P3): the review screen shows the
+             *     Deliveries tab (`GET /deliveries?documentId=`) only then, so a tenant that is not on the feature sees the
+             *     screen as before.
+             */
+            outputs?: boolean;
             /** Format: int32 */
             pageCount: number | string;
             pageImageUrls: string[];

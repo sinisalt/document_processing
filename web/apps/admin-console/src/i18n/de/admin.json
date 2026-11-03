@@ -623,7 +623,7 @@
   },
   "features": {
     "title": "Funktionsschalter",
-    "description": "Konfigurierbare Dokumenttypen (docs/11). Standardmäßig aus; wieder ausgeschaltet, nutzen die Dokumente des Mandanten die übernommenen Standardtypen wie zuvor.",
+    "description": "Konfigurierbare Dokumenttypen und Ausgaben (docs/11). Standardmäßig aus; wieder ausgeschaltet, nutzen die Dokumente des Mandanten die übernommenen Standardtypen wie zuvor, und es wird nichts zugestellt.",
     "saved": "Funktionsschalter gespeichert.",
     "saveFailed": "Die Schalter wurden nicht gespeichert.",
     "configurableTypes": {
@@ -633,6 +633,10 @@
     "customTypes": {
       "label": "Eigene Typen des Mandanten",
       "hint": "Der Mandant kann auch Typen anlegen, die keine Vorlage abdeckt. Braucht konfigurierbare Dokumenttypen."
+    },
+    "outputs": {
+      "label": "Ausgaben",
+      "hint": "Der Mandant kann Ziele, Ausgabe-Mappings und Verknüpfungen einrichten (Einstellungen > Integrationen); Freigaben und Ablehnungen werden dann zugestellt. Aus: Freigeben und Veröffentlichen wie bisher, es wird nichts zugestellt."
     }
   }
 }

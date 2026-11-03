@@ -10,6 +10,7 @@ export type SupplierListQuery = ListQuery<"/api/v1/suppliers">;
 export type TenantListQuery = ListQuery<"/api/v1/tenants">;
 export type LlmUsageQuery = ListQuery<"/api/v1/llm-usage">;
 export type PlatformLlmUsageQuery = ListQuery<"/api/v1/llm/usage">;
+export type DeliveryListQuery = ListQuery<"/api/v1/deliveries">;
 
 /**
  * A plain (single-page) query's key part: every parameter but `cursor`. `limit` stays, because `{status, limit: 25}`
@@ -117,6 +118,30 @@ export const queryKeys = {
     list: () => ["document-types", "list"] as const,
     detail: (key: string) => ["document-types", "detail", key] as const,
     version: (key: string, version: number) => ["document-types", "detail", key, "version", version] as const,
+  },
+
+  /**
+   * Outputs (docs/11 §13, §19 "Settings > Integrations"): the integration templates, the tenant's output mappings and
+   * their versions (a version under its mapping), destinations, bindings and lookup tables.
+   */
+  outputs: {
+    all: ["outputs"] as const,
+    templates: () => ["outputs", "templates"] as const,
+    mappings: () => ["outputs", "mappings"] as const,
+    mapping: (key: string) => ["outputs", "mappings", key] as const,
+    version: (key: string, version: number) => ["outputs", "mappings", key, "version", version] as const,
+    destinations: () => ["outputs", "destinations"] as const,
+    bindings: () => ["outputs", "bindings"] as const,
+    lookupTables: () => ["outputs", "lookup-tables"] as const,
+    lookupTable: (key: string) => ["outputs", "lookup-tables", key] as const,
+  },
+
+  /** Deliveries of the outputs (docs/11 §13.6): the log, one delivery with its attempts, and its payload snapshot. */
+  deliveries: {
+    all: ["deliveries"] as const,
+    list: (query?: DeliveryListQuery) => ["deliveries", "list", plainKey(query)] as const,
+    detail: (id: string) => ["deliveries", "detail", id] as const,
+    payload: (id: string) => ["deliveries", "detail", id, "payload"] as const,
   },
 
   llm: {

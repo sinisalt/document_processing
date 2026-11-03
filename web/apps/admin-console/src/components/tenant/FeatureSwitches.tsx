@@ -8,9 +8,12 @@ import { isApiError, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 type Features = components["schemas"]["TenantFeaturesDto"];
 type Settings = components["schemas"]["TenantSettingsDto"];
 
-/** The switches of docs/11 §3 (principle 6) this phase uses; the other switches change nothing yet and stay as they are. */
-export const p1Switches = ["configurableTypes", "customTypes"] as const;
-export type P1Switch = (typeof p1Switches)[number];
+/**
+ * The switches of docs/11 §3 (principle 6) that are built: the type catalogue (P1) and outputs (P3, the Integrations
+ * tab, the fan-out and delivery); the other switches change nothing yet and stay as they are.
+ */
+export const builtSwitches = ["configurableTypes", "customTypes", "outputs"] as const;
+export type BuiltSwitch = (typeof builtSwitches)[number];
 
 const allOff: Features = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false };
 
@@ -18,7 +21,7 @@ const allOff: Features = { configurableTypes: false, customTypes: false, outputs
  * The switches after one is flipped: `customTypes` (types of the tenant's own) needs `configurableTypes`, so switching
  * the catalogue off switches custom types off with it, and custom types on switches the catalogue on.
  */
-export function withSwitch(features: Features, key: P1Switch, on: boolean): Features {
+export function withSwitch(features: Features, key: BuiltSwitch, on: boolean): Features {
   const next = { ...features, [key]: on };
   if (key === "configurableTypes" && !on) next.customTypes = false;
   if (key === "customTypes" && on) next.configurableTypes = true;
@@ -26,8 +29,8 @@ export function withSwitch(features: Features, key: P1Switch, on: boolean): Feat
 }
 
 /**
- * The tenant's feature switches for configurable document types (`PUT /settings` with `features`). Each flip is saved at
- * once with the rest of the settings as they are; the API answers with what it stored.
+ * The tenant's feature switches for configurable document types and outputs (`PUT /settings` with `features`). Each
+ * flip is saved at once with the rest of the settings as they are; the API answers with what it stored.
  */
 export function FeatureSwitches() {
   const { t } = useTranslation("admin");
@@ -45,6 +48,7 @@ export function FeatureSwitches() {
     onSuccess: async (response) => {
       queryClient.setQueryData(queryKeys.settings.get(), response);
       await queryClient.invalidateQueries({ queryKey: queryKeys.documentTypes.all });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.outputs.all });
       toast.success(t("features.saved"));
     },
     onError: (error) => toast.error(isApiError(error) ? error.title : t("features.saveFailed")),
@@ -60,7 +64,7 @@ export function FeatureSwitches() {
         {!settings.data ? (
           <Skeleton className="h-16 w-full" aria-busy />
         ) : (
-          p1Switches.map((key) => (
+          builtSwitches.map((key) => (
             <div key={key} className="flex items-center justify-between gap-4 rounded-md border p-3">
               <div>
                 <Label htmlFor={`feature-${key}`} className="flex items-center gap-2">

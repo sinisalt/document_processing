@@ -4,29 +4,37 @@ import { z } from "zod";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@docproc/ui";
 import { EmptyState, PageHeader, Policies, useAuth } from "@docproc/app-shell";
 import { DocumentTypesPanel } from "@docproc/review";
+import { IntegrationsTab, integrationSections } from "@/components/integrations/IntegrationsTab";
 import { AiProvidersTab } from "@/components/settings/AiProvidersTab";
 import { ApiKeysTab } from "@/components/settings/ApiKeysTab";
 import { ChannelsTab } from "@/components/settings/ChannelsTab";
 import { GeneralTab } from "@/components/settings/GeneralTab";
 import { MembersTab } from "@/components/settings/MembersTab";
 
-export const settingsTabs = ["general", "members", "apiKeys", "channels", "ai", "types"] as const;
+export const settingsTabs = ["general", "members", "apiKeys", "channels", "ai", "types", "integrations"] as const;
 type SettingsTab = (typeof settingsTabs)[number];
 
 export const Route = createFileRoute("/settings")({
-  // `type` is the document type open in the editor of the Document types tab, so a link can point at it.
-  validateSearch: z.object({ tab: z.enum(settingsTabs).optional().catch(undefined), type: z.string().optional().catch(undefined) }),
+  // `type` is the document type open in the editor of the Document types tab, `section` and `mapping` the part of the
+  // Integrations tab and the output mapping open in its editor, so a link can point at them.
+  validateSearch: z.object({
+    tab: z.enum(settingsTabs).optional().catch(undefined),
+    type: z.string().optional().catch(undefined),
+    section: z.enum(integrationSections).optional().catch(undefined),
+    mapping: z.string().optional().catch(undefined),
+  }),
   component: SettingsPage,
 });
 
 /**
- * Tenant settings: General, Members, API keys, Channels, AI providers and Document types (docs/11 §19); all of them for
- * tenant admins only, who are also the tenant's ConfigAdmin (the type catalogue's writes).
+ * Tenant settings: General, Members, API keys, Channels, AI providers, Document types and Integrations (docs/11 §19);
+ * all of them for tenant admins only, who are also the tenant's ConfigAdmin (the type catalogue's writes) and
+ * IntegrationAdmin (outputs).
  */
 function SettingsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate({ from: Route.fullPath });
-  const { tab = "general", type } = Route.useSearch();
+  const { tab = "general", type, section = "destinations", mapping } = Route.useSearch();
   const { hasPolicy, user } = useAuth();
   const isAdmin = hasPolicy(Policies.TenantAdmin);
   const isConfigAdmin = hasPolicy(Policies.ConfigAdmin);
@@ -50,6 +58,7 @@ function SettingsPage() {
           <TabsTrigger value="channels">{t("settings.tabs.channels")}</TabsTrigger>
           <TabsTrigger value="ai">{t("settings.tabs.ai")}</TabsTrigger>
           <TabsTrigger value="types">{t("settings.tabs.types")}</TabsTrigger>
+          <TabsTrigger value="integrations">{t("settings.tabs.integrations")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="pt-4">
           <GeneralTab canEdit />
@@ -68,6 +77,16 @@ function SettingsPage() {
         </TabsContent>
         <TabsContent value="types" className="pt-4">
           {tab === "types" && <DocumentTypesPanel canEdit={isConfigAdmin} selectedKey={type ?? null} onSelectedKeyChange={(key) => void navigate({ search: { tab: "types", type: key ?? undefined } })} />}
+        </TabsContent>
+        <TabsContent value="integrations" className="pt-4">
+          {tab === "integrations" && (
+            <IntegrationsTab
+              section={section}
+              onSectionChange={(next) => void navigate({ search: { tab: "integrations", section: next } })}
+              mappingKey={mapping ?? null}
+              onMappingKeyChange={(key) => void navigate({ search: { tab: "integrations", section: "mappings", mapping: key ?? undefined } })}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </>

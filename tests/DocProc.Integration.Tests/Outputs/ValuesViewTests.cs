@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DocProc.Application.Abstractions;
 using DocProc.Application.Documents;
 using DocProc.Application.Outputs;
 using DocProc.Definitions;
@@ -318,6 +319,29 @@ public sealed class ValuesViewTests(RendererFixture fixture) : IClassFixture<Ren
         var missing = await fixture.Renderer.RenderAsync(new RenderRequest(ArticlePriceImport, noVendor, new DateOnly(2026, 11, 3)) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
         missing.Error!.Kind.ShouldBe(RenderErrorKinds.Required);
         missing.Error.Message.ShouldBe("Supplier has no ERP vendor id");
+    }
+
+    [Fact]
+    public async Task The_article_price_mapping_built_with_the_visual_field_map_renders_what_the_hand_written_one_renders()
+    {
+        // The Integrations UI's field map compiles §13.10's mapping to this file (web: fieldMap.test.ts checks that it
+        // is what the map compiles to today); the map travels in the expression as a leading comment.
+        var compiled = await File.ReadAllTextAsync(RepositoryPaths.ResolveUpwards("fixtures/outputs/article-price-import.fieldmap.jsonata", AppContext.BaseDirectory), TestContext.Current.CancellationToken);
+        compiled.ShouldStartWith("/* docproc:fieldmap {");
+        var (tree, priceList) = PriceList(5);
+        var view = DocumentDataView.Build(tree, priceList, PriceListContext());
+        var today = new DateOnly(2026, 11, 3);
+
+        var byHand = await fixture.Renderer.RenderAsync(new RenderRequest(ArticlePriceImport, view, today) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
+        var byMap = await fixture.Renderer.RenderAsync(new RenderRequest(compiled, view, today) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
+
+        byMap.Error.ShouldBeNull();
+        byMap.OutputText.ShouldBe(byHand.OutputText);
+        byMap.ReferencedPaths.ShouldBe(byHand.ReferencedPaths, ignoreOrder: true);
+
+        var noVendor = DocumentDataView.Build(tree, priceList, PriceListContext() with { Supplier = Context.Supplier! with { Attributes = new JsonObject() } });
+        var missing = await fixture.Renderer.RenderAsync(new RenderRequest(compiled, noVendor, today) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
+        missing.Error!.Message.ShouldBe("Supplier has no ERP vendor id");
     }
 
     [Fact]

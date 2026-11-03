@@ -198,7 +198,8 @@
       "fields": "Fields",
       "timeline": "Timeline",
       "original": "Original",
-      "table": "Table"
+      "table": "Table",
+      "deliveries": "Deliveries"
     },
     "form": {
       "label": "Canonical data"
@@ -438,6 +439,11 @@
       "noForm": "{{type}} has no form to review. Give the document a type with fields: start empty, to capture the values from the page, or let AI pre-fill it.",
       "supplier": "Supplier",
       "noData": "Nothing was captured for this {{type}} yet. Read it again for its type (Let AI pre-fill), or start empty to capture the values from the page."
+    },
+    "deliveries": {
+      "description": "Where this document was delivered: one row per binding that matched its approval or rejection. Open a row for its attempts, the receiver's answers and the payload as sent.",
+      "empty": "No deliveries",
+      "emptyDescription": "No binding matched this document, or it has not been approved or rejected yet."
     }
   },
   "queue": {
@@ -520,7 +526,10 @@
       "aliases": "Aliases",
       "listHint": "One per line or separated by commas.",
       "alwaysReview": "Always review",
-      "alwaysReviewHint": "Documents of this supplier are never auto-approved."
+      "alwaysReviewHint": "Documents of this supplier are never auto-approved.",
+      "attributes": "Attributes (for output mappings)",
+      "attributesHint": "One per line as key = value, such as erpVendorId = V-10042; mappings read them as supplier.attributes.",
+      "attributesInvalid": "Line {{line}} is not key = value (a key starts with a letter; at most 50 attributes)."
     },
     "platformScopeTitle": "Choose a tenant",
     "platformScope": "Suppliers belong to a tenant; platform accounts manage a tenant's suppliers in the admin console."
@@ -540,7 +549,8 @@
       "apiKeys": "API keys",
       "channels": "Channels",
       "ai": "AI providers",
-      "types": "Document types"
+      "types": "Document types",
+      "integrations": "Integrations"
     },
     "general": {
       "identityTitle": "Organisation",
@@ -781,6 +791,463 @@
         "empty": "No usage yet",
         "emptyDescription": "Usage appears once documents are processed with an AI provider."
       }
+    }
+  },
+  "integrations": {
+    "offTitle": "Outputs are off for this tenant",
+    "off": "Destinations, output mappings and deliveries need the tenant's outputs switch. A platform administrator switches it on in the admin console (Tenants > Settings > Feature switches).",
+    "sectionsLabel": "Integrations",
+    "sections": {
+      "destinations": "Destinations",
+      "mappings": "Output mappings",
+      "bindings": "Bindings",
+      "lookups": "Lookup tables",
+      "deliveries": "Delivery log"
+    },
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "back": "Back",
+    "open": "Open",
+    "view": "View",
+    "required": "Required.",
+    "failed": "That did not work.",
+    "anyType": "Any type",
+    "anySupplier": "Any supplier",
+    "anyChannel": "Any channel",
+    "noNumber": "(no number)",
+    "transports": {
+      "http": "HTTP (JSON)",
+      "blob": "File drop",
+      "pull": "Pull feed"
+    },
+    "events": {
+      "document": {
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "updated": "Updated (re-approval)"
+      }
+    },
+    "versionStates": {
+      "Draft": "draft",
+      "Published": "published",
+      "Deprecated": "deprecated"
+    },
+    "destinations": {
+      "title": "Destinations",
+      "description": "The systems documents are delivered to: an HTTP endpoint that takes one JSON body per document, a folder the file is dropped into, or a pull feed the receiver reads with an API key.",
+      "create": "New destination",
+      "createTitle": "New destination",
+      "editTitle": "Edit {{name}}",
+      "formDescription": "The settings of the transport. The secret (API key, password, token, client secret or signing key) is stored write-only; it is never shown again.",
+      "empty": "No destinations yet",
+      "emptyDescription": "Add the receiving system first, then bind an output mapping to it.",
+      "enabled": "{{name}} is active.",
+      "disabled": "{{name}} is disabled: nothing is sent to it.",
+      "deleted": "Destination deleted.",
+      "created": "{{name}} created.",
+      "updated": "{{name}} saved.",
+      "toggle": "Active: {{name}}",
+      "deleteLabel": "Delete {{name}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "A destination that a binding, a delivery or an external reference names cannot be deleted; disable it instead.",
+      "secretSet": "Set",
+      "previousSecret": "previous kept",
+      "defaultMethod": "Default (PUT)",
+      "columns": {
+        "name": "Name",
+        "transport": "Transport",
+        "target": "Sends to",
+        "secret": "Secret",
+        "status": "Status"
+      },
+      "statuses": {
+        "Active": "Active",
+        "Disabled": "Disabled"
+      },
+      "transportHints": {
+        "http": "One request per document, retried on network errors, 408, 425, 429 and 5xx.",
+        "blob": "The payload is written as a file below the host's drop folder, never overwriting.",
+        "pull": "Deliveries wait in a feed until the receiver reads and acknowledges them."
+      },
+      "problems": {
+        "headers": "Write one header per line as Name: value.",
+        "number": "Timeouts, status codes and days are whole numbers."
+      },
+      "fields": {
+        "name": "Name",
+        "transport": "Transport",
+        "method": "Method",
+        "urlTemplate": "URL",
+        "timeoutSeconds": "Timeout (seconds)",
+        "successCodes": "Success codes",
+        "authType": "Authentication",
+        "headerName": "Header name",
+        "username": "User name",
+        "tokenUrl": "Token URL",
+        "clientId": "Client id",
+        "scope": "Scope",
+        "headers": "Extra headers",
+        "responseMapping": "Response mapping (external id)",
+        "updateMethod": "Update method",
+        "updateUrlTemplate": "Update URL",
+        "sendOriginal": "Send the original file as well (multipart: data and file)",
+        "path": "Folder",
+        "fileNameTemplate": "File name",
+        "retentionDays": "Keep entries (days)",
+        "secret": "Secret"
+      },
+      "hints": {
+        "urlTemplate": "Placeholders: {{meta.documentId}}, {{meta.version}}, {{meta.event}}, {{meta.typeKey}}, {{meta.deliveryId}} and {{output.<path>}} (a value of the rendered payload).",
+        "headers": "One per line, Name: value. Credentials go to the secret, not here.",
+        "responseMapping": "A JSONata expression over the receiver's answer whose value is kept as the document's external id.",
+        "updateUrlTemplate": "Used when a re-approved document is sent as an update (binding: on re-approval Update). Empty: the URL above.",
+        "fileNameTemplate": "With the same placeholders as the URL; the mapping version's file name wins.",
+        "pull": "Read with GET /api/v1/feeds/{id} and an API key with the deliveries:read scope; acknowledge with :ack.",
+        "secret": "Stored in the secret store; never shown again.",
+        "secretKeep": "A secret is set. Leave this empty to keep it; a new one replaces it and the old one is kept as the previous secret."
+      },
+      "auth": {
+        "none": "None",
+        "apiKeyHeader": "API key in a header",
+        "basic": "Basic (user name and password)",
+        "bearer": "Bearer token",
+        "oauth2ClientCredentials": "OAuth 2 client credentials",
+        "hmacSha256": "HMAC-SHA256 signature"
+      }
+    },
+    "mappings": {
+      "title": "Output mappings",
+      "description": "How a document becomes what a receiver imports: a JSONata expression over the document's values, built with the visual field map or written as code, and rendered by the server for the preview and for every delivery.",
+      "create": "New mapping",
+      "createTitle": "New output mapping",
+      "createDescription": "A mapping of your own starts as an empty visual field map in draft version 1.",
+      "copy": "Copy",
+      "copyTitle": "Copy {{name}}",
+      "copyDescription": "The template's expression and target schema become draft version 1 of your mapping.",
+      "created": "{{key}} created.",
+      "empty": "No output mappings yet",
+      "emptyDescription": "Copy an integration template below or start a new mapping.",
+      "notFound": "There is no output mapping {{key}}.",
+      "columns": {
+        "name": "Name",
+        "key": "Key",
+        "origin": "Origin",
+        "sourceType": "Document type",
+        "published": "Published",
+        "draft": "Draft",
+        "updated": "Updated",
+        "description": "Description",
+        "copiedAs": "Your copies"
+      },
+      "origins": {
+        "Copied": "Copied",
+        "Custom": "Own",
+        "Platform": "Template"
+      },
+      "fields": {
+        "key": "Key",
+        "keyHint": "Letters, digits, '.', '_' and '-', starting with a letter; not std.",
+        "name": "Name",
+        "sourceType": "Document type",
+        "sourceTypeHint": "The type whose documents the editor offers for the preview."
+      }
+    },
+    "templates": {
+      "title": "Integration templates",
+      "description": "Mappings the platform ships: std.event (the thin event) and generic-ap-json (header and rows by role). Copy one to change it.",
+      "empty": "No templates."
+    },
+    "editor": {
+      "noValues": "Choose a document to see its values.",
+      "filterFields": "Filter fields",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "rows_one": "{{count}} row",
+      "rows_other": "{{count}} rows",
+      "pickHint": "Click a field to put it into the row you are editing.",
+      "saved": "Draft v{{version}} saved.",
+      "publishBlocked": "The version cannot be published.",
+      "published": "Version {{version}} published.",
+      "version": "Version",
+      "versionOption": "v{{version}} ({{state}})",
+      "newVersion": "New version",
+      "save": "Save draft",
+      "changeNote": "Change note",
+      "publish": "Publish",
+      "saveFirst": "Save the draft first.",
+      "platformReadOnly": "A platform template is read-only; copy it to change it.",
+      "noRights": "Only an integration admin changes mappings.",
+      "publishedReadOnly": "A published version does not change; start a new version to edit.",
+      "sourceTitle": "Document values",
+      "sourceType": "Document type",
+      "sampleDocument": "Preview document",
+      "chooseDocument": "Choose a document",
+      "visual": "Visual map",
+      "code": "Code (JSONata)",
+      "schema": "Target schema",
+      "outOfSyncTitle": "The code was edited by hand",
+      "outOfSync": "The expression no longer is what the visual map compiles to, so the map is not shown. Keep working in code, or replace the code with the map (the hand edits are lost).",
+      "rebuild": "Replace the code with the visual map",
+      "noMapTitle": "Written in code",
+      "noMap": "This expression was not built with the visual map.",
+      "startMap": "Start a visual map",
+      "startMapTitle": "Replace the expression with a visual map?",
+      "startMapDescription": "The expression of this draft is replaced by an empty visual field map. Save only if that is what you want.",
+      "codeFromMap": "Compiled from the visual map. Editing the code here detaches it from the map.",
+      "codeHint": "JSONata over the document's values: doc, roles, supplier, entity, source, meta, links. $table, $fmtDate, $fmtNum, $today, $field and $required are available.",
+      "schemaInvalid": "The target schema is not a JSON object.",
+      "schemaHint": "Optional JSON Schema of the receiver's format: every preview and every delivery is checked against it."
+    },
+    "preview": {
+      "title": "Preview",
+      "refresh": "Render again",
+      "chooseDocument": "Choose a document to render the mapping over.",
+      "failed": "The preview failed",
+      "rendering": "Rendering…",
+      "undefined": "Renders nothing",
+      "ok": "Renders",
+      "renderError": "Render error",
+      "schemaErrors_one": "{{count}} schema error",
+      "schemaErrors_other": "{{count}} schema errors",
+      "elapsed": "{{ms}} ms",
+      "list_one": "{{path}}: {{count}} item",
+      "list_other": "{{path}}: {{count}} items",
+      "nestedList_one": "{{path}}: {{count}} item in {{rows}} rows",
+      "nestedList_other": "{{path}}: {{count}} items in {{rows}} rows",
+      "position": "at character {{position}}",
+      "errorKinds": {
+        "syntax": "Syntax error",
+        "runtime": "Error while rendering",
+        "required": "A required value is missing",
+        "function": "A function was used wrongly",
+        "schema": "The target schema is not valid",
+        "timeLimit": "The render took too long",
+        "sizeLimit": "The output is too large",
+        "depthLimit": "The expression nests too deeply",
+        "unavailable": "The renderer is not available"
+      },
+      "columns": {
+        "path": "Path",
+        "keyword": "Rule",
+        "message": "Message"
+      },
+      "cut": "The output is longer than the preview shows."
+    },
+    "fieldMap": {
+      "kind": "Kind",
+      "target": "Target field",
+      "source": "Source",
+      "addField": "Add field",
+      "addList": "Add list",
+      "addFieldInList": "Add field in the list",
+      "addListInList": "Add list in the list",
+      "kinds": {
+        "value": "Field",
+        "constant": "Constant",
+        "expression": "Expression",
+        "list": "List"
+      },
+      "targetScalar": "(empty: a list of plain values)",
+      "targetPlaceholder": "header.vendorNo",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove",
+      "problems": {
+        "targetMissing": "Give the target field.",
+        "targetDuplicate": "Another row writes this target.",
+        "targetConflict": "A target is both a value and an object (a.b next to a).",
+        "sourceMissing": "Give the source field.",
+        "sourceInvalid": "The source is not a field path.",
+        "expressionMissing": "Write the expression.",
+        "numberInvalid": "Not a number (write 1.5, not 1,5).",
+        "lookupMissing": "Choose the lookup table.",
+        "listEmpty": "A list needs at least one field.",
+        "formatInvalid": "The format's setting is missing or out of range."
+      },
+      "filter": "Only rows where",
+      "sourcePlaceholder": "roles.validFrom",
+      "expression": "Expression",
+      "literalType": "Value type",
+      "literalTypes": {
+        "text": "Text",
+        "number": "Number",
+        "boolean": "Yes/no",
+        "null": "null"
+      },
+      "value": "Value",
+      "summary": {
+        "fallback": "or {{path}}",
+        "lookup": "lookup {{table}} (else {{value}})",
+        "date": "date {{pattern}}",
+        "number": "{{decimals}} decimals",
+        "truncate": "first {{length}} characters",
+        "whenEmpty": "when empty {{value}}",
+        "required": "required"
+      },
+      "options": "Options",
+      "fallback": "When empty, use field",
+      "lookup": "Lookup table",
+      "noLookup": "None",
+      "lookupDefault": "Else",
+      "format": "Format",
+      "formats": {
+        "none": "As it is",
+        "date": "Date",
+        "number": "Number",
+        "truncate": "Shorten text"
+      },
+      "pattern": "Pattern",
+      "decimals": "Decimals",
+      "length": "Characters",
+      "whenEmpty": "When empty, write",
+      "nothing": "Nothing",
+      "constant": "A constant",
+      "required": "Required: message when missing",
+      "requiredPlaceholder": "Supplier has no ERP vendor id"
+    },
+    "bindings": {
+      "title": "Bindings",
+      "description": "Which documents go where: a binding sends the documents of a type (or of a supplier or channel) through an output mapping to a destination when they are approved or rejected. Price lists can go to the article import while invoices keep going to the AP import.",
+      "create": "New binding",
+      "createTitle": "New binding",
+      "editTitle": "Edit {{name}}",
+      "formDescription": "Every matching binding fires; within an exclusive group only the most specific one does.",
+      "empty": "No bindings yet",
+      "emptyDescription": "Bind an output mapping to a destination to start delivering.",
+      "deleted": "Binding deleted.",
+      "created": "{{name}} created.",
+      "updated": "{{name}} saved.",
+      "toggle": "Enabled: {{name}}",
+      "deleteLabel": "Delete {{name}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "A binding with deliveries cannot be deleted; disable it instead.",
+      "unpublished": "not published",
+      "chooseMapping": "Choose a mapping",
+      "chooseDestination": "Choose a destination",
+      "followPublished": "Published",
+      "columns": {
+        "name": "Name",
+        "type": "Document type",
+        "events": "On",
+        "mapping": "Mapping",
+        "destination": "Destination",
+        "condition": "Condition",
+        "onReapproval": "On re-approval",
+        "enabled": "Enabled"
+      },
+      "reapproval": {
+        "Resend": "Send again",
+        "Skip": "Skip",
+        "Update": "Send as update"
+      },
+      "fields": {
+        "name": "Name",
+        "events": "Send when the document is",
+        "type": "Document type",
+        "supplier": "Supplier",
+        "channel": "Channel",
+        "mapping": "Output mapping",
+        "version": "Version",
+        "destination": "Destination",
+        "condition": "Condition (JSONata)",
+        "onReapproval": "On re-approval",
+        "exclusiveGroup": "Exclusive group",
+        "priority": "Priority",
+        "updateMapping": "Update mapping",
+        "enabled": "Enabled"
+      },
+      "hints": {
+        "condition": "Optional. When it is not true the delivery is listed as Skipped, \"not applicable\"."
+      }
+    },
+    "lookups": {
+      "title": "Lookup tables",
+      "description": "Code tables a mapping reads with $table(\"key\", value, default), such as your ERP's units. An entry can be valid from or until a day. Platform code lists are read-only.",
+      "create": "New table",
+      "createTitle": "New lookup table",
+      "createDescription": "A table of your own; its entries map a value to the receiver's code.",
+      "created": "{{key}} created.",
+      "empty": "No lookup tables.",
+      "platform": "Platform",
+      "tenant": "Yours",
+      "saved_one": "{{count}} entry saved.",
+      "saved_other": "{{count}} entries saved.",
+      "invalidRow": "Row {{row}}: give the value, and dates as yyyy-MM-dd.",
+      "entriesDescription": "Each entry maps a value to the receiver's code.",
+      "removeRow": "Remove row",
+      "addRow": "Add entry",
+      "columns": {
+        "key": "Key",
+        "description": "Description",
+        "owner": "Owner",
+        "entries": "Entries",
+        "updated": "Updated",
+        "from": "Value",
+        "to": "Code",
+        "validFrom": "Valid from",
+        "validTo": "Valid until"
+      },
+      "fields": {
+        "key": "Key",
+        "description": "Description",
+        "caseSensitive": "Case-sensitive"
+      }
+    },
+    "deliveries": {
+      "title": "Deliveries",
+      "description": "Every delivery of every document: retries wait for their next attempt, a dead letter (a permanent failure, or 15 attempts) waits for a redelivery.",
+      "empty": "No deliveries",
+      "emptyDescription": "Deliveries appear here when a document matching a binding is approved or rejected.",
+      "allStatuses": "All statuses",
+      "allDestinations": "All destinations",
+      "statuses": {
+        "Pending": "Pending",
+        "Sending": "Sending",
+        "Delivered": "Delivered",
+        "Failed": "Retry pending",
+        "DeadLettered": "Dead letter",
+        "Skipped": "Skipped",
+        "Cancelled": "Cancelled"
+      },
+      "columns": {
+        "created": "Created",
+        "document": "Document",
+        "destination": "Destination",
+        "binding": "Binding",
+        "event": "Event",
+        "revision": "Revision",
+        "status": "Status",
+        "attempts": "Attempts",
+        "lastStatus": "Last answer",
+        "note": "Note"
+      },
+      "nextAttempt": "Next attempt {{when}}",
+      "deliveredAt": "Delivered {{when}}",
+      "redelivered": "Redelivery {{key}} queued.",
+      "idempotencyKey": "Idempotency key",
+      "feedSequence": "Feed sequence",
+      "redeliveryOf": "Redelivery of",
+      "externalId": "External id",
+      "lastError": "Last error",
+      "noAttempts": "No attempt yet.",
+      "attemptColumns": {
+        "at": "At",
+        "status": "Status",
+        "class": "Result",
+        "duration": "Duration",
+        "response": "Answer (first 4 KB)"
+      },
+      "errorClasses": {
+        "delivered": "Delivered",
+        "retryable": "Will be retried",
+        "permanent": "Permanent failure",
+        "published": "In the feed"
+      },
+      "showPayload": "Show payload",
+      "hidePayload": "Hide payload",
+      "redeliverSnapshot": "Redeliver",
+      "redeliverRerender": "Render again and redeliver"
     }
   }
 }

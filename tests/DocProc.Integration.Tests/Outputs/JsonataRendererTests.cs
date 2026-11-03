@@ -58,6 +58,17 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     }
 
     [Fact]
+    public async Task A_block_comment_is_ignored_so_the_visual_field_map_can_travel_in_the_expression()
+    {
+        // The Integrations UI stores the visual field map as a leading comment of the expression it compiles to (docs/11 §13.1).
+        var result = await RenderAsync("/* docproc:fieldmap {\"v\":1,\"rows\":[{\"k\":\"a*\\/b\"}]} */\n(\n  $root := $;\n  { /* inner */ \"no\": roles.documentNumber }\n)", """{"roles":{"documentNumber":"GS-1"}}""");
+
+        result.Error.ShouldBeNull();
+        result.Output!.ToJsonString().ShouldBe("""{"no":"GS-1"}""");
+        result.ReferencedPaths.ShouldBe(["roles", "roles.documentNumber"]);
+    }
+
+    [Fact]
     public async Task An_expression_that_yields_nothing_is_undefined()
     {
         var result = await RenderAsync("missing.path");

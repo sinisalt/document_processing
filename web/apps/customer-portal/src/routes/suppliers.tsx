@@ -34,6 +34,7 @@ import {
 } from "@docproc/ui";
 import { ApiError, DataTable, EmptyState, PageHeader, Policies, StatusBadge, createDataTableColumnHelper, formatDate, formatMoney, queryKeys, relativeTime, unwrap, useApi, useAuth, type DocumentStatus } from "@docproc/app-shell";
 import { EMPTY_ARRAY, useSuppliers, type Supplier } from "@/lib/queries";
+import { attributesText, parseAttributes, type Attributes } from "@/lib/supplierAttributes";
 
 export const Route = createFileRoute("/suppliers")({ component: SuppliersPage });
 
@@ -52,6 +53,7 @@ const supplierSchema = z.object({
   emailDomains: z.string(),
   aliases: z.string(),
   alwaysReview: z.boolean(),
+  attributes: z.string(),
 });
 type SupplierForm = z.infer<typeof supplierSchema>;
 
@@ -70,7 +72,13 @@ function toForm(supplier: Supplier | null): SupplierForm {
     emailDomains: supplier?.emailDomains.join("\n") ?? "",
     aliases: supplier?.aliases.join("\n") ?? "",
     alwaysReview: supplier?.alwaysReview ?? false,
+    attributes: attributesText(storedAttributes(supplier)),
   };
+}
+
+/** The attributes the API returned (typed loosely by the generated schema). */
+function storedAttributes(supplier: Supplier | null): Attributes | null {
+  return (supplier?.attributes as Attributes | undefined) ?? null;
 }
 
 /** Suppliers belong to a tenant: a platform account (no X-Tenant-Id) would only get 400 "Tenant required". */
@@ -205,7 +213,13 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
 
   const save = useMutation({
     mutationFn: async (values: SupplierForm) => {
+      const parsed = parseAttributes(values.attributes, storedAttributes(supplier));
+      if ("invalidLine" in parsed) {
+        form.setError("attributes", { type: "client", message: t("suppliers.fields.attributesInvalid", { line: parsed.invalidLine }) });
+        throw new Error(t("suppliers.fields.attributesInvalid", { line: parsed.invalidLine }));
+      }
       const body = {
+        attributes: parsed.attributes as never,
         name: values.name,
         vatId: values.vatId || null,
         taxId: values.taxId || null,
@@ -327,6 +341,20 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
                     )}
                   />
                 ))}
+                <FormField
+                  control={form.control}
+                  name="attributes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("suppliers.fields.attributes")}</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} readOnly={readOnly} rows={3} className="font-mono text-xs" spellCheck={false} placeholder="erpVendorId = V-10042" data-testid="supplier-attributes" />
+                      </FormControl>
+                      <FormDescription>{t("suppliers.fields.attributesHint")}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="alwaysReview"

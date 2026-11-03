@@ -28,6 +28,7 @@ import {
   type HighlightReason,
   type MappedSources,
 } from "@docproc/review";
+import { DeliveriesTab } from "./DeliveriesTab";
 import { FlagsList, sortFlags } from "./FlagsList";
 import { MapDocumentPanel } from "./MapDocumentPanel";
 import { OriginalTab } from "./OriginalTab";
@@ -67,10 +68,12 @@ export interface ReviewScreenProps {
   locale: string;
   /** A tenant admin (the supplier master data of "create supplier from this document"). */
   canManageSuppliers?: boolean;
+  /** An integration admin (redelivery in the Deliveries tab). */
+  canRedeliver?: boolean;
 }
 
 /** Remounted (by key) whenever the server's version of the document changes, so the form always starts from it. */
-export function ReviewScreen({ document, canReview, threshold, locale, canManageSuppliers = false }: ReviewScreenProps) {
+export function ReviewScreen({ document, canReview, threshold, locale, canManageSuppliers = false, canRedeliver = false }: ReviewScreenProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { client } = useApi();
@@ -155,6 +158,8 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
   const table = useTableTool(document, formSpec, groupPath, groupPath !== null && pageCount > 0);
   // The Table tab: the tool while the document can be corrected, and the stored report (page strip) afterwards.
   const showTableTab = tableAvailable || (groupPath !== null && table.report !== null);
+  // The Deliveries tab (docs/11 §19) for a tenant with the outputs switch (principle 6); others see the screen as before.
+  const showDeliveriesTab = document.outputs === true;
 
   /** Hover and focus in the form highlight the field's box; focus also turns to its page, so the box is in sight. */
   const highlightField = useCallback(
@@ -499,7 +504,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={stacked ? "60%" : pageCount > 0 ? "55%" : "70%"} minSize="30%">
-              <Tabs value={showTableTab ? tab : tab === "table" ? "fields" : tab} onValueChange={setTab} className="flex h-full flex-col">
+              <Tabs value={(!showTableTab && tab === "table") || (!showDeliveriesTab && tab === "deliveries") ? "fields" : tab} onValueChange={setTab} className="flex h-full flex-col">
                 <TabsList className="m-2 w-fit">
                   <TabsTrigger value="fields">{t("review.tabs.fields")}</TabsTrigger>
                   {showTableTab && (
@@ -508,6 +513,11 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                     </TabsTrigger>
                   )}
                   <TabsTrigger value="timeline">{t("review.tabs.timeline")}</TabsTrigger>
+                  {showDeliveriesTab && (
+                    <TabsTrigger value="deliveries" data-testid="deliveries-tab-trigger">
+                      {t("review.tabs.deliveries")}
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="original">{t("review.tabs.original")}</TabsTrigger>
                 </TabsList>
                 {/* A plain scroller: Radix ScrollArea sizes its content as a table, so the form grew to its max-content width. */}
@@ -592,6 +602,11 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                   <TabsContent value="timeline" className="p-4">
                     <Timeline documentId={document.id} enabled={tab === "timeline"} />
                   </TabsContent>
+                  {showDeliveriesTab && (
+                    <TabsContent value="deliveries" className="p-4">
+                      <DeliveriesTab documentId={document.id} enabled={tab === "deliveries"} canRedeliver={canRedeliver} />
+                    </TabsContent>
+                  )}
                   <TabsContent value="original" className="p-4">
                     <OriginalTab document={document} />
                   </TabsContent>
