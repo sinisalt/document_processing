@@ -381,7 +381,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated.",
+        "summary": "Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters, plus field.<key>=value for the indexed fields of the document types (docs/11 §18); cursor-paginated.",
         "operationId": "ListDocuments",
         "parameters": [
           {
@@ -847,7 +847,7 @@
         "tags": [
           "Review"
         ],
-        "summary": "The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary.",
+        "summary": "The review queue, urgent then high then normal priority, oldest first within each (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary.",
         "operationId": "ListReviewTasks",
         "parameters": [
           {
@@ -3308,6 +3308,46 @@
           }
         }
       },
+      "DocumentDefinitionRef": {
+        "required": [
+          "key",
+          "version",
+          "versionId",
+          "name",
+          "formSpec"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "versionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "formSpec": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "The type version a document is shown with (docs/11 §18 `DocumentDetail.definition`): its key, version and\ncatalogue row, the display name by locale and the compiled form spec the review form renders (docs/11 §5.5, artifact\n3). Sent for definition-driven documents and for every document of a tenant with `configurableTypes` on."
+      },
       "DocumentDetail": {
         "required": [
           "id",
@@ -3336,7 +3376,13 @@
           "flags",
           "costs",
           "ingestion",
-          "pageImageUrls"
+          "pageImageUrls",
+          "validFrom",
+          "validUntil",
+          "lineCount",
+          "typeName",
+          "typeVersion",
+          "definition"
         ],
         "type": "object",
         "properties": {
@@ -3514,9 +3560,57 @@
             "items": {
               "type": "string"
             }
+          },
+          "validFrom": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "validUntil": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "lineCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "typeName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "typeVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "definition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentDefinitionRef"
+              }
+            ]
           }
         },
-        "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is."
+        "description": "The review screen's payload (docs/05 \"canonical data + flags + provenance\"): every summary column plus the\ncanonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until\nextraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are\nAPI-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name\nthe owning tenant like the summary's, so a platform-scope detail page can say whose document it is.\n`CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first\nlocale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one."
       },
       "DocumentEventDto": {
         "required": [
@@ -3717,7 +3811,12 @@
           "warningFlagCount",
           "createdAt",
           "updatedAt",
-          "approvedAt"
+          "approvedAt",
+          "validFrom",
+          "validUntil",
+          "lineCount",
+          "reviewPriority",
+          "reviewDueAt"
         ],
         "type": "object",
         "properties": {
@@ -3839,9 +3938,49 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "validFrom": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "validUntil": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "lineCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reviewPriority": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewPriority"
+              }
+            ]
+          },
+          "reviewDueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         },
-        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is."
+        "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and\n`LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a\ntotal); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one."
       },
       "DocumentTemplateSummary": {
         "required": [
@@ -4246,7 +4385,7 @@
             ]
           }
         },
-        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it. `op` is the correction operation; only `set` (the default) exists so far, the others of\ndocs/11 §6.2 (`append`, `remove`, `move`, …) are refused until their phase. `source`\noptionally says where on the page or in the file the reviewer took the value from; it is stored with the field's\nprovenance and on the Correction row."
+        "description": "One human correction (docs/05 \"PATCH /documents/{id}/fields\"). string FieldCorrection.Path is a canonical field path as\n`Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a\nproperty inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON\nshape of the field (a number for an amount with the document currency, a string for an identifier) or null to\nclear it. `op` is the correction operation: `set` (the default); for a definition-driven document\n(`canonicalSchemaVersion` 2) also `append` (a row of a repeating group, with an optional object of row\nvalues, or a list entry) and `remove` (a row, a list entry or a bag key); the others of docs/11 §6.2\n(`move`, `setType`, `split`, `join`) are refused until their phase. `source`\noptionally says where on the page or in the file the reviewer took the value from; it is stored with the field's\nprovenance and on the Correction row."
       },
       "FlagOrigin": {
         "enum": [
@@ -5358,9 +5497,23 @@
               "null",
               "string"
             ]
+          },
+          "configMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
-        "description": "Which stage to rerun; the document is reset to the state before it (docs/03 \"any stage can be re-run\")."
+        "description": "Which stage to rerun; the document is reset to the state before it (docs/03 \"any stage can be re-run\").\n`configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;\n`current` drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork\nwith a custom field published after the document arrived)."
+      },
+      "ReviewPriority": {
+        "enum": [
+          "Normal",
+          "High",
+          "Urgent",
+          null
+        ]
       },
       "ReviewTaskDto": {
         "required": [
@@ -5374,7 +5527,8 @@
           "createdAt",
           "slaDueAt",
           "completedAt",
-          "document"
+          "document",
+          "priority"
         ],
         "type": "object",
         "properties": {
@@ -5435,6 +5589,9 @@
                 "$ref": "#/components/schemas/DocumentSummary"
               }
             ]
+          },
+          "priority": {
+            "$ref": "#/components/schemas/ReviewPriority"
           }
         },
         "description": "A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary)."

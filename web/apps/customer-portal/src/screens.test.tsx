@@ -188,3 +188,54 @@ describe("list errors", () => {
     expect(screen.getByLabelText("Issued to")).toHaveAttribute("aria-invalid", "true");
   });
 });
+
+describe("inbox columns of definition-driven types", () => {
+  const row = (overrides: Record<string, unknown>) => ({
+    id: "d0000000-0000-0000-0000-000000000001",
+    tenantId: "tenant-b",
+    tenantName: null,
+    status: "NeedsReview",
+    type: "Invoice",
+    typeConfidence: null,
+    supplierId: null,
+    supplierName: "Nordwind Großhandel GmbH",
+    documentNumber: "RE-1",
+    issueDate: null,
+    currency: "EUR",
+    totalGross: 119,
+    extractionMethod: null,
+    pageCount: 1,
+    blockingFlagCount: 0,
+    warningFlagCount: 0,
+    createdAt: "2026-11-01T08:00:00Z",
+    updatedAt: "2026-11-01T08:00:00Z",
+    approvedAt: null,
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    reviewPriority: null,
+    reviewDueAt: null,
+    ...overrides,
+  });
+
+  it("shows a price list's validity and row count instead of a total, and an urgent review", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    search.current = { tab: "all" };
+    const items = [
+      row({ id: "d1", documentNumber: "PL-2026-11", type: "price-list", totalGross: null, validFrom: "2026-11-01", validUntil: "2026-11-30", lineCount: 412, reviewPriority: "Urgent" }),
+      row({ id: "d2", documentNumber: "RE-2026-0042", reviewPriority: "Normal" }),
+    ];
+    client.GET.mockImplementation((async (path: string) =>
+      ({ data: { items: path === "/api/v1/documents" ? items : [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200 }) })) as never);
+    try {
+      await renderRoute(inboxRoute);
+      expect((await screen.findAllByText(/412 rows/)).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Nov 1, 2026 – Nov 30, 2026/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Urgent").length).toBe(1);
+      expect(screen.getAllByText("€119.00").length).toBeGreaterThan(0);
+    } finally {
+      client.GET.mockReset();
+      client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
+    }
+  });
+});

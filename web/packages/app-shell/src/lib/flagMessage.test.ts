@@ -24,6 +24,13 @@ beforeAll(() => {
 });
 
 describe("flagMessage", () => {
+  it("phrases the definition flags of docs/11 §11 and keeps a rule's own message", () => {
+    const required: FlagText = { code: "FIELD_REQUIRED", message: "Required field 'validFrom' has no value.", field: "validFrom", params: { field: "validFrom" } };
+    expect(flagMessage(required, { language: "de", fieldLabel: (path) => (path === "validFrom" ? "Gültig ab" : path) })).toBe("Das Pflichtfeld Gültig ab hat keinen Wert.");
+    const rule: FlagText = { code: "RULE_FAILED", message: "Prices must be positive.", field: "lines[0].price.amount", params: { reason: "range", ruleId: "r_price_pos", field: "lines[0].price.amount" } };
+    expect(flagMessage(rule, { language: "de" })).toBe("Prices must be positive.");
+  });
+
   it("phrases a flag from its code and parameters, in the UI language", () => {
     expect(plain(flagMessage(lowConfidence, { language: "en", fieldLabel: (path) => labels[path] ?? path }))).toBe(
       "Due date was read with 50% confidence, below the threshold of 80%.",
@@ -121,6 +128,12 @@ describe("the flag message catalogue", () => {
       "INVALID_VALUE.currencyCode",
       "INVALID_VALUE.currencyMismatch",
       "UNSUPPORTED_TYPE.default",
+      "UNSUPPORTED_TYPE.definition",
+      "DATE_IMPLAUSIBLE.pathFuture",
+      "DATE_IMPLAUSIBLE.pathTooOld",
+      "FIELD_REQUIRED.default",
+      "FIELD_INVALID.default",
+      "REVISION_OF.default",
     ];
     expect(variants.filter((key) => !enMessages.has(key))).toEqual([]);
   });

@@ -60,6 +60,12 @@ function detail(flags: DocumentFlag[]): DocumentDetail {
     costs: { llmInputTokens: 0, llmOutputTokens: 0, llmCacheReadTokens: 0, ocrPages: 0, estimatedUsd: null, llmProvider: null, llmModel: null, keyOwner: null },
     ingestion: null,
     pageImageUrls: [],
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    typeName: null,
+    typeVersion: null,
+    definition: null,
   } as DocumentDetail;
 }
 

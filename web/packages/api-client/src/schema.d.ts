@@ -204,7 +204,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated. */
+        /** Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters, plus field.<key>=value for the indexed fields of the document types (docs/11 §18); cursor-paginated. */
         get: operations["ListDocuments"];
         put?: never;
         post?: never;
@@ -635,7 +635,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary. */
+        /** The review queue, urgent then high then normal priority, oldest first within each (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary. */
         get: operations["ListReviewTasks"];
         put?: never;
         post?: never;
@@ -1000,11 +1000,29 @@ export interface components {
             ocrPages: number | string;
         };
         /**
+         * @description The type version a document is shown with (docs/11 §18 `DocumentDetail.definition`): its key, version and
+         *     catalogue row, the display name by locale and the compiled form spec the review form renders (docs/11 §5.5, artifact
+         *     3). Sent for definition-driven documents and for every document of a tenant with `configurableTypes` on.
+         */
+        DocumentDefinitionRef: {
+            formSpec: components["schemas"]["JsonElement"];
+            key: string;
+            name: {
+                [key: string]: string;
+            };
+            /** Format: int32 */
+            version: number | string;
+            /** Format: uuid */
+            versionId: null | string;
+        };
+        /**
          * @description The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
          *     canonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
          *     extraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are
          *     API-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name
          *     the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
+         *     `CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first
+         *     locale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.
          */
         DocumentDetail: {
             /** Format: date-time */
@@ -1019,6 +1037,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             currency: null | string;
+            definition: null | components["schemas"]["DocumentDefinitionRef"];
             documentNumber: null | string;
             extractionMethod: null | components["schemas"]["ExtractionMethod"];
             failureReason: null | string;
@@ -1028,6 +1047,8 @@ export interface components {
             ingestion: null | components["schemas"]["DocumentIngestionRef"];
             /** Format: date */
             issueDate: null | string;
+            /** Format: int32 */
+            lineCount: null | number | string;
             /** Format: int32 */
             pageCount: number | string;
             pageImageUrls: string[];
@@ -1043,8 +1064,15 @@ export interface components {
             type: components["schemas"]["DocumentTypeKey"];
             /** Format: double */
             typeConfidence: null | number | string;
+            typeName: null | string;
+            /** Format: int32 */
+            typeVersion: null | number | string;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validUntil: null | string;
             /** Format: int32 */
             warningFlagCount: number | string;
         };
@@ -1101,7 +1129,9 @@ export interface components {
         /**
          * @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
          *     `TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's
-         *     cross-tenant documents list and global review queue) can show whose row it is.
+         *     cross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and
+         *     `LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a
+         *     total); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.
          */
         DocumentSummary: {
             /** Format: date-time */
@@ -1118,7 +1148,12 @@ export interface components {
             /** Format: date */
             issueDate: null | string;
             /** Format: int32 */
+            lineCount: null | number | string;
+            /** Format: int32 */
             pageCount: number | string;
+            /** Format: date-time */
+            reviewDueAt: null | string;
+            reviewPriority: null | components["schemas"]["ReviewPriority"];
             status: components["schemas"]["DocumentStatus"];
             /** Format: uuid */
             supplierId: null | string;
@@ -1133,6 +1168,10 @@ export interface components {
             typeConfidence: null | number | string;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validUntil: null | string;
             /** Format: int32 */
             warningFlagCount: number | string;
         };
@@ -1226,8 +1265,10 @@ export interface components {
          *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
          *     property inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON
          *     shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-         *     clear it. `op` is the correction operation; only `set` (the default) exists so far, the others of
-         *     docs/11 §6.2 (`append`, `remove`, `move`, …) are refused until their phase. `source`
+         *     clear it. `op` is the correction operation: `set` (the default); for a definition-driven document
+         *     (`canonicalSchemaVersion` 2) also `append` (a row of a repeating group, with an optional object of row
+         *     values, or a list entry) and `remove` (a row, a list entry or a bag key); the others of docs/11 §6.2
+         *     (`move`, `setType`, `split`, `join`) are refused until their phase. `source`
          *     optionally says where on the page or in the file the reviewer took the value from; it is stored with the field's
          *     provenance and on the Correction row.
          */
@@ -1503,10 +1544,18 @@ export interface components {
         RejectDocumentRequest: {
             reason: string;
         };
-        /** @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run"). */
+        /**
+         * @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
+         *     `configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;
+         *     `current` drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork
+         *     with a custom field published after the document arrived).
+         */
         ReprocessDocumentRequest: {
+            configMode?: null | string;
             fromStage: null | string;
         };
+        /** @enum {unknown} */
+        ReviewPriority: "Normal" | "High" | "Urgent" | null;
         /** @description A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary). */
         ReviewTaskDto: {
             assignedTo: null | string;
@@ -1519,6 +1568,7 @@ export interface components {
             documentId: string;
             /** Format: uuid */
             id: string;
+            priority: components["schemas"]["ReviewPriority"];
             reason: string;
             /** Format: date-time */
             slaDueAt: null | string;
@@ -1658,6 +1708,7 @@ export type SchemaCreateTenantRequest = components['schemas']['CreateTenantReque
 export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
 export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
+export type SchemaDocumentDefinitionRef = components['schemas']['DocumentDefinitionRef'];
 export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
 export type SchemaDocumentEventDto = components['schemas']['DocumentEventDto'];
 export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
@@ -1706,6 +1757,7 @@ export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
+export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];

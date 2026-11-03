@@ -597,7 +597,11 @@
     "PO_UNMATCHED": "Bestellung nicht zugeordnet",
     "DATE_IMPLAUSIBLE": "Unplausibles Datum",
     "INVALID_VALUE": "Ungültiger Wert",
-    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt"
+    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt",
+    "FIELD_REQUIRED": "Pflichtfeld fehlt",
+    "FIELD_INVALID": "Ungültiger Wert",
+    "RULE_FAILED": "Regel verletzt",
+    "REVISION_OF": "Neufassung eines früheren Dokuments"
   },
   "failure": {
     "EncryptedPdf": "Passwortgeschützte PDF",

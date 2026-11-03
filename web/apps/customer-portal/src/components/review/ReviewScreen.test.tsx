@@ -92,6 +92,12 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     failureReason: null,
     ingestion: null,
     typeConfidence: 1,
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    typeName: null,
+    typeVersion: null,
+    definition: null,
     ...patch,
   };
 }

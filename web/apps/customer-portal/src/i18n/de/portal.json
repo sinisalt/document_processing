@@ -55,7 +55,11 @@
     "PO_UNMATCHED": "Bestellung nicht zugeordnet",
     "DATE_IMPLAUSIBLE": "Unplausibles Datum",
     "INVALID_VALUE": "Ungültiger Wert",
-    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt"
+    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt",
+    "FIELD_REQUIRED": "Pflichtfeld fehlt",
+    "FIELD_INVALID": "Ungültiger Wert",
+    "RULE_FAILED": "Regel verletzt",
+    "REVISION_OF": "Neufassung eines früheren Dokuments"
   },
   "stages": {
     "Normalize": "Normalisieren",
@@ -223,7 +227,14 @@
     "blockingFlags_one": "{{count}} blockierender Hinweis",
     "blockingFlags_other": "{{count}} blockierende Hinweise",
     "warningFlags_one": "{{count}} Warnung",
-    "warningFlags_other": "{{count}} Warnungen"
+    "warningFlags_other": "{{count}} Warnungen",
+    "validity": "{{from}} – {{until}}",
+    "rows_one": "{{count}} Zeile",
+    "rows_other": "{{count}} Zeilen",
+    "priority": {
+      "High": "Hoch",
+      "Urgent": "Dringend"
+    }
   },
   "upload": {
     "button": "Hochladen",

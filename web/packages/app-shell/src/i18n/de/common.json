@@ -222,14 +222,26 @@
       "future": "Das Rechnungsdatum {{issueDate}} liegt in der Zukunft.",
       "tooOld": "Das Rechnungsdatum {{issueDate}} ist mehr als {{maxAgeDays}} Tage alt.",
       "dueBeforeIssue": "Das Fälligkeitsdatum {{dueDate}} liegt vor dem Rechnungsdatum {{issueDate}}.",
-      "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt."
+      "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt.",
+      "pathFuture": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxFutureDays}} Tage in der Zukunft.",
+      "pathTooOld": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxAgeDays}} Tage zurück."
     },
     "INVALID_VALUE": {
       "currencyCode": "„{{currency}}“ ist kein gültiger ISO-4217-Währungscode.",
       "currencyMismatch": "{{field}} ist in {{currency}}, die Dokumentwährung ist aber {{documentCurrency}}."
     },
     "UNSUPPORTED_TYPE": {
-      "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen."
+      "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen.",
+      "definition": "Für die Dokumentart {{type}} gibt es noch keine automatische Erfassung; bitte die Felder hier ausfüllen."
+    },
+    "FIELD_REQUIRED": {
+      "default": "Das Pflichtfeld {{field}} hat keinen Wert."
+    },
+    "FIELD_INVALID": {
+      "default": "Der Wert von {{field}} passt nicht zur Felddefinition ({{keyword}})."
+    },
+    "REVISION_OF": {
+      "default": "Ein früheres Dokument mit demselben Schlüssel existiert ({{status}}); dieses ersetzt es womöglich."
     }
   },
   "apiErrors": {

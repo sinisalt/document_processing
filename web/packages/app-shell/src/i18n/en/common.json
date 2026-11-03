@@ -222,14 +222,26 @@
       "future": "The issue date {{issueDate}} is in the future.",
       "tooOld": "The issue date {{issueDate}} is more than {{maxAgeDays}} days old.",
       "dueBeforeIssue": "The due date {{dueDate}} is before the issue date {{issueDate}}.",
-      "servicePeriodInverted": "The service period ends before it starts."
+      "servicePeriodInverted": "The service period ends before it starts.",
+      "pathFuture": "The date {{field}} ({{date}}) is more than {{maxFutureDays}} days in the future.",
+      "pathTooOld": "The date {{field}} ({{date}}) is more than {{maxAgeDays}} days in the past."
     },
     "INVALID_VALUE": {
       "currencyCode": "“{{currency}}” is not a valid ISO 4217 currency code.",
       "currencyMismatch": "{{field}} is in {{currency}}, but the document currency is {{documentCurrency}}."
     },
     "UNSUPPORTED_TYPE": {
-      "default": "There is no extraction for the document type {{type}} yet; enter the data by hand."
+      "default": "There is no extraction for the document type {{type}} yet; enter the data by hand.",
+      "definition": "The document type {{type}} has no automatic extraction yet; fill in its fields here."
+    },
+    "FIELD_REQUIRED": {
+      "default": "The required field {{field}} has no value."
+    },
+    "FIELD_INVALID": {
+      "default": "The value of {{field}} does not fit its field definition ({{keyword}})."
+    },
+    "REVISION_OF": {
+      "default": "An earlier document with the same key exists ({{status}}); this one may replace it."
     }
   },
   "apiErrors": {

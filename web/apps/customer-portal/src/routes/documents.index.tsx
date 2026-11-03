@@ -103,8 +103,13 @@ function InboxPage() {
           meta: { align: "end" },
           cell: ({ row }) => (
             <div className="flex flex-col items-end gap-1">
-              <StatusBadge status={row.original.status} />
-              <span className="text-xs tabular-nums">{formatMoney(row.original.totalGross, row.original.currency, i18n.language)}</span>
+              <span className="flex items-center gap-1">
+                <PriorityBadge priority={row.original.reviewPriority} />
+                <StatusBadge status={row.original.status} />
+              </span>
+              <span className="text-xs tabular-nums">
+                <TotalOrValidity document={row.original} />
+              </span>
             </div>
           ),
         }),
@@ -124,10 +129,22 @@ function InboxPage() {
         helper.accessor("issueDate", { header: t("inbox.columns.issueDate"), cell: (info) => formatDate(info.getValue(), i18n.language), sortFn: "datetime" }),
         helper.accessor("totalGross", {
           header: t("inbox.columns.total"),
-          cell: (info) => <span className="tabular-nums">{formatMoney(info.getValue(), info.row.original.currency, i18n.language)}</span>,
+          cell: (info) => (
+            <span className="tabular-nums">
+              <TotalOrValidity document={info.row.original} />
+            </span>
+          ),
           sortFn: "basic",
         }),
-        helper.accessor("status", { header: t("inbox.columns.status"), cell: (info) => <StatusBadge status={info.getValue()} /> }),
+        helper.accessor("status", {
+          header: t("inbox.columns.status"),
+          cell: (info) => (
+            <span className="flex items-center gap-1">
+              <StatusBadge status={info.getValue()} />
+              <PriorityBadge priority={info.row.original.reviewPriority} />
+            </span>
+          ),
+        }),
         helper.display({
           id: "flags",
           header: t("inbox.columns.flags"),
@@ -320,4 +337,31 @@ function FlagCounts({ blocking, warning }: { blocking: number; warning: number }
       )}
     </span>
   );
+}
+
+type InboxRow = components["schemas"]["DocumentSummary"];
+
+/**
+ * The total, or for a document without one that has a validity period or a row count (a price list, docs/11 §6.2) the
+ * validity and the number of rows instead.
+ */
+function TotalOrValidity({ document }: { document: InboxRow }) {
+  const { t, i18n } = useTranslation();
+  const rows = document.lineCount === null || document.lineCount === undefined ? null : Number(document.lineCount);
+  if (document.totalGross !== null || (!document.validFrom && !document.validUntil && rows === null)) {
+    return <>{formatMoney(document.totalGross, document.currency, i18n.language)}</>;
+  }
+  const parts: string[] = [];
+  if (document.validFrom || document.validUntil) {
+    parts.push(t("inbox.validity", { from: formatDate(document.validFrom ?? null, i18n.language), until: formatDate(document.validUntil ?? null, i18n.language) }));
+  }
+  if (rows !== null) parts.push(t("inbox.rows", { count: rows }));
+  return <span title={parts.join(" · ")}>{parts.join(" · ")}</span>;
+}
+
+/** The open review task's priority when it is above normal (docs/11 §6.2 `ReviewTask.Priority`). */
+function PriorityBadge({ priority }: { priority: InboxRow["reviewPriority"] | undefined }) {
+  const { t } = useTranslation();
+  if (priority !== "High" && priority !== "Urgent") return null;
+  return <Badge variant={priority === "Urgent" ? "destructive" : "warning"}>{t(`inbox.priority.${priority}`)}</Badge>;
 }

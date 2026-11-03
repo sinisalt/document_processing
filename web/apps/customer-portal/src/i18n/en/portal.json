@@ -55,7 +55,11 @@
     "PO_UNMATCHED": "Order not matched",
     "DATE_IMPLAUSIBLE": "Implausible date",
     "INVALID_VALUE": "Invalid value",
-    "UNSUPPORTED_TYPE": "Unsupported document type"
+    "UNSUPPORTED_TYPE": "Unsupported document type",
+    "FIELD_REQUIRED": "Required field missing",
+    "FIELD_INVALID": "Invalid value",
+    "RULE_FAILED": "Rule failed",
+    "REVISION_OF": "Revision of an earlier document"
   },
   "stages": {
     "Normalize": "Normalize",
@@ -223,7 +227,14 @@
     "blockingFlags_one": "{{count}} blocking flag",
     "blockingFlags_other": "{{count}} blocking flags",
     "warningFlags_one": "{{count}} warning",
-    "warningFlags_other": "{{count}} warnings"
+    "warningFlags_other": "{{count}} warnings",
+    "validity": "{{from}} – {{until}}",
+    "rows_one": "{{count}} row",
+    "rows_other": "{{count}} rows",
+    "priority": {
+      "High": "High",
+      "Urgent": "Urgent"
+    }
   },
   "upload": {
     "button": "Upload",
