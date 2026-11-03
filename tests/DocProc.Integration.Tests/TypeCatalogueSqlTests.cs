@@ -62,7 +62,13 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         {
             var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(platform);
 
-            // P2's review columns first, on their own: the documents keep their rows, and row-level security stays on.
+            // P2's table reports first: the table goes and the policy of P1 is back.
+            await migrator.MigrateAsync("20261103102625_ReviewActions", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103102625_ReviewActions");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = N'DocumentTableReports'").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+
+            // P2's review columns next, on their own: the documents keep their rows, and row-level security stays on.
             await migrator.MigrateAsync("20261103001957_FieldIndexAndInboxColumns", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103001957_FieldIndexAndInboxColumns");
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(0);
@@ -70,6 +76,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
             await platform.Database.MigrateAsync(ct);
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Documents') AND name IN (N'SupplierMatchMethod', N'JoinedIntoDocumentId')").SingleAsync(ct)).ShouldBe(2);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentTableReports')").SingleAsync(ct)).ShouldBe(3);
 
             await migrator.MigrateAsync("20261102231925_TypeCatalogue", ct);
             await migrator.MigrateAsync("20261102210935_TenantPolicyHistoryAndMoves", ct);
@@ -83,6 +90,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         (await asA.DocumentTypeDefinitions.CountAsync(d => d.TenantId == TenantA, ct)).ShouldBe(7);
         (await asA.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == TenantB, ct)).ShouldBe(0, "row-level security is back");
         (await asA.DocumentFieldIndex.CountAsync(ct)).ShouldBe(0);
+        (await asA.DocumentTableReports.CountAsync(ct)).ShouldBe(0);
     }
 
     [Fact]

@@ -228,7 +228,6 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
         statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV5 : RowLevelSecurity.PolicyV4)]);
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV5);
         var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV5);
         sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentFieldIndex]");
         sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentFieldIndex] AFTER UPDATE");
@@ -241,6 +240,35 @@ public sealed class RowLevelSecuritySqlTests
         {
             var operations = migration.DownOperations.ToList();
             operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation { Name: "DocumentFieldIndex" }));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_table_reports_migration_puts_the_reports_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.2: DocumentTableReports is a tenant table; TableReports re-creates the policy with it.
+        var migration = new TableReports();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV6 : RowLevelSecurity.PolicyV5)]);
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV6);
+        var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV6);
+        sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentTableReports]");
+        sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentTableReports] AFTER UPDATE");
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV5).ShouldNotContain("DocumentTableReports");
+        RowLevelSecurity.PolicyV6.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV5.PlatformRowTables);
+        RowLevelSecurity.PolicyV6.StrictTables.Except(RowLevelSecurity.PolicyV5.StrictTables).ShouldBe([("DocumentTableReports", "TenantId")]);
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindLastIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindIndex(o => o is CreateTableOperation { Name: "DocumentTableReports" }), "the policy names the table once it exists");
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation { Name: "DocumentTableReports" }));
         }
     }
 

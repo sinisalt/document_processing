@@ -414,6 +414,25 @@ curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:create-supplier" -H
 curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:split" -H "$H" -H 'content-type: application/json' -d '{"parts":[{"pages":[1,2]},{"pages":[3],"typeKey":"Invoice"}]}' | jq .parts
 ```
 
+**Map mode and the table tool (docs/11 §12.3, §12.4, P2).** The server side of capturing values by pointing at
+the page; the review screen's UI for it is not built yet. Boxes are in page units (0 to 1000, top left origin):
+
+```bash
+# The words under a box, their text and its readings (a date, an amount, ...), in the tenant's locale.
+curl -s "http://localhost:5100/api/v1/documents/$DOC/pages/1/words?bbox=600,120,800,140" -H "$H" | jq '{text, candidates}'
+# Propose the columns of a table drawn around its header and first rows on page 1 (fields named from the headers).
+COLUMNS=$(curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC/regions:table" -H "$H" -H 'content-type: application/json' \
+  -d '{"page":1,"bBox":{"x0":40,"y0":95,"x1":995,"y1":300}}' | jq -c .columns)
+# Apply that mapping to every page and write the rows (without "write" it is a preview with the same report).
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC/regions:table" -H "$H" -H 'content-type: application/json' \
+  -d "$(jq -n --argjson cols "$COLUMNS" '{page:1,bBox:{x0:40,y0:95,x1:995,y1:940},headerRow:{y0:99,y1:111},columns:$cols,pages:"1-*",groupHeader:{target:"category"},write:true}')" \
+  | jq '.report | {rows, rejectedRows, pagesWithoutRows}'
+curl -s "http://localhost:5100/api/v1/documents/$DOC/table-reports" -H "$H" | jq '.[0].report.perPage[] | {page, rows, rejected}'
+```
+
+`regions:read` (region OCR) answers `501 OCR_NOT_CONFIGURED`: no OCR provider is registered in either host yet, so
+a scanned page without a text layer has no words (`source: none`).
+
 With `configurableTypes` on, `:approve` refuses an Unknown document, one whose type has no published
 definition, and one with no data (`409 Cannot approve` with `code`), and the review screen shows the reason
 under a disabled Approve button (`DocumentDetail.approvalBlocked`); a tenant without the switch approves as

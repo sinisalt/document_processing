@@ -25,6 +25,9 @@ namespace DocProc.Api.Documents;
 /// a field the tree does not hold yet is created (an added field, a bag key).</description></item>
 /// <item><description><c>append</c> adds a row to a repeating group (<c>lines</c>, with an optional object of row
 /// values) or an entry to a list.</description></item>
+/// <item><description><c>set</c> on a repeating group itself (<c>lines</c> with an array of row objects) replaces all
+/// its rows in one correction (docs/11 §12.4); <see cref="SetRows"/> does the same for the table tool, with each value's
+/// own place on the page.</description></item>
 /// <item><description><c>remove</c> removes a row (<c>lines[2]</c>), a list entry or a bag key.</description></item>
 /// <item><description><c>move</c> (docs/11 §12.3 "match fields") takes the value of the field <c>from</c> names and puts it
 /// into the field <c>path</c> names, converted to that field's kind and with the place it was read from; <c>from</c> is
@@ -165,9 +168,14 @@ public static partial class DefinitionPatcher
                 var rows = ArrayOf(node, segment.Name);
                 if (segment.Index is null)
                 {
+                    if (rest.Count == 0 && op == CorrectionOps.Set)
+                    {
+                        return SetGroup(context, node, path, field, definitionPath, correction);
+                    }
+
                     if (rest.Count > 0 || op != CorrectionOps.Append)
                     {
-                        throw new CanonicalPatchException(path, $"'{segment.Name}' is a repeating group; address a row as {segment.Name}[n], or append one with op 'append'.");
+                        throw new CanonicalPatchException(path, $"'{segment.Name}' is a repeating group; address a row as {segment.Name}[n], append one with op 'append', or replace all its rows with op 'set' and an array.");
                     }
 
                     return AppendRow(context, path, rows, field, definitionPath, correction);

@@ -73,7 +73,7 @@ document_processing/
 │   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, portable schema, and the LLM stage implementations (classifier, splitter, invoice extractor); references Application
 │   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter
 │   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
-│   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
+│   ├── DocProc.Mapping/             the deterministic mapping engine (pure, heavily unit-tested; the table tool's column-table since P2)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
 │   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Domain, Application, Llm, Llm.Anthropic, Llm.OpenAi, Infrastructure and Extraction.EInvoice, and composes them into both hosts
 │   ├── DocProc.Api/               ASP.NET Core host
@@ -81,7 +81,7 @@ document_processing/
 │   └── DocProc.AppHost/           Aspire local orchestration
 ├── tests/
 │   ├── DocProc.Domain.Tests/
-│   ├── DocProc.Extraction.Profiles.Tests/   sample PDFs + expected JSON (snapshot)
+│   ├── DocProc.Mapping.Tests/       synthetic word layouts (and later sample PDFs) with expected rows and reports
 │   ├── DocProc.Integration.Tests/           Testcontainers (SQL Server 2025, Azurite, Service Bus emulator)
 │   └── DocProc.Evals/                       gold-set runner: field accuracy, STP, cost per model/prompt
 ├── web/

@@ -111,6 +111,7 @@ public static partial class DocumentEndpoints
             .WithSummary("Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.");
 
         MapReviewActions(documents);
+        MapMapMode(documents);
         return group;
     }
 
@@ -799,6 +800,16 @@ public static partial class DocumentEndpoints
                 At = now,
                 Reason = Clean(applied.Reason, 500),
             });
+        }
+
+        // A reviewer who replaced every row of a group wrote it from another source than the table tool: its table
+        // report no longer describes the rows (docs/11 §6.2).
+        if (definitionDriven)
+        {
+            foreach (var replaced in patched.Applied.Where(a => a.Op == CorrectionOps.Set && compiled!.Descriptors.Find(a.Path) is { Kind: Definitions.FieldKinds.Array }).Select(a => a.Path).Distinct(StringComparer.Ordinal))
+            {
+                await DocumentTableReports.RemoveAsync(db, document.Id, replaced, ct);
+            }
         }
 
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.Corrected, null, actor, new { paths = patched.Applied.Select(a => a.Path).ToList(), ops = patched.Applied.Select(a => a.Op).Distinct(StringComparer.Ordinal).ToList() }, now);

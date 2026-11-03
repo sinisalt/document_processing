@@ -73,6 +73,7 @@ internal sealed class ExtractHandler(
             // longer has, so it goes (the costs stay, they were spent).
             ClearExtraction(document);
             await DocumentFieldIndexWriter.RefreshAsync(Db, document, [], cancellationToken).ConfigureAwait(false);
+            await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
             flags.Replace(document, OwnedFlags, [FlagCodes.Create(FlagCodes.UnsupportedType, $"No extraction path exists for {document.Type} documents yet.", parameters: FlagParams.Of(("type", document.Type.ToString())))]);
             Timeline.Transition(document, DocumentStatus.Extracted, new { type = document.Type, skipped = true });
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -113,6 +114,8 @@ internal sealed class ExtractHandler(
 
         Apply(document, extracted, config.Type?.Roles, definitionDriven);
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, config.Type?.IndexedFields ?? [], cancellationToken).ConfigureAwait(false);
+        // The extraction wrote every repeating group anew: a table report of the review tool describes rows that are gone.
+        await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
         document.AppliedConfigJson = AppliedConfig(config.Type, outcome.Method == ExtractionMethod.Llm ? input.Definition?.LlmSchema?.ToString() ?? DocProc.Llm.Schema.CanonicalSchemas.InvoiceExtraction.ToString() : null);
         document.ExtractionMethod = outcome.Method;
         AddCost(document.Costs, outcome.Cost);
@@ -167,6 +170,12 @@ internal sealed class ExtractHandler(
         }
 
         var kept = tree is not null;
+        if (!kept)
+        {
+            // A new empty tree: no group holds the rows a table report describes.
+            await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
+        }
+
         tree ??= DefinitionTree.CreateEmpty(compiled.Descriptors);
         DefinitionTree.Complete(tree, compiled.Descriptors);
         document.CanonicalJson = tree.ToJsonString(Domain.Documents.CanonicalJson.Options);

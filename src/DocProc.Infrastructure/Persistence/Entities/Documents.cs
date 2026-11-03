@@ -121,6 +121,56 @@ public sealed class Document : ITenantScoped, IVersioned
     public ICollection<ReviewTask> ReviewTasks { get; } = [];
     public ICollection<Correction> Corrections { get; } = [];
     public ICollection<DocumentFieldIndexEntry> FieldIndex { get; } = [];
+    public ICollection<DocumentTableReport> TableReports { get; } = [];
+}
+
+/// <summary>Who wrote a <see cref="DocumentTableReport"/> (docs/11 §6.2).</summary>
+public enum TableReportOrigin
+{
+    /// <summary>A supplier layout's <c>column-table</c> rule in the Extract stage (P4).</summary>
+    Layout,
+
+    /// <summary>The review table tool (<c>regions:table</c> with <c>write</c>, docs/11 §12.4).</summary>
+    ReviewTool,
+}
+
+/// <summary>
+/// The table report of a repeating group (docs/11 §6.2 <c>DocumentTableReport</c>, §8.6, §12.4): per page the rows
+/// read, the rejected lines with their text, whether the header was found, the dividers used. Stored next to the tree,
+/// not in the <c>FieldValue</c> envelope, one per document and group path; written by the table tool (and from P4 by a
+/// layout's <c>column-table</c>), replacing the previous one for the path, and deleted when the group is written by
+/// another source (the Extract stage, a reviewer replacing all rows, a new type, a split or join), so the
+/// <c>tableComplete</c> rule (P5) never reads a report about rows that are no longer there.
+/// </summary>
+public sealed class DocumentTableReport : ITenantScoped
+{
+    public const int MaxPathLength = 200;
+    public const int MaxStepIdLength = 64;
+
+    public Guid TenantId { get; set; }
+    public Guid DocumentId { get; set; }
+
+    /// <summary>The repeating group the report describes, a top-level definition path (<c>lines</c>).</summary>
+    public required string Path { get; set; }
+
+    public TableReportOrigin Origin { get; set; }
+
+    /// <summary>The step of the pipeline that wrote it (a layout's <c>column-table</c>, P4); null for the review tool.</summary>
+    public string? StepId { get; set; }
+
+    /// <summary>The Correction the review tool wrote the rows with; null for a layout.</summary>
+    public long? CorrectionId { get; set; }
+
+    /// <summary>The document's <c>Version</c> the rows were written at.</summary>
+    public int ProducedAtVersion { get; set; }
+
+    /// <summary>The report as JSON (an object; see <c>TableReport</c> in DocProc.Mapping).</summary>
+    public required string ReportJson { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public Document? Document { get; set; }
+    public Correction? Correction { get; set; }
 }
 
 /// <summary>

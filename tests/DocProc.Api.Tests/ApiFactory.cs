@@ -33,7 +33,7 @@ namespace DocProc.Api.Tests;
 /// Keycloak emits, and the entity model is created in SQLite (SQL Server-only features such as row-level security
 /// and temporal tables are exercised by the integration tests instead).
 /// </summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+public class ApiFactory : WebApplicationFactory<Program>
 {
     public const string Issuer = "https://test-issuer.local/realms/docproc";
     public const string Audience = "docproc-api";
@@ -109,10 +109,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IPipelineQueue>();
             services.AddSingleton<IPipelineQueue>(Queue);
 
+            ConfigureServices(services);
+
             using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
             db.Database.EnsureCreated();
             Seed(db);
         });
+    }
+
+    /// <summary>Services a derived factory adds to the host (an OCR provider, <see cref="OcrApiFactory"/>).</summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
     }
 
     protected override void Dispose(bool disposing)

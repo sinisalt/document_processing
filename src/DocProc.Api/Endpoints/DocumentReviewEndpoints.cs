@@ -185,6 +185,7 @@ public static partial class DocumentEndpoints
             ApplyType(document, key, type, now);
             ClearCaptured(document);
             await DocumentFieldIndexWriter.RefreshAsync(db, document, [], ct);
+            await DocumentTableReports.RemoveAllAsync(db, document.Id, ct);
             ResolveOpenFlags(document, [FlagCodes.TypeUnknown], actor, now);
             document.Status = DocumentStatus.Matched;
             document.FailureReason = null;
@@ -207,6 +208,7 @@ public static partial class DocumentEndpoints
         var configurable = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct);
         ApplyType(document, key, type, now);
         ClearCaptured(document);
+        await DocumentTableReports.RemoveAllAsync(db, document.Id, ct);
         string? flagMessage = null;
         if (CanonicalStorage.IsDefinitionDriven(type, configurable))
         {

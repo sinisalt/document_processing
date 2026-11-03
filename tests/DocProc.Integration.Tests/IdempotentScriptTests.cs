@@ -191,6 +191,18 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
         }
 
         (await asA.DocumentFieldIndex.AsNoTracking().SingleAsync(ct)).StringValue.ShouldBe("RE-1");
+
+        // TableReports: DocumentTableReports is a strict tenant table linked to the correction that wrote the rows.
+        (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentTableReports')").SingleAsync(ct))
+            .ShouldBe(3, "filter, after insert and after update, like every strict table");
+        if (!await asA.DocumentTableReports.AnyAsync(ct))
+        {
+            var correctionId = (await asA.Corrections.AsNoTracking().SingleAsync(ct)).Id;
+            asA.DocumentTableReports.Add(new Infrastructure.Persistence.Entities.DocumentTableReport { TenantId = TenantA, DocumentId = DocumentId, Path = "lines", Origin = Infrastructure.Persistence.Entities.TableReportOrigin.ReviewTool, CorrectionId = correctionId, ReportJson = "{\"rows\":3}", ProducedAtVersion = 1, CreatedAt = At });
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.DocumentTableReports.AsNoTracking().SingleAsync(ct)).ReportJson.ShouldContain("\"rows\"");
     }
 
     private static async Task RunScriptAsync(string connectionString, string script, CancellationToken ct)

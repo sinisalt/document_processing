@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/DocProc.Pipeline/DocProc.Pipeline.csproj" />
+    <ProjectReference Include="../../src/DocProc.Mapping/DocProc.Mapping.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" />

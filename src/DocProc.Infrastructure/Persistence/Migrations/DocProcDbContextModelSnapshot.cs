@@ -520,6 +520,49 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("DocumentFlags", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentTableReport", b =>
+                {
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Path")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<long?>("CorrectionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("ProducedAtVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReportJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("StepId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("DocumentId", "Path");
+
+                    b.HasIndex("CorrectionId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("DocumentTableReports", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentTypeDefinition", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1760,6 +1803,24 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentTableReport", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Correction", "Correction")
+                        .WithMany()
+                        .HasForeignKey("CorrectionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
+                        .WithMany("TableReports")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Correction");
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentTypeDefinition", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.DocumentTypeDefinition", "BaseDefinition")
@@ -1995,6 +2056,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Flags");
 
                     b.Navigation("ReviewTasks");
+
+                    b.Navigation("TableReports");
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentTypeDefinition", b =>

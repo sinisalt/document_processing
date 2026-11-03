@@ -75,6 +75,44 @@ public sealed class TenantIsolationTests(SqlServerFixture sqlServer) : IClassFix
         await Should.ThrowAsync<DbUpdateException>(() => asB.SaveChangesAsync(ct));
     }
 
+    [Fact]
+    public async Task Table_reports_are_hidden_from_and_closed_to_other_tenants_and_go_with_their_document()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+
+        // docs/11 §6.2: DocumentTableReports is a strict tenant table (PolicyV6), linked to the correction that wrote the rows.
+        Guid mine;
+        await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            var document = await asA.Documents.FirstAsync(ct);
+            mine = document.Id;
+            var correction = new Correction { TenantId = TenantA, DocumentId = mine, FieldPath = "lines", Op = "set", By = "reviewer", At = DateTimeOffset.UtcNow, SourceJson = "{\"method\":\"table\"}" };
+            asA.Corrections.Add(correction);
+            asA.DocumentTableReports.Add(new DocumentTableReport { TenantId = TenantA, DocumentId = mine, Path = "lines", Origin = TableReportOrigin.ReviewTool, Correction = correction, ProducedAtVersion = document.Version, ReportJson = "{\"rows\":2}", CreatedAt = DateTimeOffset.UtcNow });
+            await asA.SaveChangesAsync(ct);
+            (await asA.DocumentTableReports.CountAsync(ct)).ShouldBe(1);
+            (await asA.DocumentTableReports.SingleAsync(ct)).CorrectionId.ShouldBe(correction.Id);
+        }
+
+        await using (var asB = NewContext(TenantContext.ForTenant(TenantB)))
+        {
+            (await asB.DocumentTableReports.IgnoreQueryFilters().CountAsync(ct)).ShouldBe(0);
+            var theirs = await asB.Documents.Select(d => d.Id).FirstAsync(ct);
+            asB.DocumentTableReports.Add(new DocumentTableReport { TenantId = TenantA, DocumentId = theirs, Path = "lines", Origin = TableReportOrigin.ReviewTool, ReportJson = "{\"rows\":0}", CreatedAt = DateTimeOffset.UtcNow });
+            await Should.ThrowAsync<DbUpdateException>(() => asB.SaveChangesAsync(ct));
+        }
+
+        // Deleting the document takes its corrections and its report along, although the report also names the
+        // correction (that link does not cascade, so there is one cascade path only).
+        await using (var asPlatform = NewContext(TenantContext.Platform()))
+        {
+            (await asPlatform.Database.ExecuteSqlAsync($"DELETE FROM [Documents] WHERE [Id] = {mine}", ct)).ShouldBe(1);
+            (await asPlatform.DocumentTableReports.CountAsync(r => r.DocumentId == mine, ct)).ShouldBe(0);
+            (await asPlatform.Corrections.CountAsync(c => c.DocumentId == mine, ct)).ShouldBe(0);
+        }
+    }
+
     /// <summary>
     /// The document list's <c>?field.&lt;key&gt;=value</c> filter on SQL Server (docs/11 §18): a value that parses as a
     /// number too large for the decimal(28,8) index column is compared as text only, so the query answers (an empty page,

@@ -352,6 +352,7 @@ public static class ReviewPartitioning
         document.AppliedConfigJson = null;
         ClearColumns(document);
         await DocumentFieldIndexWriter.RefreshAsync(db, document, [], cancellationToken).ConfigureAwait(false);
+        await DocumentTableReports.RemoveAllAsync(db, document.Id, cancellationToken).ConfigureAwait(false);
     }
 
     private static void ClearColumns(Document document)

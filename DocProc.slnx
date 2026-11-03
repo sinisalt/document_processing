@@ -6,7 +6,7 @@
     <Project Path="src/DocProc.Definitions/DocProc.Definitions.csproj" />
     <Project Path="src/DocProc.Domain/DocProc.Domain.csproj" />
     <Project Path="src/DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
-    <Project Path="src/DocProc.Extraction.Profiles/DocProc.Extraction.Profiles.csproj" />
+    <Project Path="src/DocProc.Mapping/DocProc.Mapping.csproj" />
     <Project Path="src/DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
     <Project Path="src/DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
     <Project Path="src/DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />
@@ -22,6 +22,7 @@
     <Project Path="tests/DocProc.EInvoice.Tests/DocProc.EInvoice.Tests.csproj" />
     <Project Path="tests/DocProc.Integration.Tests/DocProc.Integration.Tests.csproj" />
     <Project Path="tests/DocProc.Llm.Tests/DocProc.Llm.Tests.csproj" />
+    <Project Path="tests/DocProc.Mapping.Tests/DocProc.Mapping.Tests.csproj" />
     <Project Path="tests/DocProc.Pipeline.Tests/DocProc.Pipeline.Tests.csproj" />
     <Project Path="tests/DocProc.Worker.Tests/DocProc.Worker.Tests.csproj" />
   </Folder>

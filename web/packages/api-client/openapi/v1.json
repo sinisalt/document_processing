@@ -1119,6 +1119,211 @@
         }
       }
     },
+    "/api/v1/documents/{id}/pages/{n}/words": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The words of a page with their boxes in page units (docs/11 §12.3); with bbox=x0,y0,x1,y1 the words inside it, their text in reading order and its readings per kind (date, number, amount, ...) in the locale (the tenant's country by default).",
+        "operationId": "GetDocumentPageWords",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageWordsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/regions:read": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured.",
+        "operationId": "ReadDocumentRegion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadRegionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageWordsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/regions:table": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report.",
+        "operationId": "ReadDocumentTable",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadTableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadTableResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/table-reports": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "The stored table reports of the document's repeating groups (docs/11 §6.2 DocumentTableReport): the page strip after a table capture.",
+        "operationId": "GetDocumentTableReports",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentTableReportDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/review-tasks": {
       "get": {
         "tags": [
@@ -4339,6 +4544,50 @@
         },
         "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and\n`LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a\ntotal); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.\n`Fields` holds the indexed field values the list request asked for with `fields=` (docs/11 §19, the inbox\ncolumns of indexed custom fields), keyed by definition path, as `DocumentFieldIndex` stores them (identifiers and\nstrings normalised, numbers invariant, dates ISO); null when the request named none."
       },
+      "DocumentTableReportDto": {
+        "required": [
+          "path",
+          "origin",
+          "correctionId",
+          "producedAtVersion",
+          "createdAt",
+          "report"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TableReportOrigin"
+          },
+          "correctionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "producedAtVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "report": {
+            "$ref": "#/components/schemas/TableReportDto"
+          }
+        },
+        "description": "A stored table report (docs/11 §6.2 `DocumentTableReport`): the group, who wrote it, the Correction that wrote\nthe rows, the document version it describes, when, and the report."
+      },
       "DocumentTemplateSummary": {
         "required": [
           "key",
@@ -5644,6 +5893,104 @@
         },
         "description": "One page of a cursor-paginated list (docs/05 \"cursor pagination\"); string? Page&lt;T&gt;.NextCursor is null on the last page."
       },
+      "PageWordDto": {
+        "required": [
+          "index",
+          "text",
+          "bBox"
+        ],
+        "type": "object",
+        "properties": {
+          "index": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "text": {
+            "type": "string"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          },
+          "confidence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "A word of a page in page units (0 to 1000), with its index in the text layer's word list of that page (null for a word OCR just read)."
+      },
+      "PageWordsResponse": {
+        "required": [
+          "page",
+          "source",
+          "locale",
+          "words",
+          "text",
+          "bBox",
+          "candidates"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "source": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "words": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PageWordDto"
+            }
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bBox": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceBox"
+              }
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValueCandidateDto"
+            }
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`GET /documents/{id}/pages/{n}/words?bbox=` and `POST /documents/{id}/regions:read` (docs/11 §12.3): the\npage's words in page units. `source` says where they come from: `pdfText` (the PDF's own text layer),\n`ocr` (an OCR text layer, or the region OCR just ran) or `none` (the page has no text layer: draw a box\nand read it with `regions:read`). With a box, `words` are the words whose centre lies inside it, `text`\nis them joined in reading order, `bBox` their union and `candidates` the readings of `text` per kind\nin `locale`; without one, every word of the page and no candidates. `provider` names the OCR that read a\nregion."
+      },
       "PatchChannelRequest": {
         "required": [
           "name",
@@ -5886,6 +6233,255 @@
             "type": "boolean"
           }
         }
+      },
+      "ReadRegionRequest": {
+        "required": [
+          "page",
+          "bBox"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          },
+          "locale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}/regions:read` (docs/11 §12.3): the box (page units) on page `page` to read with OCR,\nfor a scan whose text layer has no words there; `locale` reads the candidates (the tenant's country by default)."
+      },
+      "ReadTableRequest": {
+        "required": [
+          "page",
+          "bBox"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          },
+          "columns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TableColumnDto"
+            }
+          },
+          "headerRow": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableBandDto"
+              }
+            ]
+          },
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "rowAnchor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pages": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "repeatHeader": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "minAnchors": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "continuation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupHeader": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableGroupHeaderDto"
+              }
+            ]
+          },
+          "tierColumns": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableTierColumnsDto"
+              }
+            ]
+          },
+          "skipRows": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "stopAt": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "pageMargins": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableMarginsDto"
+              }
+            ]
+          },
+          "pageOverrides": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TablePageOverrideDto"
+            }
+          },
+          "locale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "write": {
+            "type": "boolean",
+            "default": false
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box\ndrawn on `page` (word gaps and header words, each column named from the field labels its header matches), with\nthe rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,\n`2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's\nline items by default), `rowAnchor` the field that starts a row (the group's anchor by default),\n`repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or\n`none`, `skipRows` and `stopAt` regular expressions over a line's text. `write: true` writes the\nrows into the document as one correction (op `set` on `path`, the specification and report in its source)\nand stores the report (docs/11 §6.2 `DocumentTableReport`)."
+      },
+      "ReadTableResponse": {
+        "required": [
+          "path",
+          "proposed",
+          "columns",
+          "headerRow",
+          "rowAnchor",
+          "report",
+          "rows",
+          "rowsTruncated",
+          "written"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "proposed": {
+            "type": "boolean"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableColumnDto"
+            }
+          },
+          "headerRow": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableBandDto"
+              }
+            ]
+          },
+          "rowAnchor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "report": {
+            "$ref": "#/components/schemas/TableReportDto"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableRowDto"
+            }
+          },
+          "rowsTruncated": {
+            "type": "boolean"
+          },
+          "written": {
+            "type": "boolean"
+          },
+          "document": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentDetail"
+              }
+            ]
+          }
+        },
+        "description": "What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row\nused (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there\nwere more), and with `write` the document as stored after the write."
       },
       "RejectDocumentRequest": {
         "required": [
@@ -6346,6 +6942,505 @@
           }
         }
       },
+      "TableBandDto": {
+        "required": [
+          "y0",
+          "y1"
+        ],
+        "type": "object",
+        "properties": {
+          "y0": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "y1": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "A vertical band in page units (the header row)."
+      },
+      "TableCellDto": {
+        "required": [
+          "field",
+          "text",
+          "value",
+          "page",
+          "bBox"
+        ],
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          }
+        },
+        "description": "A value of a row: field, printed text, the value read (shape of a correction), its page and box."
+      },
+      "TableColumnBoundsDto": {
+        "required": [
+          "x0",
+          "x1"
+        ],
+        "type": "object",
+        "properties": {
+          "x0": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "x1": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "The dividers of one column on one page."
+      },
+      "TableColumnDto": {
+        "required": [
+          "x0",
+          "x1"
+        ],
+        "type": "object",
+        "properties": {
+          "x0": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "x1": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "field": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "header": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tierMinQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "A column of a table mapping in page units of the mapping page: its dividers, the row field it fills (none to leave it out), its printed header, and a tier column's minimum quantity."
+      },
+      "TableGroupHeaderDto": {
+        "required": [
+          "target"
+        ],
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "when": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Group headings (docs/11 §8.6): `target` is the row field a heading fills; `when` the column whose emptiness makes a line a heading (the first amount column by default)."
+      },
+      "TableMarginsDto": {
+        "type": "object",
+        "properties": {
+          "top": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "bottom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "The part of every page the table uses (docs/11 §8.6 `pageMargins`), in page units: running headers above `top` and footers below `bottom` are left out."
+      },
+      "TablePageOverrideDto": {
+        "required": [
+          "page",
+          "columns"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableColumnBoundsDto"
+            }
+          }
+        },
+        "description": "Dividers set by hand for one page (`pageOverrides`), one per column of the mapping."
+      },
+      "TablePageReportDto": {
+        "required": [
+          "page",
+          "headerFound",
+          "rows",
+          "rejected",
+          "rejectedLines",
+          "skippedLines",
+          "groupHeadings",
+          "continuationLines",
+          "columns",
+          "columnsFrom",
+          "firstRows"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "headerFound": {
+            "type": "boolean"
+          },
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejected": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejectedLines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableRejectedLineDto"
+            }
+          },
+          "skippedLines": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "groupHeadings": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "continuationLines": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableColumnBoundsDto"
+            }
+          },
+          "columnsFrom": {
+            "type": "string"
+          },
+          "firstRows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "description": "One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the\nfirst 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the\ndividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), and\nits first three rows as printed."
+      },
+      "TableRejectedLineDto": {
+        "required": [
+          "page",
+          "text",
+          "bBox",
+          "reason",
+          "message",
+          "field"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "text": {
+            "type": "string"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "field": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`), the message and the field."
+      },
+      "TableReportDto": {
+        "required": [
+          "rows",
+          "rejectedRows",
+          "pages",
+          "pagesWithoutRows",
+          "stoppedOnPage",
+          "perPage"
+        ],
+        "type": "object",
+        "properties": {
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejectedRows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "pagesWithoutRows": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "stoppedOnPage": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "perPage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TablePageReportDto"
+            }
+          }
+        },
+        "description": "The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page."
+      },
+      "TableReportOrigin": {
+        "enum": [
+          "Layout",
+          "ReviewTool"
+        ],
+        "description": "Who wrote a DocumentTableReport (docs/11 §6.2)."
+      },
+      "TableRowDto": {
+        "required": [
+          "page",
+          "bBox",
+          "cells",
+          "tiers"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "$ref": "#/components/schemas/SourceBox"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableCellDto"
+            }
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableTierDto"
+            }
+          }
+        },
+        "description": "A row the table read: the page it starts on, its box there, its values and tiers."
+      },
+      "TableTierColumnsDto": {
+        "type": "object",
+        "properties": {
+          "headerPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "quantityField": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priceField": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Tier price columns (docs/11 §8.6): a column without a field whose header matches `headerPattern` (group 1 the\nminimum quantity; `ab\\s+(\\d+)` by default) or that names `tierMinQuantity` becomes entries of the row's\n`target` list (`tiers`) with `quantityField` (`minQuantity`) and `priceField` (`price`)."
+      },
+      "TableTierDto": {
+        "required": [
+          "minQuantity",
+          "price"
+        ],
+        "type": "object",
+        "properties": {
+          "minQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "price": {
+            "$ref": "#/components/schemas/TableCellDto"
+          }
+        },
+        "description": "A tier price of a row: the minimum quantity and the price cell."
+      },
       "TenantFeaturesDto": {
         "required": [
           "configurableTypes",
@@ -6548,6 +7643,22 @@
             "$ref": "#/components/schemas/TenantSettingsDto"
           }
         }
+      },
+      "ValueCandidateDto": {
+        "required": [
+          "kind",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "A reading of the selected text as a field kind (docs/11 §12.3: \"28.10.2026 → 2026-10-28\"), in the shape a correction takes."
       }
     },
     "securitySchemes": {

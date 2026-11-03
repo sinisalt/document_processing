@@ -152,6 +152,48 @@ public sealed class DefinitionDrivenPipelineTests
     }
 
     [Fact]
+    public async Task Extract_keeps_a_table_report_with_the_tree_it_describes_and_drops_it_with_a_new_tree()
+    {
+        // docs/11 §6.2: a DocumentTableReport describes the rows of a group; a rerun of Extract that keeps the reviewer's
+        // tree keeps it, one that starts the tree anew (here: the stored tree was another type's) deletes it.
+        await using var host = await StartAsync();
+        await host.AddReplayProviderAsync();
+        await SetConfigurableAsync(host, true);
+        host.Llm.Enqueue(ClassifyPurchaseOrder);
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bestellung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+
+        async Task RerunExtractAsync(string? appliedTypeKey)
+        {
+            await host.WithDbAsync(async db =>
+            {
+                var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+                if (!await db.DocumentTableReports.AnyAsync(r => r.DocumentId == row.Id))
+                {
+                    db.DocumentTableReports.Add(new DocumentTableReport { TenantId = row.TenantId, DocumentId = row.Id, Path = "lines", Origin = TableReportOrigin.ReviewTool, ReportJson = "{\"rows\":0}", ProducedAtVersion = row.Version });
+                }
+
+                if (appliedTypeKey is not null)
+                {
+                    row.AppliedConfigJson = new JsonObject { ["typeKey"] = appliedTypeKey }.ToJsonString();
+                }
+
+                row.Status = DocumentStatus.Matched;
+                await db.SaveChangesAsync();
+            });
+            await host.PipelineQueue.EnqueueAsync(new Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, document.Id, Application.Pipeline.PipelineStage.Extract), CancellationToken.None);
+            await host.RunUntilIdleAsync();
+        }
+
+        await RerunExtractAsync(appliedTypeKey: null);
+        (await host.WithDbAsync(db => db.DocumentTableReports.CountAsync(r => r.DocumentId == document.Id))).ShouldBe(1);
+
+        await RerunExtractAsync(appliedTypeKey: "DeliveryNote");
+        (await host.WithDbAsync(db => db.DocumentTableReports.CountAsync(r => r.DocumentId == document.Id))).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task A_forked_invoice_asks_the_llm_for_its_added_field_and_stores_and_indexes_it()
     {
         await using var host = await StartAsync();

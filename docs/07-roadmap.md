@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 part A done
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 parts A and B done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -576,8 +576,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the remaining `AppliedConfigJson` parts (supplier, layout, identification) come with P4;
     - the API routes `:diff`, `:approve`, `:upgrade-base`, `:upgrade-documents`, `/rule-kinds`, `/step-kinds`,
       `resolved-pipeline`, four-eyes approval and the config audit log (from part A's list).
-- **P2, track A: manual mapping of Unknown documents – part A (the review actions backend) done; map mode, the
-  `/words` endpoint, region OCR, the table tool and the P2 demo are open.**
+- **P2, track A: manual mapping of Unknown documents – part A (the review actions backend) and part B (the map mode
+  backend and the table tool engine) done; the review UI of P2 and the P2 demo are open.**
   - Done (part A), every review action on a document a reviewer may act on (`NeedsReview`, `Validated`, `Failed`;
     `409 Document not in review` otherwise), with its timeline event, behind a tracked save whose version token makes
     a concurrent writer's action answer 409 (docs/05 has the requests and answers):
@@ -640,11 +640,81 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `:assign-supplier` answers 200 and checks the document again at once instead of reprocessing from Classify
       (202): without layouts (P4) there is no identification to re-run, and a reprocess would extract an invoice again;
     - `:join` keeps the id of the document named in the URL; the parts must make one unbroken run of pages.
+  - Done (part B), the server side of map mode and the table tool (docs/11 §12.3, §12.4; docs/05 has the requests and
+    answers):
+    - `src/DocProc.Extraction.Profiles` (an empty project) is now `src/DocProc.Mapping` (docs/11 §20), the pure mapping
+      engine: `PageGeometry` (normalised words, lines by vertical band, hit test, reading order), `PrintedValues` and
+      `ValueLocale` (printed text read by field kind, culture-free: numbers whose separators decide them read the same
+      everywhere, the locale settles `1,250` and `03/11/2026`; dates with German and English month names), the
+      `ColumnTableEngine` and the `ColumnProposer`;
+    - `GET /documents/{id}/pages/{n}/words?bbox=&locale=`: the page's words in page units (0 to 1000) with their index in
+      the stored text layer and `source` (`pdfText`, `ocr`, or `none` for a page without a text layer); with a box the
+      words whose centre is inside it in reading order, their text, their union and the readings of the text per kind
+      (`28.10.2026` gives the date `2026-10-28`, `1.234,50 €` the amount with its currency);
+    - `POST /documents/{id}/regions:read {page, bBox, locale?}`: the page image cut to the box (SkiaSharp, whole pixels,
+      at least 8) and read by the host's `IOcrProvider`, the words placed back in page units, with the same readings;
+      nothing is stored;
+    - `POST /documents/{id}/regions:table`: without `columns` it proposes the dividers from the x gaps of the box and the
+      header words, naming each column from the row field whose label or extraction label its header matches (and a
+      header such as `ab 10` as a tier column), with the rows they read on that page; with `columns` it applies the
+      mapping drawn on one page to the pages named (`pages: "1-*"`): the header row is found again on every page
+      (`repeatHeader: auto`, at least `minAnchors` headers on a line) and the dividers measured again there (shift and
+      scale fitted from the header centres), a page without a header reuses the last measured ones, rows continue across
+      page breaks, a line without a value in the row anchor column continues the row above, a heading fills `category`
+      (`groupHeader`), tier columns become `tiers` entries, `skipRows` and `stopAt` patterns, `pageMargins` and
+      `pageOverrides` apply; values are read by kind and checked against the field's pattern and options, and a row that
+      does not read is rejected with its text and reason. The answer is the table report (rows, rejected rows, pages
+      without rows, per page: rows, rejected lines with text and box, skipped lines, headings, continuation lines,
+      header found, the dividers used and where they came from, the first three rows), i.e. the page strip's data, and
+      the rows (the first 1,000);
+    - the single-Correction write (`write: true`): the server reads the table again and writes every row in one
+      `PATCH`-equivalent through `DefinitionPatcher.SetRows` (each value with Human provenance and its own page, box and
+      printed text; the group's `maxItems`, else 20,000, holds; a coded invoice tree is numbered and must stay readable),
+      one Correction (op `set`, `FieldPath` the group, old and new rows' values, `SourceJson` with `method: table`, the box
+      and `table: {spec, report}`), the report as the group's `DocumentTableReport` (`Origin=ReviewTool`, linked to the
+      Correction), one `document.corrected` event with the counts, the list columns and field index refreshed and the
+      checks run inline. `GET /documents/{id}/table-reports` gives the stored reports (the page strip after a reload);
+    - `PATCH …/fields` takes `set` on a whole repeating group (`{path: "lines", value: [{…}, …]}`, nested groups as
+      arrays): the reviewer replaces every row in one correction, held to `maxItems` as well;
+    - a table report never outlives its rows: it is deleted when the group is written by another source (a `set` of the
+      whole group, the Extract stage writing a new tree, `:set-type`, `:split` and `:join`);
+    - migration `TableReports` (20261103112735): table `DocumentTableReports` (PK document and path, json report, FK to
+      the document with cascade and to the Correction without), a strict tenant table under the new frozen `PolicyV6`;
+      Down drops the policy, the table, and re-creates `PolicyV5`; the SQL Server down/up test runs across it;
+    - tests: `tests/DocProc.Mapping.Tests` (new; the engine on synthetic word layouts for every case above, including a
+      14-page list of 412 rows read with one mapping and nothing rejected, the proposer, and the value readers),
+      `DefinitionPatcherRowsTests`, `MapModeEndpointsTests` and `RegionOcrEndpointsTests` (API, with a scripted OCR
+      provider), a price list PDF read back by PdfPig through the proposal and "apply to all pages"
+      (`PriceListPdfTableTests`), the report's lifecycle in the Extract stage (`DefinitionDrivenPipelineTests`), and on SQL Server the
+      policy, isolation and cascade of the new table (`RowLevelSecuritySqlTests`, `TenantIsolationTests`,
+      `IdempotentScriptTests`, `TypeCatalogueSqlTests`).
+  - Decided in part B where docs/11 left it open (the "Correction (P2)" notes in docs/11 §6.2, §8.6, §12.3, §12.4, §18):
+    - no OCR engine ships in the repository (Tesseract is still open from Phase 1), so `regions:read` answers `501` with
+      `code: OCR_NOT_CONFIGURED` until a host registers an `IOcrProvider`; the endpoint, the crop and the placement of
+      the words are done and tested with a scripted provider;
+    - the readings use the request's `locale`, else the tenant's country: suppliers have no locale before their
+      settings (P4);
+    - the write is `regions:table` with `write: true` (the server reads the rows again, so the stored report is its
+      own, not the client's), not a `PATCH` of 400 rows from the browser;
+    - a line with text but no price is a heading when it is one run of text in the anchor column, or printed across a
+      divider; under a row, one printed inside a text column is a continuation line (docs/11 §8.6 said both);
+    - tier columns are on whenever a row has the tier group (`tiers` with `minQuantity` and `price`).
   - Left for the rest of P2:
-    - map mode, `GET /documents/{id}/pages/{n}/words`, `POST /documents/{id}/regions:read` (region OCR), `POST
-      /documents/{id}/regions:table` with "apply to all pages", the table report (`DocumentTableReport`) and page strip,
-      the single-Correction table write (docs/11 §12.3, §12.4), the "Map this document" panel and the UI of every
-      action above (part A has only the blocked Approve), and the P2 demo of docs/11 §23;
+    - the UI: map mode in the page viewer (selection, preview of the readings, Enter to assign), the table tool
+      (dividers, page strip, rejected-row filter), the "Map this document" panel and the UI of every action of part A
+      (part A has only the blocked Approve), and the P2 demo of docs/11 §23;
+    - an OCR provider (Tesseract or Azure Document Intelligence Layout, docs/01): until one is registered, region OCR
+      answers 501 and an image page has no words;
+    - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
+      list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
+      `column-table` (P4) are not implemented;
+    - region OCR is not counted in `Costs.OcrPages`;
+    - the proposal names a column from its header and checks that the column's values read as the field's kind; where a
+      template labels two fields alike (`std.price-list`: "Inhalt" for `packSize`, "Inhaltseinheit" for `packUnit`) it
+      can still name the less fitting one, and the reviewer changes it before applying the mapping;
+    - no compose run of part B: it was checked against the dependency-free dev API (SQLite) with a generated three-page
+      price list PDF (proposal, 90 rows written with no rejected row, the header found again on every page, tiers and
+      the heading), besides the tests;
     - `:assign-supplier`'s `remember` (source rules, P4) and the reprocess through `classify.identification` (P4);
       the supplier proposal of "create supplier from this document" (the form pre-filled from the supplier party) is
       the UI's to build from `canonical`;

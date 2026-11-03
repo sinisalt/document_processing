@@ -435,6 +435,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}/pages/{n}/words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The words of a page with their boxes in page units (docs/11 §12.3); with bbox=x0,y0,x1,y1 the words inside it, their text in reading order and its readings per kind (date, number, amount, ...) in the locale (the tenant's country by default). */
+        get: operations["GetDocumentPageWords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/regions:read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. */
+        post: operations["ReadDocumentRegion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/regions:table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. */
+        post: operations["ReadDocumentTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/table-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stored table reports of the document's repeating groups (docs/11 §6.2 DocumentTableReport): the page strip after a table capture. */
+        get: operations["GetDocumentTableReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/text": {
         parameters: {
             query?: never;
@@ -1291,6 +1359,21 @@ export interface components {
             warningFlagCount: number | string;
         };
         /**
+         * @description A stored table report (docs/11 §6.2 `DocumentTableReport`): the group, who wrote it, the Correction that wrote
+         *     the rows, the document version it describes, when, and the report.
+         */
+        DocumentTableReportDto: {
+            /** Format: int64 */
+            correctionId: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            origin: components["schemas"]["TableReportOrigin"];
+            path: string;
+            /** Format: int32 */
+            producedAtVersion: number | string;
+            report: components["schemas"]["TableReportDto"];
+        };
+        /**
          * @description A platform template in the catalogue (`GET /document-templates`): its key and version, its name and
          *     description, the legacy key existing tenants adopted it under (if any), the key adopting or copying it uses when
          *     the request names none (`DefaultKey`) and the tenant's type keys that come from it (`AdoptedAs`).
@@ -1635,6 +1718,35 @@ export interface components {
             items: components["schemas"]["TenantResponse"][];
             nextCursor: null | string;
         };
+        /** @description A word of a page in page units (0 to 1000), with its index in the text layer's word list of that page (null for a word OCR just read). */
+        PageWordDto: {
+            bBox: components["schemas"]["SourceBox"];
+            /** Format: double */
+            confidence?: null | number | string;
+            /** Format: int32 */
+            index: null | number | string;
+            text: string;
+        };
+        /**
+         * @description `GET /documents/{id}/pages/{n}/words?bbox=` and `POST /documents/{id}/regions:read` (docs/11 §12.3): the
+         *     page's words in page units. `source` says where they come from: `pdfText` (the PDF's own text layer),
+         *     `ocr` (an OCR text layer, or the region OCR just ran) or `none` (the page has no text layer: draw a box
+         *     and read it with `regions:read`). With a box, `words` are the words whose centre lies inside it, `text`
+         *     is them joined in reading order, `bBox` their union and `candidates` the readings of `text` per kind
+         *     in `locale`; without one, every word of the page and no candidates. `provider` names the OCR that read a
+         *     region.
+         */
+        PageWordsResponse: {
+            bBox: null | components["schemas"]["SourceBox"];
+            candidates: components["schemas"]["ValueCandidateDto"][];
+            locale: string;
+            /** Format: int32 */
+            page: number | string;
+            provider?: null | string;
+            source: string;
+            text: null | string;
+            words: components["schemas"]["PageWordDto"][];
+        };
         /** @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it. */
         PatchChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
@@ -1678,6 +1790,68 @@ export interface components {
             stageOverrides: null | {
                 [key: string]: string;
             };
+        };
+        /**
+         * @description `POST /documents/{id}/regions:read` (docs/11 §12.3): the box (page units) on page `page` to read with OCR,
+         *     for a scan whose text layer has no words there; `locale` reads the candidates (the tenant's country by default).
+         */
+        ReadRegionRequest: {
+            bBox: components["schemas"]["SourceBox"];
+            locale?: null | string;
+            /** Format: int32 */
+            page: number | string;
+        };
+        /**
+         * @description `POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box
+         *     drawn on `page` (word gaps and header words, each column named from the field labels its header matches), with
+         *     the rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,
+         *     `2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's
+         *     line items by default), `rowAnchor` the field that starts a row (the group's anchor by default),
+         *     `repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or
+         *     `none`, `skipRows` and `stopAt` regular expressions over a line's text. `write: true` writes the
+         *     rows into the document as one correction (op `set` on `path`, the specification and report in its source)
+         *     and stores the report (docs/11 §6.2 `DocumentTableReport`).
+         */
+        ReadTableRequest: {
+            bBox: components["schemas"]["SourceBox"];
+            columns?: null | components["schemas"]["TableColumnDto"][];
+            continuation?: null | string;
+            groupHeader?: null | components["schemas"]["TableGroupHeaderDto"];
+            headerRow?: null | components["schemas"]["TableBandDto"];
+            locale?: null | string;
+            /** Format: int32 */
+            minAnchors?: null | number | string;
+            /** Format: int32 */
+            page: number | string;
+            pageMargins?: null | components["schemas"]["TableMarginsDto"];
+            pageOverrides?: null | components["schemas"]["TablePageOverrideDto"][];
+            pages?: null | string;
+            path?: null | string;
+            reason?: null | string;
+            repeatHeader?: null | string;
+            rowAnchor?: null | string;
+            skipRows?: null | string[];
+            stopAt?: null | string[];
+            tierColumns?: null | components["schemas"]["TableTierColumnsDto"];
+            /** @default false */
+            write: boolean;
+        };
+        /**
+         * @description What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row
+         *     used (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there
+         *     were more), and with `write` the document as stored after the write.
+         */
+        ReadTableResponse: {
+            columns: components["schemas"]["TableColumnDto"][];
+            document?: null | components["schemas"]["DocumentDetail"];
+            headerRow: null | components["schemas"]["TableBandDto"];
+            path: string;
+            proposed: boolean;
+            report: components["schemas"]["TableReportDto"];
+            rowAnchor: null | string;
+            rows: components["schemas"]["TableRowDto"][];
+            rowsTruncated: boolean;
+            written: boolean;
         };
         RejectDocumentRequest: {
             reason: string;
@@ -1804,6 +1978,137 @@ export interface components {
             updatedAt: string;
             vatId: null | string;
         };
+        /** @description A vertical band in page units (the header row). */
+        TableBandDto: {
+            /** Format: double */
+            y0: number | string;
+            /** Format: double */
+            y1: number | string;
+        };
+        /** @description A value of a row: field, printed text, the value read (shape of a correction), its page and box. */
+        TableCellDto: {
+            bBox: components["schemas"]["SourceBox"];
+            field: string;
+            /** Format: int32 */
+            page: number | string;
+            text: string;
+            value: null | components["schemas"]["JsonElement"];
+        };
+        /** @description The dividers of one column on one page. */
+        TableColumnBoundsDto: {
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+        };
+        /** @description A column of a table mapping in page units of the mapping page: its dividers, the row field it fills (none to leave it out), its printed header, and a tier column's minimum quantity. */
+        TableColumnDto: {
+            field?: null | string;
+            header?: null | string;
+            /** Format: double */
+            tierMinQuantity?: null | number | string;
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+        };
+        /** @description Group headings (docs/11 §8.6): `target` is the row field a heading fills; `when` the column whose emptiness makes a line a heading (the first amount column by default). */
+        TableGroupHeaderDto: {
+            target: string;
+            when?: null | string;
+        };
+        /** @description The part of every page the table uses (docs/11 §8.6 `pageMargins`), in page units: running headers above `top` and footers below `bottom` are left out. */
+        TableMarginsDto: {
+            /** Format: double */
+            bottom?: null | number | string;
+            /** Format: double */
+            top?: null | number | string;
+        };
+        /** @description Dividers set by hand for one page (`pageOverrides`), one per column of the mapping. */
+        TablePageOverrideDto: {
+            columns: components["schemas"]["TableColumnBoundsDto"][];
+            /** Format: int32 */
+            page: number | string;
+        };
+        /**
+         * @description One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the
+         *     first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
+         *     dividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), and
+         *     its first three rows as printed.
+         */
+        TablePageReportDto: {
+            columns: components["schemas"]["TableColumnBoundsDto"][];
+            columnsFrom: string;
+            /** Format: int32 */
+            continuationLines: number | string;
+            firstRows: {
+                [key: string]: string;
+            }[];
+            /** Format: int32 */
+            groupHeadings: number | string;
+            headerFound: boolean;
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            rejected: number | string;
+            rejectedLines: components["schemas"]["TableRejectedLineDto"][];
+            /** Format: int32 */
+            rows: number | string;
+            /** Format: int32 */
+            skippedLines: number | string;
+        };
+        /** @description A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`), the message and the field. */
+        TableRejectedLineDto: {
+            bBox: components["schemas"]["SourceBox"];
+            field: null | string;
+            message: string;
+            /** Format: int32 */
+            page: number | string;
+            reason: string;
+            text: string;
+        };
+        /** @description The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page. */
+        TableReportDto: {
+            pages: (number | string)[];
+            pagesWithoutRows: (number | string)[];
+            perPage: components["schemas"]["TablePageReportDto"][];
+            /** Format: int32 */
+            rejectedRows: number | string;
+            /** Format: int32 */
+            rows: number | string;
+            /** Format: int32 */
+            stoppedOnPage: null | number | string;
+        };
+        /**
+         * @description Who wrote a DocumentTableReport (docs/11 §6.2).
+         * @enum {unknown}
+         */
+        TableReportOrigin: "Layout" | "ReviewTool";
+        /** @description A row the table read: the page it starts on, its box there, its values and tiers. */
+        TableRowDto: {
+            bBox: components["schemas"]["SourceBox"];
+            cells: components["schemas"]["TableCellDto"][];
+            /** Format: int32 */
+            page: number | string;
+            tiers: components["schemas"]["TableTierDto"][];
+        };
+        /**
+         * @description Tier price columns (docs/11 §8.6): a column without a field whose header matches `headerPattern` (group 1 the
+         *     minimum quantity; `ab\s+(\d+)` by default) or that names `tierMinQuantity` becomes entries of the row's
+         *     `target` list (`tiers`) with `quantityField` (`minQuantity`) and `priceField` (`price`).
+         */
+        TableTierColumnsDto: {
+            headerPattern?: null | string;
+            priceField?: null | string;
+            quantityField?: null | string;
+            target?: null | string;
+        };
+        /** @description A tier price of a row: the minimum quantity and the price cell. */
+        TableTierDto: {
+            /** Format: double */
+            minQuantity: number | string;
+            price: components["schemas"]["TableCellDto"];
+        };
         /**
          * @description The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type
          *     catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types
@@ -1863,6 +2168,11 @@ export interface components {
             settings: components["schemas"]["TenantSettingsDto"];
             tenant: components["schemas"]["TenantIdentity"];
         };
+        /** @description A reading of the selected text as a field kind (docs/11 §12.3: "28.10.2026 → 2026-10-28"), in the shape a correction takes. */
+        ValueCandidateDto: {
+            kind: string;
+            value: components["schemas"]["JsonElement"];
+        };
     };
     responses: never;
     parameters: never;
@@ -1897,6 +2207,7 @@ export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
 export type SchemaDocumentIngestionRef = components['schemas']['DocumentIngestionRef'];
 export type SchemaDocumentStatus = components['schemas']['DocumentStatus'];
 export type SchemaDocumentSummary = components['schemas']['DocumentSummary'];
+export type SchemaDocumentTableReportDto = components['schemas']['DocumentTableReportDto'];
 export type SchemaDocumentTemplateSummary = components['schemas']['DocumentTemplateSummary'];
 export type SchemaDocumentTypeDetail = components['schemas']['DocumentTypeDetail'];
 export type SchemaDocumentTypeKey = components['schemas']['DocumentTypeKey'];
@@ -1934,11 +2245,16 @@ export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestio
 export type SchemaPageOfReviewTaskDto = components['schemas']['PageOfReviewTaskDto'];
 export type SchemaPageOfSupplierResponse = components['schemas']['PageOfSupplierResponse'];
 export type SchemaPageOfTenantResponse = components['schemas']['PageOfTenantResponse'];
+export type SchemaPageWordDto = components['schemas']['PageWordDto'];
+export type SchemaPageWordsResponse = components['schemas']['PageWordsResponse'];
 export type SchemaPatchChannelRequest = components['schemas']['PatchChannelRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
 export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
+export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
+export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
+export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
@@ -1954,11 +2270,26 @@ export type SchemaSupplierActivityItem = components['schemas']['SupplierActivity
 export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
 export type SchemaSupplierMatchMethod = components['schemas']['SupplierMatchMethod'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
+export type SchemaTableBandDto = components['schemas']['TableBandDto'];
+export type SchemaTableCellDto = components['schemas']['TableCellDto'];
+export type SchemaTableColumnBoundsDto = components['schemas']['TableColumnBoundsDto'];
+export type SchemaTableColumnDto = components['schemas']['TableColumnDto'];
+export type SchemaTableGroupHeaderDto = components['schemas']['TableGroupHeaderDto'];
+export type SchemaTableMarginsDto = components['schemas']['TableMarginsDto'];
+export type SchemaTablePageOverrideDto = components['schemas']['TablePageOverrideDto'];
+export type SchemaTablePageReportDto = components['schemas']['TablePageReportDto'];
+export type SchemaTableRejectedLineDto = components['schemas']['TableRejectedLineDto'];
+export type SchemaTableReportDto = components['schemas']['TableReportDto'];
+export type SchemaTableReportOrigin = components['schemas']['TableReportOrigin'];
+export type SchemaTableRowDto = components['schemas']['TableRowDto'];
+export type SchemaTableTierColumnsDto = components['schemas']['TableTierColumnsDto'];
+export type SchemaTableTierDto = components['schemas']['TableTierDto'];
 export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
 export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
 export type SchemaTenantSettingsResponse = components['schemas']['TenantSettingsResponse'];
+export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
 export interface operations {
     ListApiKeys: {
@@ -2891,6 +3222,133 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    GetDocumentPageWords: {
+        parameters: {
+            query?: {
+                bbox?: string;
+                locale?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageWordsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ReadDocumentRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadRegionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageWordsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ReadDocumentTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadTableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadTableResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentTableReports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTableReportDto"][];
+                };
             };
         };
     };

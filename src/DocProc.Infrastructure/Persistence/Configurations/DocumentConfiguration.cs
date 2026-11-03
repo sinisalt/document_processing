@@ -58,6 +58,22 @@ internal sealed class DocumentFieldIndexConfiguration : IEntityTypeConfiguration
     }
 }
 
+internal sealed class DocumentTableReportConfiguration : IEntityTypeConfiguration<DocumentTableReport>
+{
+    public void Configure(EntityTypeBuilder<DocumentTableReport> b)
+    {
+        b.ToTable("DocumentTableReports");
+        b.HasKey(r => new { r.DocumentId, r.Path });
+        b.Property(r => r.Path).HasMaxLength(DocumentTableReport.MaxPathLength);
+        b.Property(r => r.StepId).HasMaxLength(DocumentTableReport.MaxStepIdLength);
+        // Always an object, so the native json type takes it.
+        b.Property(r => r.ReportJson).HasColumnType("json");
+        b.HasOne(r => r.Document).WithMany(d => d.TableReports).HasForeignKey(r => r.DocumentId).OnDelete(DeleteBehavior.Cascade);
+        // Corrections are deleted with their document like the report, so this link must not cascade a second path.
+        b.HasOne(r => r.Correction).WithMany().HasForeignKey(r => r.CorrectionId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
 internal sealed class DocumentFlagConfiguration : IEntityTypeConfiguration<DocumentFlagRecord>
 {
     public void Configure(EntityTypeBuilder<DocumentFlagRecord> b)

@@ -313,7 +313,8 @@ src/
                               the LLM classifier, splitter and invoice extractor
   DocProc.Llm.Anthropic/      Anthropic API and Claude on Foundry adapter
   DocProc.Llm.OpenAi/         OpenAI, Azure OpenAI and OpenAI-compatible adapter
-  DocProc.Extraction.Profiles/ deterministic extractor-profile engine (Phase 4, empty so far)
+  DocProc.Mapping/            mapping engine over the positioned text layer (docs/11 §8, §12.4): the table tool's
+                              column-table, value readers by kind and locale; supplier layouts from P4
   DocProc.Extraction.EInvoice/ UBL 2.1 and CII (Factur-X / ZUGFeRD / XRechnung) parsers to the canonical model
   DocProc.Pipeline/           pipeline runner, in-process queue, the handlers of stages 1-7 and 9, demo data
   DocProc.Api/                ASP.NET Core host: /api/v1 endpoints, auth, dev mode, OpenAPI + Scalar
@@ -325,6 +326,7 @@ tests/
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, both adapters, LLM stages
   DocProc.EInvoice.Tests/     UBL / CII / XRechnung mapping, detection, resource limits
   DocProc.Pipeline.Tests/     stage handlers, runner, retries, duplicate handling, demo data and its replay fixtures
+  DocProc.Mapping.Tests/      the table engine and value readers on synthetic word layouts
   DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): endpoints, auth, roles, tenant
                               scope, API keys, dev mode; the documentation checks under Docs/
   DocProc.Worker.Tests/       the worker host as Program.cs composes it

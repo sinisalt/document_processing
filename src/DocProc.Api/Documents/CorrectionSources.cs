@@ -110,6 +110,18 @@ public static partial class CorrectionSources
         return json.ToJsonString();
     }
 
+    /// <summary>
+    /// The <c>Correction.SourceJson</c> of a table capture (docs/11 §6.2 <c>table</c>): the source with
+    /// <c>table: {spec, report}</c>, the specification the rows were read with and a copy of the report, for the audit.
+    /// </summary>
+    public static string ToJson(CorrectionSource? source, System.Text.Json.Nodes.JsonObject table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        var json = source is null ? [] : (System.Text.Json.Nodes.JsonObject)JsonSerializer.SerializeToNode(source, StorageOptions)!;
+        json["table"] = table;
+        return json.ToJsonString();
+    }
+
     private static bool IsValid(SourceBox box) =>
         double.IsFinite(box.X0) && double.IsFinite(box.Y0) && double.IsFinite(box.X1) && double.IsFinite(box.Y1)
         && box.X0 >= 0 && box.Y0 >= 0 && box.X1 <= PageUnits && box.Y1 <= PageUnits

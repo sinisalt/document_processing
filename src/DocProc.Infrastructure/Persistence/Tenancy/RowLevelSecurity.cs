@@ -145,8 +145,21 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV5 = new(FieldIndexProtectedTables, PlatformRowTablesV2, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>The strict tables of the <c>TableReports</c> migration: <see cref="FieldIndexProtectedTables"/> plus <c>DocumentTableReports</c>. Frozen.</summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> TableReportProtectedTables =
+    [
+        .. FieldIndexProtectedTables,
+        ("DocumentTableReports", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>TableReports</c> migration: <see cref="PolicyV5"/> with <c>DocumentTableReports</c> (docs/11
+    /// §6.2, the table tool's report) among the strict tables. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV6 = new(TableReportProtectedTables, PlatformRowTablesV2, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV5;
+    public static PolicyDefinition CurrentPolicy => PolicyV6;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;
