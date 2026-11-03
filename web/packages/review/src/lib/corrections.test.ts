@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { setByPath } from "@docproc/app-shell";
-import { allSpecs, fieldDomId, formName, pathOfFormName, toEditable, toFormValues, type CanonicalInvoice } from "./canonical";
-import { diffCorrections, parseAmount, sameValue, toCorrectionValue } from "./corrections";
+import { fieldDomId, formName, pathOfFormName, toEditable, toFormValues } from "./values";
+import { appendEntry, appendRow, diffCorrections, parseAmount, removeAt, sameValue, setAttribute, toCorrectionValue } from "./corrections";
+import { allSpecs } from "../test/fixtures";
+
+type CanonicalInvoice = Record<string, unknown>;
 
 const canonical: CanonicalInvoice = {
   kind: { value: "Invoice", status: "Extracted", confidence: 1 },
@@ -108,6 +111,21 @@ describe("value helpers", () => {
     expect(toCorrectionValue("number", "")).toBeNull();
     expect(toCorrectionValue("identifier", " A-1 ")).toBe("A-1");
     expect(toCorrectionValue("date", "2026-01-02")).toBe("2026-01-02");
+    expect(toCorrectionValue("boolean", "true")).toBe(true);
+    expect(toCorrectionValue("boolean", "false")).toBe(false);
+    expect(toCorrectionValue("boolean", "")).toBeNull();
+  });
+
+  it("builds the structural operations of a definition-driven document", () => {
+    expect(appendRow("lines")).toEqual({ op: "append", path: "lines", value: null, reason: null });
+    expect(appendEntry("orderReferences", "identifier", " PO-1 ")).toEqual({ op: "append", path: "orderReferences", value: "PO-1", reason: null });
+    expect(removeAt("lines[2]")).toEqual({ op: "remove", path: "lines[2]", value: null, reason: null });
+    expect(setAttribute("ext.storeNo", " 0815 ")).toEqual({ path: "ext.storeNo", value: "0815", reason: null });
+  });
+
+  it("never sends a read-only field", () => {
+    const specs = [{ path: "status", kind: "string" as const, fieldPath: "status", readOnly: true }];
+    expect(diffCorrections(specs, { status: "Open" }, { status: "Closed" })).toEqual([]);
   });
 
   it("maps canonical paths to form names and DOM ids and back", () => {

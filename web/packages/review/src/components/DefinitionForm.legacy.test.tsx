@@ -1,11 +1,15 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FormProvider, useForm } from "react-hook-form";
-import { i18n } from "@/i18n";
-import { CanonicalForm } from "./CanonicalForm";
-import { ArithmeticIndicator, LineItemGrid } from "./LineItemGrid";
-import { allSpecs, fieldDomId, toFormValues, unitsOfMeasure, type CanonicalInvoice } from "@/lib/canonical";
-import { diffCorrections, type FieldCorrection } from "@/lib/corrections";
+import { i18n } from "@docproc/app-shell";
+import { DefinitionForm } from "./DefinitionForm";
+import { ArithmeticIndicator } from "./RepeatingGroupGrid";
+import { unitsOfMeasure } from "../lib/formSpec";
+import { fieldDomId, toFormValues } from "../lib/values";
+import { diffCorrections, type FieldCorrection } from "../lib/corrections";
+import { legacyLayout } from "../test/fixtures";
+
+type CanonicalInvoice = Record<string, unknown>;
 
 const money = (amount: number) => ({ amount, currency: "EUR" });
 const extracted = <T,>(value: T, confidence = 1) => ({ value, status: "Extracted" as const, confidence, source: { method: "StructuredXml" as const } });
@@ -28,7 +32,8 @@ const canonical: CanonicalInvoice = {
   ],
 };
 
-const specs = allSpecs(canonical);
+const layout = legacyLayout(canonical);
+const specs = layout.specs;
 const initial = toFormValues(canonical, specs);
 
 /** The review screen's form in miniature: the header form, the line grid and a save that sends only the diff. */
@@ -37,8 +42,7 @@ function Harness({ onSave, disabled = false }: { onSave: (corrections: FieldCorr
   return (
     <FormProvider {...form}>
       <form aria-label="review" onSubmit={form.handleSubmit((values) => onSave(diffCorrections(specs, initial, values)))}>
-        <CanonicalForm canonical={canonical} disabled={disabled} onHighlight={() => undefined} />
-        <LineItemGrid canonical={canonical} disabled={disabled} onHighlight={() => undefined} />
+        <DefinitionForm layout={layout} canonical={canonical} disabled={disabled} onHighlight={() => undefined} />
         <button type="submit">save</button>
       </form>
     </FormProvider>
@@ -57,7 +61,7 @@ function lineRow(index: number): HTMLElement {
   return row;
 }
 
-describe("review form", () => {
+describe("review form of an invoice without a definition", () => {
   beforeAll(async () => {
     await i18n.changeLanguage("en");
   });

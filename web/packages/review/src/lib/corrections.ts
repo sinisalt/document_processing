@@ -1,6 +1,6 @@
 import { getByPath } from "@docproc/app-shell";
 import type { components } from "@docproc/api-client";
-import type { FieldKind, FieldSpec } from "./canonical";
+import type { FieldKind, FieldSpec } from "./formSpec";
 
 export type FieldCorrection = components["schemas"]["FieldCorrection"];
 
@@ -24,7 +24,8 @@ export function parseAmount(text: string): number | null {
 
 /**
  * The JSON value `PATCH /documents/{id}/fields` expects for an edited text (docs/05): a bare string for an identifier,
- * a bare number for an amount (document currency), ISO dates as strings, enums as names, and `null` to clear.
+ * a bare number for an amount (document currency), ISO dates as strings, enums as names or codes, a boolean as
+ * `true`/`false`, and `null` to clear.
  */
 export function toCorrectionValue(kind: FieldKind, text: string): unknown {
   const trimmed = text.trim();
@@ -35,6 +36,8 @@ export function toCorrectionValue(kind: FieldKind, text: string): unknown {
       const n = parseAmount(trimmed);
       return n === null || Number.isNaN(n) ? trimmed : n;
     }
+    case "boolean":
+      return trimmed === "true" ? true : trimmed === "false" ? false : trimmed;
     default:
       return trimmed;
   }
@@ -62,15 +65,36 @@ export function sameValue(kind: FieldKind, before: string, after: string): boole
 /**
  * Only what the reviewer changed, as corrections: a spec whose current value differs from its initial value yields one
  * `{ path, value }`; untouched fields (and fields retyped to the same value) are never sent, so the API keeps their
- * provenance byte for byte.
+ * provenance byte for byte. Read-only specs are never sent.
  */
 export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, current: unknown, reason?: string | null): FieldCorrection[] {
   const corrections: FieldCorrection[] = [];
   for (const spec of specs) {
+    if (spec.readOnly) continue;
     const before = normalize(getByPath(initial, spec.path));
     const after = normalize(getByPath(current, spec.path));
     if (sameValue(spec.kind, before, after)) continue;
     corrections.push({ path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null });
   }
   return corrections;
+}
+
+/** `append` of an empty row to a repeating group (docs/11 §12.8): `{ op: "append", path: "lines" }`. */
+export function appendRow(path: string): FieldCorrection {
+  return { op: "append", path, value: null, reason: null };
+}
+
+/** `append` of an entry to a list, or of nothing to a repeating group, with its value. */
+export function appendEntry(path: string, kind: FieldKind, text: string): FieldCorrection {
+  return { op: "append", path, value: toCorrectionValue(kind, text), reason: null };
+}
+
+/** `remove` of a row (`lines[2]`), a list entry (`orderReferences[0]`) or a bag key (`ext.storeNo`). */
+export function removeAt(path: string): FieldCorrection {
+  return { op: "remove", path, value: null, reason: null };
+}
+
+/** `set` of a new bag key (`ext.storeNo`): the patcher creates a key it does not hold yet. */
+export function setAttribute(path: string, text: string): FieldCorrection {
+  return { path, value: toCorrectionValue("string", text), reason: null };
 }

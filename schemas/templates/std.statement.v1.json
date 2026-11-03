@@ -41,5 +41,16 @@
         "unreadableRegions"
       ]
     }
+  },
+  "formSpec": {
+    "formatVersion": 1,
+    "key": "std.statement",
+    "version": 1,
+    "name": {
+      "en": "Statement",
+      "de": "Kontoauszug"
+    },
+    "sections": [],
+    "fields": []
   }
 }

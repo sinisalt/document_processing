@@ -119,6 +119,9 @@ public sealed class DefinitionCompilerTests
                 // The adapter's schema is snapshotted on its own (invoice_extraction.v1.json); only its identity here.
                 ["schema"] = compiled.LlmSchema.Adapter is null ? compiled.LlmSchema.Schema.DeepClone() : null,
             },
+            // The review form's input (docs/11 §12.2): the web package's tests render these specs, so a compiler change
+            // that would change the generated form shows up here first.
+            ["formSpec"] = compiled.FormSpec.DeepClone(),
         };
         var text = JsonSerializer.Serialize(snapshot, Pretty) + Environment.NewLine;
         var path = Path.Combine(RepositoryRoot(), "schemas", "templates", $"{key}.v{template.Version}.json");

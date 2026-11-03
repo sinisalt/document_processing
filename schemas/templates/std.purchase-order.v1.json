@@ -853,5 +853,436 @@
         "unreadableRegions"
       ]
     }
+  },
+  "formSpec": {
+    "formatVersion": 1,
+    "key": "std.purchase-order",
+    "version": 1,
+    "name": {
+      "en": "Purchase order",
+      "de": "Bestellung"
+    },
+    "sections": [
+      {
+        "id": "document",
+        "label": {
+          "en": "Document",
+          "de": "Beleg"
+        }
+      },
+      {
+        "id": "parties",
+        "label": {
+          "en": "Parties",
+          "de": "Parteien"
+        }
+      },
+      {
+        "id": "totals",
+        "label": {
+          "en": "Totals",
+          "de": "Summen"
+        }
+      },
+      {
+        "id": "lines",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        }
+      }
+    ],
+    "fields": [
+      {
+        "path": "poNumber",
+        "fieldId": "fld_po_no",
+        "key": "poNumber",
+        "kind": "identifier",
+        "label": {
+          "en": "Order no.",
+          "de": "Bestellnummer"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false,
+        "indexed": true
+      },
+      {
+        "path": "orderDate",
+        "fieldId": "fld_order_date",
+        "key": "orderDate",
+        "kind": "date",
+        "label": {
+          "en": "Order date",
+          "de": "Bestelldatum"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "requestedDeliveryDate",
+        "fieldId": "fld_requested",
+        "key": "requestedDeliveryDate",
+        "kind": "date",
+        "label": {
+          "en": "Requested delivery date",
+          "de": "Gew\u00FCnschtes Lieferdatum"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "supplier",
+        "fieldId": "fld_sup",
+        "key": "supplier",
+        "kind": "party",
+        "label": {
+          "en": "Supplier",
+          "de": "Lieferant"
+        },
+        "section": "parties",
+        "required": false,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "name",
+            "kind": "string"
+          },
+          {
+            "key": "vatId",
+            "kind": "string"
+          },
+          {
+            "key": "taxId",
+            "kind": "string"
+          },
+          {
+            "key": "registrationNumber",
+            "kind": "string"
+          },
+          {
+            "key": "address",
+            "kind": "address"
+          },
+          {
+            "key": "email",
+            "kind": "string"
+          },
+          {
+            "key": "phone",
+            "kind": "string"
+          },
+          {
+            "key": "iban",
+            "kind": "string"
+          },
+          {
+            "key": "bic",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "buyer",
+        "fieldId": "fld_buyer",
+        "key": "buyer",
+        "kind": "party",
+        "label": {
+          "en": "Buyer",
+          "de": "Besteller"
+        },
+        "section": "parties",
+        "required": false,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "name",
+            "kind": "string"
+          },
+          {
+            "key": "vatId",
+            "kind": "string"
+          },
+          {
+            "key": "taxId",
+            "kind": "string"
+          },
+          {
+            "key": "registrationNumber",
+            "kind": "string"
+          },
+          {
+            "key": "address",
+            "kind": "address"
+          },
+          {
+            "key": "email",
+            "kind": "string"
+          },
+          {
+            "key": "phone",
+            "kind": "string"
+          },
+          {
+            "key": "iban",
+            "kind": "string"
+          },
+          {
+            "key": "bic",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "deliveryAddress",
+        "fieldId": "fld_ship_to",
+        "key": "deliveryAddress",
+        "kind": "address",
+        "label": {
+          "en": "Delivery address",
+          "de": "Lieferadresse"
+        },
+        "section": "parties",
+        "required": false,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "line1",
+            "kind": "string"
+          },
+          {
+            "key": "line2",
+            "kind": "string"
+          },
+          {
+            "key": "postalCode",
+            "kind": "string"
+          },
+          {
+            "key": "city",
+            "kind": "string"
+          },
+          {
+            "key": "region",
+            "kind": "string"
+          },
+          {
+            "key": "countryCode",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "currency",
+        "fieldId": "fld_cur",
+        "key": "currency",
+        "kind": "currency",
+        "label": {
+          "en": "Currency",
+          "de": "W\u00E4hrung"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "totalNet",
+        "fieldId": "fld_net",
+        "key": "totalNet",
+        "kind": "money",
+        "label": {
+          "en": "Net total",
+          "de": "Nettobetrag"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "totalGross",
+        "fieldId": "fld_gross",
+        "key": "totalGross",
+        "kind": "money",
+        "label": {
+          "en": "Gross total",
+          "de": "Gesamtbetrag"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "status",
+        "fieldId": "fld_status",
+        "key": "status",
+        "kind": "enum",
+        "label": {
+          "en": "Order status",
+          "de": "Bestellstatus"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": true,
+        "provenance": false,
+        "options": [
+          {
+            "code": "Open",
+            "label": {
+              "en": "Open",
+              "de": "Offen"
+            }
+          },
+          {
+            "code": "PartiallyDelivered",
+            "label": {
+              "en": "Partially delivered",
+              "de": "Teilgeliefert"
+            }
+          },
+          {
+            "code": "Delivered",
+            "label": {
+              "en": "Delivered",
+              "de": "Geliefert"
+            }
+          },
+          {
+            "code": "Invoiced",
+            "label": {
+              "en": "Invoiced",
+              "de": "Berechnet"
+            }
+          },
+          {
+            "code": "Cancelled",
+            "label": {
+              "en": "Cancelled",
+              "de": "Storniert"
+            }
+          }
+        ]
+      },
+      {
+        "path": "lines",
+        "fieldId": "fld_lines",
+        "key": "lines",
+        "kind": "array",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        },
+        "section": "lines",
+        "required": false,
+        "readOnly": false,
+        "anchor": "description",
+        "children": [
+          {
+            "path": "lines[*].lineNumber",
+            "fieldId": "fld_l_no",
+            "key": "lineNumber",
+            "kind": "integer",
+            "label": {
+              "en": "Line no.",
+              "de": "Pos."
+            },
+            "required": false,
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "path": "lines[*].supplierSku",
+            "fieldId": "fld_l_sku",
+            "key": "supplierSku",
+            "kind": "string",
+            "label": {
+              "en": "Supplier article no.",
+              "de": "Artikelnummer"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].description",
+            "fieldId": "fld_l_desc",
+            "key": "description",
+            "kind": "text",
+            "label": {
+              "en": "Description",
+              "de": "Bezeichnung"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].quantityOrdered",
+            "fieldId": "fld_l_qty",
+            "key": "quantityOrdered",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity ordered",
+              "de": "Bestellmenge"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].unit",
+            "fieldId": "fld_l_unit",
+            "key": "unit",
+            "kind": "unit",
+            "label": {
+              "en": "Unit",
+              "de": "Einheit"
+            },
+            "required": false,
+            "readOnly": false,
+            "codeList": "uom"
+          },
+          {
+            "path": "lines[*].unitRaw",
+            "fieldId": "fld_l_unit_raw",
+            "key": "unitRaw",
+            "kind": "string",
+            "label": {
+              "en": "Unit as printed",
+              "de": "Einheit wie gedruckt"
+            },
+            "required": false,
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "path": "lines[*].unitPrice",
+            "fieldId": "fld_l_price",
+            "key": "unitPrice",
+            "kind": "money",
+            "label": {
+              "en": "Unit price",
+              "de": "Einzelpreis"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].lineNet",
+            "fieldId": "fld_l_net",
+            "key": "lineNet",
+            "kind": "money",
+            "label": {
+              "en": "Net amount",
+              "de": "Nettobetrag"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          }
+        ]
+      }
+    ]
   }
 }

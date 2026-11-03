@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Outlet, RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { i18n } from "@/i18n";
-import { fieldDomId, type CanonicalInvoice } from "@/lib/canonical";
+import { fieldDomId } from "@docproc/review";
+
+type CanonicalInvoice = Record<string, unknown>;
 import type { DocumentDetail } from "@/lib/queries";
 
 const client = {

@@ -1,0 +1,220 @@
+{
+  "form": {
+    "none": "(keine)",
+    "required": "Pflichtfeld",
+    "yes": "Ja",
+    "no": "Nein",
+    "otherSection": "Weitere Felder",
+    "hiddenFields": "Felder ohne Wert sind ausgeblendet"
+  },
+  "sections": {
+    "document": "Beleg",
+    "supplier": "Lieferant",
+    "customer": "Kunde",
+    "totals": "Summen",
+    "payment": "Zahlungsbedingungen",
+    "notes": "Bemerkungen",
+    "lines": "Positionen"
+  },
+  "lines": {
+    "title_one": "{{count}} Position",
+    "title_other": "{{count}} Positionen",
+    "caption": "Positionen",
+    "check": "Prüfung",
+    "cellLabel": "Position {{line}}, {{field}}",
+    "empty": "Dieses Dokument hat keine Positionen.",
+    "allOk": "Positionsrechnung stimmt",
+    "mismatches_one": "{{count}} Position geht nicht auf",
+    "mismatches_other": "{{count}} Positionen gehen nicht auf",
+    "ok": "Menge × Einzelpreis entspricht dem Nettobetrag",
+    "okDetail": "Erwartet {{expected}}",
+    "incomplete": "Menge, Einzelpreis oder Nettobetrag fehlt",
+    "mismatchDetail": "Menge × Einzelpreis ergibt {{expected}}, die Position nennt {{actual}}",
+    "unitRaw": "Gedruckt: {{unit}}",
+    "inCurrency": "{{field}} ({{currency}})"
+  },
+  "grid": {
+    "title_one": "{{count}} Zeile",
+    "title_other": "{{count}} Zeilen",
+    "caption": "{{group}}",
+    "cellLabel": "{{group}} {{row}}, {{field}}",
+    "rowField": "{{group}} {{row}} · {{field}}",
+    "row": "{{group}} {{row}}",
+    "addRow": "Zeile hinzufügen",
+    "removeRow": "Zeile {{row}} entfernen",
+    "columns": "Spalten",
+    "page": "Zeilen {{from}}–{{to}} von {{count}}",
+    "previousPage": "Vorherige Zeilen",
+    "nextPage": "Nächste Zeilen",
+    "nested_one": "{{count}} Eintrag",
+    "nested_other": "{{count}} Einträge",
+    "empty": "Noch keine Zeilen.",
+    "full": "Diese Gruppe darf höchstens {{max}} Zeilen haben."
+  },
+  "list": {
+    "add": "Hinzufügen",
+    "newEntry": "Neuer Eintrag für {{field}}",
+    "remove": "{{field}} entfernen",
+    "empty": "Noch keine."
+  },
+  "bag": {
+    "key": "Attribut",
+    "value": "Wert",
+    "add": "Attribut hinzufügen",
+    "remove": "{{key}} entfernen",
+    "empty": "Noch keine Attribute.",
+    "invalidKey": "Ein Schlüssel beginnt mit einem Buchstaben und enthält nur Buchstaben, Ziffern und _."
+  },
+  "fields": {
+    "kind": "Art",
+    "invoiceNumber": "Rechnungsnummer",
+    "issueDate": "Rechnungsdatum",
+    "deliveryDate": "Lieferdatum",
+    "dueDate": "Fälligkeitsdatum",
+    "servicePeriod": {
+      "from": "Leistungszeitraum von",
+      "to": "Leistungszeitraum bis"
+    },
+    "currency": "Währung",
+    "orderReferences": "Bestellnummer",
+    "deliveryNoteReferences": "Lieferscheinnummer",
+    "originalInvoiceReference": "Ursprungsrechnung",
+    "subtotalNet": "Zwischensumme (netto)",
+    "totalTax": "Steuerbetrag",
+    "totalGross": "Gesamtbetrag (brutto)",
+    "amountDue": "Zahlbetrag",
+    "rounding": "Rundung",
+    "notes": "Bemerkungen",
+    "party": {
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "taxId": "Steuernummer",
+      "registrationNumber": "Registernummer",
+      "email": "E-Mail",
+      "phone": "Telefon",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Straße",
+        "line2": "Adresszusatz",
+        "postalCode": "PLZ",
+        "city": "Ort",
+        "region": "Region",
+        "countryCode": "Land"
+      }
+    },
+    "paymentTerms": {
+      "dueDate": "Zahlbar bis",
+      "discountPercent": "Skonto (%)",
+      "discountUntil": "Skonto bis",
+      "paymentMeans": "Zahlungsart",
+      "paymentReference": "Verwendungszweck",
+      "iban": "IBAN des Empfängers",
+      "bic": "BIC des Empfängers",
+      "rawText": "Bedingungen laut Beleg"
+    },
+    "line": {
+      "lineNumber": "Nr.",
+      "supplierSku": "Artikelnr.",
+      "gtin": "GTIN",
+      "description": "Beschreibung",
+      "quantity": "Menge",
+      "unit": "Einheit",
+      "unitPrice": "Einzelpreis",
+      "discountPercent": "Rabatt %",
+      "discountAmount": "Rabatt",
+      "lineNet": "Netto",
+      "taxRate": "USt %",
+      "lineGross": "Brutto"
+    }
+  },
+  "fieldBlocks": {
+    "supplier": "Lieferant",
+    "customer": "Kunde",
+    "paymentTerms": "Zahlungsbedingungen",
+    "servicePeriod": "Leistungszeitraum",
+    "lines": "Position",
+    "taxBreakdown": "Steueraufschlüsselung",
+    "lineField": "Position {{line}} · {{field}}"
+  },
+  "members": {
+    "party": {
+      "name": "Name",
+      "vatId": "USt-IdNr.",
+      "taxId": "Steuernummer",
+      "registrationNumber": "Registernummer",
+      "email": "E-Mail",
+      "phone": "Telefon",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Straße",
+        "line2": "Adresszusatz",
+        "postalCode": "PLZ",
+        "city": "Ort",
+        "region": "Region",
+        "countryCode": "Land"
+      }
+    },
+    "address": {
+      "line1": "Straße",
+      "line2": "Adresszusatz",
+      "postalCode": "PLZ",
+      "city": "Ort",
+      "region": "Region",
+      "countryCode": "Land"
+    },
+    "paymentTerms": {
+      "dueDate": "Zahlbar bis",
+      "discountPercent": "Skonto (%)",
+      "discountUntil": "Skonto bis",
+      "paymentMeans": "Zahlungsart",
+      "paymentReference": "Verwendungszweck",
+      "iban": "IBAN des Empfängers",
+      "bic": "BIC des Empfängers",
+      "rawText": "Bedingungen laut Beleg"
+    },
+    "period": {
+      "from": "{{field}} von",
+      "to": "{{field}} bis"
+    },
+    "taxRow": {
+      "rate": "Satz (%)",
+      "taxableAmount": "Bemessungsgrundlage",
+      "taxAmount": "Steuerbetrag",
+      "category": "Kategorie"
+    },
+    "chargeOrAllowance": {
+      "description": "Beschreibung",
+      "amount": "Betrag",
+      "taxRate": "Steuersatz (%)",
+      "isCharge": "Zuschlag"
+    },
+    "temperatureReading": {
+      "celsius": "°C",
+      "location": "Ort",
+      "rawText": "Laut Beleg"
+    }
+  },
+  "enums": {
+    "Invoice": "Rechnung",
+    "CreditNote": "Gutschrift",
+    "Proforma": "Proformarechnung",
+    "BankTransfer": "Überweisung",
+    "DirectDebit": "Lastschrift",
+    "Card": "Karte",
+    "Cash": "Bar",
+    "Other": "Sonstiges",
+    "Kilogram": "Kilogramm",
+    "Gram": "Gramm",
+    "Litre": "Liter",
+    "Millilitre": "Milliliter",
+    "Piece": "Stück",
+    "Box": "Karton",
+    "Case": "Gebinde",
+    "Crate": "Kiste",
+    "Pallet": "Palette",
+    "Hour": "Stunde"
+  },
+  "unit": "{{name}} ({{code}})"
+}

@@ -41,5 +41,16 @@
         "unreadableRegions"
       ]
     }
+  },
+  "formSpec": {
+    "formatVersion": 1,
+    "key": "std.generic",
+    "version": 1,
+    "name": {
+      "en": "Other document",
+      "de": "Sonstiges Dokument"
+    },
+    "sections": [],
+    "fields": []
   }
 }

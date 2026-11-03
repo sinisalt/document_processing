@@ -7,16 +7,12 @@ import { toast } from "sonner";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, cn, ResizableHandle, ResizablePanel, ResizablePanelGroup, Tabs, TabsContent, TabsList, TabsTrigger, useIsMobile } from "@docproc/ui";
 import { ApiError, ConfirmDialog, EmptyState, PageHeader, StatusBadge, formatDate, formatMoney, isCorrectable, isInFlight, queryKeys, unwrap, useApi } from "@docproc/app-shell";
-import { CanonicalForm, useFieldLabel } from "./CanonicalForm";
-import type { HighlightReason } from "./FieldInput";
+import { DefinitionForm, diffCorrections, fieldDomId, formName, isFormSpec, legacyFormSpec, localized, specsFromDefinition, toFormValues, useFieldLabel, type FieldCorrection, type FormSpec, type HighlightReason } from "@docproc/review";
 import { FlagsList, sortFlags } from "./FlagsList";
-import { LineItemGrid } from "./LineItemGrid";
 import { OriginalTab } from "./OriginalTab";
 import { PageViewer } from "./PageViewer";
 import { ReviewActions } from "./ReviewActions";
 import { Timeline } from "./Timeline";
-import { allSpecs, fieldDomId, formName, toFormValues, type CanonicalInvoice } from "@/lib/canonical";
-import { diffCorrections } from "@/lib/corrections";
 import { collectProvenanceBoxes } from "@/lib/overlay";
 import { useDocumentEvents, type DocumentDetail, type DocumentFlag } from "@/lib/queries";
 import { reviewReasonLabels, reviewRequestReason } from "@/lib/reviewReason";
@@ -53,17 +49,24 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const navigate = useNavigate();
   const { client } = useApi();
   const queryClient = useQueryClient();
-  const fieldLabel = useFieldLabel();
   // Below md (768 px) the viewer sits above the form instead of beside it: side by side, neither fits a phone.
   const stacked = useIsMobile();
 
-  const hasCanonical = (document.type === "Invoice" || document.type === "CreditNote") && !!document.canonical;
-  const canonical = useMemo(() => (hasCanonical ? (document.canonical as CanonicalInvoice) : null), [document.canonical, hasCanonical]);
-  const specs = useMemo(() => allSpecs(canonical), [canonical]);
+  // The form comes from the type version the API resolved (docs/11 §12.2); an invoice or credit note of a tenant without
+  // definitions gets the built-in invoice form. Any other type without a definition has no form.
+  const formSpec = useMemo<FormSpec | null>(() => {
+    const served = document.definition?.formSpec;
+    return isFormSpec(served) ? served : legacyFormSpec(document.type);
+  }, [document.definition, document.type]);
+  const hasCanonical = !!formSpec && !!document.canonical;
+  const canonical = useMemo(() => (hasCanonical ? (document.canonical as unknown) : null), [document.canonical, hasCanonical]);
+  const schemaVersion = document.canonicalSchemaVersion === null ? null : Number(document.canonicalSchemaVersion);
+  const layout = useMemo(() => (formSpec && canonical ? specsFromDefinition(formSpec, canonical, { schemaVersion }) : null), [formSpec, canonical, schemaVersion]);
+  const specs = useMemo(() => layout?.specs ?? [], [layout]);
+  const fieldLabel = useFieldLabel(layout);
   const initial = useMemo(() => toFormValues(canonical, specs, locale), [canonical, specs, locale]);
   const boxes = useMemo(() => collectProvenanceBoxes(canonical), [canonical]);
   const flags = useMemo(() => sortFlags(document.flags), [document.flags]);
-  const flaggedLines = useMemo(() => new Set(flags.map((f) => /^lines\[(\d+)\]/.exec(f.field ?? "")?.[1]).filter((v): v is string => !!v).map(Number)), [flags]);
   const flaggedPaths = useMemo(() => flags.map((f) => f.field).filter((path): path is string => !!path), [flags]);
   /** A flag's field has a box when the field, or the block it belongs to (`supplier` for `supplier.vatId`), has one. */
   const locatedOnPage = useCallback((path: string) => boxes.some((box) => box.path === path || path.startsWith(`${box.path}.`) || path.startsWith(`${box.path}[`)), [boxes]);
@@ -183,6 +186,20 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
 
   const onSave = form.handleSubmit((values) => save.mutate(values));
 
+  // Adding or removing a row, a list entry or an attribute (definition-driven documents, docs/11 §12.8) is sent at once,
+  // after the reviewer's unsaved corrections in the same request: the patch is all or nothing and applied in order, so
+  // nothing typed is lost and row indexes still mean what the reviewer saw.
+  const structure = useMutation({
+    mutationFn: async (operation: FieldCorrection) => {
+      const corrections = [...diffCorrections(specs, initial, form.getValues()), operation];
+      return unwrap(await client.PATCH("/api/v1/documents/{id}/fields", { params: { path: { id: document.id } }, body: { corrections } }));
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
+    },
+  });
+
   // Keyboard: Ctrl/Cmd+Enter approve, Esc back, j/k next/previous flag (outside inputs). A key that a dialog or a
   // popover handled (Radix marks its Esc with preventDefault) or that belongs to one is not the screen's.
   useEffect(() => {
@@ -232,7 +249,15 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                 {title}
               </span>
               <StatusBadge status={document.status} />
-              <Badge variant="outline">{t(`documentType.${document.type}`)}</Badge>
+              <Badge variant="outline" data-testid="document-type">
+                {localized(document.definition?.name, locale) ?? t(`documentType.${document.type}`, { defaultValue: document.typeName ?? document.type })}
+              </Badge>
+              {/* type@version (docs/11 §19): which version of the type the form and the rules come from. */}
+              {document.definition && (
+                <Badge variant="secondary" data-testid="type-version" title={document.definition.key}>
+                  {t("review.typeVersion", { version: document.definition.version })}
+                </Badge>
+              )}
             </span>
           }
           description={
@@ -331,8 +356,16 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                   <TabsContent value="fields" className="p-4">
                     {hasCanonical ? (
                       <form onSubmit={(event) => void onSave(event)} className="flex flex-col gap-6" aria-label={t("review.form.label")} data-editable={editable}>
-                        <CanonicalForm canonical={canonical} disabled={!editable} threshold={threshold} onHighlight={highlightField} />
-                        <LineItemGrid canonical={canonical} disabled={!editable} threshold={threshold} onHighlight={highlightField} flaggedLines={flaggedLines} flaggedPaths={flaggedPaths} />
+                        <DefinitionForm
+                          layout={layout!}
+                          canonical={canonical}
+                          disabled={!editable}
+                          threshold={threshold}
+                          onHighlight={highlightField}
+                          flaggedPaths={flaggedPaths}
+                          onStructuralChange={editable ? (operation) => structure.mutate(operation) : undefined}
+                          busy={structure.isPending || save.isPending}
+                        />
                         {editable && (
                           <div className="flex justify-end">
                             <Button type="submit" variant="secondary" disabled={!hasChanges || save.isPending}>
@@ -343,7 +376,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                         )}
                       </form>
                     ) : (
-                      <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : document.type === "Invoice" || document.type === "CreditNote" ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />
+                      <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : formSpec ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />
                     )}
                   </TabsContent>
                   <TabsContent value="timeline" className="p-4">

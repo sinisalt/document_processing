@@ -2,7 +2,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { i18n } from "@/i18n";
-import { fieldDomId, type CanonicalInvoice } from "@/lib/canonical";
+import { fieldDomId } from "@docproc/review";
+
+type CanonicalInvoice = Record<string, unknown>;
 import type { DocumentDetail, DocumentEvent, DocumentFlag } from "@/lib/queries";
 
 /** What the fake API answers, by path template; anything else is a 404 problem. */

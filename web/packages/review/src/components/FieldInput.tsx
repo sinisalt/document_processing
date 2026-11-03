@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
 import { Controller, useFormContext, type FieldValues } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, cn } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, LocalizedDateInput, SourceBadge, isLowConfidence, type FieldValue } from "@docproc/app-shell";
-import { fieldDomId, formName, type FieldSpec } from "@/lib/canonical";
+import type { FieldKind, FieldSpec } from "../lib/formSpec";
+import { REVIEW_NS, optionLabel } from "../lib/labels";
+import { fieldDomId, formName } from "../lib/values";
 
 /** Why a field is highlighted: the pointer is over it, or it has the keyboard focus. */
 export type HighlightReason = "hover" | "focus";
@@ -29,21 +32,27 @@ export interface FieldInputProps {
   showBadges?: boolean;
   className?: string;
   "aria-label"?: string;
+  /** Rendered after the input on its line (a list entry's remove button). */
+  trailing?: ReactNode;
 }
 
 const CLEAR = "__clear__";
 
+const numeric = (kind: FieldKind) => kind === "money" || kind === "number";
+
 /**
- * One editable canonical value bound to the review form by its canonical path: a text/number/date input, a select for
- * enums, with the shell's status, confidence and source badges beside it.
+ * One editable canonical value bound to the review form by its canonical path (docs/11 §12.2: a widget per kind): a
+ * text, number or date input, a select for codes, units and yes/no, a text area for multi-line text, with the shell's
+ * status, confidence and source badges beside it.
  */
-export function FieldInput({ spec, field, currency, disabled = false, threshold, onHighlight, compact = false, showBadges = true, className, "aria-label": ariaLabel }: FieldInputProps) {
-  const { t } = useTranslation();
+export function FieldInput({ spec, field, currency, disabled = false, threshold, onHighlight, compact = false, showBadges = true, className, "aria-label": ariaLabel, trailing }: FieldInputProps) {
+  const { t, i18n } = useTranslation(REVIEW_NS);
   const form = useFormContext<FieldValues>();
   const name = formName(spec.path);
   const id = fieldDomId(spec.path);
   const error = form.getFieldState(name, form.formState).error;
   const low = isLowConfidence(field, threshold);
+  const readOnly = disabled || !!spec.readOnly;
   const hover = {
     onMouseEnter: () => onHighlight?.(spec.fieldPath, "hover"),
     onMouseLeave: () => onHighlight?.(null, "hover"),
@@ -53,39 +62,47 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
   };
   const common = {
     id,
-    disabled,
+    disabled: readOnly,
     "aria-invalid": error ? true : undefined,
     "aria-describedby": error ? `${id}-error` : undefined,
     "aria-label": ariaLabel,
+    "aria-required": spec.required || undefined,
     "data-path": spec.path,
     "data-low-confidence": low || undefined,
     // Read-only (a viewer, a decided document): the values are what the screen is for, so they keep full contrast
     // instead of the 50 % opacity of a disabled control.
-    className: cn(compact && "h-8 text-sm", low && "border-amber-500/70 dark:border-amber-400/60", disabled && "disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100", className),
+    className: cn(compact && "h-8 text-sm", low && "border-amber-500/70 dark:border-amber-400/60", readOnly && "disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100", className),
     ...hover,
   };
 
   let control;
-  if (spec.kind === "enum") {
+  if (spec.kind === "enum" || spec.kind === "boolean") {
+    const options = spec.kind === "boolean" ? ["true", "false"] : (spec.options ?? []);
+    const labelOfOption = (option: string) => (spec.kind === "boolean" ? t(option === "true" ? "form.yes" : "form.no") : optionLabel(t, spec, option, i18n.language));
     control = (
       <Controller
         control={form.control}
         name={name}
-        render={({ field: f }) => (
-          <Select value={f.value ? String(f.value) : CLEAR} onValueChange={(value) => f.onChange(value === CLEAR ? "" : value)} disabled={disabled}>
-            <SelectTrigger {...common} className={cn(!compact && "w-full", common.className)} ref={f.ref} onBlur={f.onBlur} size={compact ? "sm" : "default"}>
-              <SelectValue placeholder={t("review.form.none")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={CLEAR}>{t("review.form.none")}</SelectItem>
-              {(spec.options ?? []).map((option) => (
-                <SelectItem key={option} value={option}>
-                  {t(`enums.${option}`, { defaultValue: option })}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        render={({ field: f }) => {
+          const value = f.value ? String(f.value) : CLEAR;
+          // A stored code the list does not know (an old unit name, a code from another system) stays selectable.
+          const all = value !== CLEAR && !options.includes(value) ? [...options, value] : options;
+          return (
+            <Select value={value} onValueChange={(next) => f.onChange(next === CLEAR ? "" : next)} disabled={readOnly}>
+              <SelectTrigger {...common} className={cn(!compact && "w-full", common.className)} ref={f.ref} onBlur={f.onBlur} size={compact ? "sm" : "default"}>
+                <SelectValue placeholder={t("form.none")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CLEAR}>{t("form.none")}</SelectItem>
+                {all.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {labelOfOption(option)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          );
+        }}
       />
     );
   } else if (spec.kind === "date") {
@@ -116,8 +133,8 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
         {...common}
         {...form.register(name)}
         type="text"
-        inputMode={spec.kind === "money" || spec.kind === "number" ? "decimal" : undefined}
-        className={cn(common.className, (spec.kind === "money" || spec.kind === "number") && "text-right tabular-nums")}
+        inputMode={numeric(spec.kind) ? (spec.integer ? "numeric" : "decimal") : undefined}
+        className={cn(common.className, numeric(spec.kind) && "text-right tabular-nums")}
       />
     );
   }
@@ -131,6 +148,7 @@ export function FieldInput({ spec, field, currency, disabled = false, threshold,
             {currency}
           </span>
         )}
+        {trailing}
       </div>
       {!compact && showBadges && field && (
         <div className="flex flex-wrap items-center gap-1">

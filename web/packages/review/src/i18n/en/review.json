@@ -1,0 +1,220 @@
+{
+  "form": {
+    "none": "(none)",
+    "required": "required",
+    "yes": "Yes",
+    "no": "No",
+    "otherSection": "Other fields",
+    "hiddenFields": "Fields without a value are hidden"
+  },
+  "sections": {
+    "document": "Document",
+    "supplier": "Supplier",
+    "customer": "Customer",
+    "totals": "Totals",
+    "payment": "Payment terms",
+    "notes": "Notes",
+    "lines": "Lines"
+  },
+  "lines": {
+    "title_one": "{{count}} line item",
+    "title_other": "{{count}} line items",
+    "caption": "Line items",
+    "check": "Check",
+    "cellLabel": "Line {{line}}, {{field}}",
+    "empty": "This document has no line items.",
+    "allOk": "Line arithmetic OK",
+    "mismatches_one": "{{count}} line does not add up",
+    "mismatches_other": "{{count}} lines do not add up",
+    "ok": "Quantity × unit price matches the line net",
+    "okDetail": "Expected {{expected}}",
+    "incomplete": "Quantity, unit price or line net missing",
+    "mismatchDetail": "Quantity × unit price is {{expected}}, the line says {{actual}}",
+    "unitRaw": "Printed: {{unit}}",
+    "inCurrency": "{{field}} ({{currency}})"
+  },
+  "grid": {
+    "title_one": "{{count}} row",
+    "title_other": "{{count}} rows",
+    "caption": "{{group}}",
+    "cellLabel": "{{group}} {{row}}, {{field}}",
+    "rowField": "{{group}} {{row}} · {{field}}",
+    "row": "{{group}} {{row}}",
+    "addRow": "Add row",
+    "removeRow": "Remove row {{row}}",
+    "columns": "Columns",
+    "page": "Rows {{from}}–{{to}} of {{count}}",
+    "previousPage": "Previous rows",
+    "nextPage": "Next rows",
+    "nested_one": "{{count}} entry",
+    "nested_other": "{{count}} entries",
+    "empty": "No rows yet.",
+    "full": "The most rows this group may have is {{max}}."
+  },
+  "list": {
+    "add": "Add",
+    "newEntry": "New entry for {{field}}",
+    "remove": "Remove {{field}}",
+    "empty": "None yet."
+  },
+  "bag": {
+    "key": "Attribute",
+    "value": "Value",
+    "add": "Add attribute",
+    "remove": "Remove {{key}}",
+    "empty": "No attributes yet.",
+    "invalidKey": "A key starts with a letter and has only letters, digits and _."
+  },
+  "fields": {
+    "kind": "Kind",
+    "invoiceNumber": "Invoice number",
+    "issueDate": "Issue date",
+    "deliveryDate": "Delivery date",
+    "dueDate": "Due date",
+    "servicePeriod": {
+      "from": "Service period from",
+      "to": "Service period to"
+    },
+    "currency": "Currency",
+    "orderReferences": "Order reference",
+    "deliveryNoteReferences": "Delivery note reference",
+    "originalInvoiceReference": "Original invoice",
+    "subtotalNet": "Subtotal (net)",
+    "totalTax": "Total tax",
+    "totalGross": "Total (gross)",
+    "amountDue": "Amount due",
+    "rounding": "Rounding",
+    "notes": "Notes",
+    "party": {
+      "name": "Name",
+      "vatId": "VAT ID",
+      "taxId": "Tax number",
+      "registrationNumber": "Registration number",
+      "email": "Email",
+      "phone": "Phone",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Street",
+        "line2": "Address line 2",
+        "postalCode": "Postal code",
+        "city": "City",
+        "region": "Region",
+        "countryCode": "Country"
+      }
+    },
+    "paymentTerms": {
+      "dueDate": "Payment due",
+      "discountPercent": "Early payment discount (%)",
+      "discountUntil": "Discount until",
+      "paymentMeans": "Payment means",
+      "paymentReference": "Payment reference",
+      "iban": "Payee IBAN",
+      "bic": "Payee BIC",
+      "rawText": "Terms as printed"
+    },
+    "line": {
+      "lineNumber": "#",
+      "supplierSku": "SKU",
+      "gtin": "GTIN",
+      "description": "Description",
+      "quantity": "Qty",
+      "unit": "Unit",
+      "unitPrice": "Unit price",
+      "discountPercent": "Disc. %",
+      "discountAmount": "Discount",
+      "lineNet": "Net",
+      "taxRate": "Tax %",
+      "lineGross": "Gross"
+    }
+  },
+  "fieldBlocks": {
+    "supplier": "Supplier",
+    "customer": "Customer",
+    "paymentTerms": "Payment terms",
+    "servicePeriod": "Service period",
+    "lines": "Line",
+    "taxBreakdown": "Tax breakdown",
+    "lineField": "Line {{line}} · {{field}}"
+  },
+  "members": {
+    "party": {
+      "name": "Name",
+      "vatId": "VAT ID",
+      "taxId": "Tax number",
+      "registrationNumber": "Registration number",
+      "email": "Email",
+      "phone": "Phone",
+      "iban": "IBAN",
+      "bic": "BIC",
+      "address": {
+        "line1": "Street",
+        "line2": "Address line 2",
+        "postalCode": "Postal code",
+        "city": "City",
+        "region": "Region",
+        "countryCode": "Country"
+      }
+    },
+    "address": {
+      "line1": "Street",
+      "line2": "Address line 2",
+      "postalCode": "Postal code",
+      "city": "City",
+      "region": "Region",
+      "countryCode": "Country"
+    },
+    "paymentTerms": {
+      "dueDate": "Payment due",
+      "discountPercent": "Early payment discount (%)",
+      "discountUntil": "Discount until",
+      "paymentMeans": "Payment means",
+      "paymentReference": "Payment reference",
+      "iban": "Payee IBAN",
+      "bic": "Payee BIC",
+      "rawText": "Terms as printed"
+    },
+    "period": {
+      "from": "{{field}} from",
+      "to": "{{field}} to"
+    },
+    "taxRow": {
+      "rate": "Rate (%)",
+      "taxableAmount": "Taxable amount",
+      "taxAmount": "Tax amount",
+      "category": "Category"
+    },
+    "chargeOrAllowance": {
+      "description": "Description",
+      "amount": "Amount",
+      "taxRate": "Tax rate (%)",
+      "isCharge": "Charge"
+    },
+    "temperatureReading": {
+      "celsius": "°C",
+      "location": "Location",
+      "rawText": "As printed"
+    }
+  },
+  "enums": {
+    "Invoice": "Invoice",
+    "CreditNote": "Credit note",
+    "Proforma": "Pro forma",
+    "BankTransfer": "Bank transfer",
+    "DirectDebit": "Direct debit",
+    "Card": "Card",
+    "Cash": "Cash",
+    "Other": "Other",
+    "Kilogram": "Kilogram",
+    "Gram": "Gram",
+    "Litre": "Litre",
+    "Millilitre": "Millilitre",
+    "Piece": "Piece",
+    "Box": "Box",
+    "Case": "Case",
+    "Crate": "Crate",
+    "Pallet": "Pallet",
+    "Hour": "Hour"
+  },
+  "unit": "{{name}} ({{code}})"
+}
