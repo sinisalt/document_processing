@@ -203,6 +203,22 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
         }
 
         (await asA.DocumentTableReports.AsNoTracking().SingleAsync(ct)).ReportJson.ShouldContain("\"rows\"");
+
+        // OutputsAndLookups: the output tables are strict tenant tables, the mappings and lookup tables platform-row
+        // tables; the platform output templates are seeded once however often it ran, and a tenant session reads them.
+        foreach (var table in new[] { "OutputDestinations", "OutputBindings", "OutboxDeliveries", "DeliveryAttempts", "DocumentExternalRefs" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+        }
+
+        foreach (var table in new[] { "OutputMappings", "OutputMappingVersions", "LookupTables", "LookupEntries" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(5, $"{table}: the read filter and four blocks");
+        }
+
+        (await asA.OutputMappings.AsNoTracking().Where(m => m.TenantId == null).Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"]);
+        (await asA.OutputMappingVersions.AsNoTracking().CountAsync(v => v.TenantId == null, ct)).ShouldBe(2);
+        (await asA.Suppliers.AsNoTracking().AllAsync(s => s.AttributesJson == null, ct)).ShouldBeTrue("nothing to back-fill");
     }
 
     private static async Task RunScriptAsync(string connectionString, string script, CancellationToken ct)

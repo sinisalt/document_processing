@@ -5,6 +5,8 @@
   <ItemGroup>
     <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+    <!-- The output renderer runs as a child process (JsonataRenderer); the reference puts its assembly next to the host's. -->
+    <ProjectReference Include="../DocProc.Outputs.Renderer/DocProc.Outputs.Renderer.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The standard template parity test compares the templates' keyword blocks with KeywordRuleSet. -->
@@ -32,5 +34,8 @@
   <ItemGroup>
     <!-- The templates as the TypeCatalogue migration seeds them, frozen with it (see TypeCatalogueSeedSql). -->
     <EmbeddedResource Include="Persistence/Migrations/Seed/TypeCatalogueV1/*.json" LogicalName="DocProc.Infrastructure.Seed.TypeCatalogueV1.%(Filename)%(Extension)" />
+    <!-- The platform output templates (docs/11 §13.9) and the copy the OutputsAndLookups migration seeds, frozen with it. -->
+    <EmbeddedResource Include="Outputs/Templates/*" LogicalName="DocProc.Infrastructure.OutputTemplates.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Persistence/Migrations/Seed/OutputTemplatesV1/*" LogicalName="DocProc.Infrastructure.Seed.OutputTemplatesV1.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

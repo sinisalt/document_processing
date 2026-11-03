@@ -75,6 +75,60 @@ export interface paths {
         patch: operations["UpdateChannel"];
         trace?: never;
     };
+    "/api/v1/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's destinations; secrets are never returned. */
+        get: operations["ListDestinations"];
+        put?: never;
+        /** Adds an http, blob or pull destination; the config is checked per transport, the secret is write-only. */
+        post: operations["CreateDestination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One destination. */
+        get: operations["GetDestination"];
+        put?: never;
+        post?: never;
+        /** Removes a destination no binding and no delivery refers to (409 otherwise: disable it instead), with its secrets. */
+        delete: operations["DeleteDestination"];
+        options?: never;
+        head?: never;
+        /** Renames, disables or reconfigures a destination. */
+        patch: operations["UpdateDestination"];
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets or rotates the destination's secret; the replaced secret stays as the previous one until the next rotation. */
+        put: operations["SetDestinationSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-templates": {
         parameters: {
             query?: never;
@@ -274,7 +328,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403). */
+        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases, alwaysReview and attributes need a tenant admin (403). */
         post: operations["CreateSupplierFromDocument"];
         delete?: never;
         options?: never;
@@ -745,6 +799,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lookup-tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's lookup tables and the platform code lists. */
+        get: operations["ListLookupTables"];
+        put?: never;
+        /** Adds an empty lookup table to the tenant. */
+        post: operations["CreateLookupTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lookup-tables/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One lookup table with its entries (the tenant's, else the platform's of that key); the ETag is its revision. */
+        get: operations["GetLookupTable"];
+        put?: never;
+        post?: never;
+        /** Removes one of the tenant's lookup tables with its entries. */
+        delete: operations["DeleteLookupTable"];
+        options?: never;
+        head?: never;
+        /** Changes a table's description or case sensitivity. */
+        patch: operations["UpdateLookupTable"];
+        trace?: never;
+    };
+    "/api/v1/lookup-tables/{key}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces every entry of one of the tenant's tables (If-Match: the revision read). */
+        put: operations["PutLookupEntries"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -796,6 +904,165 @@ export interface paths {
         head?: never;
         /** Changes a member's role. The last TenantAdmin cannot be demoted. */
         patch: operations["ChangeMemberRole"];
+        trace?: never;
+    };
+    "/api/v1/output-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's output bindings. */
+        get: operations["ListOutputBindings"];
+        put?: never;
+        /** Binds events and a scope (type, supplier, channel, condition) to a mapping and a destination. */
+        post: operations["CreateOutputBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-bindings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One output binding. */
+        get: operations["GetOutputBinding"];
+        put?: never;
+        post?: never;
+        /** Removes a binding without deliveries (409 otherwise: disable it instead). */
+        delete: operations["DeleteOutputBinding"];
+        options?: never;
+        head?: never;
+        /** Changes a binding; absent fields stay. */
+        patch: operations["UpdateOutputBinding"];
+        trace?: never;
+    };
+    "/api/v1/output-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's output mappings and the platform templates, with their versions. */
+        get: operations["ListOutputMappings"];
+        put?: never;
+        /** Copies a platform template ({from: {template}}) or creates a mapping of the tenant's own; version 1 is a draft. */
+        post: operations["CreateOutputMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads. */
+        post: operations["PreviewOutputMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One mapping (the tenant's, else the platform template of that key) with its versions. */
+        get: operations["GetOutputMapping"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Renames, describes, scopes to a type or archives one of the tenant's mappings. */
+        patch: operations["UpdateOutputMapping"];
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts the next version as a draft, from the published version (409 when a draft exists). */
+        post: operations["CreateOutputMappingDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version with its expression and target schema; the ETag is the draft revision. */
+        get: operations["GetOutputMappingVersion"];
+        /** Replaces a draft (If-Match: the revision read). The expression and target schema are checked on publish. */
+        put: operations["SaveOutputMappingDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions/{version}:publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publishes a draft when its expression parses and its target schema is one (422 with the errors otherwise); the previous version is deprecated. */
+        post: operations["PublishOutputMappingVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The platform integration templates a tenant can copy (std.event, generic-ap-json), with the tenant's mappings copied from each. */
+        get: operations["ListOutputTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/review-tasks": {
@@ -1117,6 +1384,13 @@ export interface components {
             prefix: string;
             scopes: string[];
         };
+        /** @description `POST /destinations`: a name, a transport (`http`, `blob`, `pull`), its config and, write-only, the secret. */
+        CreateDestinationRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: string;
+            secret: null | string;
+            transport: string;
+        };
         /**
          * @description `POST /document-types` (docs/11 §18): DocumentTypeSource? CreateDocumentTypeRequest.From to adopt or copy a template (under string? CreateDocumentTypeRequest.Key,
          *     or its legacy key or its id without `std.`), or JsonElement? CreateDocumentTypeRequest.Definition for a type of the tenant's own.
@@ -1139,9 +1413,61 @@ export interface components {
             /** Format: double */
             monthlySpendCapUsd: null | number | string;
         };
+        CreateLookupTableRequest: {
+            caseSensitive: null | boolean;
+            description: null | string;
+            key: string;
+        };
+        /**
+         * @description `POST /output-bindings` (docs/11 §6.7, §13.5). IReadOnlyList&lt;string&gt;? CreateOutputBindingRequest.Events defaults to `document.approved`;
+         *     the scope fields are optional (none: every document of the tenant); string? CreateOutputBindingRequest.Condition is a JSONata boolean
+         *     over the values view. string CreateOutputBindingRequest.MappingKey names the tenant's mapping or a platform template;
+         *     int? CreateOutputBindingRequest.PinnedMappingVersion keeps a published version instead of following the latest. Batch mode and
+         *     recipes come in P6.
+         */
+        CreateOutputBindingRequest: {
+            /** Format: uuid */
+            channelId: null | string;
+            condition: null | string;
+            /** Format: uuid */
+            destinationId: string;
+            documentTypeKey: null | string;
+            enabled: null | boolean;
+            events: null | string[];
+            exclusiveGroup: null | string;
+            mappingKey: string;
+            mode: null | string;
+            name: string;
+            onReapproval: null | string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: null | number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            updateMappingKey: null | string;
+        };
+        /**
+         * @description `POST /output-mappings`: OutputMappingSource? CreateOutputMappingRequest.From copies a platform template (under string? CreateOutputMappingRequest.Key, or the
+         *     template's key), or a mapping of the tenant's own from string? CreateOutputMappingRequest.Key, string? CreateOutputMappingRequest.Name and an optional first
+         *     draft (string? CreateOutputMappingRequest.Engine, string? CreateOutputMappingRequest.Expression, JsonElement? CreateOutputMappingRequest.TargetSchema). Either way version 1 is a draft.
+         */
+        CreateOutputMappingRequest: {
+            contentType: null | string;
+            description: null | string;
+            engine: null | string;
+            expression: null | string;
+            from: null | components["schemas"]["OutputMappingSource"];
+            key: null | string;
+            name: null | string;
+            sourceTypeKey: null | string;
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
         CreateSupplierRequest: {
             aliases: null | string[];
             alwaysReview: null | boolean;
+            /** @description The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null. */
+            attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
             ibans: null | string[];
@@ -1167,6 +1493,29 @@ export interface components {
             kind: string;
             name: string;
             path: string;
+        };
+        /**
+         * @description A destination as the API shows it. The secret is write-only: bool DestinationResponse.HasSecret and DateTimeOffset? DestinationResponse.SecretSetAt
+         *     are all a client learns, bool DestinationResponse.HasPreviousSecret whether the one it replaced is still kept for the overlap.
+         */
+        DestinationResponse: {
+            config: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            hasPreviousSecret: boolean;
+            hasSecret: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            lastTestAt: null | string;
+            lastTestResult: null | string;
+            name: string;
+            /** Format: date-time */
+            secretSetAt: null | string;
+            status: string;
+            transport: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         DocumentCostsDto: {
             /** Format: double */
@@ -1714,6 +2063,37 @@ export interface components {
             to: string;
             total: components["schemas"]["LlmUsageBucket"];
         };
+        /** @description One entry: from, to, valid from and to (inclusive, `yyyy-MM-dd`), labels by locale. */
+        LookupEntryDto: {
+            from: string;
+            labels: null | {
+                [key: string]: string;
+            };
+            to: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validTo: null | string;
+        };
+        /** @description A lookup table with its entries; the ETag is the revision. */
+        LookupTableDetail: {
+            entries: components["schemas"]["LookupEntryDto"][];
+            table: components["schemas"]["LookupTableSummary"];
+        };
+        /** @description A lookup table without its entries: the tenant's (`Platform` false) or a platform code list. */
+        LookupTableSummary: {
+            caseSensitive: boolean;
+            description: null | string;
+            /** Format: int32 */
+            entryCount: number | string;
+            key: string;
+            platform: boolean;
+            /** Format: int32 */
+            revision: number | string;
+            source: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         MemberResponse: {
             /** Format: date-time */
             createdAt: string;
@@ -1734,6 +2114,149 @@ export interface components {
             subject: string;
             /** Format: uuid */
             tenantId: null | string;
+        };
+        /** @description A binding as the API shows it: events, scope, the mapping (by key) and the destination. */
+        OutputBindingResponse: {
+            /** Format: uuid */
+            channelId: null | string;
+            condition: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            destinationId: string;
+            documentTypeKey: null | string;
+            enabled: boolean;
+            events: string[];
+            exclusiveGroup: null | string;
+            /** Format: uuid */
+            id: string;
+            mappingKey: string;
+            mode: string;
+            name: string;
+            onReapproval: string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: date-time */
+            updatedAt: string;
+            updateMappingKey: null | string;
+        };
+        /** @description Why a version cannot be published: the expression's or the target schema's error. */
+        OutputMappingCheckReport: {
+            errors: components["schemas"]["RenderErrorDto"][];
+            referencedPaths: string[];
+            tables: string[];
+        };
+        /** @description An output mapping of the tenant, or a platform template (`Origin` Platform, read-only), with its versions. */
+        OutputMappingDetail: {
+            baseTemplate: null | string;
+            /** Format: int32 */
+            baseVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            description: null | string;
+            /** Format: int32 */
+            draftVersion: null | number | string;
+            /** Format: uuid */
+            id: string;
+            key: string;
+            name: string;
+            origin: string;
+            /** Format: int32 */
+            publishedVersion: null | number | string;
+            sourceTypeKey: null | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["OutputMappingVersionSummary"][];
+        };
+        /** @description Where a new mapping comes from: a platform template to copy. */
+        OutputMappingSource: {
+            template: string;
+        };
+        /** @description One version with its expression, target schema and what it reads. */
+        OutputMappingVersionDetail: {
+            expression: string;
+            fileNameTemplate: null | string;
+            key: string;
+            referencedPaths: string[];
+            sampleDocumentIds: string[];
+            targetSchema: null | components["schemas"]["JsonElement"];
+            version: components["schemas"]["OutputMappingVersionSummary"];
+        };
+        /** @description One version of an output mapping, without its expression. */
+        OutputMappingVersionSummary: {
+            changeNote: null | string;
+            contentType: string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            engine: string;
+            hasTargetSchema: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            publishedAt: null | string;
+            publishedBy: null | string;
+            /** Format: int32 */
+            revision: number | string;
+            state: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /**
+         * @description `POST /output-mappings:preview` (docs/11 §13.1, §18): a mapping version (Guid? OutputPreviewRequest.MappingVersionId) or an
+         *     expression (string? OutputPreviewRequest.Expression, with string? OutputPreviewRequest.Engine and JsonElement? OutputPreviewRequest.TargetSchema), rendered over a
+         *     document's values view (Guid? OutputPreviewRequest.DocumentId) or over JsonElement? OutputPreviewRequest.SampleValues, without delivering.
+         *     string? OutputPreviewRequest.Event sets `meta.event` (default `document.approved`); bool? OutputPreviewRequest.IncludeValues returns
+         *     the values view rendered over, for the editor's source tree.
+         */
+        OutputPreviewRequest: {
+            /** Format: uuid */
+            documentId: null | string;
+            engine: null | string;
+            event: null | string;
+            expression: null | string;
+            includeValues: null | boolean;
+            /** Format: uuid */
+            mappingVersionId: null | string;
+            sampleValues: null | components["schemas"]["JsonElement"];
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /**
+         * @description What the preview rendered: the output (null with `undefined` when the expression yields nothing), its size,
+         *     the render errors, the target-schema errors, the values-view paths and lookup tables the expression reads, how long
+         *     the render took and, on request, the values view.
+         */
+        OutputPreviewResponse: {
+            /** Format: int64 */
+            elapsedMs: number | string;
+            errors: components["schemas"]["RenderErrorDto"][];
+            output: null | components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            outputBytes: number | string;
+            referencedPaths: string[];
+            schemaErrors: components["schemas"]["TargetSchemaErrorDto"][];
+            tables: string[];
+            undefined: boolean;
+            values: null | components["schemas"]["JsonElement"];
+        };
+        /** @description A platform integration template (`GET /output-templates`, docs/11 §13.9) and the tenant's mappings copied from it. */
+        OutputTemplateSummary: {
+            contentType: string;
+            copiedAs: string[];
+            description: null | string;
+            engine: string;
+            key: string;
+            name: string;
+            sourceTypeKey: null | string;
+            /** Format: int32 */
+            version: number | string;
         };
         /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
         PageOfDocumentSummary: {
@@ -1796,10 +2319,58 @@ export interface components {
             secret: null | string;
             status: null | string;
         };
+        /** @description Every field optional. A config replaces the stored one; string? PatchDestinationRequest.Status is Active or Disabled. */
+        PatchDestinationRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: null | string;
+            status: null | string;
+        };
+        PatchLookupTableRequest: {
+            caseSensitive: null | boolean;
+            description: null | string;
+        };
+        /**
+         * @description Every field optional; absent fields are left as they are. A string set to empty clears an optional one
+         *     (`documentTypeKey`, `condition`, `exclusiveGroup`, `updateMappingKey`); `clearSupplier`,
+         *     `clearChannel` and `clearPinnedVersion` clear the others.
+         */
+        PatchOutputBindingRequest: {
+            /** Format: uuid */
+            channelId: null | string;
+            clearChannel: null | boolean;
+            clearPinnedVersion: null | boolean;
+            clearSupplier: null | boolean;
+            condition: null | string;
+            /** Format: uuid */
+            destinationId: null | string;
+            documentTypeKey: null | string;
+            enabled: null | boolean;
+            events: null | string[];
+            exclusiveGroup: null | string;
+            mappingKey: null | string;
+            name: null | string;
+            onReapproval: null | string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: null | number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            updateMappingKey: null | string;
+        };
+        /** @description Every field optional; an empty string? PatchOutputMappingRequest.SourceTypeKey clears it (any type). string? PatchOutputMappingRequest.Status is Active or Archived. */
+        PatchOutputMappingRequest: {
+            description: null | string;
+            name: null | string;
+            sourceTypeKey: null | string;
+            status: null | string;
+        };
         /** @description Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list. */
         PatchSupplierRequest: {
             aliases: null | string[];
             alwaysReview: null | boolean;
+            /** @description The supplier's attributes, replacing the stored ones (an empty object clears them). */
+            attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
             ibans: null | string[];
@@ -1832,6 +2403,10 @@ export interface components {
             stageOverrides: null | {
                 [key: string]: string;
             };
+        };
+        /** @description `PUT /lookup-tables/{key}/entries`: every entry of the table (replacing the stored ones), If-Match: the revision. */
+        PutLookupEntriesRequest: {
+            entries: components["schemas"]["LookupEntryDto"][];
         };
         /**
          * @description `POST /documents/{id}/regions:read` (docs/11 §12.3): the box (page units) on page `page` to read with OCR,
@@ -1907,6 +2482,14 @@ export interface components {
         RejectDocumentRequest: {
             reason: string;
         };
+        /** @description A render error as the API shows it: its kind (`syntax`, `runtime`, `required`, `timeLimit`, ...), the engine's code, the message and the position in the expression. */
+        RenderErrorDto: {
+            code: null | string;
+            kind: string;
+            message: string;
+            /** Format: int32 */
+            position: null | number | string;
+        };
         /**
          * @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
          *     `configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;
@@ -1942,6 +2525,19 @@ export interface components {
         };
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @description A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision). */
+        SaveOutputMappingDraftRequest: {
+            contentType: null | string;
+            engine: string;
+            expression: null | string;
+            fileNameTemplate: null | string;
+            sampleDocumentIds: null | string[];
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /** @description `PUT /destinations/{id}/secret`: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16). */
+        SetDestinationSecretRequest: {
+            secret: string;
+        };
         /**
          * @description `POST /documents/{id}:set-type` (docs/11 §12.1 step 3): the type key, optionally a published version of it
          *     (the tenant's published version otherwise), and `prefill`: `none` (the default; the document gets the
@@ -2013,6 +2609,8 @@ export interface components {
         SupplierResponse: {
             aliases: string[];
             alwaysReview: boolean;
+            /** @description The tenant's attributes of the supplier (docs/11 §6.4, `{"erpVendorId": "V-10042"}`), what output mappings read as `supplier.attributes`. */
+            attributes?: Record<string, never>;
             /** Format: date-time */
             createdAt: string;
             defaultCurrency: null | string;
@@ -2175,6 +2773,12 @@ export interface components {
             minQuantity: number | string;
             price: components["schemas"]["TableCellDto"];
         };
+        TargetSchemaErrorDto: {
+            keyword: string;
+            location: string;
+            message: string;
+            path: string;
+        };
         /**
          * @description The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type
          *     catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types
@@ -2259,12 +2863,17 @@ export type SchemaCorrectionSource = components['schemas']['CorrectionSource'];
 export type SchemaCreateApiKeyRequest = components['schemas']['CreateApiKeyRequest'];
 export type SchemaCreateChannelRequest = components['schemas']['CreateChannelRequest'];
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
+export type SchemaCreateDestinationRequest = components['schemas']['CreateDestinationRequest'];
 export type SchemaCreateDocumentTypeRequest = components['schemas']['CreateDocumentTypeRequest'];
 export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
+export type SchemaCreateLookupTableRequest = components['schemas']['CreateLookupTableRequest'];
+export type SchemaCreateOutputBindingRequest = components['schemas']['CreateOutputBindingRequest'];
+export type SchemaCreateOutputMappingRequest = components['schemas']['CreateOutputMappingRequest'];
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
 export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
 export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
+export type SchemaDestinationResponse = components['schemas']['DestinationResponse'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
 export type SchemaDocumentDefinitionRef = components['schemas']['DocumentDefinitionRef'];
 export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
@@ -2305,8 +2914,20 @@ export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse']
 export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
 export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
 export type SchemaLlmUsageResponse = components['schemas']['LlmUsageResponse'];
+export type SchemaLookupEntryDto = components['schemas']['LookupEntryDto'];
+export type SchemaLookupTableDetail = components['schemas']['LookupTableDetail'];
+export type SchemaLookupTableSummary = components['schemas']['LookupTableSummary'];
 export type SchemaMemberResponse = components['schemas']['MemberResponse'];
 export type SchemaMeResponse = components['schemas']['MeResponse'];
+export type SchemaOutputBindingResponse = components['schemas']['OutputBindingResponse'];
+export type SchemaOutputMappingCheckReport = components['schemas']['OutputMappingCheckReport'];
+export type SchemaOutputMappingDetail = components['schemas']['OutputMappingDetail'];
+export type SchemaOutputMappingSource = components['schemas']['OutputMappingSource'];
+export type SchemaOutputMappingVersionDetail = components['schemas']['OutputMappingVersionDetail'];
+export type SchemaOutputMappingVersionSummary = components['schemas']['OutputMappingVersionSummary'];
+export type SchemaOutputPreviewRequest = components['schemas']['OutputPreviewRequest'];
+export type SchemaOutputPreviewResponse = components['schemas']['OutputPreviewResponse'];
+export type SchemaOutputTemplateSummary = components['schemas']['OutputTemplateSummary'];
 export type SchemaPageOfDocumentSummary = components['schemas']['PageOfDocumentSummary'];
 export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestionSummary'];
 export type SchemaPageOfReviewTaskDto = components['schemas']['PageOfReviewTaskDto'];
@@ -2315,18 +2936,26 @@ export type SchemaPageOfTenantResponse = components['schemas']['PageOfTenantResp
 export type SchemaPageWordDto = components['schemas']['PageWordDto'];
 export type SchemaPageWordsResponse = components['schemas']['PageWordsResponse'];
 export type SchemaPatchChannelRequest = components['schemas']['PatchChannelRequest'];
+export type SchemaPatchDestinationRequest = components['schemas']['PatchDestinationRequest'];
+export type SchemaPatchLookupTableRequest = components['schemas']['PatchLookupTableRequest'];
+export type SchemaPatchOutputBindingRequest = components['schemas']['PatchOutputBindingRequest'];
+export type SchemaPatchOutputMappingRequest = components['schemas']['PatchOutputMappingRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
 export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
+export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntriesRequest'];
 export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
 export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
 export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
+export type SchemaRenderErrorDto = components['schemas']['RenderErrorDto'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
+export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
 export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
 export type SchemaSplitDocumentRequest = components['schemas']['SplitDocumentRequest'];
@@ -2351,6 +2980,7 @@ export type SchemaTableReportOrigin = components['schemas']['TableReportOrigin']
 export type SchemaTableRowDto = components['schemas']['TableRowDto'];
 export type SchemaTableTierColumnsDto = components['schemas']['TableTierColumnsDto'];
 export type SchemaTableTierDto = components['schemas']['TableTierDto'];
+export type SchemaTargetSchemaErrorDto = components['schemas']['TargetSchemaErrorDto'];
 export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
@@ -2558,6 +3188,171 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ListDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"][];
+                };
+            };
+        };
+    };
+    CreateDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDestinationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+        };
+    };
+    DeleteDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchDestinationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SetDestinationSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDestinationSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };
@@ -3927,6 +4722,171 @@ export interface operations {
             };
         };
     };
+    ListLookupTables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"][];
+                };
+            };
+        };
+    };
+    CreateLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLookupTableRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableDetail"];
+                };
+            };
+        };
+    };
+    DeleteLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchLookupTableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PutLookupEntries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutLookupEntriesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetMe: {
         parameters: {
             query?: never;
@@ -4066,6 +5026,421 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ListOutputBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"][];
+                };
+            };
+        };
+    };
+    CreateOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOutputBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+        };
+    };
+    DeleteOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchOutputBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListOutputMappings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"][];
+                };
+            };
+        };
+    };
+    CreateOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOutputMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PreviewOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutputPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputPreviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+        };
+    };
+    UpdateOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchOutputMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateOutputMappingDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionSummary"];
+                };
+            };
+        };
+    };
+    GetOutputMappingVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionDetail"];
+                };
+            };
+        };
+    };
+    SaveOutputMappingDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveOutputMappingDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PublishOutputMappingVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingCheckReport"];
+                };
+            };
+        };
+    };
+    ListOutputTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputTemplateSummary"][];
+                };
             };
         };
     };

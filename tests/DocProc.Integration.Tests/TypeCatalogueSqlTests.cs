@@ -53,7 +53,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task The_P1_and_P2_migrations_migrate_down_and_up_again()
+    public async Task The_P1_P2_and_P3_migrations_migrate_down_and_up_again()
     {
         // Their Down methods drop columns of the temporal Documents table, which turns system versioning off; SQL
         // Server refuses that while the schema-bound policy names the table, so the old policy comes back last.
@@ -67,7 +67,27 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
             // a timeline event that names the status.
             var (target, part) = await SeedJoinedPartAsync(platform, ct);
 
-            // P2's table reports first: the table goes and the policy of P1 is back.
+            // P3's outputs first, with one of everything P3 writes: the build before it has none of the output and
+            // lookup tables and no supplier attributes, so they go (the supplier stays), and the policy of P2 is back.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                await Outputs.OutputsSqlTests.SeedAsync(seeding, TenantA, ct);
+            }
+
+            await migrator.MigrateAsync("20261103112735_TableReports", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103112735_TableReports");
+            foreach (var table in new[] { "OutputDestinations", "OutputMappings", "OutputMappingVersions", "OutputBindings", "OutboxDeliveries", "DeliveryAttempts", "DocumentExternalRefs", "LookupTables", "LookupEntries" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Suppliers') AND name = N'AttributesJson'").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Suppliers WHERE [Name] = N'Nordwind'").SingleAsync(ct)).ShouldBe(1, "the supplier stays");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.OutboxMessages").SingleAsync(ct)).ShouldBe(1, "the outbox row stays");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.DocumentTableReports')").SingleAsync(ct)).ShouldBe(3);
+
+            // P2's table reports next: the table goes and the policy of P1 is back.
             await migrator.MigrateAsync("20261103102625_ReviewActions", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103102625_ReviewActions");
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = N'DocumentTableReports'").SingleAsync(ct)).ShouldBe(0);
@@ -108,6 +128,9 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         (await asA.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == TenantB, ct)).ShouldBe(0, "row-level security is back");
         (await asA.DocumentFieldIndex.CountAsync(ct)).ShouldBe(0);
         (await asA.DocumentTableReports.CountAsync(ct)).ShouldBe(0);
+        (await asA.OutputDestinations.CountAsync(ct)).ShouldBe(0, "the down dropped them; up creates the tables empty");
+        (await asA.OutputMappings.IgnoreQueryFilters().Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"], "the platform templates are seeded again");
+        (await asA.Suppliers.SingleAsync(s => s.Name == "Nordwind", ct)).AttributesJson.ShouldBeNull();
     }
 
     /// <summary>A document of tenant A and a part of the same attachment joined into it (Cancelled, then touched once so the history holds a Cancelled version), with its joined event.</summary>

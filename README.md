@@ -280,9 +280,9 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 | Role | Scope | Policies satisfied |
 |---|---|---|
-| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, Review, Ingest, Read |
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, IntegrationAdmin, Review, Ingest, Read |
 | Operator | platform | Platform, Review, Read |
-| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, Review, Ingest, Read |
+| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, IntegrationAdmin, Review, Ingest, Read |
 | Reviewer | own tenant | Review, Ingest, Read |
 | Viewer | own tenant | Read |
 | API key (`ingest`, `read`) | own tenant | Ingest and/or Read |
@@ -295,7 +295,8 @@ hash and the display prefix; revoke is idempotent). Keys of suspended tenants st
 
 `GET /api/v1/me` returns the caller's identity, roles or scopes, resolved tenant scope and the
 policies they satisfy, which the front ends use to show or hide actions. ConfigAdmin (document
-types, docs/11 §16) is a policy, not a role: TenantAdmin and SuperAdmin satisfy it. Get a local token from
+types and lookup tables, docs/11 §16) and IntegrationAdmin (destinations, output mappings and bindings) are
+policies, not roles: TenantAdmin and SuperAdmin satisfy them. Get a local token from
 Keycloak:
 
 ```bash
@@ -319,6 +320,8 @@ src/
   DocProc.Llm.OpenAi/         OpenAI, Azure OpenAI and OpenAI-compatible adapter
   DocProc.Mapping/            mapping engine over the positioned text layer (docs/11 §8, §12.4): the table tool's
                               column-table, value readers by kind and locale; supplier layouts from P4
+  DocProc.Outputs.Renderer/   the sandboxed JSONata renderer of output mappings (docs/11 §13.1): a child process the
+                              API and the worker start and kill (time, memory, output and depth limits, no I/O)
   DocProc.Extraction.EInvoice/ UBL 2.1 and CII (Factur-X / ZUGFeRD / XRechnung) parsers to the canonical model
   DocProc.Pipeline/           pipeline runner, in-process queue, the handlers of stages 1-7 and 9, demo data
   DocProc.Api/                ASP.NET Core host: /api/v1 endpoints, auth, dev mode, OpenAPI + Scalar

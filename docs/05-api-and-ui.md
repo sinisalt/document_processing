@@ -121,6 +121,41 @@ request; the 30-second TTL is the bound for every other node.
 Still to come on these resources: `:test` and `:rotate` for providers (credential validation
 records `validatedAt` / `lastError`), audit logging of who changed what, idempotency keys.
 
+### Output endpoints as built (docs/11 §13, P3 part A)
+
+Every route below needs the tenant's `outputs` switch (`403 Feature not enabled` naming `features.outputs`
+otherwise; the lookup tables take `outputs` or `configurableTypes`). `IntegrationAdmin` is a policy that TenantAdmin
+and SuperAdmin satisfy (docs/11 §16). Nothing here delivers yet: the fan-out, `ProcessDelivery`, the transports,
+`:test`, the deliveries and feeds come with part B.
+
+| Route | Policy | Notes |
+|---|---|---|
+| `GET /output-templates` | Read | The platform integration templates (`std.event`, `generic-ap-json`, docs/11 §13.9) with `copiedAs`, the tenant's mappings copied from each. |
+| `GET /output-mappings`, `GET /output-mappings/{key}` | Read | The tenant's mappings and the platform templates (`origin` `Platform`, read-only), each with its versions (`state` Draft, Published, Deprecated; `revision`; `hasTargetSchema`). A key names the tenant's mapping before a template of the same key. |
+| `POST /output-mappings` | IntegrationAdmin | `{from: {template}, key?, name?}` copies a template (origin `Copied`, `baseTemplate`), or `{key, name, description?, sourceTypeKey?, engine?, expression?, contentType?, targetSchema?}` creates the tenant's own (origin `Custom`); either way version 1 is a draft. Keys follow the type key syntax and may not start with `std.`; 409 for a key the tenant has. |
+| `PATCH /output-mappings/{key}` | IntegrationAdmin | `name`, `description`, `sourceTypeKey` (empty clears it), `status` (Active, Archived). A platform template answers 404 (copy it). |
+| `POST /output-mappings/{key}/versions` | IntegrationAdmin | The next version as a draft, from the published one; 409 when a draft exists. |
+| `GET /output-mappings/{key}/versions/{v}` | Read | `expression`, `fileNameTemplate`, `targetSchema`, `referencedPaths` (published versions), `sampleDocumentIds`; the ETag is the revision. |
+| `PUT /output-mappings/{key}/versions/{v}` | IntegrationAdmin | Replaces a draft: `{engine (jsonata, passthrough), expression?, contentType?, fileNameTemplate?, targetSchema?, sampleDocumentIds?}`, `If-Match` required (428 without, 412 on a stale revision, 409 on a published version). `fieldmap` and `liquid` are refused with the phase they come in. The expression is at most 256 K characters, the schema at most 256 K. |
+| `POST /output-mappings/{key}/versions/{v}:publish` | IntegrationAdmin | Optional `{changeNote}`. The renderer parses the expression and builds the target schema; a problem answers 422 `{errors: [{kind, code, message, position}], referencedPaths, tables}`. The paths the expression reads are stored (`ReferencedPathsJson`); the published version before it is deprecated. |
+| `POST /output-mappings:preview` | IntegrationAdmin | `{mappingVersionId}` or `{expression, engine?, targetSchema?}`, over `{documentId}` (the document's values view, `meta.event` from `event`, default `document.approved`) or `{sampleValues}`; `includeValues: true` returns the view too. Answers `{output, undefined, outputBytes, errors, schemaErrors: [{path, location, keyword, message}], referencedPaths, tables, elapsedMs, values}`; a render error is in `errors`, not an HTTP error. A document or version the tenant cannot see is 404. The request is at most 8 MB. |
+| `GET /destinations`, `GET /destinations/{id}` | IntegrationAdmin | `{id, name, transport, config, hasSecret, secretSetAt, hasPreviousSecret, status, lastTestAt, lastTestResult}`; secrets never. |
+| `POST /destinations` | IntegrationAdmin | `{name, transport (http, blob, pull), config, secret?}`; `sftp` and `email` are refused (P6). `config` is checked per transport: http `{method (POST, PUT, PATCH), urlTemplate (absolute http(s), no user info, `{{...}}` placeholders), headers (at most 20, no credential or transport headers such as Authorization, Cookie, Idempotency-Key), timeoutSeconds 1..120, successCodes 200..299, auth {type: none, apiKeyHeader (headerName), basic (username), bearer, oauth2ClientCredentials (tokenUrl, clientId, scope), hmacSha256}, responseMapping}`; blob `{path (relative, no `.`/`..`), fileNameTemplate}`; pull `{retentionDays 1..365}`; unknown settings are refused. The secret goes to `ISecretStore` under `tenant/{tenantId}/destination/{id}/{1|2}`. 409 for a name the tenant has. |
+| `PATCH /destinations/{id}` | IntegrationAdmin | `name`, `status` (Active, Disabled), `config` (replaces it, checked as on create). |
+| `PUT /destinations/{id}/secret` | IntegrationAdmin | `{secret}` (at most 8192 characters): the new secret goes to the other of the two slots, the replaced one stays as the previous secret until the next rotation (docs/11 §16). |
+| `DELETE /destinations/{id}` | IntegrationAdmin | 409 while a binding, a delivery or an external reference refers to it (disable it instead); removes both secrets. |
+| `GET /output-bindings`, `GET /output-bindings/{id}` | Read | `{id, name, events, documentTypeKey, supplierId, channelId, condition, mappingKey, pinnedMappingVersion, destinationId, mode, exclusiveGroup, priority, onReapproval, updateMappingKey, enabled}`. |
+| `POST /output-bindings`, `PATCH /output-bindings/{id}` | IntegrationAdmin | Events of `document.approved`, `document.rejected`, `document.updated`, `document.needs_review` (default approved); the supplier, channel and destination must be the tenant's, the mapping the tenant's or a platform template, a pinned version published; `condition` is parsed by the renderer (at most 4000 characters); `onReapproval` Resend, Skip or Update (Update needs `updateMappingKey`); `mode` Batch is refused (P6). `PATCH` leaves absent fields; empty strings clear `documentTypeKey`, `condition`, `exclusiveGroup`, `updateMappingKey`, and `clearSupplier`, `clearChannel`, `clearPinnedVersion` the others. |
+| `DELETE /output-bindings/{id}` | IntegrationAdmin | 409 while deliveries refer to it (disable it instead). |
+| `GET /lookup-tables`, `GET /lookup-tables/{key}` | Read | The tenant's tables and the platform code lists (`platform: true`; `uom` is built in code); a table's entries `{from, to, validFrom, validTo, labels}`, ETag the revision. |
+| `POST /lookup-tables`, `PATCH /lookup-tables/{key}`, `DELETE /lookup-tables/{key}` | ConfigAdmin | `{key, description?, caseSensitive?}`. |
+| `PUT /lookup-tables/{key}/entries` | ConfigAdmin | `{entries: [...]}` replaces every entry (at most 50,000; `If-Match` the revision). CSV upload is not built yet. |
+
+`POST /suppliers` and `PATCH /suppliers/{id}` take `attributes` (docs/11 §6.4): at most 50 keys (a letter, then
+letters, digits, `_`, `-`, `.`, at most 64 characters), each a string of at most 400 characters, a number, a boolean or
+null; `PATCH` replaces them (an empty object clears them) and leaves them when the field is absent. Responses carry
+`attributes`. A reviewer's `:create-supplier` may not set them (403), as for e-mail domains and aliases.
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:

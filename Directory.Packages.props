@@ -59,6 +59,10 @@
          Source Maintenance Fee" EULA (a monthly fee for revenue-generating users above US$10k a year), see the
          licence note in docs/11 §5.5 before moving past 8.x. -->
     <PackageVersion Include="JsonSchema.Net" Version="8.0.5" />
+    <!-- JSONata for output mappings (docs/11 §13.1, MIT). It has no cancellation of a running evaluation, so it runs
+         only inside the renderer child process (src/DocProc.Outputs.Renderer), which the hosts kill at the time and
+         memory limits; see the P3 spike in docs/11 §13.1. -->
+    <PackageVersion Include="Jsonata.Net.Native" Version="3.0.0" />
 
     <!-- Azure -->
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />

@@ -158,8 +158,43 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV6 = new(TableReportProtectedTables, PlatformRowTablesV2, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>OutputsAndLookups</c> migration: <see cref="TableReportProtectedTables"/> plus the
+    /// output tables of docs/11 §6.7 with a tenant of their own (destinations, bindings, deliveries, their attempts and
+    /// the external references). Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> OutputsProtectedTables =
+    [
+        .. TableReportProtectedTables,
+        ("OutputDestinations", "TenantId"),
+        ("OutputBindings", "TenantId"),
+        ("OutboxDeliveries", "TenantId"),
+        ("DeliveryAttempts", "TenantId"),
+        ("DocumentExternalRefs", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The nullable-tenant tables of the <c>OutputsAndLookups</c> migration (docs/11 §6.10): <see cref="PlatformRowTablesV2"/>
+    /// plus the output mappings and their versions (platform integration templates) and the lookup tables and their
+    /// entries (platform code lists). Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> PlatformRowTablesV3 =
+    [
+        .. PlatformRowTablesV2,
+        ("OutputMappings", "TenantId"),
+        ("OutputMappingVersions", "TenantId"),
+        ("LookupTables", "TenantId"),
+        ("LookupEntries", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>OutputsAndLookups</c> migration (P3): <see cref="PolicyV6"/> with the output tables among the
+    /// strict tables and the mappings and lookup tables among the platform-row tables. None of them is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV7 = new(OutputsProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV6;
+    public static PolicyDefinition CurrentPolicy => PolicyV7;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

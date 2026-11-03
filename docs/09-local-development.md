@@ -442,6 +442,35 @@ the tools of P2 (Map this document, the More menu with set type, supplier, split
 tool) only with `configurableTypes` on (`DocumentDetail.configurableTypes`); a tenant without it reviews as before
 P2, while the endpoints answer API clients of any tenant. A part joined into another document is `Cancelled` (status filter `Cancelled`, shown only under "All").
 
+### Outputs
+
+Output mappings, destinations, bindings and lookup tables (docs/11 §13, P3 part A) need the tenant's `outputs`
+switch and IntegrationAdmin (a tenant admin; lookup tables ConfigAdmin). Nothing is delivered yet (part B): the
+preview renders a mapping over a document's values view on the server. Renders run in renderer child processes
+(`DocProc.Outputs.Renderer.dll`, built next to each host; settings under "Outputs" below); the first render of a host
+starts one, which takes about half a second. The platform templates `std.event` and `generic-ap-json` are seeded on
+every start (and by the `OutputsAndLookups` migration).
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)
+H="authorization: Bearer $TOKEN"
+curl -s http://localhost:5100/api/v1/settings -H "$H" | jq '.settings | .features.outputs = true' \
+  | curl -s -X PUT http://localhost:5100/api/v1/settings -H "$H" -H 'content-type: application/json' -d @- | jq .settings.features
+curl -s http://localhost:5100/api/v1/output-templates -H "$H" | jq '.[].key'
+# Render generic-ap-json over an approved document (any document id of the tenant), without delivering.
+VERSION=$(curl -s http://localhost:5100/api/v1/output-mappings/generic-ap-json -H "$H" | jq -r '.versions[0].id')
+curl -s -X POST http://localhost:5100/api/v1/output-mappings:preview -H "$H" -H 'content-type: application/json' \
+  -d "{\"mappingVersionId\":\"$VERSION\",\"documentId\":\"$DOC\"}" | jq '{output, errors, schemaErrors}'
+# Or an expression of your own, with the values view back for the source tree.
+curl -s -X POST http://localhost:5100/api/v1/output-mappings:preview -H "$H" -H 'content-type: application/json' \
+  -d "{\"expression\":\"{ \\\"no\\\": roles.documentNumber, \\\"day\\\": \$fmtDate(roles.documentDate, \\\"dd.MM.yyyy\\\") }\",\"documentId\":\"$DOC\",\"includeValues\":true}" | jq '{output, values: .values.roles}'
+# The ERP vendor number mappings read as supplier.attributes.erpVendorId.
+curl -s -X PATCH "http://localhost:5100/api/v1/suppliers/$SUPPLIER" -H "$H" -H 'content-type: application/json' -d '{"attributes":{"erpVendorId":"V-10042"}}' | jq .attributes
+```
+
+A render that takes more than 2 s of processor time, allocates past its 1 GB heap or writes more than 5 MB fails with
+`timeLimit`, `memoryLimit` or `sizeLimit` in `errors`, and the host starts a fresh renderer for the next one.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
@@ -827,6 +856,21 @@ every tenant shares.
 | `TableTool:ReadBudget` | `00:00:10` | How long one `regions:table` read (proposal, preview or write) may take over all its pages and patterns; past it the request answers 422 `TABLE_READ_TOO_SLOW`. A read also stops when the client goes away. `00:00:00` refuses every read (tests). |
 | `TableTool:ConcurrentReadsPerTenant` | 2 | `regions:table` and `regions:read` requests running at once per tenant (per user in platform scope). At least 1. |
 | `TableTool:QueuedReadsPerTenant` | 4 | Further requests that wait for a free slot; more answer 429. Not negative. |
+
+**Outputs** (`OutputOptions`, `JsonataRendererOptions`; both hosts). Output mappings render in renderer child
+processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 §13.1), started on the first render.
+
+| Key | Default | What it does |
+|---|---|---|
+| `Outputs:PublicBaseUrl` | unset | The API's public base URL the values view's `links` start with (`https://dms.example`); relative links without it. |
+| `Outputs:Renderer:PoolSize` | processor count, at most 4 | Renderer processes kept, and renders that run at once. |
+| `Outputs:Renderer:TimeLimit` | `00:00:02` | Processor time one render may use from reading its request to its answer; the process is killed past it (`timeLimit`). |
+| `Outputs:Renderer:WallClockLimit` | `00:00:10` | Wall-clock ceiling of one render however little processor time it got. |
+| `Outputs:Renderer:TransferTimeout` | `00:00:30` | Sending a request and the renderer reading it (a 10,000-row price list is about 20 MB of values view). |
+| `Outputs:Renderer:StartTimeout` | `00:00:30` | Starting a new renderer process. |
+| `Outputs:Renderer:HeapHardLimitBytes` | 1073741824 (1 GiB) | The renderer's GC heap (`DOTNET_GCHeapHardLimit`); a render past it is `memoryLimit` and the process is replaced. |
+| `Outputs:Renderer:RendererPath` | `DocProc.Outputs.Renderer.dll` next to the host | The renderer assembly. |
+| `Outputs:Renderer:DotnetHostPath` | the running runtime's `dotnet` | The `dotnet` host that runs it. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

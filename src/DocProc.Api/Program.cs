@@ -95,6 +95,10 @@ v1.MapChannels();
 v1.MapMembers();
 v1.MapTenantSettings();
 v1.MapDocumentTypes();
+v1.MapOutputMappings();
+v1.MapDestinations();
+v1.MapOutputBindings();
+v1.MapLookupTables();
 v1.MapLlmAdmin();
 
 // The development token issuer exists only while enabled (never in production: AddDocProcAuthentication refuses to start).

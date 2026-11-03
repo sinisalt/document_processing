@@ -76,7 +76,7 @@ public static partial class DocumentEndpoints
             .RequireAuthorization(Policies.Review)
             .WithMetadata(new RequestSizeLimitAttribute(MaxReviewActionRequestBytes))
             .WithName("CreateSupplierFromDocument")
-            .WithSummary("Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403).");
+            .WithSummary("Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases, alwaysReview and attributes need a tenant admin (403).");
 
         documents.MapPost("/{id:guid}:split", SplitAsync)
             .RequireAuthorization(Policies.Review)
@@ -396,6 +396,12 @@ public static partial class DocumentEndpoints
         if (request.AlwaysReview is not null)
         {
             fields.Add("alwaysReview");
+        }
+
+        // Attributes (the ERP vendor number) decide where outputs go and under which account (docs/11 §6.4).
+        if (request.Attributes is { Count: > 0 })
+        {
+            fields.Add("attributes");
         }
 
         return fields;

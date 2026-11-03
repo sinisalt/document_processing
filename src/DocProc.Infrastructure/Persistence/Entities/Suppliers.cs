@@ -33,6 +33,14 @@ public sealed class Supplier : ITenantScoped
     public string? AddressesJson { get; set; }
 
     public string? DefaultCurrency { get; set; }
+
+    /// <summary>
+    /// The tenant's attributes of the supplier (docs/11 §6.4), a JSON object of scalars such as
+    /// <c>{"erpVendorId":"V-10042"}</c>: what output mappings read as <c>supplier.attributes</c>. Null until set. The
+    /// tenant's attribute schema and the per-entity attributes come with P4.
+    /// </summary>
+    public string? AttributesJson { get; set; }
+
     public bool AlwaysReview { get; set; }
     public Guid? GlobalSupplierId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

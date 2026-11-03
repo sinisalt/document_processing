@@ -7,6 +7,7 @@
     <Project Path="src/DocProc.Domain/DocProc.Domain.csproj" />
     <Project Path="src/DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
     <Project Path="src/DocProc.Mapping/DocProc.Mapping.csproj" />
+    <Project Path="src/DocProc.Outputs.Renderer/DocProc.Outputs.Renderer.csproj" />
     <Project Path="src/DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
     <Project Path="src/DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
     <Project Path="src/DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />

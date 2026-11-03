@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C)
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 in progress (part A done)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -944,7 +944,73 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       §19 moves them into `packages/review` with the shared review of the admin console (P6); the admin console's
       document page has none of the P2 actions;
     - the Identify mode, the New layout panel and "Remember for supplier" (P4).
-- **P3 to P6** – not started.
+- **P3, track B: output mappings and delivery – part A done (data model, values view, renderer, templates, API);
+  part B (fan-out, delivery, transports, retries) and the Integrations UI are open.** Every new route needs the tenant's
+  `outputs` switch; a tenant without it behaves exactly as before (approve, publish stage and outbox, sweeper, mock-erp
+  stubs unchanged; nothing renders or delivers yet for anyone).
+  - Done (part A):
+    - the spike of docs/11 §13.1 (result recorded there as "Correction (P3, the spike)"): Jsonata.Net.Native 3.0.0 has
+      the functions, depth and tail-recursion caps and no I/O, but cannot stop a running evaluation (an exponential
+      recursion ran past 30 s; aborting the thread crashed the runtime on Linux); the 13.1 fallback, jsonata-js in Jint,
+      enforces limits but took 17 to 20 s for the 10,000-row price list (0.7 s for 412 rows), so it cannot meet the 2 s
+      limit either. Built instead: Jsonata.Net.Native in a renderer **child process** (`src/DocProc.Outputs.Renderer`,
+      `JsonataRenderer` in `src/DocProc.Infrastructure/Outputs`): a pool per host (`Outputs:Renderer:PoolSize`,
+      default the processor count up to 4), one JSON request per line, the process killed at 2 s of its processor time
+      after it read the request (10 s wall-clock ceiling, 30 s to send and read the request), a 1 GB GC heap cap
+      (`DOTNET_GCHeapHardLimit`), 5 MB of output, the library's depth caps, an empty environment, a fresh process after
+      a kill or crash; a renderer that cannot start is `unavailable` (the one retryable render error);
+    - the custom functions `$table` (the tenant's lookup table, else the platform's, else the code lists in code such as
+      `uom`; entries valid on `$today()`; the key a string literal), `$fmtDate`, `$fmtNum`, `$today` (the tenant's time
+      zone), `$field` (the envelopes, sent only when the expression calls it) and `$required` (permanent `required`
+      error with the mapping's message);
+    - the target-schema check (JsonSchema.Net 8.0.5 in the renderer process, because a tenant's schema `pattern` is a
+      backtracking regex; references resolve within the schema only): `schemaErrors [{path, location, keyword,
+      message}]`, at most 100, the path naming the row (`prices[379].price`); an invalid schema is a `schema` error;
+    - the scan of the paths an expression reads (`referencedPaths`, stored with a published version) and of the tables
+      it names;
+    - the output tables of docs/11 §6.7 (`OutputDestinations`, `OutputMappings`, `OutputMappingVersions`,
+      `OutputBindings`, `OutboxDeliveries` with the payload snapshot columns, `DeliveryAttempts`, `DocumentExternalRefs`),
+      the lookup tables of §6.1 (`LookupTables`, `LookupEntries`, left for later by P1) and `Suppliers.AttributesJson`
+      (§6.4, what mappings read as `supplier.attributes`), migration `OutputsAndLookups` under the new frozen
+      `PolicyV7` (the five strict tables, the four platform-row tables), which also seeds the platform templates from a
+      copy frozen with it; its Down runs on SQL Server (`TypeCatalogueSqlTests` migrates down past it with one of every
+      P3 row in place, and up again);
+    - the values view builder (`IDocumentDataViewBuilder`, `DocumentDataViewBuilder`): `doc`, `roles` with
+      `roles.lines` (the rows by line role), `meta` with `tenantId`, `event` and `eventAt`, `supplier` with its
+      attributes, `entity` (the tenant until P4), `source` (channel, connector, sender or uploader, file name, subject,
+      received at and on which day in the tenant's time zone), `links` (under `Outputs:PublicBaseUrl`), and the field
+      envelopes; a coded invoice and a definition tree of the same data give the same view (`ValuesViewTests`);
+    - the platform templates `std.event` (today's thin event) and `generic-ap-json` (header and rows by role, credit
+      notes negative), each with a target schema, seeded as data like the standard document templates, copied by a
+      tenant (`POST /output-mappings {from: {template}}`);
+    - the API (docs/05 "Output endpoints as built"): `/output-templates`, `/output-mappings` with versions, If-Match
+      drafts and `:publish`, `POST /output-mappings:preview` over a document or sample values, `/destinations` with the
+      write-only secret in `ISecretStore` and a two-slot rotation (`PUT …/secret`), `/output-bindings`,
+      `/lookup-tables` with `PUT …/entries`, supplier `attributes`; the policy `IntegrationAdmin` (TenantAdmin,
+      SuperAdmin), lookups under `ConfigAdmin`;
+    - the `article-price-import` mapping of §13.10 renders the price list of that section to its output (one
+      correction: a missing GTIN gives `"ean": null`), and a 10,000-row list of the longest shape renders under 5 MB
+      and within the limit (about 1 s of processor time).
+  - Left for part B and later:
+    - the fan-out in `PublishHandler` (bindings, exclusive groups, conditions), the snapshots in `BlobContainers.Exports`,
+      `ProcessDelivery`, `DeliverySweeper`, the http transport (auth variants, `responseMapping`, multipart, the
+      `Delivery:DevelopmentHosts` allowance for mock-erp), blob drop, pull feed (`/feeds`), retries, dead letter,
+      ordering, OnReapproval, redeliver, `/deliveries`, `:test` of a destination, the Integrations UI and the
+      Deliveries tab, the P3 demo;
+    - `OutputBatch` and `OutboxDelivery.BatchId` (batches, P6), recipes (`RecipeJson` is a column, the API takes none),
+      `fieldmap` and `liquid` engines, callbacks (`CallbackConfigJson` is a column), `sftp` and `email` transports;
+    - lookup tables: CSV upload, `Source` Import and Sync, aliases per entry (an alias is another entry), the platform
+      code lists as rows (`uom` stays in code, `CodeLists.Platform`); `lookupExists` and `enumMember` still read the code
+      lists in code, not the tenant's tables;
+    - the publish check of a type against the output mappings that read its fields (docs/11 §5.7 dependents; the paths
+      are stored in `ReferencedPathsJson` for it), and the editor's lint for the singleton-array case (§13.2);
+    - the supplier attribute schema (`TenantSettings.SupplierAttributeSchema`), groups, receiving entities and the
+      per-entity attributes (P4);
+    - the values view cache per `(DocumentId, Version)` (§5.6): not built, see the correction there; `$table` takes the
+      table key as a string literal only;
+    - the time limit polls the child's processor time every 25 ms, so a render may run up to that much over; a render
+      that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
+- **P4 to P6** – not started.
 
 ## Risks and open questions
 

@@ -115,6 +115,8 @@ public static class TypeCatalogueSeeder
     {
         ArgumentNullException.ThrowIfNull(db);
         var added = await AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        // The platform output templates (docs/11 §13.9) are seeded the same way.
+        added += await Outputs.OutputTemplates.AddMissingAsync(db, now, cancellationToken).ConfigureAwait(false);
         var tenants = await db.Tenants.IgnoreQueryFilters().Select(t => t.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
         var seeded = new List<Guid>();
         foreach (var tenant in tenants)

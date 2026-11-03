@@ -2,6 +2,7 @@ using DocProc.Infrastructure.Catalogue;
 using DocProc.Application.Configuration;
 using DocProc.Application.Security;
 using DocProc.Infrastructure.Configuration;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using DocProc.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
@@ -69,6 +70,7 @@ public static class PersistenceOptions
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
         services.AddScoped<ITenantFeatures, EfTenantFeatures>();
         services.AddDocProcTypeCatalogue();
+        services.AddDocProcOutputs();
         return services;
     }
 
@@ -97,6 +99,7 @@ public static class PersistenceOptions
         services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
         services.AddScoped<ITenantFeatures, EfTenantFeatures>();
         services.AddDocProcTypeCatalogue();
+        services.AddDocProcOutputs();
         services.AddHostedService<SqliteSchemaHostedService>();
         return services;
     }

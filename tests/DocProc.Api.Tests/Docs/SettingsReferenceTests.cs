@@ -3,6 +3,7 @@ using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Classification;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Pdf;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Security;
@@ -30,6 +31,8 @@ public sealed class SettingsReferenceTests
         { PdfProcessingOptions.SectionName, typeof(PdfProcessingOptions) },
         { KeywordClassifierOptions.SectionName, typeof(KeywordClassifierOptions) },
         { HeuristicSplitterOptions.SectionName, typeof(HeuristicSplitterOptions) },
+        { OutputOptions.SectionName, typeof(OutputOptions) },
+        { JsonataRendererOptions.SectionName, typeof(JsonataRendererOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Replay", typeof(LlmReplayOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Extraction", typeof(LlmExtractionOptions) },
     };

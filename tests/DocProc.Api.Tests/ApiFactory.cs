@@ -9,6 +9,7 @@ using DocProc.Application.Pipeline;
 using DocProc.Application.Security;
 using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -106,6 +107,7 @@ public class ApiFactory : WebApplicationFactory<Program>
             // As the persistence registration does: feature switches and the type catalogue with its resolver.
             services.AddScoped<DocProc.Application.Configuration.ITenantFeatures, DocProc.Infrastructure.Configuration.EfTenantFeatures>();
             services.AddDocProcTypeCatalogue();
+            services.AddDocProcOutputs();
             services.RemoveAll<IPipelineQueue>();
             services.AddSingleton<IPipelineQueue>(Queue);
 
@@ -179,6 +181,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         db.Tenants.Add(new Tenant { Id = TenantA, Name = "Tenant A", Slug = "tenant-a", LegalName = "Gasthaus zur Post GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
         db.Tenants.Add(new Tenant { Id = TenantB, Name = "Tenant B", Slug = "tenant-b", LegalName = "Pizzeria Napoli d.o.o.", DefaultCurrency = "EUR", CountryCode = "HR", TimeZone = "Europe/Zagreb", CreatedAt = now, UpdatedAt = now });
         db.Tenants.Add(new Tenant { Id = SuspendedTenant, Name = "Suspended", Slug = "suspended", LegalName = "Closed Kitchen Ltd", Status = TenantStatus.Suspended, DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
+        // The platform output templates, as the migration and the start-up seeder put them in place.
+        DocProc.Infrastructure.Outputs.OutputTemplates.AddMissingAsync(db, now).GetAwaiter().GetResult();
         db.SaveChanges();
     }
 

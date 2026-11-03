@@ -71,6 +71,71 @@
         }
       }
     },
+    "/api/v1/output-templates": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The platform integration templates a tenant can copy (std.event, generic-ap-json), with the tenant's mappings copied from each.",
+        "operationId": "ListOutputTemplates",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutputTemplateSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-mappings:preview": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads.",
+        "operationId": "PreviewOutputMapping",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutputPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputPreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/llm-usage": {
       "get": {
         "tags": [
@@ -968,7 +1033,7 @@
         "tags": [
           "Documents"
         ],
-        "summary": "Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases and alwaysReview need a tenant admin (403).",
+        "summary": "Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases, alwaysReview and attributes need a tenant admin (403).",
         "operationId": "CreateSupplierFromDocument",
         "parameters": [
           {
@@ -2744,6 +2809,945 @@
         }
       }
     },
+    "/api/v1/output-mappings": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The tenant's output mappings and the platform templates, with their versions.",
+        "operationId": "ListOutputMappings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutputMappingDetail"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Copies a platform template ({from: {template}}) or creates a mapping of the tenant's own; version 1 is a draft.",
+        "operationId": "CreateOutputMapping",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOutputMappingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-mappings/{key}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One mapping (the tenant's, else the platform template of that key) with its versions.",
+        "operationId": "GetOutputMapping",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Renames, describes, scopes to a type or archives one of the tenant's mappings.",
+        "operationId": "UpdateOutputMapping",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchOutputMappingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-mappings/{key}/versions": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Starts the next version as a draft, from the published version (409 when a draft exists).",
+        "operationId": "CreateOutputMappingDraft",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingVersionSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-mappings/{key}/versions/{version}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One version with its expression and target schema; the ETag is the draft revision.",
+        "operationId": "GetOutputMappingVersion",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingVersionDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Replaces a draft (If-Match: the revision read). The expression and target schema are checked on publish.",
+        "operationId": "SaveOutputMappingDraft",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveOutputMappingDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingVersionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-mappings/{key}/versions/{version}:publish": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Publishes a draft when its expression parses and its target schema is one (422 with the errors otherwise); the previous version is deprecated.",
+        "operationId": "PublishOutputMappingVersion",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputMappingCheckReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/destinations": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The tenant's destinations; secrets are never returned.",
+        "operationId": "ListDestinations",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DestinationResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Adds an http, blob or pull destination; the config is checked per transport, the secret is write-only.",
+        "operationId": "CreateDestination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDestinationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/destinations/{id}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One destination.",
+        "operationId": "GetDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Renames, disables or reconfigures a destination.",
+        "operationId": "UpdateDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchDestinationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Removes a destination no binding and no delivery refers to (409 otherwise: disable it instead), with its secrets.",
+        "operationId": "DeleteDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/destinations/{id}/secret": {
+      "put": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Sets or rotates the destination's secret; the replaced secret stays as the previous one until the next rotation.",
+        "operationId": "SetDestinationSecret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDestinationSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-bindings": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The tenant's output bindings.",
+        "operationId": "ListOutputBindings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutputBindingResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Binds events and a scope (type, supplier, channel, condition) to a mapping and a destination.",
+        "operationId": "CreateOutputBinding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOutputBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/output-bindings/{id}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One output binding.",
+        "operationId": "GetOutputBinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputBindingResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Changes a binding; absent fields stay.",
+        "operationId": "UpdateOutputBinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchOutputBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Removes a binding without deliveries (409 otherwise: disable it instead).",
+        "operationId": "DeleteOutputBinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/lookup-tables": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "The tenant's lookup tables and the platform code lists.",
+        "operationId": "ListLookupTables",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LookupTableSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Adds an empty lookup table to the tenant.",
+        "operationId": "CreateLookupTable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLookupTableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupTableSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lookup-tables/{key}": {
+      "get": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "One lookup table with its entries (the tenant's, else the platform's of that key); the ETag is its revision.",
+        "operationId": "GetLookupTable",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupTableDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Changes a table's description or case sensitivity.",
+        "operationId": "UpdateLookupTable",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchLookupTableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupTableSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Removes one of the tenant's lookup tables with its entries.",
+        "operationId": "DeleteLookupTable",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/lookup-tables/{key}/entries": {
+      "put": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Replaces every entry of one of the tenant's tables (If-Match: the revision read).",
+        "operationId": "PutLookupEntries",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLookupEntriesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupTableSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/llm-policy": {
       "get": {
         "tags": [
@@ -3497,6 +4501,40 @@
         },
         "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.\nstring? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the\nserver generates; the response only ever says whether one exists."
       },
+      "CreateDestinationRequest": {
+        "required": [
+          "name",
+          "transport",
+          "config",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "secret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /destinations`: a name, a transport (`http`, `blob`, `pull`), its config and, write-only, the secret."
+      },
       "CreateDocumentTypeRequest": {
         "required": [
           "from",
@@ -3591,6 +4629,226 @@
         },
         "description": "string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL."
       },
+      "CreateLookupTableRequest": {
+        "required": [
+          "key",
+          "description",
+          "caseSensitive"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "caseSensitive": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "CreateOutputBindingRequest": {
+        "required": [
+          "name",
+          "events",
+          "documentTypeKey",
+          "supplierId",
+          "channelId",
+          "condition",
+          "mappingKey",
+          "pinnedMappingVersion",
+          "destinationId",
+          "mode",
+          "exclusiveGroup",
+          "priority",
+          "onReapproval",
+          "updateMappingKey",
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "events": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "condition": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mappingKey": {
+            "type": "string"
+          },
+          "pinnedMappingVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "destinationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "exclusiveGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "onReapproval": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updateMappingKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "`POST /output-bindings` (docs/11 §6.7, §13.5). IReadOnlyList&lt;string&gt;? CreateOutputBindingRequest.Events defaults to `document.approved`;\nthe scope fields are optional (none: every document of the tenant); string? CreateOutputBindingRequest.Condition is a JSONata boolean\nover the values view. string CreateOutputBindingRequest.MappingKey names the tenant's mapping or a platform template;\nint? CreateOutputBindingRequest.PinnedMappingVersion keeps a published version instead of following the latest. Batch mode and\nrecipes come in P6."
+      },
+      "CreateOutputMappingRequest": {
+        "required": [
+          "from",
+          "key",
+          "name",
+          "description",
+          "sourceTypeKey",
+          "engine",
+          "expression",
+          "contentType",
+          "targetSchema"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OutputMappingSource"
+              }
+            ]
+          },
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "engine": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "`POST /output-mappings`: OutputMappingSource? CreateOutputMappingRequest.From copies a platform template (under string? CreateOutputMappingRequest.Key, or the\ntemplate's key), or a mapping of the tenant's own from string? CreateOutputMappingRequest.Key, string? CreateOutputMappingRequest.Name and an optional first\ndraft (string? CreateOutputMappingRequest.Engine, string? CreateOutputMappingRequest.Expression, JsonElement? CreateOutputMappingRequest.TargetSchema). Either way version 1 is a draft."
+      },
       "CreateSupplierRequest": {
         "required": [
           "name",
@@ -3657,6 +4915,13 @@
               "null",
               "boolean"
             ]
+          },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "description": "The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null."
           }
         }
       },
@@ -3775,6 +5040,76 @@
             "type": "string"
           }
         }
+      },
+      "DestinationResponse": {
+        "required": [
+          "id",
+          "name",
+          "transport",
+          "config",
+          "hasSecret",
+          "secretSetAt",
+          "hasPreviousSecret",
+          "status",
+          "lastTestAt",
+          "lastTestResult",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "hasSecret": {
+            "type": "boolean"
+          },
+          "secretSetAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "hasPreviousSecret": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lastTestAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastTestResult": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A destination as the API shows it. The secret is write-only: bool DestinationResponse.HasSecret and DateTimeOffset? DestinationResponse.SecretSetAt\nare all a client learns, bool DestinationResponse.HasPreviousSecret whether the one it replaced is still kept for the overlap."
       },
       "DocumentCostsDto": {
         "required": [
@@ -5788,6 +7123,121 @@
           }
         }
       },
+      "LookupEntryDto": {
+        "required": [
+          "from",
+          "to",
+          "validFrom",
+          "validTo",
+          "labels"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "validTo": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "labels": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "One entry: from, to, valid from and to (inclusive, `yyyy-MM-dd`), labels by locale."
+      },
+      "LookupTableDetail": {
+        "required": [
+          "table",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "table": {
+            "$ref": "#/components/schemas/LookupTableSummary"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupEntryDto"
+            }
+          }
+        },
+        "description": "A lookup table with its entries; the ETag is the revision."
+      },
+      "LookupTableSummary": {
+        "required": [
+          "key",
+          "description",
+          "caseSensitive",
+          "source",
+          "platform",
+          "entryCount",
+          "revision",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "caseSensitive": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "boolean"
+          },
+          "entryCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A lookup table without its entries: the tenant's (`Platform` false) or a platform code list."
+      },
       "MeResponse": {
         "required": [
           "subject",
@@ -5884,6 +7334,606 @@
             "format": "date-time"
           }
         }
+      },
+      "OutputBindingResponse": {
+        "required": [
+          "id",
+          "name",
+          "events",
+          "documentTypeKey",
+          "supplierId",
+          "channelId",
+          "condition",
+          "mappingKey",
+          "pinnedMappingVersion",
+          "destinationId",
+          "mode",
+          "exclusiveGroup",
+          "priority",
+          "onReapproval",
+          "updateMappingKey",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "condition": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mappingKey": {
+            "type": "string"
+          },
+          "pinnedMappingVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "destinationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "exclusiveGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "onReapproval": {
+            "type": "string"
+          },
+          "updateMappingKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A binding as the API shows it: events, scope, the mapping (by key) and the destination."
+      },
+      "OutputMappingCheckReport": {
+        "required": [
+          "errors",
+          "referencedPaths",
+          "tables"
+        ],
+        "type": "object",
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RenderErrorDto"
+            }
+          },
+          "referencedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Why a version cannot be published: the expression's or the target schema's error."
+      },
+      "OutputMappingDetail": {
+        "required": [
+          "id",
+          "key",
+          "name",
+          "description",
+          "sourceTypeKey",
+          "origin",
+          "baseTemplate",
+          "baseVersion",
+          "status",
+          "publishedVersion",
+          "draftVersion",
+          "createdAt",
+          "updatedAt",
+          "versions"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "baseTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "publishedVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "draftVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutputMappingVersionSummary"
+            }
+          }
+        },
+        "description": "An output mapping of the tenant, or a platform template (`Origin` Platform, read-only), with its versions."
+      },
+      "OutputMappingSource": {
+        "required": [
+          "template"
+        ],
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          }
+        },
+        "description": "Where a new mapping comes from: a platform template to copy."
+      },
+      "OutputMappingVersionDetail": {
+        "required": [
+          "key",
+          "version",
+          "expression",
+          "fileNameTemplate",
+          "targetSchema",
+          "referencedPaths",
+          "sampleDocumentIds"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/components/schemas/OutputMappingVersionSummary"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "fileNameTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "referencedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sampleDocumentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "One version with its expression, target schema and what it reads."
+      },
+      "OutputMappingVersionSummary": {
+        "required": [
+          "id",
+          "version",
+          "state",
+          "engine",
+          "contentType",
+          "revision",
+          "hasTargetSchema",
+          "createdAt",
+          "createdBy",
+          "updatedAt",
+          "publishedAt",
+          "publishedBy",
+          "changeNote"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "state": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasTargetSchema": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "publishedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "changeNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One version of an output mapping, without its expression."
+      },
+      "OutputPreviewRequest": {
+        "required": [
+          "mappingVersionId",
+          "expression",
+          "engine",
+          "targetSchema",
+          "documentId",
+          "sampleValues",
+          "event",
+          "includeValues"
+        ],
+        "type": "object",
+        "properties": {
+          "mappingVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "engine": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "documentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sampleValues": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "event": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "includeValues": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "`POST /output-mappings:preview` (docs/11 §13.1, §18): a mapping version (Guid? OutputPreviewRequest.MappingVersionId) or an\nexpression (string? OutputPreviewRequest.Expression, with string? OutputPreviewRequest.Engine and JsonElement? OutputPreviewRequest.TargetSchema), rendered over a\ndocument's values view (Guid? OutputPreviewRequest.DocumentId) or over JsonElement? OutputPreviewRequest.SampleValues, without delivering.\nstring? OutputPreviewRequest.Event sets `meta.event` (default `document.approved`); bool? OutputPreviewRequest.IncludeValues returns\nthe values view rendered over, for the editor's source tree."
+      },
+      "OutputPreviewResponse": {
+        "required": [
+          "output",
+          "undefined",
+          "outputBytes",
+          "errors",
+          "schemaErrors",
+          "referencedPaths",
+          "tables",
+          "elapsedMs",
+          "values"
+        ],
+        "type": "object",
+        "properties": {
+          "output": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "undefined": {
+            "type": "boolean"
+          },
+          "outputBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RenderErrorDto"
+            }
+          },
+          "schemaErrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TargetSchemaErrorDto"
+            }
+          },
+          "referencedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "elapsedMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "values": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "What the preview rendered: the output (null with `undefined` when the expression yields nothing), its size,\nthe render errors, the target-schema errors, the values-view paths and lookup tables the expression reads, how long\nthe render took and, on request, the values view."
+      },
+      "OutputTemplateSummary": {
+        "required": [
+          "key",
+          "version",
+          "name",
+          "description",
+          "sourceTypeKey",
+          "engine",
+          "contentType",
+          "copiedAs"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "engine": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "copiedAs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "A platform integration template (`GET /output-templates`, docs/11 §13.9) and the tenant's mappings copied from it."
       },
       "PageOfDocumentSummary": {
         "required": [
@@ -6133,6 +8183,235 @@
         },
         "description": "Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it."
       },
+      "PatchDestinationRequest": {
+        "required": [
+          "name",
+          "status",
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "Every field optional. A config replaces the stored one; string? PatchDestinationRequest.Status is Active or Disabled."
+      },
+      "PatchLookupTableRequest": {
+        "required": [
+          "description",
+          "caseSensitive"
+        ],
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "caseSensitive": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "PatchOutputBindingRequest": {
+        "required": [
+          "name",
+          "events",
+          "documentTypeKey",
+          "supplierId",
+          "clearSupplier",
+          "channelId",
+          "clearChannel",
+          "condition",
+          "mappingKey",
+          "pinnedMappingVersion",
+          "clearPinnedVersion",
+          "destinationId",
+          "exclusiveGroup",
+          "priority",
+          "onReapproval",
+          "updateMappingKey",
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "events": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "clearSupplier": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "clearChannel": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "condition": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mappingKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pinnedMappingVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "clearPinnedVersion": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "exclusiveGroup": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "onReapproval": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updateMappingKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "Every field optional; absent fields are left as they are. A string set to empty clears an optional one\n(`documentTypeKey`, `condition`, `exclusiveGroup`, `updateMappingKey`); `clearSupplier`,\n`clearChannel` and `clearPinnedVersion` clear the others."
+      },
+      "PatchOutputMappingRequest": {
+        "required": [
+          "name",
+          "description",
+          "sourceTypeKey",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Every field optional; an empty string? PatchOutputMappingRequest.SourceTypeKey clears it (any type). string? PatchOutputMappingRequest.Status is Active or Archived."
+      },
       "PatchSupplierRequest": {
         "required": [
           "name",
@@ -6202,6 +8481,13 @@
               "null",
               "boolean"
             ]
+          },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "description": "The supplier's attributes, replacing the stored ones (an empty object clears them)."
           }
         },
         "description": "Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list."
@@ -6335,6 +8621,21 @@
             "type": "boolean"
           }
         }
+      },
+      "PutLookupEntriesRequest": {
+        "required": [
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LookupEntryDto"
+            }
+          }
+        },
+        "description": "`PUT /lookup-tables/{key}/entries`: every entry of the table (replacing the stored ones), If-Match: the revision."
       },
       "ReadRegionRequest": {
         "required": [
@@ -6608,6 +8909,39 @@
           }
         }
       },
+      "RenderErrorDto": {
+        "required": [
+          "kind",
+          "code",
+          "message",
+          "position"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "position": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "A render error as the API shows it: its kind (`syntax`, `runtime`, `required`, `timeLimit`, ...), the engine's code, the message and the position in the expression."
+      },
       "ReprocessDocumentRequest": {
         "required": [
           "fromStage"
@@ -6725,6 +9059,73 @@
           "Done",
           "Skipped"
         ]
+      },
+      "SaveOutputMappingDraftRequest": {
+        "required": [
+          "engine",
+          "expression",
+          "contentType",
+          "fileNameTemplate",
+          "targetSchema",
+          "sampleDocumentIds"
+        ],
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileNameTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetSchema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "sampleDocumentIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision)."
+      },
+      "SetDestinationSecretRequest": {
+        "required": [
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string"
+          }
+        },
+        "description": "`PUT /destinations/{id}/secret`: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16)."
       },
       "SetDocumentTypeRequest": {
         "required": [
@@ -7053,6 +9454,10 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "The tenant's attributes of the supplier (docs/11 §6.4, `{\"erpVendorId\": \"V-10042\"}`), what output mappings read as `supplier.attributes`."
           }
         }
       },
@@ -7609,6 +10014,29 @@
         },
         "description": "A tier price of a row: the minimum quantity and the price cell."
       },
+      "TargetSchemaErrorDto": {
+        "required": [
+          "path",
+          "location",
+          "keyword",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "TenantFeaturesDto": {
         "required": [
           "configurableTypes",
@@ -7858,6 +10286,9 @@
     },
     {
       "name": "Document types"
+    },
+    {
+      "name": "Outputs"
     },
     {
       "name": "LLM"

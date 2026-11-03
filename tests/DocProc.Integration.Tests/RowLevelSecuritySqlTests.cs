@@ -1,4 +1,5 @@
 using DocProc.Infrastructure.Catalogue;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Migrations;
@@ -253,7 +254,6 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
         statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(up ? RowLevelSecurity.PolicyV6 : RowLevelSecurity.PolicyV5)]);
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV6);
         var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV6);
         sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentTableReports]");
         sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[DocumentTableReports] AFTER UPDATE");
@@ -269,6 +269,48 @@ public sealed class RowLevelSecuritySqlTests
         else
         {
             operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation { Name: "DocumentTableReports" }));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_outputs_migration_puts_the_output_tables_under_the_policy_and_seeds_the_templates_in_platform_scope(bool up)
+    {
+        // docs/11 §6.7, §6.10: the tables with a tenant of their own are strict, mappings and lookup tables hold
+        // platform rows; OutputsAndLookups re-creates the policy with them and seeds the platform output templates.
+        var migration = new OutputsAndLookups();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        if (up)
+        {
+            statements.First().ShouldBe(RowLevelSecurity.DropSql());
+            statements.Last().ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV7));
+            statements.Skip(1).SkipLast(1).ShouldBe([.. OutputTemplates.SeedStatements().Select(RowLevelSecurity.InPlatformScope)]);
+            statements.Count.ShouldBe(2 + (2 * OutputTemplates.Frozen().Count));
+        }
+        else
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV6)]);
+        }
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV7);
+        RowLevelSecurity.PolicyV7.StrictTables.Except(RowLevelSecurity.PolicyV6.StrictTables).Select(t => t.Table)
+            .ShouldBe(["OutputDestinations", "OutputBindings", "OutboxDeliveries", "DeliveryAttempts", "DocumentExternalRefs"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV7.PlatformRowTables.Except(RowLevelSecurity.PolicyV6.PlatformRowTables).Select(t => t.Table)
+            .ShouldBe(["OutputMappings", "OutputMappingVersions", "LookupTables", "LookupEntries"], ignoreOrder: true);
+        var sql = RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV7);
+        sql.ShouldContain($"ADD FILTER PREDICATE [rls].[{RowLevelSecurity.PlatformReadFunction}]([TenantId]) ON [dbo].[OutputMappings]");
+        sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[LookupEntries] BEFORE DELETE");
+        sql.ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[OutboxDeliveries] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation), "the seed and the policy come once the tables exist");
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
         }
     }
 

@@ -1,0 +1,32 @@
+(
+  $credit := meta.typeKey = "CreditNote";
+  $sign := $credit ? -1 : 1;
+  {
+    "header": {
+      "documentType": meta.typeKey,
+      "documentNumber": roles.documentNumber,
+      "documentDate": roles.documentDate,
+      "dueDate": roles.dueDate,
+      "currency": roles.currency,
+      "supplier": supplier ? {
+        "id": supplier.id,
+        "name": supplier.name,
+        "vatId": supplier.vatId,
+        "attributes": supplier.attributes
+      },
+      "entity": entity ? { "code": entity.code, "name": entity.name, "vatId": entity.vatId },
+      "net": $sign * $abs(roles.net.amount),
+      "tax": $sign * $abs(roles.tax.amount),
+      "gross": $sign * $abs(roles.total.amount),
+      "documentId": meta.documentId,
+      "revision": meta.version,
+      "event": meta.event
+    },
+    "rows": [ roles.lines.{
+      "sku": sku,
+      "quantity": $abs(quantity),
+      "unitPrice": unitPrice.amount,
+      "net": $sign * $abs(net.amount)
+    } ]
+  }
+)

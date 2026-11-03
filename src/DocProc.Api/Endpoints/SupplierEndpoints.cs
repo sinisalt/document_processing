@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DocProc.Api.Auth;
 using DocProc.Domain.Common;
@@ -27,8 +28,14 @@ public sealed record SupplierResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt)
 {
+    /// <summary>The tenant's attributes of the supplier (docs/11 §6.4, <c>{"erpVendorId": "V-10042"}</c>), what output mappings read as <c>supplier.attributes</c>.</summary>
+    public IReadOnlyDictionary<string, JsonElement> Attributes { get; init; } = new Dictionary<string, JsonElement>();
+
     internal static SupplierResponse From(Supplier s) =>
-        new(s.Id, s.Name, s.NormalizedName, s.VatId, s.TaxId, s.Ibans, s.EmailDomains, s.Aliases, s.DefaultCurrency, s.AlwaysReview, s.GlobalSupplierId, s.CreatedAt, s.UpdatedAt);
+        new(s.Id, s.Name, s.NormalizedName, s.VatId, s.TaxId, s.Ibans, s.EmailDomains, s.Aliases, s.DefaultCurrency, s.AlwaysReview, s.GlobalSupplierId, s.CreatedAt, s.UpdatedAt)
+        {
+            Attributes = SupplierEndpoints.AttributesOf(s.AttributesJson),
+        };
 }
 
 public sealed record CreateSupplierRequest(
@@ -39,7 +46,11 @@ public sealed record CreateSupplierRequest(
     IReadOnlyList<string>? EmailDomains,
     IReadOnlyList<string>? Aliases,
     string? DefaultCurrency,
-    bool? AlwaysReview);
+    bool? AlwaysReview)
+{
+    /// <summary>The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null.</summary>
+    public IReadOnlyDictionary<string, JsonElement>? Attributes { get; init; }
+}
 
 /// <summary>Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list.</summary>
 public sealed record PatchSupplierRequest(
@@ -50,7 +61,11 @@ public sealed record PatchSupplierRequest(
     IReadOnlyList<string>? EmailDomains,
     IReadOnlyList<string>? Aliases,
     string? DefaultCurrency,
-    bool? AlwaysReview);
+    bool? AlwaysReview)
+{
+    /// <summary>The supplier's attributes, replacing the stored ones (an empty object clears them).</summary>
+    public IReadOnlyDictionary<string, JsonElement>? Attributes { get; init; }
+}
 
 /// <summary>One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity").</summary>
 public sealed record SupplierActivityItem(Guid Id, string Status, string Type, string? DocumentNumber, DateOnly? IssueDate, decimal? TotalGross, string? Currency, DateTimeOffset CreatedAt);
@@ -198,6 +213,7 @@ public static partial class SupplierEndpoints
             var aliases = Changed(request.Aliases, supplier?.Aliases, CleanList);
             var errors = new Errors().Optional("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
             ValidateLists(errors, ibans, emailDomains, aliases);
+            ValidateAttributes(errors, request.Attributes);
             string? normalizedName = null;
             if (request.Name is not null)
             {
@@ -264,6 +280,11 @@ public static partial class SupplierEndpoints
             if (request.AlwaysReview is { } alwaysReview)
             {
                 supplier.AlwaysReview = alwaysReview;
+            }
+
+            if (request.Attributes is not null)
+            {
+                supplier.AttributesJson = AttributesJson(request.Attributes);
             }
 
             supplier.UpdatedAt = clock.GetUtcNow();
@@ -356,6 +377,7 @@ public static partial class SupplierEndpoints
     {
         var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
         ValidateLists(errors, request.Ibans, request.EmailDomains, request.Aliases);
+        ValidateAttributes(errors, request.Attributes);
         if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
         {
             errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
@@ -395,12 +417,86 @@ public static partial class SupplierEndpoints
             Aliases = CleanList(request.Aliases),
             DefaultCurrency = request.DefaultCurrency,
             AlwaysReview = request.AlwaysReview ?? false,
+            AttributesJson = request.Attributes is null ? null : AttributesJson(request.Attributes),
             CreatedAt = now,
             UpdatedAt = now,
         };
         db.Suppliers.Add(supplier);
         return new SupplierCreation(supplier, null, null);
     }
+
+    /// <summary>The most attributes one supplier holds, and the longest key and text value.</summary>
+    public const int MaxAttributes = 50;
+
+    /// <inheritdoc cref="MaxAttributes"/>
+    public const int MaxAttributeKeyLength = 64;
+
+    /// <inheritdoc cref="MaxAttributes"/>
+    public const int MaxAttributeValueLength = 400;
+
+    /// <summary>The stored attributes as the API shows them (none for a supplier without, or with a value that does not parse).</summary>
+    internal static IReadOnlyDictionary<string, JsonElement> AttributesOf(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new Dictionary<string, JsonElement>();
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                ? document.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal)
+                : new Dictionary<string, JsonElement>();
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, JsonElement>();
+        }
+    }
+
+    /// <summary>The attributes as stored: a JSON object, or null for none.</summary>
+    private static string? AttributesJson(IReadOnlyDictionary<string, JsonElement> attributes) =>
+        attributes.Count == 0 ? null : JsonSerializer.Serialize(attributes.ToDictionary(p => p.Key.Trim(), p => p.Value, StringComparer.Ordinal));
+
+    /// <summary>At most <see cref="MaxAttributes"/> keys (a letter, then letters, digits, <c>_</c>, <c>-</c> or <c>.</c>), each a scalar.</summary>
+    private static void ValidateAttributes(Errors errors, IReadOnlyDictionary<string, JsonElement>? attributes)
+    {
+        if (attributes is null)
+        {
+            return;
+        }
+
+        if (attributes.Count > MaxAttributes)
+        {
+            errors.Add("attributes", $"At most {MaxAttributes} attributes.");
+            return;
+        }
+
+        foreach (var (key, value) in attributes)
+        {
+            if (key.Length > MaxAttributeKeyLength || !AttributeKeyPattern().IsMatch(key))
+            {
+                errors.Add("attributes", $"'{(key.Length > 40 ? key[..40] + "…" : key)}' is not an attribute key: a letter, then letters, digits, '_', '-' or '.', at most {MaxAttributeKeyLength} characters.");
+                return;
+            }
+
+            var fits = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString()!.Length <= MaxAttributeValueLength,
+                JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null => true,
+                _ => false,
+            };
+            if (!fits)
+            {
+                errors.Add($"attributes.{key}", $"An attribute is a string of at most {MaxAttributeValueLength} characters, a number, a boolean or null.");
+                return;
+            }
+        }
+    }
+
+    [GeneratedRegex("^[A-Za-z][A-Za-z0-9_.-]*$")]
+    private static partial Regex AttributeKeyPattern();
 
     /// <summary>
     /// The list a <c>PATCH</c> gives, or null (leave it as it is) when none is given or it is the stored list again once

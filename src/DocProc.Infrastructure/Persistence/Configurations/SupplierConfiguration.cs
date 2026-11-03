@@ -24,6 +24,7 @@ internal sealed class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         b.Property(s => s.VatId).HasMaxLength(32);
         b.Property(s => s.TaxId).HasMaxLength(32);
         b.Property(s => s.AddressesJson).HasColumnType("json");
+        b.Property(s => s.AttributesJson).HasColumnType("json");
         b.Property(s => s.DefaultCurrency).HasMaxLength(3).IsFixedLength();
         b.HasIndex(s => new { s.TenantId, s.NormalizedName });
         b.HasIndex(s => new { s.TenantId, s.VatId });

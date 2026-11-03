@@ -43,6 +43,15 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<DocumentTypeVersion> DocumentTypeVersions => Set<DocumentTypeVersion>();
     public DbSet<DocumentFieldIndexEntry> DocumentFieldIndex => Set<DocumentFieldIndexEntry>();
     public DbSet<DocumentTableReport> DocumentTableReports => Set<DocumentTableReport>();
+    public DbSet<OutputDestination> OutputDestinations => Set<OutputDestination>();
+    public DbSet<OutputMapping> OutputMappings => Set<OutputMapping>();
+    public DbSet<OutputMappingVersion> OutputMappingVersions => Set<OutputMappingVersion>();
+    public DbSet<OutputBinding> OutputBindings => Set<OutputBinding>();
+    public DbSet<OutboxDelivery> OutboxDeliveries => Set<OutboxDelivery>();
+    public DbSet<DeliveryAttempt> DeliveryAttempts => Set<DeliveryAttempt>();
+    public DbSet<DocumentExternalRef> DocumentExternalRefs => Set<DocumentExternalRef>();
+    public DbSet<LookupTable> LookupTables => Set<LookupTable>();
+    public DbSet<LookupEntry> LookupEntries => Set<LookupEntry>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -130,6 +139,11 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<IdempotencyKey>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<TenantLlmPolicyRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<LlmUsageEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputDestination>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputBinding>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutboxDelivery>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DeliveryAttempt>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentExternalRef>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
@@ -137,6 +151,12 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         // The type catalogue (docs/11 §6.1): platform templates (TenantId null) are read by every tenant, a tenant's types only by it.
         modelBuilder.Entity<DocumentTypeDefinition>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<DocumentTypeVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+
+        // Output mappings and lookup tables (docs/11 §6.7, §6.1): platform integration templates and code lists are read by every tenant.
+        modelBuilder.Entity<OutputMapping>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputMappingVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupTable>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
 
         // Profiles are shared through the global registry unless private to a tenant.
         modelBuilder.Entity<ExtractorProfile>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);

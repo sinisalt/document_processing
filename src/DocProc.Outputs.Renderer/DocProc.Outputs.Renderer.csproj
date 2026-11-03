@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>The sandboxed JSONata renderer of output mappings (docs/11 §13.1): a child process the hosts start and kill, so a render that runs too long or allocates too much can be stopped. Reads requests from stdin, writes results to stdout, one JSON object per line. No I/O besides the two streams.</Description>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DocProc.Outputs.Renderer</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Jsonata.Net.Native" />
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DocProc.Integration.Tests" />
+  </ItemGroup>
+</Project>

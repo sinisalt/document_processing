@@ -334,6 +334,16 @@ The new `DefinitionCompiler` in `src/DocProc.Definitions` compiles each publishe
   - `meta.supersedes` names the earlier document this one replaces, when a reviewer resolved a `REVISION_OF` that way (section 11);
   - `$field(path)` exposes `{status, confidence, method, normalized}`.
   The view is the input to JSON Schema validation, generic rules and output mappings.
+  - Correction (P3): `std.event` (13.5) renders today's thin event `{tenantId, documentId, eventType, at}`, which the
+    view below cannot give, so `meta` also carries `tenantId` and `eventAt` (with `event`, the event being rendered).
+    "Rows by role" (13.9 `generic-ap-json`) needs the line roles, which name members of the rows (`lines[*].lineNet`)
+    and so are not values of their own: `roles.lines` holds each row as `{net, quantity, unitPrice, sku}` from
+    `lineNet`, `lineQuantity`, `lineUnitPrice` and `lineSku`. Until receiving entities exist (P4) `entity` is the tenant
+    itself (`id` and `code` null, the legal name and VAT id), and `supplier.group` is null; `supplier.attributes` reads
+    the new `Suppliers.AttributesJson` (6.4; the attribute schema and the per-entity attributes come with P4). `source`
+    has what the ingestion holds today (channel, connector, sender or `submittedBy`, file name, subject, `receivedAt`,
+    `receivedDate`); `mailbox` and `folderPath` are null until P4 records them. The view is not cached per
+    `(DocumentId, Version)`: a supplier's attributes change without the document's version changing.
 
 ```json
 {
@@ -1514,6 +1524,33 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
 - Text formats (CSV, fixed-width, XML) use Fluid (Liquid, sandboxed) in P6. Its input is a JSONata pre-shaped object, and XML output is validated against `TargetXsd` with `XmlResolver = null`.
 - The UI offers a visual field map (target path, source field, formatter, lookup) that compiles to JSONata, and a code mode.
 - Preview is always rendered by the server, so preview and delivery cannot drift.
+- Correction (P3, the spike): Jsonata.Net.Native 3.0.0 (MIT, February 2026, a port of jsonata-js 2.1 that passes its
+  test suite but for the differences its README lists) has the function coverage, a depth cap (`MaxDepth`, default 250,
+  counting nested evaluations, so a plain recursion stops at about 100 calls), a tail-recursion cap, a 10^6 cap per
+  range and no I/O functions, but **no way to stop a running evaluation**: no cancellation token, no time or
+  allocation hook, and `$f := function($n){ $n = 0 ? 1 : $f($n-1) + $f($n-1) }; $f(40)` ran past every timeout tried
+  (30 s); `[1..1000000].([1..1000000])` allocates until the process runs out of memory. Aborting the thread with
+  `ControlledExecution.Run` crashed the .NET runtime on Linux (`PAL_SEHException`). The fallback named above was measured
+  too and is no fallback for this design: jsonata-js 2.2.2 (and 1.8.9) in Jint 4.17.0 enforces time, memory and
+  recursion, but rendered the `article-price-import` mapping of 13.10 over 412 rows in 0.7 s and over 10,000 rows in
+  17 to 20 s, against 0.16 to 0.6 s for Jsonata.Net.Native, so the 10,000-row list of 13.10 and section 22 could never
+  render within the 2 s limit (and Jint's memory limit counts every allocation, which a 5 MB view passes in a second).
+  As built, the renderer is Jsonata.Net.Native in a **child process** (`src/DocProc.Outputs.Renderer`): the hosts keep
+  a small pool of them (`JsonataRenderer`, `Outputs:Renderer`), write one request per line and kill a process that
+  passes the limit; its GC heap is capped (`DOTNET_GCHeapHardLimit`, 1 GB), it starts with an empty environment (no
+  connection strings or keys), and a crash only loses that process. The 2 s are the child's **processor time** from
+  reading the request to its answer (polled every 25 ms), with a 10 s wall-clock ceiling: a wall-clock 2 s failed the
+  10,000-row list whenever the host was busy (the whole test suite on four cores), while its processor time stays near
+  1 s. The limit starts when the child has read the request, so it bounds the tenant's expression and not the size of
+  the values view (a 10,000-row list of the longest shape is about 20 MB of view; sending and reading it has a 30 s
+  transfer timeout of its own). The target-
+  schema check runs in the child as well, because a tenant's schema `pattern` is a backtracking regex without a timeout.
+  The custom functions: `$table(key, value, default?)` reads the tables the expression names as string literals (the
+  tenant's, then the platform's rows, then the code lists built in code such as `uom`), an entry valid on the render's
+  `$today()`; `$fmtDate` takes .NET custom patterns (`dd.MM.yyyy`, invariant culture) over `yyyy-MM-dd` or ISO
+  date-times; `$fmtNum` rounds half away from zero; `$field(path)` answers from the document's envelopes (sent only
+  when the expression calls it); `$required` fails on undefined, null, blank text and an empty list. Numbers keep the
+  text they were read with (`50.00`), arithmetic yields JSON numbers (`-119`).
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1705,6 +1742,7 @@ Notes on the expression:
 - `$not(status = "Discontinued")` rather than `status != "Discontinued"`: in JSONata a comparison with a missing value is false, so `!=` would drop every row that has no status.
 - `$root` keeps the document root reachable inside the row block, for the list-level validity.
 - `[ tiers.{…} ]` yields `[]` for a row without tiers; a missing `gtin` drops the `ean` key, which this receiver accepts. A receiver that requires the key gets `"ean": gtin ? gtin : null`.
+  - Correction (P3): the values view writes a Missing field as `null` (5.6), not as an absent key, and JSONata keeps a `null` value in an object constructor, so `"ean": gtin` gives `"ean": null` for a row without a GTIN (the rendered example below shows the key dropped). A receiver that must not see the key gets `"ean": gtin ? gtin : undefined`; the `article-price-import` golden test renders `null` (`ValuesViewTests`).
 - The same mapping serves `daily-specials` if a tenant binds it there, because it reads `roles.validFrom`, `roles.validUntil` and `doc.lines`, which both types share. Acme instead sends specials to its POS hub with `pos-promotions`.
 
 Rendered for a Nordwind price list (412 rows; three shown):
@@ -1931,6 +1969,7 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
   - `/destinations` CRUD, plus `:test` and `PUT /destinations/{id}/secret`
   - `/output-mappings` CRUD, plus versions and `:publish`
   - `POST /output-mappings:preview {expression|mappingVersionId, documentId|sampleValues}`, returning `{output, errors, schemaErrors, referencedPaths}`
+  - Correction (P3): `GET /output-templates`, the platform integration templates a tenant copies (13.9; only the admin route `/admin/output-templates` was listed), with the tenant's copies of each; a copy is `POST /output-mappings {from: {template}}`, as a type is adopted. The preview also takes `engine`, `targetSchema`, `event` and `includeValues` (the values view back, for the editor's source tree of section 19).
   - `/output-bindings` CRUD
   - `GET /deliveries?documentId=&destinationId=&status=` (PageCursor), `GET /deliveries/{id}`, `POST /deliveries/{id}:redeliver`
   - `GET /feeds/{destinationId}`, `POST /feeds/{destinationId}:ack`
