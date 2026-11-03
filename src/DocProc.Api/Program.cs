@@ -54,6 +54,8 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
     SuppressDiagnosticsCallback = context => context.HttpContext.Response.StatusCode < StatusCodes.Status500InternalServerError,
 });
 app.UseStatusCodePages();
+// Inside the exception handler: what fails because the client went away is a closed request, not a 500.
+app.UseClientAbortedRequests();
 
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();

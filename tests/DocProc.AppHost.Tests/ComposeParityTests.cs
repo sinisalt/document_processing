@@ -209,6 +209,39 @@ public sealed class ComposeParityTests
         Read(".env.example").ShouldContain("DOCPROC_KEYCLOAK_PORT=");
     }
 
+    [Fact]
+    public void The_web_image_holds_every_file_the_web_sources_import_from_outside_web()
+    {
+        // Found by the P1 demo: the review form tests import the template snapshots of schemas/templates by a relative
+        // path, the image build type-checks the tests, and web/Dockerfile copied only web/, so `docker compose up --build`
+        // failed at the portal while every check outside Docker passed.
+        var web = RepositoryPath("web");
+        var root = RepositoryPath();
+        var dockerfile = Read("web", "Dockerfile");
+        var imports = new Regex(@"(?:from|import)\s*\(?\s*""(?<path>\.\.?/[^""]+)""");
+        var outside = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(web, "*.*", SearchOption.AllDirectories)
+                     .Where(f => f.EndsWith(".ts", StringComparison.Ordinal) || f.EndsWith(".tsx", StringComparison.Ordinal))
+                     .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}node_modules{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                                 && !f.Contains($"{Path.DirectorySeparatorChar}dist{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+        {
+            foreach (Match match in imports.Matches(File.ReadAllText(file)))
+            {
+                var target = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, match.Groups["path"].Value));
+                if (!target.StartsWith(web + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                {
+                    outside.Add(Path.GetRelativePath(root, Path.GetDirectoryName(target)!).Replace(Path.DirectorySeparatorChar, '/'));
+                }
+            }
+        }
+
+        outside.ShouldNotBeEmpty("the review tests import schemas/templates; if they no longer do, this test checks nothing");
+        foreach (var folder in outside)
+        {
+            dockerfile.ShouldContain($"COPY {folder}/ /{folder}/", customMessage: $"a web source imports from {folder}, which web/Dockerfile must copy to the same place relative to the sources");
+        }
+    }
+
     [Theory]
     [InlineData("portal", "customer-portal")]
     [InlineData("admin", "admin-console")]

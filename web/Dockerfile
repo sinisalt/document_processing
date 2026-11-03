@@ -37,6 +37,9 @@ RUN test -n "$APP" -a -f "apps/$APP/package.json" || { echo "APP must name a fol
 COPY web/tsconfig.base.json ./
 COPY web/packages/ packages/
 COPY web/apps/${APP}/ apps/${APP}/
+# The build type-checks the tests too, and the review form tests render the compiled template snapshots of
+# schemas/templates (imported by a relative path out of web/), so they sit at the same place relative to the sources.
+COPY schemas/templates/ /schemas/templates/
 # VITE_OIDC_AUTHORITY overrides the app's .env.production (Vite prefers the environment) when it is set, which is how
 # docker-compose.yml moves Keycloak to DOCPROC_KEYCLOAK_PORT; empty or unset, .env.production applies.
 ARG VITE_OIDC_AUTHORITY
