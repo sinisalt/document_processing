@@ -75,7 +75,8 @@ export function SetTypeForm({ document, locale, onDone, inDialog = false }: SetT
   const settle = useSettle(document.id);
   const types = useDocumentTypes();
   const usable = useMemo(() => usableTypes(types.data), [types.data]);
-  const current = document.definition?.key ?? (usable.some((type) => type.key === document.type) ? document.type : "");
+  // The type the document has, when it has a form; a document without one (Unknown, Other) starts with no pick.
+  const current = document.definition?.key ?? "";
   const [typeKey, setTypeKey] = useState(current);
   const [prefill, setPrefill] = useState<Prefill>("none");
   const setType = useMutation({

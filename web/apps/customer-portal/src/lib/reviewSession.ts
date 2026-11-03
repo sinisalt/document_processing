@@ -7,7 +7,8 @@ import type { TableToolState } from "@docproc/review";
  * must not switch the tool off, lose the page, or forget the table mapping drawn so far.
  */
 export interface ReviewSession {
-  mapMode?: boolean;
+  /** The reviewer's choice; null (the default) follows the document: on while none of its fields holds a value. */
+  mapMode?: boolean | null;
   tableMode?: boolean;
   page?: number;
   tab?: string;

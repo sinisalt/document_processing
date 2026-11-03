@@ -1,7 +1,7 @@
 import { useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useWatch } from "react-hook-form";
-import { GripVertical, Plus, X } from "lucide-react";
+import { ArrowRightLeft, GripVertical, Plus, X } from "lucide-react";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, Input, Label, cn } from "@docproc/ui";
 import { ConfidenceBadge, FieldStatusBadge, SourceBadge, getByPath, isFieldValue } from "@docproc/app-shell";
 import { FieldInput, type HighlightHandler } from "./FieldInput";
@@ -186,23 +186,33 @@ function MoveChip({ spec, context }: { spec: FieldSpec; context: Context }) {
   const { t } = useTranslation(REVIEW_NS);
   const targets = context.layout.specs.filter((other) => other.path !== spec.path && movable(other));
   if (targets.length === 0) return null;
+  // Two elements: the handle is dragged (a menu trigger opens on pointer down, which would cover the drop target),
+  // the button opens the menu, which is also the way without a mouse.
   return (
     <DropdownMenu>
+      <span
+        draggable={!context.busy}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(MOVE_MIME, spec.path);
+          event.dataTransfer.effectAllowed = "move";
+        }}
+        className="inline-flex h-4 cursor-grab items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        title={t("move.drag", { field: context.label(spec) })}
+        aria-hidden
+        data-testid={`drag-${spec.path}`}
+      >
+        <GripVertical className="size-3.5" />
+      </span>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData(MOVE_MIME, spec.path);
-            event.dataTransfer.effectAllowed = "move";
-          }}
           className="inline-flex h-4 items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
           aria-label={t("move.chip", { field: context.label(spec) })}
           title={t("move.chip", { field: context.label(spec) })}
           disabled={context.busy}
           data-testid={`move-${spec.path}`}
         >
-          <GripVertical className="size-3.5" aria-hidden />
+          <ArrowRightLeft className="size-3.5" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">

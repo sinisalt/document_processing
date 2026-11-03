@@ -428,7 +428,8 @@
       "title": "Map this document",
       "unknown": "The document type was not recognised. Pick its type and start empty, to capture the values from the page, or let AI pre-fill it.",
       "noForm": "{{type}} has no form to review. Give the document a type with fields: start empty, to capture the values from the page, or let AI pre-fill it.",
-      "supplier": "Supplier"
+      "supplier": "Supplier",
+      "noData": "Nothing was captured for this {{type}} yet. Read it again for its type (Let AI pre-fill), or start empty to capture the values from the page."
     }
   },
   "queue": {

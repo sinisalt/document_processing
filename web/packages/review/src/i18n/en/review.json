@@ -397,7 +397,8 @@
     }
   },
   "move": {
-    "chip": "Move the value of {{field}} to another field (drag it onto the field, or pick it)",
+    "chip": "Move the value of {{field}} to another field",
+    "drag": "Drag the value of {{field}} onto the field it belongs in",
     "to": "Move value to"
   },
   "map": {

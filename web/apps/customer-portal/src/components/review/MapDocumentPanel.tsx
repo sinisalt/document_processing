@@ -10,10 +10,11 @@ import { CreateSupplierDialog, SetTypeForm, SupplierPicker } from "./ReviewDialo
  * recognise, or whose type has no form yet: pick its type and how to start (empty, to fill from the page in map mode,
  * or pre-filled by AI), and its supplier (or create one from the document).
  */
-export function MapDocumentPanel({ document, locale }: { document: DocumentDetail; locale: string }) {
+export function MapDocumentPanel({ document, locale, hasForm = false }: { document: DocumentDetail; locale: string; hasForm?: boolean }) {
   const { t } = useTranslation();
   const [creating, setCreating] = useState(false);
   const unknown = document.type === "Unknown";
+  const typeName = document.typeName ?? t(`documentType.${document.type}`, { defaultValue: document.type });
   return (
     <section className="flex flex-col gap-4" aria-labelledby="map-document-heading" data-testid="map-document-panel">
       <div className="flex items-start gap-3">
@@ -23,7 +24,7 @@ export function MapDocumentPanel({ document, locale }: { document: DocumentDetai
             {t("review.mapDocument.title")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {unknown ? t("review.mapDocument.unknown") : t("review.mapDocument.noForm", { type: document.typeName ?? t(`documentType.${document.type}`, { defaultValue: document.type }) })}
+            {unknown ? t("review.mapDocument.unknown") : hasForm ? t("review.mapDocument.noData", { type: typeName }) : t("review.mapDocument.noForm", { type: typeName })}
           </p>
         </div>
       </div>

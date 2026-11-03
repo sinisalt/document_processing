@@ -428,7 +428,8 @@
       "title": "Dieses Dokument zuordnen",
       "unknown": "Der Dokumenttyp wurde nicht erkannt. Wählen Sie den Typ und beginnen Sie leer, um die Werte von der Seite zu übernehmen, oder lassen Sie die KI vorbefüllen.",
       "noForm": "Für {{type}} gibt es kein Prüfformular. Geben Sie dem Dokument einen Typ mit Feldern: leer beginnen, um die Werte von der Seite zu übernehmen, oder von der KI vorbefüllen lassen.",
-      "supplier": "Lieferant"
+      "supplier": "Lieferant",
+      "noData": "Für dieses Dokument ({{type}}) wurde noch nichts erfasst. Lesen Sie es für seinen Typ neu (von der KI vorbefüllen) oder beginnen Sie leer, um die Werte von der Seite zu übernehmen."
     }
   },
   "queue": {

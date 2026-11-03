@@ -138,9 +138,13 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const groupPath = useMemo(() => (layout?.structural ? defaultTablePath(formSpec) : null), [layout, formSpec]);
   const tableAvailable = mapAvailable && groupPath !== null;
   const noValues = useMemo(() => specs.length > 0 && specs.every((spec) => rawValueOf(canonical, spec) === undefined), [specs, canonical]);
-  const [mapModeChoice, setMapMode] = useSessionState(document.id, "mapMode", () => noValues);
+  const [mapModeChoice, setMapMode] = useSessionState(document.id, "mapMode", null);
   const [tableModeChoice, setTableMode] = useSessionState(document.id, "tableMode", false);
-  const mapMode = mapAvailable && mapModeChoice && !(tableAvailable && tableModeChoice);
+  const mapMode = mapAvailable && (mapModeChoice ?? noValues) && !(tableAvailable && tableModeChoice);
+  // Once map mode came on by itself, it stays on after the first values are saved (the screen remounts with them).
+  useEffect(() => {
+    if (mapModeChoice === null && mapAvailable && noValues) setMapMode(true);
+  }, [mapModeChoice, mapAvailable, noValues, setMapMode]);
   const tableMode = tableAvailable && tableModeChoice;
   const [mapTarget, setMapTarget] = useSessionState(document.id, "mapTarget", null);
   const targetSpec = useMemo(() => (mapTarget ? (specs.find((s) => s.path === mapTarget) ?? null) : null), [specs, mapTarget]);
@@ -305,7 +309,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
         table: tableMode || tab === "table" ? table.drawing(page) : null,
         banner: mapMode ? (
           <MapPreview
-            fieldLabel={targetSpec ? fieldLabel(targetSpec) : null}
+            fieldLabel={targetSpec ? (targetSpec.path === targetSpec.fieldPath ? fieldLabel(targetSpec) : `${fieldLabel(targetSpec.fieldPath)} · ${fieldLabel(targetSpec)}`) : null}
             text={map.text}
             value={map.value}
             onValueChange={map.setValue}
@@ -541,7 +545,7 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
                       </form>
                     ) : canReview && isCorrectable(document.status) ? (
                       // docs/11 §12.1: a document without a form or data gets the "Map this document" panel.
-                      <MapDocumentPanel document={document} locale={locale} />
+                      <MapDocumentPanel document={document} locale={locale} hasForm={!!formSpec} />
                     ) : (
                       <EmptyState title={t("review.noCanonicalTitle")} description={isInFlight(document.status) ? t("review.noCanonicalProcessing") : formSpec ? t("review.noCanonicalExtracted") : t("review.noCanonical")} />
                     )}

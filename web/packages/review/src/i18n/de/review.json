@@ -397,7 +397,8 @@
     }
   },
   "move": {
-    "chip": "Den Wert von {{field}} in ein anderes Feld verschieben (auf das Feld ziehen oder auswählen)",
+    "chip": "Den Wert von {{field}} in ein anderes Feld verschieben",
+    "drag": "Den Wert von {{field}} auf das Feld ziehen, in das er gehört",
     "to": "Wert verschieben nach"
   },
   "map": {
