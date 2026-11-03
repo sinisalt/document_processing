@@ -338,6 +338,13 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         }
 
         var compiled = report.Compiled!;
+        // Documents stored under an earlier version hold a renamed field's value under its old key; the version's
+        // descriptors name those keys, so completing such a tree for this version carries the value over (docs/11 §5.7).
+        var earlier = definition.Versions
+            .Where(v => v.Id != draft.Id && v.State is DocumentTypeVersionState.Published or DocumentTypeVersionState.Deprecated)
+            .Select(v => DefinitionSerializer.Parse(v.DefinitionJson))
+            .ToList();
+        var descriptors = compiled.Descriptors.WithFormerKeys(earlier);
         var now = clock.GetUtcNow();
         foreach (var previous in definition.Versions.Where(v => v.State == DocumentTypeVersionState.Published))
         {
@@ -352,7 +359,7 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         draft.LlmSchemaVersion = compiled.LlmSchema.Version;
         draft.LlmSchemaHash = compiled.LlmSchema.Hash;
         draft.FormSpecJson = compiled.FormSpecJson;
-        draft.DescriptorsJson = compiled.Descriptors.ToJson();
+        draft.DescriptorsJson = descriptors.ToJson();
         draft.ContentHash = compiled.ContentHash;
         draft.State = DocumentTypeVersionState.Published;
         draft.PublishedAt = now;

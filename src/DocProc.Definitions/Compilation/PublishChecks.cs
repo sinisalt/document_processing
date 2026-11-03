@@ -87,8 +87,16 @@ public static class PublishChecks
         problems.AddRange(DefinitionChecker.Check(definition, RuleKinds.Keys));
         problems.AddRange(CheckRuleParams(definition));
         problems.AddRange(CheckDuplicateKey(definition));
+        problems.AddRange(CheckInvoiceRecordFields(definition));
 
         var warnings = new List<DefinitionProblem>();
+        if (AutoApproveHasNoEffect(definition))
+        {
+            warnings.Add(new DefinitionProblem(
+                "processing.review.autoApprove",
+                "has no effect yet: until a type can name the rules that vouch for it (review.requirePassedRules, docs/11 §11), only an invoice or credit note with its invoice.totals rule is approved without a reviewer. Documents of this type always go to review."));
+        }
+
         CompiledDefinition? compiled = null;
         if (problems.Count == 0)
         {
@@ -134,9 +142,29 @@ public static class PublishChecks
             {
                 warnings.Add(new DefinitionProblem(change.OldPath!, $"is renamed to {change.NewPath}; {dependents} dependent(s) still name the old path and need new draft versions."));
             }
+
+            // A renamed field keeps its value in documents moved onto the new version (FieldDescriptor.FormerKeys); one
+            // moved to another group or table does not, so the reviewer would find it empty there.
+            if (ParentIdOf(input.Published!, change.OldPath!) != ParentIdOf(definition, change.NewPath!))
+            {
+                warnings.Add(new DefinitionProblem(change.OldPath!, $"moves to {change.NewPath}; documents stored under an earlier version keep its value at the old place, so on the new version it starts empty."));
+            }
         }
 
         return new PublishReport(definition, problems.Count == 0 ? compiled : null, problems, warnings, changes, blocking);
+    }
+
+    /// <summary>The id of the field <paramref name="path"/> is a row field or member of, or null at the top.</summary>
+    private static string? ParentIdOf(TypeDefinition definition, string path)
+    {
+        var dot = path.LastIndexOf('.');
+        if (dot < 0)
+        {
+            return null;
+        }
+
+        var parent = path[..dot];
+        return DefinitionPaths.Find(definition, parent.EndsWith("[*]", StringComparison.Ordinal) ? parent[..^3] : parent)?.Id;
     }
 
     private static string? KeyOf(string? path) =>
@@ -226,6 +254,94 @@ public static class PublishChecks
             JsonArray array => array.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var p) ? p : null).OfType<string>(),
             _ => [],
         };
+    }
+
+    /// <summary>
+    /// The template whose tree the coded <c>Invoice</c> record holds for <paramref name="definition"/>, or null: a type of
+    /// the invoice family (its key is <c>Invoice</c> or <c>CreditNote</c>, so the coded record, the coded extraction and
+    /// the coded invoice rules read its documents), one copied from <c>std.invoice</c> or <c>std.credit-note</c>, or one
+    /// extracted by <c>invoice_extraction@1</c>.
+    /// </summary>
+    public static TypeDefinition? InvoiceRecordTemplate(TypeDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.Base is { Template: "std.invoice" or "std.credit-note" } baseRef)
+        {
+            return StandardTemplates.Find(baseRef.Template, baseRef.Version) ?? StandardTemplates.Find(baseRef.Template);
+        }
+
+        if (Domain.Documents.DocumentTypeKey.TryParse(definition.Key, out var key) && key.IsInvoiceFamily)
+        {
+            return StandardTemplates.ForLegacyType(key);
+        }
+
+        return DefinitionCompiler.AdapterOf(definition) == DefinitionCompiler.InvoiceAdapter ? StandardTemplates.Find("std.invoice") : null;
+    }
+
+    /// <summary>
+    /// docs/11 §5.1: the coded invoice kinds need the fields of the invoice record as it holds them. The tree of an
+    /// invoice-family type is that record's (it deserialises every one of its documents, the coded extraction writes
+    /// it, the coded rules and the patcher read it typed), so a field of the template keeps its id, its key and place,
+    /// its kind, whether it is a list, whether it carries an envelope, and (for an enum) codes the record knows. Such
+    /// a field may be relabelled, made required or deprecated; it cannot be removed, renamed, moved or retyped. The
+    /// generic rule kinds that would replace the coded ones for a restructured invoice arrive in P5.
+    /// </summary>
+    private static IEnumerable<DefinitionProblem> CheckInvoiceRecordFields(TypeDefinition definition)
+    {
+        var template = InvoiceRecordTemplate(definition);
+        if (template is null)
+        {
+            yield break;
+        }
+
+        var candidate = DefinitionPaths.Enumerate(definition).GroupBy(f => f.Field.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        foreach (var (path, field) in DefinitionPaths.Enumerate(template))
+        {
+            if (!candidate.TryGetValue(field.Id, out var now))
+            {
+                yield return new DefinitionProblem(path, $"is a field of the invoice record ({template.Key}, id '{field.Id}'), which the coded invoice extraction and rules read; it can be deprecated, not removed.");
+                continue;
+            }
+
+            if (now.Path != path)
+            {
+                yield return new DefinitionProblem(now.Path, $"is the invoice record's field '{path}' (id '{field.Id}'); the record reads it under that key and place, so it cannot be renamed or moved.");
+            }
+
+            if (now.Field.Kind != field.Kind || now.Field.List != field.List)
+            {
+                yield return new DefinitionProblem(now.Path, $"is held by the invoice record as {Describe(field)}; it cannot become {Describe(now.Field)}.");
+            }
+            else if (now.Field.Provenance != field.Provenance)
+            {
+                yield return new DefinitionProblem(now.Path, field.Provenance
+                    ? "carries a FieldValue envelope in the invoice record; it cannot be stored bare (provenance: false)."
+                    : "is stored bare by the invoice record (provenance: false); it cannot carry an envelope.");
+            }
+            else if (field.Kind == FieldKinds.Enum && field.Options is { } known && now.Field.Options is { } options)
+            {
+                var codes = known.Select(o => o.Code).ToHashSet(StringComparer.Ordinal);
+                var unknown = options.Select(o => o.Code).Where(c => !codes.Contains(c)).ToList();
+                if (unknown.Count > 0)
+                {
+                    yield return new DefinitionProblem(now.Path, $"may only list codes the invoice record knows ({string.Join(", ", codes)}), not {string.Join(", ", unknown)}.");
+                }
+            }
+        }
+
+        static string Describe(FieldDefinition field) => field.List ? $"a list of {field.Kind}" : field.Kind;
+    }
+
+    /// <summary>
+    /// Whether <c>review.autoApprove</c> is set on a type the review gate never approves without a reviewer in P1 (the
+    /// rule <c>EffectiveType.AutoApprove</c> applies): anything but an invoice-family type that lists <c>invoice.totals</c>.
+    /// </summary>
+    public static bool AutoApproveHasNoEffect(TypeDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return definition.Processing.Review.AutoApprove
+               && !(Domain.Documents.DocumentTypeKey.TryParse(definition.Key, out var key) && key.IsInvoiceFamily
+                    && definition.Rules.Any(r => r.Kind == Domain.Validation.InvoiceRuleKinds.Totals));
     }
 
     private static IEnumerable<DefinitionProblem> CheckDuplicateKey(TypeDefinition definition)

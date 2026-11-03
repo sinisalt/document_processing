@@ -330,7 +330,13 @@ curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-
 A draft is edited with `PUT /api/v1/document-types/{key}/versions/{v}` (the body is the definition;
 `If-Match` is the ETag of `GET …/versions/{v}`), checked with `POST …/versions/{v}:validate` and
 published with `POST …/versions/{v}:publish` (422 with the report when a check fails). The
-publish-time checks and their report are those of docs/11 §5.7.
+publish-time checks and their report are those of docs/11 §5.7. A fork of `Invoice` or `CreditNote`
+keeps the fields of the invoice record as they are (relabel, require, deprecate and add fields; removing,
+renaming or retyping one of them is refused, because the coded extraction and rules read them); an added
+group or table of such a fork is filled in review, not asked of the LLM. Only an invoice or credit note
+with its `invoice.totals` rule is approved without a reviewer in P1: on any other type
+`processing.review.autoApprove` has no effect yet, and the report says so. A field renamed in a new version
+keeps its value in documents moved onto that version.
 
 **A custom field, end to end (demo data).** The demo PDF invoice of Bio-Hof Müller prints
 "Kundennummer 0815". Fork `Invoice` in place, add the field of
@@ -492,8 +498,9 @@ Compose"; no LLM key needed) or in the dependency-free dev mode (the same screen
 port 5100). The screens are the portal on http://localhost:5173 and the admin console on http://localhost:5174.
 
 1. **Before.** As `tenant-a-reviewer`, open the Bio-Hof Müller delivery note ("(no number)", Needs review) from the
-   inbox: it says "This document type has no form to review yet", the gap the product owner hit. The tenant's
-   catalogue is read only, because `configurableTypes` is off.
+   inbox: it says "This document type has no form to review yet", the gap the product owner hit. As
+   `tenant-a-admin` (a reviewer has no Settings), Settings > Document types shows the tenant's catalogue read only
+   under "Document types are switched off", because `configurableTypes` is off.
 2. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
    switches: Configurable document types on (Types of the tenant's own as well, to offer New type for a type no
    template covers).
@@ -530,10 +537,11 @@ port 5100). The screens are the portal on http://localhost:5173 and the admin co
 7. **The delivery note gets a defined type with fields.** Open the delivery note again: it now shows the generated
    form of Delivery note v1 with empty fields (it was read before the switch; the API answers the empty tree of its
    type) and can be filled, rows included. To add fields of the tenant's own: as `tenant-a-admin`, Delivery note >
-   Fork to edit, add `tour` (Delivery round / Tour, indexed) and `supplierCustomerRef` (Number / identifier),
-   Save draft, Validate, Publish v2. As the reviewer, Reprocess: "Use the published version of the type" is ticked
+   Fork to edit, add `tour` (Delivery round / Tour, indexed) and `supplierCustomerRef` (Number / identifier,
+   labels Our customer no. at supplier / Unsere Kundennummer beim Lieferanten; a field without labels shows as
+   "New field"), Save draft, Validate, Publish v2. As the reviewer, Reprocess: "Use the published version of the type" is ticked
    ("This document was read with Delivery note v1; v2 is published"), from Extract. The form now has the two
-   fields; fill Delivery note no. `L-2026-0457`, Delivery round `Rosenheim Nord`, the customer number `0815` and a
+   fields; fill Delivery note no. `L-2026-0457`, Delivery round `Rosenheim Nord`, Our customer no. at supplier `0815` and a
    row, Save corrections, Approve. `GET /api/v1/documents?field.tour=Rosenheim%20Nord` finds it.
 
 In the compose stack the API takes Keycloak tokens; for curl, the portal client allows the password grant:

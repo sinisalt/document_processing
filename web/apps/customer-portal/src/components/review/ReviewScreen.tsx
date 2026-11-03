@@ -61,7 +61,8 @@ export function ReviewScreen({ document, canReview, threshold, locale }: ReviewS
   const hasCanonical = !!formSpec && !!document.canonical;
   const canonical = useMemo(() => (hasCanonical ? (document.canonical as unknown) : null), [document.canonical, hasCanonical]);
   const schemaVersion = document.canonicalSchemaVersion === null ? null : Number(document.canonicalSchemaVersion);
-  const layout = useMemo(() => (formSpec && canonical ? specsFromDefinition(formSpec, canonical, { schemaVersion }) : null), [formSpec, canonical, schemaVersion]);
+  const invoiceFamily = document.type === "Invoice" || document.type === "CreditNote";
+  const layout = useMemo(() => (formSpec && canonical ? specsFromDefinition(formSpec, canonical, { schemaVersion, invoiceFamily }) : null), [formSpec, canonical, schemaVersion, invoiceFamily]);
   const specs = useMemo(() => layout?.specs ?? [], [layout]);
   const fieldLabel = useFieldLabel(layout);
   const initial = useMemo(() => toFormValues(canonical, specs, locale), [canonical, specs, locale]);

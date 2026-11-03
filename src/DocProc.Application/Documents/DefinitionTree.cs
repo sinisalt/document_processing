@@ -38,7 +38,9 @@ public static class DefinitionTree
 
     /// <summary>
     /// Adds every field of <paramref name="descriptors"/> that <paramref name="root"/> lacks (recursively into objects
-    /// and existing array rows), leaving the values it has as they are. Returns whether anything was added.
+    /// and existing array rows), leaving the values it has as they are. A field renamed since the version the tree was
+    /// stored for (<see cref="FieldDescriptor.FormerKeys"/>) takes the value stored under its old key instead of
+    /// starting Missing. Returns whether anything was added or moved.
     /// </summary>
     public static bool Complete(JsonObject root, DescriptorIndex descriptors)
     {
@@ -85,9 +87,27 @@ public static class DefinitionTree
     private static bool CompleteFields(JsonObject node, IEnumerable<FieldDescriptor> fields, DescriptorIndex descriptors)
     {
         var added = false;
-        foreach (var field in fields)
+        var level = fields as IReadOnlyCollection<FieldDescriptor> ?? [.. fields];
+        foreach (var field in level)
         {
-            if (node.TryGetPropertyValue(field.Key, out var existing) && existing is not null)
+            if (!node.TryGetPropertyValue(field.Key, out var existing) || existing is null)
+            {
+                // A field renamed since the version the tree was stored for (docs/11 §5.7, matched by its id): its value
+                // moves from the old key, unless another field of this version has that key now.
+                foreach (var former in field.FormerKeys ?? [])
+                {
+                    if (level.All(f => f.Key != former) && node.TryGetPropertyValue(former, out var moved) && moved is not null)
+                    {
+                        node.Remove(former);
+                        node[field.Key] = moved;
+                        existing = moved;
+                        added = true;
+                        break;
+                    }
+                }
+            }
+
+            if (existing is not null)
             {
                 if (field.Kind == FieldKinds.Object && existing is JsonObject group)
                 {

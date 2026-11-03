@@ -419,7 +419,15 @@ public static partial class DefinitionCompiler
         }
 
         var templateKeys = (template ?? definition).Fields.Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
-        var custom = definition.Fields.Where(f => !templateKeys.Contains(f.Key) && IsLlmField(f)).ToList();
+        // A group or table of added fields is not asked for: the invoice call maps its added values one field at a time
+        // (CustomFieldMapper), so their answers would be dropped. They are filled in review, which the note says.
+        var added = definition.Fields.Where(f => !templateKeys.Contains(f.Key) && IsLlmField(f)).ToList();
+        var custom = added.Where(f => f.Kind is not (FieldKinds.Object or FieldKinds.Array)).ToList();
+        foreach (var field in added.Where(f => f.Kind is FieldKinds.Object or FieldKinds.Array))
+        {
+            notes.Add(new(field.Key, $"is not read by the {adapter} extraction: a {(field.Kind == FieldKinds.Array ? "table" : "group")} of added fields is not part of {CustomObject}; a reviewer or a supplier mapping fills it."));
+        }
+
         if (template is not null)
         {
             var templatePaths = DefinitionPaths.Enumerate(template).Select(f => f.Path).ToHashSet(StringComparer.Ordinal);

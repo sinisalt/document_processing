@@ -166,8 +166,20 @@ public sealed record EffectiveType
     /// <summary>
     /// Whether the review gate may approve a document of this type without a reviewer (<c>processing.review.autoApprove</c>,
     /// docs/11 §11 layer 3). It also needs at least one rule: a type without rules has nothing that vouches for its data.
+    /// And it needs what vouches for an invoice, <see cref="VouchedForByTotals"/>: docs/11 §11 lets any other type
+    /// auto-approve only once it names its substitute in <c>review.requirePassedRules</c>, a key of P5, so until then
+    /// every other type (a copied purchase order, delivery note or price list, a tenant's own type) always goes to review.
     /// </summary>
-    public bool AutoApprove => Definition.Processing.Review.AutoApprove && Rules.Count > 0;
+    public bool AutoApprove => Definition.Processing.Review.AutoApprove && Rules.Count > 0 && VouchedForByTotals;
+
+    /// <summary>
+    /// Whether the type is of the invoice family (<c>Invoice</c>, <c>CreditNote</c>: the coded invoice record and the
+    /// coded extraction read its documents) and lists the coded <c>invoice.totals</c> rule, the check docs/11 §11 lets
+    /// an invoice rely on for auto-approval.
+    /// </summary>
+    public bool VouchedForByTotals =>
+        DocumentTypeKey.TryParse(TypeKey, out var key) && key.IsInvoiceFamily
+        && Rules.Any(r => string.Equals(r.Kind, InvoiceRuleKinds.Totals, StringComparison.Ordinal));
 }
 
 /// <summary>

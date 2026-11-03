@@ -161,6 +161,11 @@ export interface FormLayout {
 export interface LayoutOptions {
   /** `DocumentDetail.canonicalSchemaVersion`: version 2 trees take `append` and `remove` and hold UN/ECE unit codes. */
   schemaVersion?: number | null;
+  /**
+   * Whether the document is an invoice or credit note (`Invoice`, `CreditNote`): the coded invoice record reads its tree
+   * of either version, so its `unit` fields take the `UnitOfMeasure` names, never the UN/ECE codes.
+   */
+  invoiceFamily?: boolean;
 }
 
 /** The members of each shipped composite, mirroring `FieldKinds.CompositeMemberKinds` (`src/DocProc.Definitions/FieldKinds.cs`). */
@@ -296,9 +301,9 @@ function hasStoredValue(node: unknown): boolean {
 }
 
 /**
- * The unit codes a `unit` field of this tree takes: the `UnitOfMeasure` names for a version 1 tree, and for a version 2
- * tree whose rows already hold names (a fork of the invoice family is extracted by the coded path, which writes names);
- * otherwise the UN/ECE codes of the platform `uom` list.
+ * The unit codes a `unit` field of this tree takes: the `UnitOfMeasure` names for a version 1 tree (and for every tree of
+ * the invoice family, `LayoutOptions.invoiceFamily`), and for a version 2 tree whose rows already hold names; otherwise
+ * the UN/ECE codes of the platform `uom` list.
  */
 function unitCodes(canonical: unknown, concretePaths: readonly string[], schemaVersion: number | null | undefined): readonly string[] {
   if (schemaVersion !== 2) return unitsOfMeasure;
@@ -506,7 +511,10 @@ export const OTHER_SECTION = "__other";
  */
 export function specsFromDefinition(formSpec: FormSpec, canonical: unknown, options: LayoutOptions = {}): FormLayout {
   const specs: FieldSpec[] = [];
-  const entries = nodesOf(formSpec.fields, "", canonical, options.schemaVersion, specs);
+  // The coded invoice record reads an invoice or credit note tree of either version and holds its units as
+  // `UnitOfMeasure` names, so its form offers the names whatever the tree version (the server converts the rest).
+  const unitVersion = options.invoiceFamily ? 1 : options.schemaVersion;
+  const entries = nodesOf(formSpec.fields, "", canonical, unitVersion, specs);
   const declared = new Set((formSpec.sections ?? []).map((section) => section.id));
   const sections: FormSection[] = (formSpec.sections ?? []).map((section) => ({ id: section.id, ...(section.label ? { label: section.label } : {}), nodes: [] }));
   const other: FormSection = { id: OTHER_SECTION, nodes: [] };

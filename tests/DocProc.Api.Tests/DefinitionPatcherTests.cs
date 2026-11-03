@@ -4,8 +4,10 @@ using DocProc.Api.Documents;
 using DocProc.Application.Documents;
 using DocProc.Definitions;
 using DocProc.Definitions.Compilation;
+using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Fields;
+using DocProc.Domain.Invoices;
 using DocProc.Domain.PurchaseOrders;
 using DocProc.Llm.Schema;
 
@@ -208,5 +210,87 @@ public sealed class DefinitionPatcherTests
         DefinitionPatcher.Apply(Order.Descriptors, tree.ToJsonString(), [new FieldCorrection("orderDate", null, null)], "anna", At).Applied.Single().NewValueJson.ShouldBeNull();
         Should.Throw<CanonicalPatchException>(() => DefinitionPatcher.Apply(Order.Descriptors, tree.ToJsonString(), [new FieldCorrection("orderDate", null, null)], "anna", At, typedRecord: true))
             .Message.ShouldContain("cannot be cleared");
+    }
+
+    private static readonly CompiledDefinition InvoiceFork = Compile(StandardTemplates.Find("std.invoice")!);
+
+    private static string InvoiceTree() => JsonSerializer.Serialize(TestInvoices.Valid(), CanonicalJson.Options);
+
+    private static CanonicalPatchResult ApplyToInvoice(string json, params FieldCorrection[] corrections) =>
+        DefinitionPatcher.Apply(InvoiceFork.Descriptors, json, corrections, "anna", At, fallbackCurrency: "EUR", typedRecord: true);
+
+    [Fact]
+    public void A_row_appended_to_an_invoice_tree_gets_its_next_line_number_so_the_invoice_record_reads_it()
+    {
+        var appended = ApplyToInvoice(InvoiceTree(),
+            new FieldCorrection("lines", J("""{"description": "Pfand Kiste", "quantity": 2}"""), null, CorrectionOps.Append),
+            new FieldCorrection("lines", null, null, CorrectionOps.Append));
+
+        var invoice = JsonSerializer.Deserialize<Invoice>(appended.Json, CanonicalJson.Options)!;
+        invoice.Lines.Select(l => l.LineNumber).ShouldBe([1, 2, 3, 4]);
+        invoice.Lines[2].Description.Value.ShouldBe("Pfand Kiste");
+        invoice.Lines[2].Quantity.Value.ShouldBe(2m);
+        appended.Applied.Select(a => a.Path).ShouldBe(["lines[2]", "lines[3]"]);
+
+        // Numbers continue after the highest one, also when a row was removed before.
+        var removed = ApplyToInvoice(appended.Json, new FieldCorrection("lines[0]", null, null, CorrectionOps.Remove), new FieldCorrection("lines", null, null, CorrectionOps.Append));
+        JsonSerializer.Deserialize<Invoice>(removed.Json, CanonicalJson.Options)!.Lines.Select(l => l.LineNumber).ShouldBe([2, 3, 4, 5]);
+
+        // Any definition whose rows carry a bare line number numbers its new rows the same way.
+        var order = JsonNode.Parse(Apply(Order, Empty(Order), new FieldCorrection("lines", null, null, CorrectionOps.Append), new FieldCorrection("lines", null, null, CorrectionOps.Append)).Json)!;
+        order["lines"]!.AsArray().Select(r => r!["lineNumber"]!.GetValue<int>()).ShouldBe([1, 2]);
+    }
+
+    [Theory]
+    [InlineData("kg", "Kilogram")]
+    [InlineData("KGM", "Kilogram")]
+    [InlineData("crate", "Crate")]
+    [InlineData("H87", "Piece")]
+    [InlineData("C62", "Piece")]
+    [InlineData("litre", "Litre")]
+    [InlineData("Box", "Box")]
+    [InlineData("other", "Other")]
+    public void A_unit_of_an_invoice_tree_is_stored_as_the_name_the_invoice_record_holds(string given, string stored)
+    {
+        var patched = ApplyToInvoice(InvoiceTree(), new FieldCorrection("lines[0].unit", V(given), null));
+
+        JsonNode.Parse(patched.Json)!["lines"]![0]!["unit"]!["value"]!.GetValue<string>().ShouldBe(stored);
+        JsonSerializer.Deserialize<Invoice>(patched.Json, CanonicalJson.Options)!.Lines[0].Unit.Value.ShouldBe(Enum.Parse<UnitOfMeasure>(stored));
+    }
+
+    [Fact]
+    public void A_unit_the_invoice_record_cannot_hold_is_refused_and_a_unit_cannot_be_cleared()
+    {
+        Should.Throw<CanonicalPatchException>(() => ApplyToInvoice(InvoiceTree(), new FieldCorrection("lines[0].unit", V("furlong"), null)))
+            .Message.ShouldContain("is not a unit of an invoice line");
+        Should.Throw<CanonicalPatchException>(() => ApplyToInvoice(InvoiceTree(), new FieldCorrection("lines[0].unit", null, null)))
+            .Message.ShouldContain("cannot be cleared");
+        Should.Throw<CanonicalPatchException>(() => ApplyToInvoice(InvoiceTree(), new FieldCorrection("lines", J("""{"unit": "furlong"}"""), null, CorrectionOps.Append)))
+            .Path.ShouldBe("lines.unit");
+
+        // A tree no coded record reads keeps the code it is given (a delivery note holds UN/ECE codes).
+        var order = Apply(Order, Empty(Order), new FieldCorrection("lines", J("""{"unit": "KGM"}"""), null, CorrectionOps.Append));
+        JsonNode.Parse(order.Json)!["lines"]![0]!["unit"]!["value"]!.GetValue<string>().ShouldBe("KGM");
+    }
+
+    [Fact]
+    public void A_patch_that_would_leave_a_tree_the_invoice_record_cannot_read_is_refused_as_a_whole()
+    {
+        // A stored tree that is already unreadable (a row without its number, as an earlier patcher wrote it) takes no
+        // further correction until the row is fixed or removed; the error names where the record fails.
+        var broken = JsonNode.Parse(InvoiceTree())!.AsObject();
+        broken["lines"]!.AsArray().Add(DefinitionTree.EmptyRow(InvoiceFork.Descriptors, "lines"));
+        var refused = Should.Throw<CanonicalPatchException>(() => ApplyToInvoice(broken.ToJsonString(), new FieldCorrection("invoiceNumber", V("RE-1"), null)));
+        refused.Message.ShouldContain("the invoice record cannot read");
+        refused.Message.ShouldContain("nothing was changed");
+
+        var repaired = ApplyToInvoice(broken.ToJsonString(), new FieldCorrection("lines[2]", null, null, CorrectionOps.Remove), new FieldCorrection("invoiceNumber", V("RE-1"), null));
+        JsonSerializer.Deserialize<Invoice>(repaired.Json, CanonicalJson.Options)!.InvoiceNumber.Value!.Verbatim.ShouldBe("RE-1");
+
+        // A unit stored as a code the record does not know is named by its field path.
+        var badUnit = JsonNode.Parse(InvoiceTree())!.AsObject();
+        badUnit["lines"]![1]!["unit"]!["value"] = "KGM";
+        Should.Throw<CanonicalPatchException>(() => ApplyToInvoice(badUnit.ToJsonString(), new FieldCorrection("notes", V("x"), null)))
+            .Path.ShouldBe("lines[1].unit");
     }
 }

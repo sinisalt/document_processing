@@ -68,6 +68,15 @@ describe("specsFromDefinition", () => {
     expect(gridsOf(specsFromDefinition(templates.invoice, { lines: [] }, { schemaVersion: 1 }))[0]!.columns.find((c) => c.key === "unit")!.options).toEqual(unitsOfMeasure);
   });
 
+  it("offers the unit names for an invoice-family tree of version 2 even when no row holds a unit yet", () => {
+    const tree = { lines: [{ unit: { status: "Missing", history: [] } }] };
+    const unit = (invoiceFamily: boolean) => gridsOf(specsFromDefinition(templates.invoice, tree, { schemaVersion: 2, invoiceFamily }))[0]!.columns.find((c) => c.key === "unit")!.options;
+    expect(unit(true)).toEqual(unitsOfMeasure);
+    expect(unit(false)).toEqual(Object.keys(uneceUnits));
+    const layout = specsFromDefinition(templates.invoice, tree, { schemaVersion: 2, invoiceFamily: true });
+    expect(layout.structural).toBe(true);
+  });
+
   it("shows the first columns of a repeating group without required columns until values exist", () => {
     const grid = gridsOf(specsFromDefinition(templates.deliveryNote, emptyDeliveryNote, { schemaVersion: 2 }))[0]!;
     expect(grid.columns.filter((c) => c.alwaysShown).map((c) => c.key)).toEqual(["supplierSku", "description", "quantityDelivered", "unit", "quantityOrdered", "lotNumber"]);

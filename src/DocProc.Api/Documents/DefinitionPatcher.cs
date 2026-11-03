@@ -8,6 +8,8 @@ using DocProc.Definitions.Compilation;
 using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Fields;
+using DocProc.Domain.Invoices;
+using DocProc.Domain.Validation;
 
 namespace DocProc.Api.Documents;
 
@@ -47,8 +49,12 @@ public static partial class DefinitionPatcher
     /// <param name="at">When.</param>
     /// <param name="fallbackCurrency">The currency of a bare amount when neither the field nor the document carries one.</param>
     /// <param name="typedRecord">
-    /// True when a coded record also reads the tree (the invoice family): a field whose record type has no empty value
-    /// (a date, a number, an enum) cannot be cleared, as with <see cref="CanonicalPatcher"/>.
+    /// True when the coded <see cref="Invoice"/> record also reads the tree (the invoice family, docs/11 §5.6), so the
+    /// patched tree must stay one it reads: a field whose record type has no empty value (a date, a number, an enum, a
+    /// unit) cannot be cleared, as with <see cref="CanonicalPatcher"/>; a unit is stored as the record's
+    /// <see cref="UnitOfMeasure"/> name (a printed alias or a UN/ECE code is converted, anything else refused); a new
+    /// row gets the record's bare members (its next <c>lineNumber</c>); and a patched tree the record cannot read is
+    /// refused as a whole, so nothing is saved.
     /// </param>
     public static CanonicalPatchResult Apply(DescriptorIndex descriptors, string canonicalJson, IReadOnlyList<FieldCorrection> corrections, string by, DateTimeOffset at, string? fallbackCurrency = null, bool typedRecord = false)
     {
@@ -72,7 +78,45 @@ public static partial class DefinitionPatcher
             applied.Add(ApplyOne(context, correction));
         }
 
-        return new CanonicalPatchResult(root.ToJsonString(), applied);
+        var json = root.ToJsonString();
+        if (typedRecord)
+        {
+            EnsureInvoiceReads(json);
+        }
+
+        return new CanonicalPatchResult(json, applied);
+    }
+
+    /// <summary>
+    /// Refuses a patched tree the coded <see cref="Invoice"/> record cannot read (the validate stage, the inline
+    /// re-validation, approval and the exports read it as one), naming where it fails.
+    /// </summary>
+    private static void EnsureInvoiceReads(string json)
+    {
+        string problem;
+        string? at = null;
+        try
+        {
+            _ = JsonSerializer.Deserialize<Invoice>(json, CanonicalJson.Options) ?? throw new JsonException("The tree is null.");
+            return;
+        }
+        catch (JsonException ex)
+        {
+            problem = ex.Message;
+            at = ex.Path is { Length: > 2 } jsonPath && jsonPath.StartsWith("$.", StringComparison.Ordinal) ? EnvelopeValue().Replace(jsonPath[2..], string.Empty) : null;
+        }
+        catch (ArgumentException ex)
+        {
+            problem = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            problem = ex.Message;
+        }
+
+        throw new CanonicalPatchException(
+            at ?? string.Empty,
+            $"The corrections would leave a document the invoice record cannot read{(at is null ? string.Empty : $" (at {at})")}; nothing was changed. {problem}");
     }
 
     private sealed record Context(DescriptorIndex Descriptors, JsonObject Root, string By, DateTimeOffset At, string? FallbackCurrency, bool TypedRecord);
@@ -234,6 +278,13 @@ public static partial class DefinitionPatcher
         }
 
         var row = DefinitionTree.EmptyRow(context.Descriptors, definitionPath);
+        if (context.Descriptors.Find($"{definitionPath}[*].{LineNumberKey}") is { Provenance: false, Kind: FieldKinds.Integer })
+        {
+            // The line number is a bare member no correction sets, and the coded records' lines require it (an invoice
+            // tree without it is one the Invoice record cannot read): the next one.
+            row[LineNumberKey] = NextLineNumber(rows);
+        }
+
         if (correction.Value is { ValueKind: JsonValueKind.Object } values)
         {
             foreach (var property in values.EnumerateObject())
@@ -256,6 +307,22 @@ public static partial class DefinitionPatcher
 
         rows.Add(row);
         return new AppliedCorrection($"{path}[{(rows.Count - 1).ToString(CultureInfo.InvariantCulture)}]", null, row.ToJsonString(), correction.Reason, CorrectionOps.Append, correction.Source);
+    }
+
+    private const string LineNumberKey = "lineNumber";
+
+    private static long NextLineNumber(JsonArray rows)
+    {
+        long highest = 0;
+        foreach (var row in rows.OfType<JsonObject>())
+        {
+            if (row[LineNumberKey] is JsonValue value && value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<long>(out var number))
+            {
+                highest = Math.Max(highest, number);
+            }
+        }
+
+        return Math.Max(highest, rows.Count) + 1;
     }
 
     private static AppliedCorrection ListEntry(Context context, string path, string op, JsonObject node, FieldDescriptor field, PathSegment segment, List<PathSegment> rest, FieldCorrection correction)
@@ -307,7 +374,7 @@ public static partial class DefinitionPatcher
         var newValue = nested.Count > 0
             ? Member(context, path, field, oldValue, nested, correction.Value)
             : Convert(context, path, field, correction.Value, oldValue, null);
-        if (newValue is null && context.TypedRecord && field.Kind is FieldKinds.Date or FieldKinds.Integer or FieldKinds.Decimal or FieldKinds.Percent or FieldKinds.Boolean or FieldKinds.Enum)
+        if (newValue is null && context.TypedRecord && field.Kind is FieldKinds.Date or FieldKinds.Integer or FieldKinds.Decimal or FieldKinds.Percent or FieldKinds.Boolean or FieldKinds.Enum or FieldKinds.Unit)
         {
             throw new CanonicalPatchException(path, $"A {field.Kind} field cannot be cleared; provide a value.");
         }
@@ -484,6 +551,11 @@ public static partial class DefinitionPatcher
 
                 return JsonValue.Create(code);
 
+            case FieldKinds.Unit when context.TypedRecord:
+                return JsonValue.Create(element.ValueKind == JsonValueKind.String
+                    ? UnitOfMeasureName(path, element.GetString())
+                    : throw new CanonicalPatchException(path, "The value is a string."));
+
             case FieldKinds.String or FieldKinds.Text or FieldKinds.Unit:
                 return element.ValueKind == JsonValueKind.String
                     ? JsonValue.Create(element.GetString())
@@ -531,6 +603,31 @@ public static partial class DefinitionPatcher
 
                 return composite;
         }
+    }
+
+    /// <summary>
+    /// A unit as the coded record holds it: the <see cref="UnitOfMeasure"/> name, from the name itself, a UN/ECE code of
+    /// the platform <c>uom</c> list (<c>KGM</c>) or a printed alias it maps (<c>kg</c>); anything else is refused, because
+    /// the record could not read it.
+    /// </summary>
+    private static string UnitOfMeasureName(string path, string? text)
+    {
+        var trimmed = text?.Trim();
+        if (string.Equals(trimmed, nameof(UnitOfMeasure.Other), StringComparison.OrdinalIgnoreCase))
+        {
+            return nameof(UnitOfMeasure.Other);
+        }
+
+        var code = CodeLists.Platform[CodeLists.Uom].Resolve(trimmed);
+        foreach (var (unit, unece) in CodeLists.UneceCodes)
+        {
+            if (code is not null && string.Equals(unece, code, StringComparison.Ordinal))
+            {
+                return unit.ToString();
+            }
+        }
+
+        throw new CanonicalPatchException(path, $"'{text}' is not a unit of an invoice line; use one of {string.Join(", ", Enum.GetNames<UnitOfMeasure>())}, or its UN/ECE code.");
     }
 
     /// <summary>The value of the field's <c>currencyFrom</c> (or the document's <c>currency</c>): looked up in the row first, then at the top.</summary>
@@ -604,6 +701,10 @@ public static partial class DefinitionPatcher
 
         return segments;
     }
+
+    /// <summary>The <c>.value</c> segments of an envelope in a JSON path (<c>lines[2].unit.value</c> is the field <c>lines[2].unit</c>).</summary>
+    [GeneratedRegex(@"\.value(?=\.|$)", RegexOptions.CultureInvariant)]
+    private static partial Regex EnvelopeValue();
 
     [GeneratedRegex(@"^(?<name>[A-Za-z_][A-Za-z0-9_-]*)(?:\[(?<index>\d{1,6})\])?$")]
     private static partial Regex SegmentPattern();

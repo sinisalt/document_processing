@@ -191,6 +191,35 @@ public sealed class DefinitionDrivenPipelineTests
     }
 
     [Fact]
+    public async Task A_type_outside_the_invoice_family_is_never_auto_approved_even_when_its_definition_asks_for_it()
+    {
+        // docs/11 §11: until a type names its substitute for the totals in review.requirePassedRules (P5), only the
+        // invoice family auto-approves; a purchase order nothing extracted stays in review whatever its definition says.
+        await using var host = await StartAsync();
+        await host.AddReplayProviderAsync();
+        await SetConfigurableAsync(host, true);
+        await ForkAsync(host, "std.purchase-order", json =>
+        {
+            json["processing"]!["review"]!["autoApprove"] = true;
+            json["rules"] = JsonNode.Parse("""[{ "id": "r_conf", "kind": "confidence" }]""");
+        });
+        host.Llm.Enqueue(ClassifyPurchaseOrder);
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("bestellung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.Type.ShouldBe(DocumentTypeKey.PurchaseOrder);
+        document.CanonicalSchemaVersion.ShouldBe(DefinitionTree.SchemaVersion);
+        document.Status.ShouldBe(DocumentStatus.NeedsReview);
+        document.ApprovedBy.ShouldBeNull();
+        (await host.WithDbAsync(db => db.OutboxMessages.CountAsync(m => m.DocumentId == document.Id))).ShouldBe(0);
+        var validated = await host.WithDbAsync(db => db.DocumentEvents.SingleAsync(e => e.DocumentId == document.Id && e.ToStatus == DocumentStatus.Validated));
+        validated.DetailsJson.ShouldNotBeNull().ShouldContain("\"eligibleForAutoApproval\":false");
+        (await host.WithDbAsync(db => db.ReviewTasks.SingleAsync(t => t.DocumentId == document.Id))).Reason.ShouldNotBeNullOrEmpty();
+    }
+
+    [Fact]
     public async Task A_forked_invoice_whose_required_custom_field_is_missing_is_not_auto_approved()
     {
         // std.invoice lists no validate.schema; a field the tenant marks required is still checked (docs/11 §11).

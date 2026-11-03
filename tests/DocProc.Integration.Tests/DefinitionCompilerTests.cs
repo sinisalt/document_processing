@@ -478,6 +478,101 @@ public sealed class DefinitionCompilerTests
         PublishChecks.IndexedKeys(published).Select(d => d.Path).ShouldBe(["returnNumber"]);
     }
 
+    [Theory]
+    [InlineData("std.invoice")]
+    [InlineData("std.credit-note")]
+    public void An_invoice_family_fork_keeps_the_fields_of_the_invoice_record_as_it_holds_them(string template)
+    {
+        var fork = Fork(template, Field("fld_c_scr", "supplierCustomerRef", FieldKinds.Identifier));
+        PublishReport Check(TypeDefinition candidate) => DefinitionSchemaCompiler.RunPublishChecks(new PublishCheckInput
+        {
+            DefinitionJson = DefinitionSerializer.Write(candidate),
+            Published = StandardTemplates.Find(template),
+            Dependents = [.. PublishChecks.IndexedKeys(StandardTemplates.Find(template)!)],
+        });
+        string Problems(PublishReport report) => string.Join("\n", report.Problems);
+
+        // Relabelling, requiring, deprecating and adding fields is what a fork does (docs/11 §5.1).
+        var allowed = ChangeField(ChangeField(fork, "notes", f => f with { Deprecated = true }), "lines[*].lotNumber", f => f with { Required = true, Label = new Dictionary<string, string> { ["en"] = "Batch" } });
+        Check(allowed).CanPublish.ShouldBeTrue(Problems(Check(allowed)));
+
+        var retyped = Check(ChangeField(ChangeField(fork, "deliveryDate", f => f with { Kind = FieldKinds.String }), "lines[*].unit", f => f with { Kind = FieldKinds.String, CodeList = null }));
+        retyped.CanPublish.ShouldBeFalse();
+        Problems(retyped).ShouldContain("deliveryDate: is held by the invoice record as date; it cannot become string");
+        Problems(retyped).ShouldContain("lines[*].unit: is held by the invoice record as unit; it cannot become string");
+
+        var removed = Check(fork with { Fields = [.. fork.Fields.Where(f => f.Key != "rounding")] });
+        Problems(removed).ShouldContain("rounding: is a field of the invoice record");
+
+        var renamed = Check(ChangeField(fork, "invoiceNumber", f => f with { Key = "documentNo" }) with { Roles = fork.Roles with { DocumentNumber = "documentNo", DuplicateKey = ["$supplierId", "documentNo"] } });
+        Problems(renamed).ShouldContain("documentNo: is the invoice record's field 'invoiceNumber'");
+
+        var listed = Check(ChangeField(fork, "originalInvoiceReference", f => f with { List = true }));
+        Problems(listed).ShouldContain("cannot become a list of identifier");
+
+        var bare = Check(ChangeField(fork, "lines[*].lineNumber", f => f with { Provenance = true, ReadOnly = false }));
+        Problems(bare).ShouldContain("lines[*].lineNumber: is stored bare by the invoice record");
+
+        var coded = Check(ChangeField(fork, "kind", f => f with { Options = [.. f.Options!, new EnumOption { Code = "Statement" }] }));
+        Problems(coded).ShouldContain("kind: may only list codes the invoice record knows");
+        Problems(coded).ShouldContain("not Statement");
+        Check(ChangeField(fork, "kind", f => f with { Options = [.. f.Options!.Where(o => o.Code != "Proforma")] })).CanPublish.ShouldBeTrue("fewer codes are still codes the record knows");
+
+        // A type outside the invoice family may restructure the same fields freely.
+        var order = StandardTemplates.Find("std.purchase-order")!;
+        var orderFork = ChangeField(order with { Key = "PurchaseOrder", LegacyKey = null, Version = 2, Base = new DefinitionBase { Template = order.Key, Version = order.Version, Mode = "copy" } }, "requestedDeliveryDate", f => f with { Kind = FieldKinds.String });
+        DefinitionSchemaCompiler.RunPublishChecks(new PublishCheckInput { DefinitionJson = DefinitionSerializer.Write(orderFork) }).CanPublish.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Auto_approval_on_a_type_outside_the_invoice_family_is_reported_as_having_no_effect()
+    {
+        var eager = ReturnSlipJson().Replace("\"review\":{\"autoApprove\":false}", "\"review\":{\"autoApprove\":true}", StringComparison.Ordinal);
+        var report = Publish(eager);
+        report.CanPublish.ShouldBeTrue(string.Join("\n", report.Problems));
+        report.Warnings.ShouldContain(w => w.Where == "processing.review.autoApprove" && w.Message.Contains("always go to review", StringComparison.Ordinal));
+
+        var order = StandardTemplates.Find("std.purchase-order")!;
+        PublishChecks.AutoApproveHasNoEffect(order with { Processing = order.Processing with { Review = new ReviewPolicy { AutoApprove = true } } }).ShouldBeTrue();
+        PublishChecks.AutoApproveHasNoEffect(Fork("std.invoice")).ShouldBeFalse();
+        var invoice = Fork("std.invoice");
+        PublishChecks.AutoApproveHasNoEffect(invoice with { Rules = [.. invoice.Rules.Where(r => r.Kind != "invoice.totals")] }).ShouldBeTrue();
+        Publish(ReturnSlipJson()).Warnings.ShouldNotContain(w => w.Where == "processing.review.autoApprove");
+    }
+
+    [Fact]
+    public void A_renamed_field_names_its_former_keys_in_the_descriptors_of_the_new_version()
+    {
+        var v1 = DefinitionSerializer.Parse(ReturnSlipJson());
+        var v2 = DefinitionSerializer.Parse(ReturnSlipJson(version: 2, returnDateKey: "returnedOn"));
+        var v3 = DefinitionSerializer.Parse(ReturnSlipJson(version: 3, returnDateKey: "dateOfReturn")
+            .Replace("\"key\":\"reason\"", "\"key\":\"returnReason\"", StringComparison.Ordinal));
+
+        var compiled = DefinitionSchemaCompiler.Compile(v3).Compiled!;
+        compiled.Descriptors.Fields.ShouldAllBe(f => f.FormerKeys == null, "the compiler alone knows no history");
+        var descriptors = compiled.Descriptors.WithFormerKeys([v1, v2]);
+        descriptors.Find("dateOfReturn")!.FormerKeys.ShouldBe(["returnDate", "returnedOn"]);
+        descriptors.Find("items[*].returnReason")!.FormerKeys.ShouldBe(["reason"]);
+        descriptors.Find("returnNumber")!.FormerKeys.ShouldBeNull();
+
+        // Stored with the version and read back as such.
+        DescriptorIndex.FromJson(descriptors.ToJson()).Find("dateOfReturn")!.FormerKeys.ShouldBe(["returnDate", "returnedOn"]);
+        compiled.Descriptors.ToJson().ShouldNotContain("formerKeys");
+
+        // A field moved into another group is not followed, and the publish report says its value stays behind.
+        var moved = PublishChecks.Run(new PublishCheckInput
+        {
+            DefinitionJson = ReturnSlipJson(version: 2, withoutDeliveryNote: true).Replace("{\"id\":\"fld_i_desc\",\"key\":\"description\",\"kind\":\"text\",\"required\":true},", "{\"id\":\"fld_i_desc\",\"key\":\"description\",\"kind\":\"text\",\"required\":true},{\"id\":\"fld_dn\",\"key\":\"deliveryNoteReference\",\"kind\":\"identifier\"},", StringComparison.Ordinal),
+            Published = v1,
+        });
+        moved.CanPublish.ShouldBeTrue(string.Join("\n", moved.Problems));
+        moved.Changes.ShouldContain(c => c.Change == FieldChangeKind.Renamed && c.FieldId == "fld_dn" && c.NewPath == "items[*].deliveryNoteReference");
+        moved.Warnings.ShouldContain(w => w.Where == "deliveryNoteReference" && w.Message.Contains("moves to items[*].deliveryNoteReference", StringComparison.Ordinal));
+        moved.Compiled!.Descriptors.WithFormerKeys([v1]).Find("items[*].deliveryNoteReference")!.FormerKeys.ShouldBeNull();
+        PublishChecks.Run(new PublishCheckInput { DefinitionJson = ReturnSlipJson(version: 2, returnDateKey: "returnedOn"), Published = v1 })
+            .Warnings.ShouldNotContain(w => w.Message.Contains("moves to", StringComparison.Ordinal), "a rename in place keeps its value");
+    }
+
     // ------------------------------------------------------------------ price-list templates
 
     [Fact]
@@ -553,6 +648,21 @@ public sealed class DefinitionCompilerTests
             Version = 2,
             Base = new DefinitionBase { Template = template, Version = source.Version, Mode = "copy" },
             Fields = [.. source.Fields, .. added],
+        };
+    }
+
+    /// <summary>The definition with the field at <paramref name="path"/> (a top-level key or <c>lines[*].key</c>) changed.</summary>
+    private static TypeDefinition ChangeField(TypeDefinition definition, string path, Func<FieldDefinition, FieldDefinition> change)
+    {
+        var parts = path.Split("[*].");
+        if (parts.Length == 1)
+        {
+            return definition with { Fields = [.. definition.Fields.Select(f => f.Key == path ? change(f) : f)] };
+        }
+
+        return definition with
+        {
+            Fields = [.. definition.Fields.Select(f => f.Key == parts[0] ? f with { Item = new FieldGroup { Fields = [.. f.Item!.Fields.Select(c => c.Key == parts[1] ? change(c) : c)] } } : f)],
         };
     }
 

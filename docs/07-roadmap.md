@@ -439,7 +439,43 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `DocumentDetail.appliedConfig` carries `AppliedConfigJson`;
     - docs/09: the demo's step 5 sets the corrected value back, so step 6 finds it; a note on SQL Server crashing on
       every restart after a first-boot crash.
+  - Fixed after the second P1 review:
+    - a forked invoice or credit note (a version 2 tree the coded `Invoice` record still reads) could be patched into a
+      tree the record cannot read: an appended row had no `lineNumber`, and a unit was stored as any string (`kg`, the
+      UN/ECE `KGM` the form offered); the save went through, the inline re-validation threw and answered a bare 400,
+      every later correction did the same, and approve still settled it. `DefinitionPatcher` now numbers a new row
+      (every definition whose rows carry a bare `lineNumber`), stores an invoice line's unit as the `UnitOfMeasure`
+      name (from the name, a printed alias or a UN/ECE code of `uom`; anything else is a 400 on the field) and refuses
+      a patch whose result the record cannot read as a 400 naming the field, before anything is saved; the review form
+      offers the unit names for every invoice-family tree;
+    - only the invoice family auto-approves: a copied purchase order, delivery note or price list, or a type of the
+      tenant's own, with `review.autoApprove: true` and any rule, auto-approved with every field Missing. Until a type
+      can name the rules that vouch for it (`review.requirePassedRules`, P5, docs/11 §11), `EffectiveType.AutoApprove`
+      also needs an `Invoice`/`CreditNote` type that lists `invoice.totals`, and the publish report warns that
+      `autoApprove` has no effect on any other type;
+    - publishing an invoice-family fork refuses to remove, rename, move or retype a field of the invoice record (its
+      kind, list-ness, envelope, and for `kind` codes the record knows); the forks may still relabel, require,
+      deprecate and add fields. A changed `deliveryDate` (date to string) or `lines[*].unit` published before and made
+      the patcher write trees the record cannot read;
+    - an added `object` or `array` field of an invoice-family fork is no longer put into `x_custom` (the model's
+      answer was dropped): the compile notes it is filled in review; an added `period` is mapped as `{from, to}`;
+    - a renamed field keeps its value when a document moves onto the new version (reprocess with `configMode:
+      current`, or the detail and PATCH completing an earlier tree): publish stores the field's earlier keys in the
+      version's descriptors (`FieldDescriptor.FormerKeys`, matched by field id under the same parent) and
+      `DefinitionTree.Complete` moves the value over; a field moved into another group or table is not followed, and
+      the publish report says so;
+    - the publish sweeper test that counted the settlements of its own sweep raced the hosted sweeper loop, which the
+      fake clock woke too (it swept and published one first); the tests that sweep by hand run without the loop;
+    - docs/09: the demo's step 1 shows the read-only catalogue as `tenant-a-admin` (a reviewer has no Settings), and
+      step 7 gives the delivery note's `supplierCustomerRef` its labels.
   - Left for the rest of P1:
+    - restructuring the invoice family (docs/11 §5.1): coded invoice kinds that declare the roles and kinds they need,
+      a publish report that disables them ("invoice.totals disabled: role `net` missing") and the generic `sumEquals`
+      and `compare` replacements (P5). Until then a fork keeps the invoice record's fields as they are;
+    - auto-approval for a type outside the invoice family needs `review.requirePassedRules` (P5); until then such a
+      type always goes to review, whatever its `review.autoApprove` says;
+    - a version published before `FormerKeys` existed, or a row compiled again because it stored no artifacts, carries
+      no earlier keys: a document moved across a rename made then still finds the renamed field Missing;
     - the ETag on `DocumentDetail.definition` (docs/11 §18) and the client-side Ajv hints over the compiled JSON Schema
       (§5.5 artifact 1, §11): the review form checks nothing before the save, the server's inline re-validation answers;
     - invoice compatibility from the definition (docs/11 §9.1 `Definition.IsInvoiceCompatible`): the Extract stage,

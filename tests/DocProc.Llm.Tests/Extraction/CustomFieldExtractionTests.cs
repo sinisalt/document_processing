@@ -139,4 +139,46 @@ public sealed class CustomFieldExtractionTests
         envelope.GetProperty("status").GetString().ShouldBe(nameof(FieldStatus.Extracted));
         JsonSerializer.Deserialize<FieldValue<DateOnly>>(envelope.GetRawText(), CanonicalJson.Options)!.Value.ShouldBe(new DateOnly(2026, 10, 27));
     }
+
+    [Fact]
+    public void Every_field_asked_for_in_x_custom_is_one_the_mapper_reads_and_groups_and_tables_are_left_to_review()
+    {
+        var template = StandardTemplates.Find("std.invoice")!;
+        var fork = template with
+        {
+            Key = "Invoice",
+            LegacyKey = null,
+            Base = new DefinitionBase { Template = template.Key, Version = template.Version, Mode = "copy" },
+            Fields =
+            [
+                .. template.Fields,
+                new FieldDefinition { Id = "fld_x_rebate", Key = "rebatePeriod", Kind = FieldKinds.Period },
+                new FieldDefinition { Id = "fld_x_delivery", Key = "delivery", Kind = FieldKinds.Object, Fields = [new FieldDefinition { Id = "fld_x_round", Key = "round", Kind = FieldKinds.String }] },
+                new FieldDefinition { Id = "fld_x_pallets", Key = "pallets", Kind = FieldKinds.Array, Item = new FieldGroup { Fields = [new FieldDefinition { Id = "fld_x_pallet_no", Key = "palletNo", Kind = FieldKinds.String }] } },
+                new FieldDefinition { Id = "fld_x_scr", Key = "supplierCustomerRef", Kind = FieldKinds.Identifier },
+            ],
+        };
+        var result = DefinitionSchemaCompiler.Compile(fork);
+        result.Problems.ShouldBeEmpty();
+        var compiled = result.Compiled!;
+
+        compiled.LlmSchema.CustomPaths.ShouldBe(["rebatePeriod", "supplierCustomerRef"]);
+        var custom = compiled.LlmSchema.Schema["properties"]![DefinitionCompiler.CustomObject]!["properties"]!.AsObject();
+        custom.Select(p => p.Key).ShouldBe(["rebatePeriod", "supplierCustomerRef"]);
+        result.Notes.ShouldContain(n => n.Where == "delivery" && n.Message.Contains("not read by the invoice_extraction@1 extraction", StringComparison.Ordinal));
+        result.Notes.ShouldContain(n => n.Where == "pallets" && n.Message.Contains("table", StringComparison.Ordinal));
+
+        // Every field the model is asked for comes back: a period as {from, to}.
+        var fields = compiled.LlmSchema.CustomPaths.Select(p => compiled.Descriptors.Find(p)!).ToList();
+        var answer = """{ "x_custom": { "rebatePeriod": { "from": "2026-10-01", "to": "2026-12-31" }, "supplierCustomerRef": "123 456789" } }""";
+        var mapped = CustomFieldMapper.Map(answer, fields, new ProvenanceLocator(Inputs.SampleTextLayer()), "EUR");
+        mapped.Keys.ShouldBe(["rebatePeriod", "supplierCustomerRef"], ignoreOrder: true);
+        var period = JsonSerializer.Deserialize<FieldValue<Domain.Common.DatePeriod>>(mapped["rebatePeriod"].GetRawText(), CanonicalJson.Options)!;
+        period.Value.ShouldBe(new Domain.Common.DatePeriod(new DateOnly(2026, 10, 1), new DateOnly(2026, 12, 31)));
+
+        // One end alone is kept; a period without a date in it is left out.
+        var open = CustomFieldMapper.Map("""{ "x_custom": { "rebatePeriod": { "from": "2026-10-01", "to": null } } }""", fields, new ProvenanceLocator(null), "EUR");
+        open["rebatePeriod"].GetProperty("value").GetRawText().ShouldBe("""{"from":"2026-10-01"}""");
+        CustomFieldMapper.Map("""{ "x_custom": { "rebatePeriod": { "from": "Oktober", "to": null } } }""", fields, new ProvenanceLocator(null), "EUR").ShouldBeEmpty();
+    }
 }

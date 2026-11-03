@@ -348,6 +348,98 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         detail.Flags.ShouldNotContain(f => f.Params.Values.Contains(ofB.ToString()));
     }
 
+    /// <summary>Forks the tenant's invoice in place (docs/11 §5.1) and publishes the copy unchanged as version 2; returns its version id.</summary>
+    private async Task<Guid> PublishInvoiceForkAsync(Guid tenant)
+    {
+        using var admin = factory.TenantAdminOf(tenant);
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.invoice", mode = "copy" } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var published = await admin.PostAsJsonAsync("/api/v1/document-types/Invoice/versions/2:publish", new { changeNote = "fork" }, Ct);
+        published.StatusCode.ShouldBe(HttpStatusCode.OK, await published.Content.ReadAsStringAsync(Ct));
+        return factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "Invoice" && v.Version == 2).Id);
+    }
+
+    [Fact]
+    public async Task A_forked_invoice_takes_only_corrections_that_leave_a_tree_the_invoice_record_reads()
+    {
+        var tenant = NewTenant("Invoice fork", configurable: true);
+        var version = await PublishInvoiceForkAsync(tenant);
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant });
+        factory.Run(db =>
+        {
+            var document = db.Documents.Single(d => d.Id == seeded.DocumentId);
+            document.DocumentTypeVersionId = version;
+            document.CanonicalSchemaVersion = DefinitionTree.SchemaVersion;
+        });
+        string Stored() => factory.Query(db => db.Documents.Single(d => d.Id == seeded.DocumentId).CanonicalJson)!;
+        int Corrections() => factory.Query(db => db.Corrections.Count(c => c.DocumentId == seeded.DocumentId));
+        using var reviewer = Reviewer(tenant);
+
+        // A new row gets its line number, and a unit given as the UN/ECE code the form offers is stored as the record's name.
+        var append = await Patch(reviewer, seeded.DocumentId, new FieldCorrection("lines", J("""{"description": "Leergut", "unit": "CR"}"""), null, Op: "append"));
+        append.StatusCode.ShouldBe(HttpStatusCode.OK, await append.Content.ReadAsStringAsync(Ct));
+        var invoice = JsonSerializer.Deserialize<Domain.Invoices.Invoice>(Stored(), CanonicalJson.Options)!;
+        invoice.Lines.Select(l => l.LineNumber).ShouldBe([1, 2, 3]);
+        invoice.Lines[2].Unit.Value.ShouldBe(Domain.Common.UnitOfMeasure.Crate);
+        var set = await Patch(reviewer, seeded.DocumentId, new FieldCorrection("lines[0].unit", V("kg"), null), new FieldCorrection("invoiceNumber", V("RE-2026-0099"), null));
+        set.StatusCode.ShouldBe(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Ct));
+        JsonNode.Parse(Stored())!["lines"]![0]!["unit"]!["value"]!.GetValue<string>().ShouldBe("Kilogram");
+
+        // A unit the record cannot hold is a 400 that names the field, and nothing is saved.
+        var before = Stored();
+        var corrections = Corrections();
+        var refused = await Patch(reviewer, seeded.DocumentId, new FieldCorrection("invoiceNumber", V("RE-2026-0100"), null), new FieldCorrection("lines[1].unit", V("furlong"), null));
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = (await refused.Content.ReadFromJsonAsync<ValidationProblemDetails>(ApiFactory.Json, Ct))!;
+        problem.Errors["lines[1].unit"].Single().ShouldContain("is not a unit of an invoice line");
+        Stored().ShouldBe(before);
+        Corrections().ShouldBe(corrections);
+
+        // The tree is still one the validate checks read: approve settles it.
+        (await reviewer.PostAsJsonAsync($"/api/v1/documents/{seeded.DocumentId}:approve", new ApproveDocumentRequest("checked"), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_document_moved_onto_a_version_that_renamed_a_field_keeps_the_value_under_the_new_key()
+    {
+        var tenant = NewTenant("Rename tenant", configurable: true);
+        var id = await SeedEmptyAsync(tenant, "PurchaseOrder");
+        using var reviewer = Reviewer(tenant);
+        (await Patch(reviewer, id, new FieldCorrection("requestedDeliveryDate", V("2026-12-01"), null), new FieldCorrection("poNumber", V("PO-9"), null))).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var v1 = factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "PurchaseOrder" && v.Version == 1).Id);
+        factory.Run(db => db.Documents.Single(d => d.Id == id).DocumentTypeVersionId = v1);
+
+        // The fork renames the field (same id, new key) and is published as version 2.
+        using var admin = factory.TenantAdminOf(tenant);
+        (await admin.PostAsJsonAsync("/api/v1/document-types", new { from = new { template = "std.purchase-order", mode = "copy" } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var draft = JsonNode.Parse((await admin.GetFromJsonAsync<DocumentTypeVersionDetail>("/api/v1/document-types/PurchaseOrder/versions/2", ApiFactory.Json, Ct))!.Definition.GetRawText())!.AsObject();
+        draft["fields"]!.AsArray().Single(f => f!["key"]!.GetValue<string>() == "requestedDeliveryDate")!["key"] = "wantedBy";
+        using (var put = new HttpRequestMessage(HttpMethod.Put, "/api/v1/document-types/PurchaseOrder/versions/2") { Content = new StringContent(draft.ToJsonString(), System.Text.Encoding.UTF8, "application/json") })
+        {
+            put.Headers.IfMatch.Add(System.Net.Http.Headers.EntityTagHeaderValue.Parse("\"0\""));
+            (await admin.SendAsync(put, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        var published = await admin.PostAsJsonAsync("/api/v1/document-types/PurchaseOrder/versions/2:publish", new { changeNote = "rename" }, Ct);
+        published.StatusCode.ShouldBe(HttpStatusCode.OK, await published.Content.ReadAsStringAsync(Ct));
+        var v2 = factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant && v.Definition!.Key == "PurchaseOrder" && v.Version == 2));
+        v2.DescriptorsJson.ShouldNotBeNull().ShouldContain("\"formerKeys\":[\"requestedDeliveryDate\"]");
+
+        // Still pinned to version 1 the document reads as before; moved onto version 2 (a reprocess with configMode
+        // current re-pins it) the value is under the new key, and the next correction stores it there.
+        var pinned = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!;
+        JsonNode.Parse(pinned.Canonical!.Value.GetRawText())!["requestedDeliveryDate"]!["value"]!.GetValue<string>().ShouldBe("2026-12-01");
+        factory.Run(db => db.Documents.Single(d => d.Id == id).DocumentTypeVersionId = v2.Id);
+        var moved = (await reviewer.GetFromJsonAsync<DocumentDetail>($"/api/v1/documents/{id}", ApiFactory.Json, Ct))!;
+        var tree = JsonNode.Parse(moved.Canonical!.Value.GetRawText())!.AsObject();
+        tree["wantedBy"]!["value"]!.GetValue<string>().ShouldBe("2026-12-01");
+        tree.ContainsKey("requestedDeliveryDate").ShouldBeFalse();
+        (await Patch(reviewer, id, new FieldCorrection("orderDate", V("2026-11-20"), null))).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var stored = JsonNode.Parse(factory.Query(db => db.Documents.Single(d => d.Id == id).CanonicalJson)!)!.AsObject();
+        stored["wantedBy"]!["value"]!.GetValue<string>().ShouldBe("2026-12-01");
+        stored.ContainsKey("requestedDeliveryDate").ShouldBeFalse();
+        v1.ShouldNotBe(v2.Id);
+    }
+
     [Fact]
     public async Task Reprocess_keeps_the_pinned_type_version_unless_config_mode_is_current()
     {

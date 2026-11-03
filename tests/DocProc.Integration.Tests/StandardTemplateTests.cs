@@ -243,6 +243,27 @@ public sealed class StandardTemplateTests
         new EffectiveType("Invoice", invoice, DefinitionOrigin.Copied, invoice.Key, 1).AutoApprove.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("std.purchase-order", "PurchaseOrder")]
+    [InlineData("std.delivery-note", "DeliveryNote")]
+    [InlineData("std.price-list", "acme.prices")]
+    [InlineData("std.generic", "return-slip")]
+    public void Until_P5_only_the_invoice_family_with_its_totals_rule_auto_approves(string template, string key)
+    {
+        // docs/11 §11: a type without totals auto-approves only once it names its substitute in review.requirePassedRules (P5).
+        var definition = StandardTemplates.Find(template)! with { Key = key };
+        var confidence = new RuleDefinition { Id = "r_conf", Kind = "confidence" };
+        var eager = definition with { Rules = [confidence], Processing = definition.Processing with { Review = new ReviewPolicy { AutoApprove = true } } };
+        new EffectiveType(key, eager, DefinitionOrigin.Copied, template, 1).AutoApprove.ShouldBeFalse();
+
+        // The invoice family needs its coded totals rule; a fork that dropped it goes to review too.
+        var invoice = StandardTemplates.Find("std.invoice")!;
+        var withoutTotals = invoice with { Rules = [.. invoice.Rules.Where(r => r.Kind != InvoiceRuleKinds.Totals)] };
+        new EffectiveType("Invoice", withoutTotals, DefinitionOrigin.Copied, invoice.Key, 1).AutoApprove.ShouldBeFalse();
+        new EffectiveType("CreditNote", StandardTemplates.Find("std.credit-note")!, DefinitionOrigin.Copied, "std.credit-note", 1).AutoApprove.ShouldBeTrue();
+        new EffectiveType("acme-invoice", invoice with { Key = "acme-invoice" }, DefinitionOrigin.Custom, invoice.Key, 1).AutoApprove.ShouldBeFalse("only the coded invoice record's keys are the invoice family");
+    }
+
     [Fact]
     public void Rule_parameters_reach_the_validator_as_raw_values()
     {

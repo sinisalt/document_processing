@@ -56,6 +56,14 @@ public sealed record FieldDescriptor
 
     public int? MaxItems { get; init; }
 
+    /// <summary>
+    /// The keys the same field (by <see cref="FieldId"/>, under the same parent) had in the type's earlier published
+    /// versions, when it was renamed (docs/11 §5.7): a tree stored for such a version holds its value under one of them,
+    /// and completing the tree for this version carries the value over (<c>DefinitionTree.Complete</c>). Null when the
+    /// key never changed. Set at publish (<see cref="DescriptorIndex.WithFormerKeys"/>), not by the compiler.
+    /// </summary>
+    public IReadOnlyList<string>? FormerKeys { get; init; }
+
     /// <summary>Whether the value carries a <c>FieldValue</c> envelope a correction can address.</summary>
     [JsonIgnore]
     public bool IsEnvelope => Provenance && Kind is not (FieldKinds.Array or FieldKinds.Object);
@@ -109,6 +117,55 @@ public sealed partial class DescriptorIndex
 
         // A list value (orderReferences[0]) is the list field itself.
         return normalized.EndsWith("[*]", StringComparison.Ordinal) && _byPath.TryGetValue(normalized[..^3], out var list) && list.IsList ? list : null;
+    }
+
+    /// <summary>
+    /// This index with <see cref="FieldDescriptor.FormerKeys"/> set from <paramref name="earlier"/>, the type's earlier
+    /// published versions: for each field, the other keys a field with the same id had under the same parent (the same
+    /// parent id, or both at the top). A field moved to another parent is not followed.
+    /// </summary>
+    public DescriptorIndex WithFormerKeys(IEnumerable<TypeDefinition> earlier)
+    {
+        ArgumentNullException.ThrowIfNull(earlier);
+        var former = new Dictionary<(string FieldId, string? ParentId), HashSet<string>>();
+        foreach (var definition in earlier)
+        {
+            var fields = DefinitionPaths.Enumerate(definition).ToList();
+            var idsByPath = fields.GroupBy(f => f.Path, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Field.Id, StringComparer.Ordinal);
+            foreach (var (path, field) in fields)
+            {
+                var slot = (field.Id, ParentPath(path) is { } parent ? idsByPath.GetValueOrDefault(parent) : null);
+                if (!former.TryGetValue(slot, out var keys))
+                {
+                    keys = new HashSet<string>(StringComparer.Ordinal);
+                    former[slot] = keys;
+                }
+
+                keys.Add(field.Key);
+            }
+        }
+
+        return new DescriptorIndex(Fields.Select(field =>
+        {
+            var parentId = ParentPath(field.Path) is { } parent && _byPath.TryGetValue(parent, out var parentField) ? parentField.FieldId : null;
+            var keys = former.TryGetValue((field.FieldId, parentId), out var found)
+                ? found.Where(k => k != field.Key).Order(StringComparer.Ordinal).ToList()
+                : [];
+            return field with { FormerKeys = keys.Count > 0 ? keys : null };
+        }));
+    }
+
+    /// <summary>The definition path of the field a path is a row field or member of (<c>lines</c> for <c>lines[*].lineNet</c>), or null at the top.</summary>
+    private static string? ParentPath(string path)
+    {
+        var dot = path.LastIndexOf('.');
+        if (dot < 0)
+        {
+            return null;
+        }
+
+        var parent = path[..dot];
+        return parent.EndsWith("[*]", StringComparison.Ordinal) ? parent[..^3] : parent;
     }
 
     public string ToJson() => JsonSerializer.Serialize(new Stored(FormatVersion, Fields), Json);

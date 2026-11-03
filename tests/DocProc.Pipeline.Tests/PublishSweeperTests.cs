@@ -25,7 +25,7 @@ public sealed class PublishSweeperTests
     [Fact]
     public async Task An_auto_approval_commits_its_outbox_row_with_the_decision_and_the_nudge_hands_it_on()
     {
-        await using var host = await PipelineTestHost.StartAsync();
+        await using var host = await StartWithoutSweepLoopAsync();
         var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.xml", XmlMime, PipelineTestHost.Fixture("peppol-bis3-invoice.xml"))]);
         await host.RunUntilIdleAsync();
 
@@ -44,10 +44,18 @@ public sealed class PublishSweeperTests
         (await Sweeper(host).SweepOnceAsync(CancellationToken.None)).ShouldBe(0, "nothing was lost");
     }
 
+    /// <summary>
+    /// A host whose hosted sweeper loop is off, for the tests that sweep by hand. The loop waits one interval on the
+    /// same fake clock: advancing it past the grace also woke the loop, which swept and queued the settlements itself,
+    /// and the background queue published one of them before the test's own sweep counted it.
+    /// </summary>
+    private static Task<PipelineTestHost> StartWithoutSweepLoopAsync() =>
+        PipelineTestHost.StartAsync(settings => settings[$"{PipelineOptions.SectionName}:{nameof(PipelineOptions.PublishSweepInterval)}"] = "00:00:00");
+
     [Fact]
     public async Task A_decision_whose_publish_message_was_lost_is_published_by_the_sweeper_and_only_once()
     {
-        await using var host = await PipelineTestHost.StartAsync();
+        await using var host = await StartWithoutSweepLoopAsync();
         var settledAt = host.Clock.GetUtcNow();
         // What approve leaves behind when the process dies between the commit and the enqueue.
         var approved = await SettleAsync(host, PipelineTestHost.TenantA, DocumentStatus.Approved, settledAt, decisionRow: true);
