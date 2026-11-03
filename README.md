@@ -47,8 +47,9 @@ Tests use xunit v3 on the Microsoft Testing Platform (opted in via `global.json`
 sent to LLM providers are snapshotted under `schemas/`; after an intentional contract change,
 bump the version in `CanonicalSchemas` and rerun with `UPDATE_SCHEMAS=1`. The same switch rewrites
 the meta-schema of document type definitions (`schemas/document-type-definition.v1.json`) and the
-compiled schemas of the standard templates (`schemas/templates/`); a published template version is
-immutable, so a changed template ships as a new version (docs/11 §5.7).
+compiled schemas and form specs of the standard templates (`schemas/templates/`, which the web package
+`packages/review` renders in its tests); a published template version is immutable, so a changed template
+ships as a new version (docs/11 §5.7).
 
 ### Database
 
@@ -325,6 +326,7 @@ tests/
   DocProc.Integration.Tests/  PDF, classifier and splitter fixtures; Testcontainers (SQL Server 2025, Azurite) for
                               migrations, RLS, temporal tables and the Azure blob store, skipped without Docker
 web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
+                              review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
 fixtures/                     demo documents and their LLM replay fixtures (docs/09 "Demo data")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled

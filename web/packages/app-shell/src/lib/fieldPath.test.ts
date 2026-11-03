@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FieldPathError, getByPath, isWithin, joinPath, lastSegment, lineItemOf, parentPath, parsePath, setByPath } from "./fieldPath";
+import { FieldPathError, getByPath, isWithin, joinPath, lastSegment, lineItemOf, parentPath, parsePath, rowOf, setByPath } from "./fieldPath";
 
 describe("parsePath / joinPath", () => {
   it("parses the canonical spellings", () => {
@@ -86,6 +86,14 @@ describe("path relations", () => {
     expect(lineItemOf("lines[0].unitPrice.amount")).toEqual({ index: 0, field: "unitPrice.amount" });
     expect(lineItemOf("invoiceNumber")).toBeNull();
     expect(lineItemOf("lines")).toBeNull();
+    expect(lineItemOf("not a path")).toBeNull();
+  });
+
+  it("finds the row of any repeating group", () => {
+    expect(rowOf("lines[0].tiers[1].price", "lines[0].tiers")).toEqual({ index: 1, field: "price" });
+    expect(rowOf("lines[1].tiers[1].price", "lines[0].tiers")).toBeNull();
+    expect(rowOf("articles[3]", "articles")).toEqual({ index: 3, field: null });
+    expect(rowOf("articlesX[3]", "articles")).toBeNull();
   });
 
   it("tests containment by segment, not by string prefix", () => {

@@ -289,7 +289,21 @@ same on SQL Server. Documents are processed with their tenant's published versio
 
 Changing the catalogue needs the `configurableTypes` switch of the tenant (all switches are off by
 default, docs/11 §3) and ConfigAdmin (a tenant admin); a type of the tenant's own also needs
-`customTypes`. With the dev issuer:
+`customTypes`.
+
+**In the browser.** As `superadmin` in the admin console, open the tenant, tab Settings: the card
+"Feature switches" turns `configurableTypes` and `customTypes` on and off (custom types switch the
+catalogue on with them). The same tenant page has a Document types tab. In the customer portal, a tenant
+admin (`tenant-a-admin`) finds the catalogue under Settings > Document types (`/settings?tab=types`):
+the templates with Adopt and Copy, the tenant's types with Fork (an adopted type, such as `CreditNote`,
+becomes the tenant's copy under the same key) and the type editor (fields, labels in English and German,
+required, indexed, options, a preview of the generated review form, validate and publish with the
+publish report, the versions, the JSON). With the switch off the catalogue is read only. Once a type is
+definition-driven, its documents open in review with the generated form (delivery notes, purchase
+orders, price lists, custom fields), and the inbox filters by the type's indexed fields and shows them as
+columns (`GET /documents?fields=<path>,…` returns the values in `DocumentSummary.fields`).
+
+With the dev issuer:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)

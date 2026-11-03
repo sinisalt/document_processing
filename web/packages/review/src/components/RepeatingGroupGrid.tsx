@@ -20,7 +20,7 @@ import {
   TableRow,
   cn,
 } from "@docproc/ui";
-import { formatNumber, getByPath, isFieldValue, isLowConfidence, type FieldValue } from "@docproc/app-shell";
+import { formatNumber, getByPath, isFieldValue, isLowConfidence, rowOf, type FieldValue } from "@docproc/app-shell";
 import { FieldInput, type HighlightHandler } from "./FieldInput";
 import type { FieldSpec, FormLayout, GridColumn, GridNode } from "../lib/formSpec";
 import { REVIEW_NS, groupLabel, useFieldLabel } from "../lib/labels";
@@ -64,10 +64,6 @@ function widthOf(column: GridColumn): string {
   return "w-32";
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Any repeating group of a definition (docs/11 §12.2 `RepeatingGroupGrid`, which replaces the invoice-only line grid):
  * two table rows per row of the group so a line fits the form panel without scrolling sideways. The first holds the
@@ -92,14 +88,15 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
   }, [canonical, node.path]);
 
   const flagged = useMemo(() => {
-    const pattern = new RegExp(`^${escapeRegExp(node.path)}\\[(\\d+)\\](?:\\.(\\w+))?`);
     const lines = new Set<number>();
     const columns = new Set<string>();
     for (const path of flaggedPaths) {
-      const match = pattern.exec(path);
-      if (!match) continue;
-      lines.add(Number(match[1]));
-      if (match[2]) columns.add(match[2]);
+      const row = rowOf(path, node.path);
+      if (!row) continue;
+      lines.add(row.index);
+      // `unitPrice.amount` names the unitPrice column.
+      const column = row.field?.match(/^[A-Za-z_$][\w$]*/)?.[0];
+      if (column) columns.add(column);
     }
     return { lines, columns };
   }, [flaggedPaths, node.path]);

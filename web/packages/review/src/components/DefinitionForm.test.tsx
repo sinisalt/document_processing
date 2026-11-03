@@ -130,6 +130,13 @@ describe("generated form of a delivery note", () => {
     expect(onStructuralChange).toHaveBeenCalledWith({ op: "append", path: "lines", value: null, reason: null });
   });
 
+  it("shows a column a flag names and marks the flagged row", () => {
+    render(<Harness spec={templates.deliveryNote} canonical={deliveryNote} flaggedPaths={["lines[1].backorderQuantity"]} />);
+    expect(screen.getByLabelText("Line 2, Back-ordered quantity")).toBeInTheDocument();
+    expect(document.querySelector('[data-line="1"] tr')).toHaveClass("bg-amber-500/5");
+    expect(document.querySelector('[data-line="0"] tr')).not.toHaveClass("bg-amber-500/5");
+  });
+
   it("shows a column a reviewer picks under Columns", async () => {
     render(<Harness spec={templates.deliveryNote} canonical={{ ...deliveryNote, lines: [{ lineNumber: 1, supplierSku: extracted("A-1"), description: extracted("x"), quantityDelivered: extracted(1), unit: extracted("KGM"), quantityOrdered: extracted(1), lotNumber: extracted("L1"), bestBefore: extracted("2026-12-01") }] }} />);
     expect(screen.queryByLabelText("Line 1, Back-ordered quantity")).not.toBeInTheDocument();

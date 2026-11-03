@@ -194,7 +194,7 @@ export function DocumentTypesPanel({ canEdit, selectedKey, onSelectedKeyChange }
               <TableBody>
                 {(templates.data ?? []).map((template) => (
                   <TableRow key={template.key} data-template={template.key}>
-                    <TableCell>
+                    <TableCell className="whitespace-normal">
                       <div className="font-medium">{name(template.name, template.key)}</div>
                       {template.description && <div className="max-w-md text-xs text-muted-foreground">{template.description}</div>}
                     </TableCell>

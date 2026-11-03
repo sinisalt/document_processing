@@ -12,7 +12,7 @@ The current design fixes the shape of every document in compiled C#:
 - the static `InvoiceValidator.Default`;
 - the `InvoiceExtraction` LLM contract;
 - the static `PathOrder` and `PipelineStages.Next`;
-- the hand-written review form in `web/apps/customer-portal/src/lib/canonical.ts`.
+- the hand-written review form in the customer portal's `lib/canonical.ts` (replaced in P1 by the generated form of `web/packages/review`).
 
 Extractor profiles are "never hand-authored" (docs/00-plan.md:22-24). Nothing identifies a supplier by folder or mailbox, and nothing leaves the system except an ids-only event that nobody reads.
 
@@ -1339,6 +1339,8 @@ The new `web/packages/review` provides `specsFromDefinition(formSpec, canonical)
 - `useFieldLabel` reads definition labels, with i18n as fallback.
 - `lineItemOf` (`fieldPath.ts:231-236`) is generalised.
 
+Correction (P1): the compiled form spec (§5.5, artifact 3) carries neither the roles nor the members of a composite inside a composite (a party lists `address` by kind only), so the generated form cannot take either from it. The line check (quantity × unit price against line net) applies to a repeating group whose rows have `quantity`, `unitPrice` and `lineNet` (the invoice family), and nested members are expanded from the web package's copy of `FieldKinds.CompositeMemberKinds` (`packages/review/src/lib/formSpec.ts`), kept in step by the template snapshots the web tests render. A grid above 200 rows shows 100 rows a page instead of being virtualised: the grid's inputs are react-hook-form fields, and the repository has no virtualisation library. An invoice or credit note of a tenant without definitions (no `DocumentDetail.definition`) is drawn from a built-in form spec of the coded `Invoice` record (`legacyFormSpec`), so its review is unchanged.
+
 ### 12.3 Map from page
 
 A "Map from page" toggle sits next to Words (`PageViewer.tsx:125-128`). It is on by default for `TypeSource=Human` documents with no values.
@@ -1832,6 +1834,7 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
   - The list filter accepts any tenant key instead of `Enum.IsDefined` (`DocumentEndpoints.cs:129, 718`), plus `?field.<key>=value` for indexed fields, `?flag=<code>` (for example `NEW_LAYOUT`), `?supplierId=`, `?pendingLayoutVersionId=` and `?sort=reviewDue` (priority, then due time).
   - `DocumentDetail` gains `definition {key, version, formSpec}` (with an ETag), `supplierMatch {method, ruleId, describe, confidence}`, `appliedConfig`, `layout {id, key, version, status, scope, identification {matched, evidence[]}}`, `validation[]`, `deliveries[]` and `externalRefs[]`.
   - `canonical` stays the stored tree.
+  - Correction (P1): section 19 offers indexed custom fields as inbox columns and filters, which needs two things this list did not have: which fields of a type are indexed, and their values per row. `DocumentTypeDetail` gains `indexedFields [{path, kind, label}]` (of the published version, else the latest), and the list takes `?fields=<path>,<path>` (at most 10) and then returns `DocumentSummary.fields {path: value}` as `DocumentFieldIndex` holds the values (identifiers normalised); without the parameter `fields` is null.
 - `PATCH /documents/{id}/fields`: `FieldCorrection` becomes `{path, op, value?, from?, source?, reason}`.
 - `POST /documents/{id}:reprocess`: `fromStage` adds `Match`, plus `configMode: "pinned"|"current"`.
 - `POST /ingestions`: adds `supplierId` and `documentTypeKey` (scope `ingest:hint`).

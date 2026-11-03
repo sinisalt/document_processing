@@ -236,8 +236,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
     `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
     (docs/11 §21 step 1).
-- **P1, types as data and custom fields – in progress.** Part A (the type catalogue backend) and part B (pipeline,
-  storage and rules) are done; the generated review form and the type editor (the web part) are not.
+- **P1, types as data and custom fields – parts A, B and C done; the items under "Left" are open.** Part A (the type
+  catalogue backend), part B (pipeline, storage and rules) and part C (the web part: the generated review form, the
+  type editor, the inbox filters and the feature switches) are done.
   - Done (part A):
     - the `DocumentTypeKey` string switch in one change: the `DocumentType` enum is gone, `DocumentTypeKey` (a
       `readonly record struct`) and `WellKnownTypeKeys` replace it; `Documents.Type` keeps its `nvarchar(64)` column and
@@ -322,10 +323,52 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       answered from the replay fixture and stored as a version 2 tree with the customer number `0815`, found by
       `?field.supplierCustomerRef=0815` (tenant B finds nothing); the delivery note gets the tree of its type and is
       filled with `set`, `append` and `remove` (`move` refused), while an adopted invoice still refuses `append`.
+  - Done (part C, web), every new behaviour behind `configurableTypes` as the API gates it:
+    - the generated review form in the new package `web/packages/review` (docs/11 §12.2): `specsFromDefinition` lays
+      out the compiled form spec of `DocumentDetail.definition` (sections, fields, composites with their members,
+      groups, lists, `ext` bags and repeating groups, one spec per stored value); `DefinitionForm`
+      (section and group renderers), `RepeatingGroupGrid` (any array, the line check for the invoice family's rows,
+      a Columns menu, rows added and removed, 100 rows a page above 200 rows) and `FieldInput` (a widget per kind,
+      code and yes/no selects with the definition's labels) replace the portal's `CanonicalForm`, `LineItemGrid` and
+      `lib/canonical.ts`; `useFieldLabel` reads definition labels with the UI language as fallback. The review screen
+      draws every type from its definition, so purchase orders, delivery notes, price lists, tenant types and custom
+      fields are shown and edited in review; on a definition-driven document (`canonicalSchemaVersion` 2) rows, list
+      entries and attributes are added and removed (sent after the unsaved corrections in one `PATCH`), and the header
+      shows type and version. An invoice or credit note of a tenant without definitions is drawn from a built-in form
+      spec with the earlier sections, fields, columns and order (`legacyFormSpec`), and the earlier form tests run
+      against it unchanged; the template snapshots in `schemas/templates` now include the compiled form spec, which the
+      web tests render;
+    - the document types editor (docs/11 §19), shared by both apps: the portal's Settings > Document types (tenant
+      admins, the tenant's ConfigAdmin) and a Document types tab on the admin console's tenant page (a SuperAdmin in
+      the tenant's scope). Templates with Adopt and Copy, the tenant's types with Fork (an adopted type becomes the
+      tenant's copy in place) and Edit, New type with `customTypes`; the editor's tabs Fields (field tree, add, move
+      and remove fields, kind, labels per language, description, section, required, indexed, enum options), Preview
+      (the generated form of the saved version), Versions (versions list, validate, publish with the report: problems,
+      blocking dependents, warnings, changes, extraction schema) and JSON. Drafts are saved with `If-Match`; without
+      `configurableTypes` or ConfigAdmin the catalogue is read only;
+    - the inbox (docs/11 §19 item 7): the type filter lists the tenant's types from `GET /document-types`, a field
+      filter offers the indexed fields (`?field.<path>=value`), the indexed fields of the selected type are columns,
+      and `validFrom`, `validUntil` and `lineCount` are columns too (hidden until picked). For this the API adds
+      `DocumentTypeDetail.indexedFields` and the list parameter `fields=`, which returns `DocumentSummary.fields`
+      (null without it; a correction to docs/11 §18);
+    - the admin console's tenant settings switch `configurableTypes` and `customTypes` (custom types imply the
+      catalogue, and switching the catalogue off switches custom types off);
+    - run in a browser against the dependency-free dev mode (SQLite, dev tokens, demo data; not the compose stack):
+      with the switch on, the demo delivery note reprocessed with `configMode: current` opened in the generated form
+      (type and version in the header), a typed number and an added row were saved in one request; under Settings >
+      Document types the price list was adopted, `CreditNote` forked, the custom field added with English and German
+      labels and indexed, saved, validated (`invoice_extraction@1+x.f68b208b`, the field listed as added) and published
+      as v2; the inbox filtered by `CreditNote` showed the field as a column; the demo PDF invoice was drawn from its
+      definition with the line check. No browser console errors.
   - Left for the rest of P1:
-    - the web part: the generated review form in `packages/review` (so PurchaseOrder, DeliveryNote, price lists and
-      custom fields are shown and edited in review; the API side is ready), the document types editor, the inbox filter
-      and columns for indexed custom fields, and the type list in the filters from the API;
+    - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
+      nor are a row's `ext` bag and composites inside rows; the grid pages instead of virtualising (docs/11 §12.2); the
+      type editor reorders with up and down buttons (no dnd-kit), edits neither sections, roles, extraction labels,
+      patterns nor `sensitive`, has no diff view (no `:diff` route) and no Rules, Processing or Classification tab, and
+      its JSON tab is a text area (no Monaco); the inbox shows an indexed value as the field index stores it
+      (identifiers normalised); the admin console's document page keeps its own read-only view (the shared review is
+      P6) and its hard-coded type lists (`lib/documents.ts`, `lib/review.ts`); the line check is still computed in the
+      browser (`lineArithmetic.ts`), not from server results per path (`DocumentDetail.validation[]`, docs/11 §11);
     - retiring `invoice.required`, `invoice.datePlausibility` and `invoice.confidence` from the std templates in favour of
       `validate.schema` and the generic kinds (needs template v2 of the invoice family with the flag parity test); the
       invoice family still runs the eight coded rules;
