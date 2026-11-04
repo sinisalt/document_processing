@@ -13,8 +13,8 @@ public sealed record RuleKindDescriptor(string Kind, string Phase, string Descri
 /// <summary>
 /// The rule kinds of this deployment (docs/11 §11, "phase in which each generic kind is registered"). Publishing a
 /// definition that names a kind not listed here fails with "rule kind X is not available yet" (§5.7): there is no
-/// "compile now, run later". The P5 kinds (<c>requiredIf</c>, <c>compare</c>, <c>sumEquals</c>, <c>arithmetic</c>,
-/// <c>expression</c>, <c>tableComplete</c>, <c>unique</c>, <c>ordered</c>, <c>deltaToPrevious</c>) are not listed.
+/// "compile now, run later". The P5 kinds <c>requiredIf</c>, <c>compare</c>, <c>sumEquals</c>, <c>arithmetic</c> and
+/// <c>expression</c> are listed; their expression parameters (<see cref="ExpressionParams"/>) are parsed at publish.
 /// <para>
 /// The coded invoice kinds run through <c>InvoiceRuleAdapter</c> and take no parameters (the adapter has none to
 /// pass on). The generic P1 kinds are declared with their parameter schemas so definitions that use them can be
@@ -26,6 +26,22 @@ public static class RuleKinds
 {
     public const string P0 = "P0";
     public const string P1 = "P1";
+    public const string P5 = "P5";
+
+    /// <summary>The parameters, by kind, that hold a rule expression (<c>RuleExpression</c>), checked to parse at publish.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> ExpressionParams = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["requiredIf"] = ["when"],
+        ["arithmetic"] = ["expression"],
+        ["expression"] = ["predicate"],
+    };
+
+    /// <summary>The parameters, by kind, that name a path relative to the rows of another parameter (<c>arithmetic.equals</c> under <c>rows</c>, <c>expression.field</c> under <c>forEach</c>).</summary>
+    public static readonly IReadOnlyDictionary<string, (string Rows, string Relative)> RowRelativeParams = new Dictionary<string, (string, string)>(StringComparer.Ordinal)
+    {
+        ["arithmetic"] = ("rows", "equals"),
+        ["expression"] = ("forEach", "field"),
+    };
 
     /// <summary>Every kind available in this deployment, by key.</summary>
     public static FrozenDictionary<string, RuleKindDescriptor> Available { get; } = Build().ToFrozenDictionary(d => d.Kind, StringComparer.Ordinal);
@@ -100,7 +116,56 @@ public static class RuleKinds
             Params([], ("threshold", new JsonObject { ["type"] = "number", ["minimum"] = 0, ["maximum"] = 1 }), ("paths", new JsonObject { ["type"] = "array", ["items"] = PathSchema() })),
             ["paths"]);
         yield return new RuleKindDescriptor("customerMatch", P1, "The customer party is one of the tenant's receiving entities.", NoParams(), []);
+
+        yield return new RuleKindDescriptor(
+            "requiredIf",
+            P5,
+            "The field at path has a value whenever the expression when holds.",
+            Params(Required("path", "when"), ("path", PathSchema()), ("when", ExpressionSchema())),
+            ["path"]);
+        yield return new RuleKindDescriptor(
+            "compare",
+            P5,
+            "The value at left compares to the value at right (or to value) by op: eq, ne, lt, le, gt or ge; numbers within tolerance, dates and strings in order.",
+            Params(
+                Required("left", "op"),
+                ("left", PathSchema()),
+                ("op", new JsonObject { ["enum"] = new JsonArray("eq", "ne", "lt", "le", "gt", "ge") }),
+                ("right", PathSchema()),
+                ("value", new JsonObject { ["type"] = new JsonArray("number", "string", "boolean") }),
+                ("tolerance", new JsonObject { ["type"] = "number", ["minimum"] = 0 })),
+            ["left", "right"]);
+        yield return new RuleKindDescriptor(
+            "sumEquals",
+            P5,
+            "The numbers at path (for example lines[*].lineNet) add up to the number at equals, within tolerance plus perItemTolerance per item.",
+            Params(
+                Required("path", "equals"),
+                ("path", PathSchema()),
+                ("equals", PathSchema()),
+                ("tolerance", new JsonObject { ["type"] = "number", ["minimum"] = 0 }),
+                ("perItemTolerance", new JsonObject { ["type"] = "number", ["minimum"] = 0 })),
+            ["path", "equals"]);
+        yield return new RuleKindDescriptor(
+            "arithmetic",
+            P5,
+            "On every row of rows (or once), expression gives the number at equals (a path in the row), within tolerance.",
+            Params(
+                Required("expression", "equals"),
+                ("rows", PathSchema()),
+                ("expression", ExpressionSchema()),
+                ("equals", PathSchema()),
+                ("tolerance", new JsonObject { ["type"] = "number", ["minimum"] = 0 })),
+            ["rows"]);
+        yield return new RuleKindDescriptor(
+            "expression",
+            P5,
+            "The predicate holds for the document (or for every row of forEach); field names the flagged field in the row.",
+            Params(Required("predicate"), ("predicate", ExpressionSchema()), ("forEach", PathSchema()), ("field", PathSchema())),
+            ["forEach"]);
     }
+
+    private static JsonObject ExpressionSchema() => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 2000 };
 
     private static string[] Required(params string[] names) => names;
 

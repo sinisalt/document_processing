@@ -473,6 +473,76 @@ public sealed class DefinitionCompilerTests
         string.Join("\n", report.Problems).ShouldContain(expected);
     }
 
+    [Theory]
+    [InlineData("""{"id":"r","kind":"requiredIf","params":{"path":"deliveryNoteReference","when":"returnDate >"}}""", "when is not an expression of the rule language")]
+    [InlineData("""{"id":"r","kind":"requiredIf","params":{"path":"deliveryNoteReference","when":"$fetch('https://x')"}}""", "is not a function")]
+    [InlineData("""{"id":"r","kind":"requiredIf","params":{"path":"deliveryNoteReference","when":"$env = 1"}}""", "is not a variable here")]
+    [InlineData("""{"id":"r","kind":"compare","params":{"left":"returnDate","op":"ge"}}""", "needs right (a path) or value")]
+    [InlineData("""{"id":"r","kind":"compare","params":{"left":"returnDate","op":"before","right":"returnDate"}}""", "do not fit the kind 'compare'")]
+    [InlineData("""{"id":"r","kind":"sumEquals","params":{"path":"items[*].weight","equals":"returnNumber"}}""", "path 'items[*].weight' is not a field")]
+    [InlineData("""{"id":"r","kind":"arithmetic","params":{"rows":"items[*]","expression":"quantity * 2","equals":"total"}}""", "equals 'total' is not a field of the rows")]
+    [InlineData("""{"id":"r","kind":"expression","params":{"forEach":"items[*]","predicate":"quantity > 0","field":"weight"}}""", "field 'weight' is not a field of the rows")]
+    [InlineData("""{"id":"r","kind":"expression","params":{"predicate":"1 = 1","limit":3}}""", "do not fit the kind 'expression'")]
+    public void P5_rule_parameters_and_expressions_are_checked_at_publish(string rule, string expected)
+    {
+        var report = Publish(ReturnSlipJson(rules: $"[{rule}]"));
+
+        report.CanPublish.ShouldBeFalse();
+        string.Join("\n", report.Problems).ShouldContain(expected);
+    }
+
+    [Fact]
+    public void The_P5_rule_kinds_publish()
+    {
+        var report = Publish(ReturnSlipJson(rules: """
+            [{"id":"r_dn","kind":"requiredIf","params":{"path":"deliveryNoteReference","when":"$count(items[reason = 'Wrong']) > 0"}},
+             {"id":"r_date","kind":"compare","params":{"left":"returnDate","op":"le","value":"2099-12-31"}},
+             {"id":"r_sum","kind":"sumEquals","params":{"path":"items[*].quantity","equals":"items[*].quantity","tolerance":0}},
+             {"id":"r_row","kind":"arithmetic","params":{"rows":"items[*]","expression":"quantity * 1","equals":"quantity"}},
+             {"id":"r_expr","kind":"expression","params":{"forEach":"items[*]","predicate":"quantity > 0 or reason = 'Surplus'","field":"quantity"}}]
+            """));
+
+        report.Problems.ShouldBeEmpty();
+        report.CanPublish.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Definition_flags_are_declared_once_raised_by_a_generic_rule_and_never_a_platform_code()
+    {
+        static string WithFlags(string flags, string rules) => ReturnSlipJson(rules: rules).Replace("\"rules\":", $"\"flags\":{flags},\"rules\":", StringComparison.Ordinal);
+
+        var ok = Publish(WithFlags(
+            """[{"code":"X_RETURN_LATE","severity":"blocking","message":{"en":"Returned too late","de":"Zu spät zurückgegeben"}}]""",
+            """[{"id":"r_late","kind":"compare","flag":"X_RETURN_LATE","params":{"left":"returnDate","op":"le","value":"2099-12-31"}}]"""));
+        ok.Problems.ShouldBeEmpty();
+        var reference = ok.Definition!.ToRuleReferences().Single();
+        reference.FlagCode.ShouldBe("X_RETURN_LATE");
+        reference.Severity.ShouldBe(DocProc.Domain.Flags.FlagSeverity.Blocking);
+        reference.Message!["de"].ShouldBe("Zu spät zurückgegeben");
+
+        string Problems(string flags, string rules) => string.Join("\n", Publish(WithFlags(flags, rules)).Problems);
+        Problems("""[{"code":"X_A"}]""", """[{"id":"r","kind":"compare","flag":"X_B","params":{"left":"returnDate","op":"le","value":"2099-12-31"}}]""")
+            .ShouldContain("flag 'X_B' is not declared");
+        Problems("""[{"code":"X_A"}]""", """[{"id":"r","kind":"compare","params":{"left":"returnDate","op":"le","value":"2099-12-31"}}]""")
+            .ShouldContain("'X_A' is declared but no rule raises it");
+        Problems("""[{"code":"X_A"},{"code":"X_A"}]""", """[{"id":"r","kind":"compare","flag":"X_A","params":{"left":"returnDate","op":"le","value":"2099-12-31"}}]""")
+            .ShouldContain("declared twice");
+        Problems("""[{"code":"RULE_FAILED"}]""", """[{"id":"r","kind":"duplicate"}]""").ShouldNotBeEmpty("the meta-schema refuses a code without the X_ prefix");
+    }
+
+    [Fact]
+    public void Auto_approval_takes_effect_once_the_type_names_the_rules_that_vouch_for_it()
+    {
+        var vouched = ReturnSlipJson().Replace("\"review\":{\"autoApprove\":false}", "\"review\":{\"autoApprove\":true,\"requirePassedRules\":[\"r_qty\"],\"blockOnWarnings\":[\"r_dup\"],\"lines\":{\"requireSource\":[\"Profile\",\"Human\"],\"requireLocated\":true,\"maxLowConfidenceRows\":0}}", StringComparison.Ordinal);
+        var report = Publish(vouched);
+        report.CanPublish.ShouldBeTrue(string.Join("\n", report.Problems));
+        report.Warnings.ShouldNotContain(w => w.Where == "processing.review.autoApprove");
+        PublishChecks.AutoApproveHasNoEffect(report.Definition!).ShouldBeFalse();
+
+        var unknown = Publish(vouched.Replace("[\"r_qty\"]", "[\"r_none\"]", StringComparison.Ordinal));
+        string.Join("\n", unknown.Problems).ShouldContain("names the rule 'r_none'");
+    }
+
     [Fact]
     public void Rule_paths_may_address_the_members_of_a_value()
     {

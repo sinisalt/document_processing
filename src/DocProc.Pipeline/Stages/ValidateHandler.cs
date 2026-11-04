@@ -130,7 +130,12 @@ internal sealed class ValidateHandler(
         // also never auto-approves (docs/11 §11 layer 3): source rules of two suppliers tied, so the supplier content
         // then names is a guess a person confirms.
         // NEW_LAYOUT and LAYOUT_AMBIGUOUS block by name (docs/11 §11), so a severity override cannot let them through.
-        var eligible = result is { IsEligibleForAutoApproval: true }
+        // The definition's own gate conditions (docs/11 §11 layer 3, P5): requirePassedRules, blockOnWarnings and lines.
+        var ruleHolds = type is { AutoApprove: true } && result is not null
+            ? ReviewGateRules.Evaluate(type.Definition.Processing.Review, result, type.Definition.Processing.Review.Lines is null ? null : ParseTree(document.CanonicalJson), type.Definition.Roles.LineItems, tenant.Settings.AutoApproveConfidenceThreshold)
+            : [];
+        var eligible = ruleHolds.Count == 0
+                       && result is { IsEligibleForAutoApproval: true }
                        && type is { AutoApprove: true }
                        && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified or FlagCodes.SupplierAmbiguous or FlagCodes.NewLayout or FlagCodes.LayoutAmbiguous)
                        && document.TypeSource != TypeSource.Proposed
@@ -144,6 +149,7 @@ internal sealed class ValidateHandler(
             eligibleForAutoApproval = eligible,
             alwaysReview,
             layout = layout.Passes ? null : layout.Reason,
+            gate = ruleHolds.Count == 0 ? null : ruleHolds.Select(h => new { reason = h.Reason, detail = h.Detail }).ToList(),
             threshold = tenant.Settings.AutoApproveConfidenceThreshold,
         });
 
@@ -167,7 +173,7 @@ internal sealed class ValidateHandler(
 
         var reason = open.Count > 0
             ? string.Join(", ", open.Select(f => f.Code).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-            : alwaysReview ? "ALWAYS_REVIEW" : !layout.Passes ? layout.Reason! : "MANUAL_REVIEW";
+            : alwaysReview ? "ALWAYS_REVIEW" : !layout.Passes ? layout.Reason! : ruleHolds.Count > 0 ? string.Join(", ", ruleHolds.Select(h => h.Reason).Distinct(StringComparer.Ordinal)) : "MANUAL_REVIEW";
         Db.ReviewTasks.Add(new ReviewTask
         {
             Id = Guid.CreateVersion7(),
@@ -217,6 +223,23 @@ internal sealed class ValidateHandler(
         document.CanonicalJson = tree.ToJsonString(Domain.Documents.CanonicalJson.Options);
         DocumentRoleColumns.Refresh(document, type.Roles);
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static System.Text.Json.Nodes.JsonObject? ParseTree(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The supplier's <c>review.mode: always</c> (docs/11 §6.4), its own or its group's.</summary>

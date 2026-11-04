@@ -545,11 +545,68 @@
               "null"
             ],
             "maxLength": 1000
+          },
+          "flag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^X_[A-Z0-9_]{1,62}$"
           }
         },
         "required": [
           "id",
           "kind"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 200
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^X_[A-Z0-9_]{1,62}$"
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "blocking",
+              "warning",
+              "info",
+              null
+            ]
+          },
+          "message": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "propertyNames": {
+              "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "code"
         ],
         "additionalProperties": false
       },

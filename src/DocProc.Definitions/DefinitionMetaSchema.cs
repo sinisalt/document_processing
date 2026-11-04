@@ -138,7 +138,21 @@ public static class DefinitionMetaSchema
                 LocaleMap(schema, MaxLabelLength, minProperties: name == "name" && owner.Name == nameof(TypeDefinition) ? 1 : 0);
                 break;
             case (nameof(RuleDefinition), "message"):
+            case (nameof(FlagDeclaration), "message"):
                 LocaleMap(schema, MaxDescriptionLength, minProperties: 0);
+                break;
+            case (nameof(FlagDeclaration), "code"):
+            case (nameof(RuleDefinition), "flag"):
+                schema["pattern"] = "^X_[A-Z0-9_]{1,62}$";
+                break;
+            case (nameof(FlagDeclaration), "severity"):
+                Enum(schema, "blocking", "warning", "info");
+                break;
+            case (nameof(FlagDeclaration), "description"):
+                schema["maxLength"] = MaxDescriptionLength;
+                break;
+            case (nameof(TypeDefinition), "flags"):
+                schema["maxItems"] = Compilation.DefinitionCompiler.MaxRules;
                 break;
             case (nameof(TypeDefinition), "description"):
             case (nameof(FieldDefinition), "description"):

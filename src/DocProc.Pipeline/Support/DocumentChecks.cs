@@ -27,7 +27,7 @@ public static class DocumentChecks
         var incoming = flags.ToList();
         var codes = new HashSet<string>(ownedCodes, StringComparer.Ordinal);
         codes.UnionWith(incoming.Select(f => f.Code));
-        foreach (var stale in document.Flags.Where(f => f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null && codes.Contains(f.Code)).ToList())
+        foreach (var stale in document.Flags.Where(f => f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null && FlagCodes.IsOwned(codes, f.Code)).ToList())
         {
             document.Flags.Remove(stale);
             db.DocumentFlags.Remove(stale);
@@ -70,6 +70,7 @@ public static class DocumentChecks
         FlagCodes.MissingRequired, FlagCodes.InvalidValue, FlagCodes.TotalsMismatch, FlagCodes.TaxMismatch, FlagCodes.LineArithmetic,
         FlagCodes.DateImplausible, FlagCodes.CustomerMismatch, FlagCodes.LowConfidence, FlagCodes.CurrencyInferred, FlagCodes.DuplicateSuspected,
         FlagCodes.FieldRequired, FlagCodes.FieldInvalid, FlagCodes.RuleFailed, FlagCodes.RevisionOf, FlagCodes.ChecksSkipped,
+        FlagCodes.DefinitionScopedWildcard,
     ];
 
     /// <summary>The checks' flags and the rule result (null when the type lists no rules).</summary>
@@ -115,6 +116,11 @@ public static class DocumentChecks
                 data = data with { Duplicate = await DuplicateKeyCheck.RunAsync(db, document, type, cancellationToken).ConfigureAwait(false) };
             }
 
+            if (document.SupplierId is { } supplierId && type.Rules.Any(r => Definitions.RuleKinds.ExpressionParams.ContainsKey(r.Kind)))
+            {
+                data = data with { Supplier = await SupplierViewAsync(db, supplierId, cancellationToken).ConfigureAwait(false) };
+            }
+
             var context = new ValidationContext(
                 today,
                 ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
@@ -135,6 +141,39 @@ public static class DocumentChecks
         }
 
         return new CheckRun(flags, result);
+    }
+
+    /// <summary>The matched supplier as rule expressions read it (<c>$supplier</c>: id, name, vatId, attributes).</summary>
+    private static async Task<System.Text.Json.Nodes.JsonObject?> SupplierViewAsync(DocProcDbContext db, Guid supplierId, CancellationToken cancellationToken)
+    {
+        var supplier = await db.Suppliers.AsNoTracking().Where(s => s.Id == supplierId)
+            .Select(s => new { s.Id, s.Name, s.VatId, s.AttributesJson })
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (supplier is null)
+        {
+            return null;
+        }
+
+        System.Text.Json.Nodes.JsonNode? attributes = null;
+        if (!string.IsNullOrWhiteSpace(supplier.AttributesJson))
+        {
+            try
+            {
+                attributes = System.Text.Json.Nodes.JsonNode.Parse(supplier.AttributesJson);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                attributes = null;
+            }
+        }
+
+        return new System.Text.Json.Nodes.JsonObject
+        {
+            ["id"] = supplier.Id.ToString(),
+            ["name"] = supplier.Name,
+            ["vatId"] = supplier.VatId,
+            ["attributes"] = attributes as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject(),
+        };
     }
 
     /// <summary>

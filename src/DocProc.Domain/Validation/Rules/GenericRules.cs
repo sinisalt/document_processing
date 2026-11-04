@@ -21,7 +21,7 @@ namespace DocProc.Domain.Validation.Rules;
 /// summary for the rest (<see cref="FlagCap"/>); a <c>pattern</c> rule stops matching there, and every match draws on
 /// the validation's <see cref="ValidationContext.PatternBudget"/>.
 /// </summary>
-public static class GenericRules
+public static partial class GenericRules
 {
     public const string Required = "required";
     public const string Pattern = "pattern";
@@ -34,7 +34,7 @@ public static class GenericRules
     public const string Confidence = "confidence";
     public const string CustomerMatch = "customerMatch";
 
-    /// <summary>One evaluator per generic kind of P1.</summary>
+    /// <summary>One evaluator per generic kind of P1 and P5 (<c>requiredIf</c>, <c>compare</c>, <c>sumEquals</c>, <c>arithmetic</c>, <c>expression</c>).</summary>
     public static IReadOnlyList<IDocumentRule> All { get; } =
     [
         new Rule(Required, EvaluateRequired),
@@ -47,6 +47,11 @@ public static class GenericRules
         new Rule(Duplicate, EvaluateDuplicate),
         new Rule(Confidence, EvaluateConfidence),
         new Rule(CustomerMatch, EvaluateCustomerMatch),
+        new Rule(RequiredIf, EvaluateRequiredIf),
+        new Rule(Compare, EvaluateCompare),
+        new Rule(SumEquals, EvaluateSumEquals),
+        new Rule(Arithmetic, EvaluateArithmetic),
+        new Rule(Expression, EvaluateExpression),
     ];
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
@@ -116,8 +121,16 @@ public static class GenericRules
                 return [];
             }
 
-            var flags = evaluate(view, parameters, context);
-            return capped ? FlagCap.Apply(flags) : flags.ToList();
+            var flags = evaluate(view, parameters, context).ToList();
+            if (!capped)
+            {
+                return flags;
+            }
+
+            // A CHECKS_SKIPPED (a rule's expressions ran out of steps) is never folded into the cap's summary: it is
+            // what keeps the document out of auto-approval.
+            var skipped = flags.Where(f => f.Code == FlagCodes.ChecksSkipped).ToList();
+            return skipped.Count == 0 ? FlagCap.Apply(flags) : [.. FlagCap.Apply(flags.Where(f => f.Code != FlagCodes.ChecksSkipped)), .. skipped];
         }
     }
 

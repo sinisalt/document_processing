@@ -17,6 +17,12 @@ public sealed record RuleData
 
     /// <summary>Code lists by key (<c>uom</c>, ...). <see cref="CodeLists.Platform"/> unless the stage adds the tenant's.</summary>
     public IReadOnlyDictionary<string, CodeList> CodeLists { get; init; } = Validation.CodeLists.Platform;
+
+    /// <summary>
+    /// The matched supplier as the expression kinds read it (<c>$supplier</c>: <c>id</c>, <c>name</c>, <c>vatId</c>,
+    /// <c>attributes</c>, docs/11 §11); null when the document has no supplier.
+    /// </summary>
+    public System.Text.Json.Nodes.JsonObject? Supplier { get; init; }
 }
 
 /// <summary>An earlier document with the same duplicate key.</summary>

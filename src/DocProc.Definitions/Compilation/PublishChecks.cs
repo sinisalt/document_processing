@@ -100,7 +100,7 @@ public static class PublishChecks
         {
             warnings.Add(new DefinitionProblem(
                 "processing.review.autoApprove",
-                "has no effect yet: until a type can name the rules that vouch for it (review.requirePassedRules, docs/11 §11), only an invoice or credit note with its invoice.totals rule is approved without a reviewer. Documents of this type always go to review."));
+                "has no effect: a type other than an invoice or credit note with its invoice.totals rule needs review.requirePassedRules, the rules that vouch for its data (docs/11 §11), to be approved without a reviewer. Documents of this type always go to review."));
         }
 
         warnings.AddRange(IndexedRowFields(definition));
@@ -297,6 +297,30 @@ public static class PublishChecks
                     : DefinitionChecker.TooLarge("pattern", pattern));
             }
 
+            foreach (var name in RuleKinds.ExpressionParams.GetValueOrDefault(kind.Kind) ?? [])
+            {
+                if (parameters[name] is JsonValue text && text.TryGetValue<string>(out var expression)
+                    && !DocProc.Domain.Validation.Expressions.RuleExpression.TryParse(expression, DocProc.Domain.Validation.Rules.GenericRules.ExpressionVariables, out _, out var error))
+                {
+                    yield return new DefinitionProblem(at, $"{name} is not an expression of the rule language: {error}.");
+                }
+            }
+
+            if (kind.Kind == "compare" && parameters["right"] is null && parameters["value"] is null)
+            {
+                yield return new DefinitionProblem(at, "needs right (a path) or value (a literal) to compare left with.");
+            }
+
+            if (RuleKinds.RowRelativeParams.TryGetValue(kind.Kind, out var relative)
+                && parameters[relative.Relative] is JsonValue relativeValue && relativeValue.TryGetValue<string>(out var relativePath))
+            {
+                var full = parameters[relative.Rows] is JsonValue rowsValue && rowsValue.TryGetValue<string>(out var rowsPath) ? $"{rowsPath}.{relativePath}" : relativePath;
+                if (DefinitionPaths.FindValue(definition, full) is null)
+                {
+                    yield return new DefinitionProblem(at, $"{relative.Relative} '{relativePath}' is not a field{(full == relativePath ? string.Empty : $" of the rows of {parameters[relative.Rows]}")} of the definition.");
+                }
+            }
+
             foreach (var name in kind.PathParams)
             {
                 foreach (var path in PathsOf(parameters[name]))
@@ -394,13 +418,15 @@ public static class PublishChecks
     }
 
     /// <summary>
-    /// Whether <c>review.autoApprove</c> is set on a type the review gate never approves without a reviewer in P1 (the
-    /// rule <c>EffectiveType.AutoApprove</c> applies): anything but an invoice-family type that lists <c>invoice.totals</c>.
+    /// Whether <c>review.autoApprove</c> is set on a type the review gate never approves without a reviewer (the rule
+    /// <c>EffectiveType.AutoApprove</c> applies): anything but an invoice-family type that lists <c>invoice.totals</c>, or
+    /// a type that names the rules that vouch for it in <c>review.requirePassedRules</c> (P5, docs/11 §11).
     /// </summary>
     public static bool AutoApproveHasNoEffect(TypeDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         return definition.Processing.Review.AutoApprove
+               && definition.Processing.Review.RequirePassedRules is not { Count: > 0 }
                && !(Domain.Documents.DocumentTypeKey.TryParse(definition.Key, out var key) && key.IsInvoiceFamily
                     && definition.Rules.Any(r => r.Kind == Domain.Validation.InvoiceRuleKinds.Totals));
     }

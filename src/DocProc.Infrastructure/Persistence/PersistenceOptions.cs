@@ -202,6 +202,7 @@ public static class PersistenceHostExtensions
         services.AddScoped<IEffectiveConfigResolver, CatalogueConfigResolver>();
         services.AddScoped<IPipelineConfigResolver, PipelineConfigResolver>();
         services.AddScoped<DocumentTypeCatalogue>();
+        services.AddScoped<DocProc.Infrastructure.Classification.TenantClassification>();
         return services;
     }
 }

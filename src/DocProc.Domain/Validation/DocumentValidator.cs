@@ -54,6 +54,7 @@ public sealed class DocumentValidator(RuleRegistry registry)
 
         var flags = new List<DocumentFlag>();
         var notRun = new List<string>();
+        var byRule = new Dictionary<string, IReadOnlyList<DocumentFlag>>(StringComparer.Ordinal);
         foreach (var entry in rules)
         {
             // Publishing a definition refuses a kind this deployment does not declare (docs/11 §5.7). A declared kind
@@ -65,22 +66,39 @@ public sealed class DocumentValidator(RuleRegistry registry)
                 continue;
             }
 
-            flags.AddRange(rule.Evaluate(view, entry.Params, context).Select(f => Stamp(f, entry, rule, view.TypeKey)));
+            var raised = rule.Evaluate(view, entry.Params, context).Select(f => Stamp(f, entry, rule, view.TypeKey)).ToList();
+            flags.AddRange(raised);
+            byRule[entry.Id] = byRule.TryGetValue(entry.Id, out var earlier) ? [.. earlier, .. raised] : raised;
         }
 
-        return new ValidationResult(flags, notRun.Count == 0 ? null : notRun);
+        return new ValidationResult(flags, notRun.Count == 0 ? null : notRun) { ByRule = byRule };
     }
 
     /// <summary>
     /// A rule's flag as the definition asks for it: the entry's severity when it sets one, its English message when it
     /// has one, and, for the generic kinds, the rule id and the type key in the parameters (<c>RULE_FAILED {ruleId,
-    /// typeKey}</c>, docs/11 §11). A coded invoice kind's flags are left exactly as the coded rule raised them.
+    /// typeKey}</c>, docs/11 §11). A coded invoice kind's flags are left exactly as the coded rule raised them. A rule with
+    /// a definition flag (<see cref="RuleReference.FlagCode"/>) raises that code; its localised messages travel in the
+    /// parameters as <c>message.&lt;locale&gt;</c>, so the UI shows the definition's text in its language. A
+    /// <c>CHECKS_SKIPPED</c> (a rule's expressions ran out of steps) keeps its code and stays blocking: a severity a
+    /// definition gives its rule must not let an unchecked document through.
     /// </summary>
     private static DocumentFlag Stamp(DocumentFlag flag, RuleReference entry, IDocumentRule rule, string typeKey)
     {
         if (rule is InvoiceRuleAdapter)
         {
             return entry.Severity is { } coded ? flag with { Severity = coded } : flag;
+        }
+
+        if (flag.Code == FlagCodes.ChecksSkipped)
+        {
+            var skippedParams = new Dictionary<string, string>(flag.Params ?? new Dictionary<string, string>(), StringComparer.Ordinal)
+            {
+                ["ruleId"] = entry.Id,
+                ["ruleKind"] = entry.Kind,
+                ["typeKey"] = typeKey,
+            };
+            return flag with { Params = skippedParams };
         }
 
         var parameters = new Dictionary<string, string>(flag.Params ?? new Dictionary<string, string>(), StringComparer.Ordinal)
@@ -93,6 +111,23 @@ public sealed class DocumentValidator(RuleRegistry registry)
         var message = entry.Message is { } messages && messages.TryGetValue("en", out var english) && !string.IsNullOrWhiteSpace(english)
             ? FlagCap.IsSummary(flag) ? $"{english.TrimEnd()} {flag.Message}" : english
             : flag.Message;
+        if (entry.Message is { } localized)
+        {
+            foreach (var (locale, text) in localized)
+            {
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    parameters[$"message.{locale}"] = text;
+                }
+            }
+        }
+
+        if (entry.FlagCode is { } code)
+        {
+            parameters["ruleCode"] = flag.Code;
+            return flag with { Code = code, Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
+        }
+
         return flag with { Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
     }
 }

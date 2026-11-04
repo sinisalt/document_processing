@@ -72,7 +72,7 @@ public static class CustomFieldMapper
         return result;
     }
 
-    private static JsonNode? Envelope(FieldDescriptor field, JsonNode? raw, ProvenanceLocator locator, string? currency)
+    internal static JsonNode? Envelope(FieldDescriptor field, JsonNode? raw, ProvenanceLocator locator, string? currency)
     {
         if (raw is null)
         {

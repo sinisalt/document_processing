@@ -120,24 +120,25 @@ public static class TypeDefinitionExtensions
     public static IReadOnlyList<RuleReference> ToRuleReferences(this TypeDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        return References.GetValue(definition, d => [.. d.Rules.Select(ToRuleReference)]);
+        return References.GetValue(definition, d => [.. d.Rules.Select(r => ToRuleReference(r, d))]);
     }
 
-    private static RuleReference ToRuleReference(RuleDefinition rule)
+    private static RuleReference ToRuleReference(RuleDefinition rule, TypeDefinition definition)
     {
+        var declared = rule.Flag is { } code ? definition.Flags.FirstOrDefault(f => string.Equals(f.Code, code, StringComparison.Ordinal)) : null;
         var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var (name, value) in rule.Params ?? [])
         {
             values[name] = JsonSerializer.SerializeToElement(value, DefinitionSerializer.Options);
         }
 
-        FlagSeverity? severity = rule.Severity switch
+        FlagSeverity? severity = (rule.Severity ?? declared?.Severity ?? (declared is null ? null : "warning")) switch
         {
             "blocking" => FlagSeverity.Blocking,
             "warning" => FlagSeverity.Warning,
             "info" => FlagSeverity.Info,
             _ => null,
         };
-        return new RuleReference(rule.Id, rule.Kind, values.Count == 0 ? RuleParams.None : new RuleParams(values), severity, rule.Message);
+        return new RuleReference(rule.Id, rule.Kind, values.Count == 0 ? RuleParams.None : new RuleParams(values), severity, rule.Message ?? declared?.Message, declared?.Code);
     }
 }

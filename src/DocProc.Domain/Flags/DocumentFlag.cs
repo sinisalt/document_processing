@@ -151,6 +151,19 @@ public static class FlagCodes
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);
 
+    /// <summary>
+    /// In a stage's owned codes: every definition-scoped code (<c>X_*</c>, docs/11 §11). The validate checks own the
+    /// definition flags their rules raise, whatever the definition calls them, so a check run again replaces them.
+    /// </summary>
+    public const string DefinitionScopedWildcard = "X_*";
+
+    /// <summary>Whether <paramref name="code"/> is one of <paramref name="ownedCodes"/> (with <see cref="DefinitionScopedWildcard"/> for every <c>X_*</c> code).</summary>
+    public static bool IsOwned(IReadOnlySet<string> ownedCodes, string code)
+    {
+        ArgumentNullException.ThrowIfNull(ownedCodes);
+        return ownedCodes.Contains(code) || (IsDefinitionScoped(code) && ownedCodes.Contains(DefinitionScopedWildcard));
+    }
+
     /// <summary>Whether the code is a definition-scoped one (<c>X_&lt;RULEID&gt;</c>, docs/11 §11): upper-case letters, digits and underscores after the prefix.</summary>
     public static bool IsDefinitionScoped(string code) =>
         code.Length > DefinitionScopedPrefix.Length && code.Length <= 64 && code.StartsWith(DefinitionScopedPrefix, StringComparison.Ordinal)

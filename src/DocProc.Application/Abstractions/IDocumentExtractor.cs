@@ -145,3 +145,26 @@ public interface IDocumentExtractor
 
     Task<ExtractionOutcome?> ExtractAsync(ExtractionInput input, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// What the LLM path of a definition-driven type is asked for (docs/11 §9.3, <c>LlmDefinitionExtractor</c>): the
+/// extraction input, the type version's compiled artifacts, its display name and LLM guidance, and in
+/// <c>fill-missing</c> mode the paths earlier steps left Missing (null asks for every field).
+/// </summary>
+public sealed record DefinitionExtractionRequest(
+    ExtractionInput Input,
+    DocProc.Definitions.Compilation.CompiledDefinition Compiled,
+    string TypeName,
+    string? Guidance,
+    IReadOnlyList<string>? FillPaths = null);
+
+/// <summary>
+/// The LLM path of a definition-driven type (docs/11 §9.3): a type outside the invoice family, extracted against its
+/// compiled LLM schema and mapped into its canonical tree (<c>DefinitionMapper</c>). Registered by the LLM project; a
+/// host without it, or a tenant without a provider, keeps the definition-driven tree for the reviewer, as before P5.
+/// Provider faults propagate as the gateway raises them.
+/// </summary>
+public interface IDefinitionExtractor
+{
+    Task<ExtractionOutcome> ExtractAsync(DefinitionExtractionRequest request, CancellationToken cancellationToken);
+}

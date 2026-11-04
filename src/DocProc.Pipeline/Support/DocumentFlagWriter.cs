@@ -17,7 +17,7 @@ internal sealed class DocumentFlagWriter(DocProcDbContext db, TimeProvider clock
         var codes = new HashSet<string>(ownedCodes, StringComparer.Ordinal);
         codes.UnionWith(incoming.Select(f => f.Code));
 
-        foreach (var stale in document.Flags.Where(f => f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null && codes.Contains(f.Code)).ToList())
+        foreach (var stale in document.Flags.Where(f => f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null && FlagCodes.IsOwned(codes, f.Code)).ToList())
         {
             document.Flags.Remove(stale);
             db.DocumentFlags.Remove(stale);

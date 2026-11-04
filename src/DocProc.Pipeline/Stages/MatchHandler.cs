@@ -207,7 +207,8 @@ internal sealed class MatchHandler(
         if (document.TypeSource is TypeSource.Supplier or TypeSource.Identification or TypeSource.Proposed)
         {
             var allowed = await ClassifyHandler.AllowedTypesAsync(Db, evidence.Supplier.Id, cancellationToken).ConfigureAwait(false);
-            var (outcome, _, budget) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed).ConfigureAwait(false);
+            var tenantTypes = await Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<DocProc.Infrastructure.Classification.TenantClassification>(services).ResolveAsync(document.TenantId, cancellationToken).ConfigureAwait(false);
+            var (outcome, _, budget) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed, tenantTypes: tenantTypes).ConfigureAwait(false);
             ClassifyHandler.SetType(document, outcome);
             pipelines.RecordBudget(document, DocProc.Definitions.Pipelines.StepKindCatalogue.ClassifyLlm, budget);
             flags.Replace(document, [FlagCodes.TypeUnknown], outcome.Type == DocumentTypeKey.Unknown

@@ -13,7 +13,10 @@ internal sealed record KeywordHit(KeywordRule Rule, KeywordKind Kind, int WordIn
 /// <summary>Runs the <see cref="KeywordRuleSet"/> over a page; shared by the classifier (stage 4) and the splitter (stage 3).</summary>
 internal static class KeywordMatcher
 {
-    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page)
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page) => FindHits(page, KeywordRuleTable.Default);
+
+    /// <summary>The hits of <paramref name="table"/>'s rules (the built-in table, or a tenant's, docs/11 §9.4).</summary>
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table)
     {
         if (page.WordCount == 0)
         {
@@ -21,9 +24,21 @@ internal static class KeywordMatcher
         }
 
         var hits = new List<KeywordHit>();
-        foreach (var rule in KeywordRuleSet.Rules)
+        foreach (var rule in table.Rules)
         {
-            foreach (Match match in rule.Pattern.Matches(page.Text))
+            MatchCollection matches;
+            try
+            {
+                matches = rule.Pattern.Matches(page.Text);
+                _ = matches.Count;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // A tenant rule that ran out of time (escaped literals make this unlikely) is skipped, not fatal.
+                continue;
+            }
+
+            foreach (Match match in matches)
             {
                 // "rechnung@lieferant.de" or "www.lieferschein-online.de" name a mailbox or a site, not the document.
                 if (!IsInAddress(page, match.Index))

@@ -54,7 +54,8 @@ internal sealed class ExtractHandler(
     LayoutPrefiller prefiller,
     StagePipeline pipelines,
     ExtractLookups lookups,
-    ILogger<ExtractHandler> logger) : DocumentStageHandler(db, timeline, logger)
+    ILogger<ExtractHandler> logger,
+    IDefinitionExtractor? definitionExtractor = null) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
     // succeeds owns it too, so the flag does not outlive the outage.
@@ -95,6 +96,21 @@ internal sealed class ExtractHandler(
             if (application is not null)
             {
                 await StoreLayoutTreeAsync(document, config.Type!, application, pipeline, tenantRow.DefaultCurrency, cancellationToken).ConfigureAwait(false);
+                return StageOutcome.Advanced;
+            }
+
+            // LlmDefinitionExtractor (docs/11 §9.3, P5, behind customTypes): the type is extracted against its compiled
+            // LLM schema, over what the pre-fill found (fill-missing). Without a provider, or when it cannot answer, the
+            // document goes on as before: the pre-filled or empty tree for the reviewer.
+            var byLlm = await ExtractDefinitionAsync(document, config.Type!, prefill, llmStep, cancellationToken).ConfigureAwait(false);
+            if (byLlm.Budget is not null)
+            {
+                pipelines.RecordBudget(document, StepKindCatalogue.Llm, byLlm.Budget);
+            }
+
+            if (byLlm.Outcome is { } extractedByLlm)
+            {
+                await StoreDefinitionLlmTreeAsync(document, config.Type!, extractedByLlm, byLlm.Input!, prefill, pipeline, tenantRow.DefaultCurrency, cancellationToken).ConfigureAwait(false);
                 return StageOutcome.Advanced;
             }
 
@@ -414,6 +430,115 @@ internal sealed class ExtractHandler(
         document.AppliedConfigJson = AppliedConfig(type, llmSchema: null, prefill: prefill.AppliedConfig(filledByLlm: false), lookups: lookupRun.Applied);
         flags.Replace(document, OwnedFlags, lookupRun.Flags);
         Timeline.Transition(document, DocumentStatus.Extracted, new { method = LayoutPrefiller.StepId, definition = new { key = type.TypeKey, version = type.Version }, sources = prefill.Sources.Count, lookups = lookupRun.Summary });
+        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The LLM path of a definition-driven type (docs/11 §9.3): with <c>customTypes</c>, an enabled <c>llm</c> step, a
+    /// registered <see cref="IDefinitionExtractor"/> and pages or text to read, the type version's compiled schema is
+    /// asked for, in <c>fill-missing</c> mode over a pre-fill (the paths it left Missing). A provider that cannot answer
+    /// (none configured, a replay miss, a refusal, a malformed answer) or the tenant's budget leaves the outcome null and
+    /// the stage goes on without the LLM; a retryable fault retries the stage.
+    /// </summary>
+    private async Task<(ExtractionOutcome? Outcome, ExtractionInput? Input, DocProc.Llm.Gateway.LlmBudgetExceededException? Budget)> ExtractDefinitionAsync(
+        Document document, EffectiveType type, PrefillApplication? prefill, ResolvedStep? llmStep, CancellationToken cancellationToken)
+    {
+        if (llmStep is null || type.Compiled is not { } compiled || definitionExtractor is null
+            || !await features.IsEnabledAsync(document.TenantId, TenantFeature.CustomTypes, cancellationToken).ConfigureAwait(false))
+        {
+            return (null, null, null);
+        }
+
+        if (llmStep.Number("maxCostPerDocument") is { } maxCost && (document.Costs.EstimatedUsd ?? 0m) >= (decimal)maxCost)
+        {
+            return (null, null, new DocProc.Llm.Gateway.LlmBudgetExceededException(new DocProc.Llm.Gateway.LlmBudgetVerdict(false, new DocProc.Llm.Gateway.LlmBudget(DocProc.Llm.Gateway.LlmBudgetPeriod.Document, (decimal)maxCost, DocProc.Llm.LlmStage.Extract), document.Costs.EstimatedUsd ?? 0m)));
+        }
+
+        var input = await BuildInputAsync(document, Resolved(type, definitionDriven: true), cancellationToken).ConfigureAwait(false);
+        if (input.Pdf is not { Length: > 0 } && input.PageImages.Count == 0 && input.TextLayer is not { WordCount: > 0 })
+        {
+            return (null, null, null);
+        }
+
+        if (llmStep is { Source: not PipelineSources.Default } && llmStep.Params.Count > 0)
+        {
+            input = input with { StepParams = llmStep.Params };
+        }
+
+        var fill = prefill is null
+            ? null
+            : compiled.Descriptors.Fields
+                .Where(f => f.IsEnvelope && !f.ReadOnly && !f.Deprecated && !f.Path.Contains("[*]", StringComparison.Ordinal) && IsMissing(prefill.Document.Root, f.Path))
+                .Select(f => f.Path)
+                .ToList();
+        var name = type.Definition.Name.TryGetValue("en", out var english) ? english : type.Definition.Name.Values.FirstOrDefault() ?? type.TypeKey;
+        try
+        {
+            var outcome = await definitionExtractor.ExtractAsync(new DefinitionExtractionRequest(input, compiled, name, type.Definition.Llm?.Guidance, fill), cancellationToken).ConfigureAwait(false);
+            return (outcome, input, null);
+        }
+        catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
+        {
+            return (null, null, exception);
+        }
+        catch (DocProc.Llm.LlmException ex) when (!ex.IsRetryable)
+        {
+            if (Logger.IsEnabled(LogLevel.Information))
+            {
+                Logger.LogInformation("Document {DocumentId}: the LLM did not extract the {Type} document ({Kind}); it goes on to review as before.", document.Id, type.TypeKey, ex.Kind);
+            }
+
+            return (null, null, null);
+        }
+        catch (DocProc.Llm.Extraction.LlmExtractionException ex)
+        {
+            if (Logger.IsEnabled(LogLevel.Warning))
+            {
+                Logger.LogWarning("Document {DocumentId}: the LLM's answer for the {Type} document could not be used ({Reason}); it goes on to review as before.", document.Id, type.TypeKey, ex.Message);
+            }
+
+            return (null, null, null);
+        }
+    }
+
+    /// <summary>Whether the envelope at a top-level or group path (no rows) of <paramref name="tree"/> is Missing or absent.</summary>
+    private static bool IsMissing(JsonObject tree, string path)
+    {
+        JsonNode? node = tree;
+        foreach (var segment in path.Split('.'))
+        {
+            node = node is JsonObject obj ? obj[segment] : null;
+        }
+
+        return node is null || DefinitionTree.StatusOf(node) == Domain.Fields.FieldStatus.Missing;
+    }
+
+    /// <summary>
+    /// A definition-driven type the LLM extracted (docs/11 §9.3): the mapped tree (over the pre-fill's values, which a
+    /// fill-missing answer never replaces), completed with the definition's fields, stored as schema version 2 with the
+    /// role columns, the field index, the cost and the schema in <c>AppliedConfigJson.llmSchema</c>.
+    /// </summary>
+    private async Task StoreDefinitionLlmTreeAsync(Document document, EffectiveType type, ExtractionOutcome outcome, ExtractionInput input, PrefillApplication? prefill, ResolvedPipeline pipeline, string tenantCurrency, CancellationToken cancellationToken)
+    {
+        var tree = prefill is null ? outcome.Document.Root : LayoutExtractor.Merge(prefill.Document.Root, outcome.Document.Root);
+        DefinitionTree.Complete(tree, type.Compiled!.Descriptors);
+        var lookupRun = await lookups.RunAsync(document, type, pipeline, tree, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
+        Apply(document, new ExtractedDocument(tree), type.Roles, definitionDriven: true);
+        document.ExtractionMethod = ExtractionMethod.Llm;
+        AddCost(document.Costs, outcome.Cost);
+        await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
+        await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
+        document.AppliedConfigJson = AppliedConfig(type, input.Definition?.LlmSchema?.ToString(), prefill: prefill?.AppliedConfig(filledByLlm: true), lookups: lookupRun.Applied);
+        flags.Replace(document, OwnedFlags, [.. outcome.Flags, .. lookupRun.Flags]);
+        Timeline.Transition(document, DocumentStatus.Extracted, new
+        {
+            method = ExtractionMethod.Llm,
+            definition = new { key = type.TypeKey, version = type.Version },
+            schema = input.Definition?.LlmSchema?.ToString(),
+            prefilled = prefill is not null,
+            cost = new { outcome.Cost.LlmInputTokens, outcome.Cost.LlmOutputTokens, outcome.Cost.Usd, outcome.Cost.LlmProvider, outcome.Cost.LlmModel, outcome.Cost.KeyOwner },
+            lookups = lookupRun.Summary,
+        });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 

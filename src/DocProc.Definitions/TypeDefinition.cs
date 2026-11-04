@@ -38,6 +38,12 @@ public sealed record TypeDefinition
 
     public IReadOnlyList<RuleDefinition> Rules { get; init; } = [];
 
+    /// <summary>
+    /// The definition's own flag codes (docs/11 §11, "definition-scoped codes <c>X_&lt;RULEID&gt;</c>"): each a code its
+    /// rules may raise (<see cref="RuleDefinition.Flag"/>) with its severity and message. Empty for none.
+    /// </summary>
+    public IReadOnlyList<FlagDeclaration> Flags { get; init; } = [];
+
     public ProcessingDefinition Processing { get; init; } = new();
 
     public ClassificationDefinition? Classification { get; init; }
@@ -239,6 +245,25 @@ public sealed record RuleDefinition
     public IReadOnlyDictionary<string, string>? Message { get; init; }
 
     public string? AppliesWhen { get; init; }
+
+    /// <summary>The definition flag (a code of <see cref="TypeDefinition.Flags"/>) the rule raises instead of its kind's codes; null keeps the kind's.</summary>
+    public string? Flag { get; init; }
+}
+
+/// <summary>
+/// A flag code a definition declares (docs/11 §11): <c>X_</c> and upper-case letters, digits and <c>_</c>, at most 64
+/// characters, with the severity it is raised with (unless the rule sets one) and its message by locale.
+/// </summary>
+public sealed record FlagDeclaration
+{
+    public required string Code { get; init; }
+
+    /// <summary><c>blocking</c>, <c>warning</c> or <c>info</c>; null for warning.</summary>
+    public string? Severity { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Message { get; init; }
+
+    public string? Description { get; init; }
 }
 
 /// <summary>The steps per phase (docs/11 §10) and the review gate.</summary>

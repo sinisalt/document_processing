@@ -39,8 +39,15 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
     /// The keyword rules restricted to <paramref name="candidates"/> (a supplier's allowed types, docs/11 §7.3): only
     /// those types score, so the winner is one of them or <c>Unknown</c>. Null or empty: every type.
     /// </summary>
-    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates)
+    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates) => Classify(textLayer, candidates, KeywordRuleTable.Default);
+
+    /// <summary>
+    /// The keyword rules of <paramref name="table"/> (a tenant's, built from its published types' classification blocks,
+    /// docs/11 §9.4), restricted to <paramref name="candidates"/> as above.
+    /// </summary>
+    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates, KeywordRuleTable table)
     {
+        ArgumentNullException.ThrowIfNull(table);
         if (textLayer is null || textLayer.WordCount == 0)
         {
             return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule);
@@ -52,7 +59,7 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
 
         foreach (var page in pages)
         {
-            var hits = KeywordMatcher.FindHits(page);
+            var hits = KeywordMatcher.FindHits(page, table);
             allHits.AddRange(hits);
 
             var isFirstPage = page.Page.Number == textLayer.Pages[0].Number;

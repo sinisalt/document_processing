@@ -82,8 +82,8 @@ public class CommonTypesTests
             .ToList();
 
         constants.ShouldNotBeEmpty();
-        constants.ShouldAllBe(c => FlagCodes.IsKnown(c));
-        FlagCodes.Catalogue.Count.ShouldBe(constants.Count);
+        constants.Where(c => c != FlagCodes.DefinitionScopedWildcard).ShouldAllBe(c => FlagCodes.IsKnown(c));
+        FlagCodes.Catalogue.Count.ShouldBe(constants.Count - 1, "every constant but the wildcard of the definition-scoped codes is a catalogue code");
     }
 
     [Fact]

@@ -153,11 +153,18 @@ internal static class KeywordRuleSet
         new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight, phrases);
 
     /// <summary>Whole-word alternation; spaces match any whitespace run, hyphens are optional ("Rechnungs-Nr" and "Rechnungs Nr").</summary>
-    private static Regex Compile(IEnumerable<string> phrases)
+    private static Regex Compile(IEnumerable<string> phrases) => Compile(phrases, compiled: true, Regex.InfiniteMatchTimeout);
+
+    /// <summary>
+    /// <see cref="Compile(IEnumerable{string})"/> for a tenant's phrases (<see cref="KeywordRuleTable"/>): interpreted
+    /// rather than compiled (a table per tenant), with a match timeout. The phrases are escaped literals.
+    /// </summary>
+    internal static Regex Compile(IEnumerable<string> phrases, bool compiled, TimeSpan timeout)
     {
         var alternatives = phrases
             .OrderByDescending(p => p.Length)
             .Select(p => Regex.Escape(p).Replace(@"\ ", @"\s+", StringComparison.Ordinal).Replace("-", @"[-\s]?", StringComparison.Ordinal));
-        return new Regex($@"(?<!\p{{L}})(?:{string.Join('|', alternatives)})(?!\p{{L}})", Flags);
+        var options = compiled ? Flags : Flags & ~RegexOptions.Compiled;
+        return new Regex($@"(?<!\p{{L}})(?:{string.Join('|', alternatives)})(?!\p{{L}})", options, timeout);
     }
 }

@@ -335,6 +335,37 @@ public static partial class DefinitionChecker
 
     private static void CheckRules(TypeDefinition definition, HashSet<string> ruleKinds, List<DefinitionProblem> problems)
     {
+        // Definition flags (docs/11 §11): codes of the form X_..., declared once, never a catalogue code, each with a
+        // known severity; a rule names a declared one, and only a generic kind does (a coded invoice kind keeps its codes).
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < definition.Flags.Count; i++)
+        {
+            var flag = definition.Flags[i];
+            var at = $"flags[{i}] ({flag.Code})";
+            if (!Domain.Flags.FlagCodes.IsDefinitionScoped(flag.Code))
+            {
+                problems.Add(new(at, $"'{flag.Code}' is not a definition flag code (X_ and upper-case letters, digits or '_', at most 64 characters)."));
+            }
+            else if (Domain.Flags.FlagCodes.IsKnown(flag.Code))
+            {
+                problems.Add(new(at, $"'{flag.Code}' is a platform flag code; a definition declares codes of its own."));
+            }
+            else if (!declared.Add(flag.Code))
+            {
+                problems.Add(new(at, $"flag code '{flag.Code}' is declared twice."));
+            }
+
+            if (flag.Severity is { } flagSeverity && !Severities.Contains(flagSeverity))
+            {
+                problems.Add(new(at, $"severity '{flagSeverity}' is not blocking, warning or info."));
+            }
+        }
+
+        foreach (var unused in declared.Where(code => !definition.Rules.Any(r => r.Flag == code)))
+        {
+            problems.Add(new("flags", $"flag code '{unused}' is declared but no rule raises it."));
+        }
+
         var ruleIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < definition.Rules.Count; i++)
         {
@@ -353,6 +384,19 @@ public static partial class DefinitionChecker
             if (rule.Severity is { } severity && !Severities.Contains(severity))
             {
                 problems.Add(new(at, $"severity '{severity}' is not blocking, warning or info."));
+            }
+
+            if (rule.Flag is { } code)
+            {
+                if (!declared.Contains(code))
+                {
+                    problems.Add(new(at, $"flag '{code}' is not declared in the definition's flags."));
+                }
+
+                if (rule.Kind.StartsWith("invoice.", StringComparison.Ordinal))
+                {
+                    problems.Add(new(at, $"the coded kind '{rule.Kind}' keeps its own flag codes; only a generic kind raises a definition flag."));
+                }
             }
         }
     }

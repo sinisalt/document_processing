@@ -64,10 +64,11 @@ public sealed class GenericRuleTests
     }
 
     [Fact]
-    public void Every_generic_kind_of_P1_is_registered()
+    public void Every_generic_kind_of_P1_and_P5_is_registered()
     {
         GenericRules.All.Select(r => r.Kind).ShouldBe(
-            ["required", "pattern", "range", "enumMember", "dateOrder", "datePlausibility", "lookupExists", "duplicate", "confidence", "customerMatch"],
+            ["required", "pattern", "range", "enumMember", "dateOrder", "datePlausibility", "lookupExists", "duplicate", "confidence", "customerMatch",
+             "requiredIf", "compare", "sumEquals", "arithmetic", "expression"],
             ignoreOrder: true);
         foreach (var kind in GenericRules.All.Select(r => r.Kind))
         {

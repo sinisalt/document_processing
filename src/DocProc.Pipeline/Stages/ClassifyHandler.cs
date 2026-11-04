@@ -119,7 +119,8 @@ internal sealed class ClassifyHandler(
             // The classify steps of the document's pipeline (docs/11 §10.1): a supplier the source named may switch the
             // keyword rules or the LLM off, or set the LLM's threshold; classify.identification above is fixed.
             var pipeline = await pipelines.ResolveAsync(document, null, PipelinePhases.Classify, cancellationToken).ConfigureAwait(false);
-            (outcome, usedLlm, budget) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken, allowed, pipeline).ConfigureAwait(false);
+            var tenantTypes = await services.GetRequiredService<TenantClassification>().ResolveAsync(document.TenantId, cancellationToken).ConfigureAwait(false);
+            (outcome, usedLlm, budget) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken, allowed, pipeline, tenantTypes).ConfigureAwait(false);
             if (identification?.Result.Resolution == LayoutResolution.NewLayout && outcome.Type != DocumentTypeKey.Unknown)
             {
                 // Under NEW_LAYOUT the classifiers only propose (§8.4 step 5): the type never counts as decided.
@@ -171,11 +172,13 @@ internal sealed class ClassifyHandler(
         PipelineOptions options,
         CancellationToken cancellationToken,
         IReadOnlyCollection<string>? allowedTypes = null,
-        ResolvedPipeline? pipeline = null)
+        ResolvedPipeline? pipeline = null,
+        TenantClassificationSet? tenantTypes = null)
     {
         var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
+        // The tenant keyword set (docs/11 §9.4, customTypes): the rules of the tenant's published types; without it the built-in table.
         var outcome = pipeline is null || pipeline.Runs(StepKindCatalogue.ClassifyKeyword)
-            ? keywords.Classify(textLayer, allowedTypes)
+            ? keywords.Classify(textLayer, allowedTypes, tenantTypes?.Keywords ?? KeywordRuleTable.Default)
             : new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule);
         var usedLlm = false;
         var llmStep = pipeline is null ? null : pipeline.Enabled(StepKindCatalogue.ClassifyLlm);
@@ -190,7 +193,10 @@ internal sealed class ClassifyHandler(
             ClassificationOutcome fromLlm;
             try
             {
-                fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
+                // With the tenant's types the LLM's enum is those types (the supplier's allowed ones when it names any) plus Unknown.
+                fromLlm = tenantTypes is null
+                    ? await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false)
+                    : await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, tenantTypes.CandidatesFor(allowedTypes), cancellationToken).ConfigureAwait(false);
             }
             catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
             {

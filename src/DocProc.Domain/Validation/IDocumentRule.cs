@@ -28,9 +28,11 @@ public sealed record RuleParams(IReadOnlyDictionary<string, JsonElement> Values)
 /// <summary>
 /// One entry of a type's rule list: a stable id, the kind it runs and the parameters it passes. <see cref="Severity"/>
 /// is the definition's <c>severity</c> (null keeps the kind's own) and <see cref="Message"/> its <c>message</c> by
-/// locale; the validator applies both to the flags the rule raises.
+/// locale; the validator applies both to the flags the rule raises. <see cref="FlagCode"/> is the definition flag the
+/// rule raises instead of the kind's own codes (<c>flag</c>, a definition-scoped <c>X_*</c> code the definition declares
+/// in its <c>flags</c> block, docs/11 §11); the declared severity and message apply where the rule sets none.
 /// </summary>
-public sealed record RuleReference(string Id, string Kind, RuleParams Params, FlagSeverity? Severity = null, IReadOnlyDictionary<string, string>? Message = null)
+public sealed record RuleReference(string Id, string Kind, RuleParams Params, FlagSeverity? Severity = null, IReadOnlyDictionary<string, string>? Message = null, string? FlagCode = null)
 {
     public static RuleReference Of(string kind) => new(kind, kind, RuleParams.None);
 }

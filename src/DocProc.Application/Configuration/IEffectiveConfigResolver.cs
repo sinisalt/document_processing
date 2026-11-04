@@ -190,11 +190,17 @@ public sealed record EffectiveType
     /// <summary>
     /// Whether the review gate may approve a document of this type without a reviewer (<c>processing.review.autoApprove</c>,
     /// docs/11 §11 layer 3). It also needs at least one rule: a type without rules has nothing that vouches for its data.
-    /// And it needs what vouches for an invoice, <see cref="VouchedForByTotals"/>: docs/11 §11 lets any other type
-    /// auto-approve only once it names its substitute in <c>review.requirePassedRules</c>, a key of P5, so until then
-    /// every other type (a copied purchase order, delivery note or price list, a tenant's own type) always goes to review.
+    /// And it needs what vouches for its data: for an invoice <see cref="VouchedForByTotals"/>; for any other type the
+    /// rules it names in <c>review.requirePassedRules</c> (P5, docs/11 §11, <see cref="VouchedForByNamedRules"/>), which
+    /// the review gate then requires to have run and passed. A type that names none (a copied purchase order, delivery
+    /// note or price list, a tenant's own type without them) always goes to review.
     /// </summary>
-    public bool AutoApprove => Definition.Processing.Review.AutoApprove && Rules.Count > 0 && VouchedForByTotals;
+    public bool AutoApprove => Definition.Processing.Review.AutoApprove && Rules.Count > 0 && (VouchedForByTotals || VouchedForByNamedRules);
+
+    /// <summary>Whether <c>review.requirePassedRules</c> names at least one rule of the list (docs/11 §11 layer 3).</summary>
+    public bool VouchedForByNamedRules =>
+        Definition.Processing.Review.RequirePassedRules is { Count: > 0 } named
+        && named.All(id => Rules.Any(r => string.Equals(r.Id, id, StringComparison.Ordinal)));
 
     /// <summary>
     /// Whether the type is of the invoice family (<c>Invoice</c>, <c>CreditNote</c>: the coded invoice record and the

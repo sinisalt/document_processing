@@ -60,6 +60,7 @@ public static class ValuePaths
     {
         JsonValue value when value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<decimal>(out var number) => number,
         JsonValue value when value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<double>(out var real) => (decimal)real,
+        JsonValue value when value.GetValueKind() == JsonValueKind.Number && decimal.TryParse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var written) => written,
         JsonValue value when value.GetValueKind() == JsonValueKind.String && decimal.TryParse(value.GetValue<string>(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) => parsed,
         JsonObject money when money["amount"] is { } amount => Number(amount),
         _ => null,

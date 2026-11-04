@@ -52,6 +52,26 @@ internal static class TestPdfs
         AddTextPage(doc, InvoicePage2);
     });
 
+    /// <summary>
+    /// A one-page document of plain lines, the first in the title area (22 pt) and the rest below it (11 pt), for the
+    /// types a tenant defines itself (docs/11 §9.4) and the tenant fallback rules (§8.5).
+    /// </summary>
+    public static byte[] TextDocument(string title, params string[] lines) => Build(doc =>
+    {
+        var page = new List<Line> { new(60, 10, "Musterfirma GmbH · Industriestraße 12 · 80339 München"), new(120, 22, title) };
+        page.AddRange(lines.Select((text, i) => new Line(160 + (i * 16), 11, text)));
+        AddTextPage(doc, page);
+    });
+
+    /// <summary>A return slip (docs/11 §5.4): "Retourenschein" in the title, its number, date and two returned items.</summary>
+    public static byte[] ReturnSlip() => TextDocument(
+        "Retourenschein",
+        "Retouren-Nr. RMA-4711",
+        "Datum 27.10.2026",
+        "Pos Artikel Menge Grund",
+        "1 Schraube M8 10 beschädigt",
+        "2 Mutter M8 5 falsch geliefert");
+
     /// <summary>The two-page German invoice with the supplier's VAT id printed under its letterhead (supplier routing tests, docs/11 §7.4).</summary>
     public static byte[] GermanInvoiceWithVat(string vatId) => Build(doc =>
     {
