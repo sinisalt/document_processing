@@ -7,6 +7,8 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Application.Outputs;
 using DocProc.Application.Pipeline;
+using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -225,7 +227,7 @@ public static class DeliveryEndpoints
             reference is null ? null : new ExternalRefDto(reference.ExternalId, reference.Status.ToString(), reference.Message, reference.UpdatedAt)));
     }
 
-    private static async Task<Results<FileContentHttpResult, ProblemHttpResult>> PayloadAsync(Guid id, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] IContainerBlobStore blobs, CancellationToken ct)
+    private static async Task<Results<FileContentHttpResult, ProblemHttpResult>> PayloadAsync(Guid id, ITenantContext tenant, HttpContext context, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] IContainerBlobStore blobs, CancellationToken ct)
     {
         if (await OutputMappingEndpoints.GuardAsync(tenant, features, ct, What) is { } problem)
         {
@@ -239,9 +241,24 @@ public static class DeliveryEndpoints
         }
 
         var bytes = await ReadPayloadAsync(blobs, row, ct);
-        return bytes is null
-            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No payload", detail: "The delivery has no payload snapshot (it was skipped, or its render failed).")
-            : TypedResults.File(bytes, row.ContentType ?? "application/octet-stream");
+        if (bytes is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No payload", detail: "The delivery has no payload snapshot (it was skipped, or its render failed).");
+        }
+
+        // The payload is built from document content, under the type its mapping declares. Only JSON, CSV and plain
+        // text are served inline; anything else (XML, opaque bytes, a type saved before mappings checked it) downloads
+        // as an attachment, so a crafted payload can never run as a page of this origin, and browsers must not sniff.
+        var (contentType, inline) = OutputContentTypes.Serving(row.ContentType);
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        if (!inline)
+        {
+            var disposition = new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("attachment");
+            disposition.SetHttpFileName($"delivery-{row.Id:D}{(contentType.Contains("xml", StringComparison.Ordinal) ? ".xml" : ".bin")}");
+            context.Response.Headers.ContentDisposition = disposition.ToString();
+        }
+
+        return TypedResults.File(bytes, contentType);
     }
 
     private static async Task<Results<Accepted<DeliverySummary>, ValidationProblem, ProblemHttpResult>> RedeliverAsync(
@@ -318,6 +335,20 @@ public static class DeliveryEndpoints
 
         if (mode == "rerender")
         {
+            // A redelivery is a new delivery of the same document version (docs/11 §13.5): the row keeps the original's
+            // revision and event, and is never skipped. Rendered from a document that has moved on (reprocessed, back in
+            // review, settled the other way) it would send data nobody approved under the old revision's name.
+            var current = await db.Documents.AsNoTracking().Where(d => d.Id == original.DocumentId).Select(d => new { d.Status, d.Version }).SingleOrDefaultAsync(ct);
+            if (current is null)
+            {
+                return NotFound(id);
+            }
+
+            if (RerenderRefusal(original, current.Status, current.Version) is { } refusal)
+            {
+                return refusal;
+            }
+
             var binding = original.Binding!;
             var mappingId = original.Event == OutputEvents.Updated ? binding.UpdateMappingId ?? binding.MappingId : binding.MappingId;
             var version = await fanOut.MappingVersionAsync(mappingId, request?.MappingVersion ?? (mappingId == binding.MappingId ? binding.PinnedMappingVersion : null), ct);
@@ -330,12 +361,21 @@ public static class DeliveryEndpoints
             try
             {
                 failure = await fanOut.RenderAsync(redelivery, version, original.Event, async (forEvent, fields) =>
-                    await views.BuildAsync(new DataViewRequest(original.DocumentId) { Event = forEvent, EventAt = now, IncludeFields = fields }, ct)
-                    ?? throw new InvalidOperationException("The document is not visible."), ct);
+                {
+                    var view = await views.BuildAsync(new DataViewRequest(original.DocumentId) { Event = forEvent, EventAt = now, IncludeFields = fields }, ct)
+                        ?? throw new InvalidOperationException("The document is not visible.");
+
+                    // The view is read after the check above: a reprocess that committed in between is caught here.
+                    return view.DocumentVersion == original.DocumentVersion ? view : throw new DocumentMovedOnException();
+                }, ct);
             }
             catch (RendererUnavailableException exception)
             {
                 return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Renderer unavailable", detail: exception.Message);
+            }
+            catch (DocumentMovedOnException)
+            {
+                return VersionMovedOn(original);
             }
 
             if (failure is not null)
@@ -374,6 +414,40 @@ public static class DeliveryEndpoints
         redelivery.Binding = original.Binding;
         redelivery.Destination = original.Destination;
         return TypedResults.Accepted($"/api/v1/deliveries/{redelivery.Id}", Summary(redelivery));
+    }
+
+    /// <summary>
+    /// Why a delivery cannot be rendered again from its document as it is now, or null when it can: the document is no
+    /// longer at the delivery's version, or no longer in the settled state its event comes from (approved or
+    /// auto-approved for <c>document.approved</c> and <c>document.updated</c>, rejected for <c>document.rejected</c>).
+    /// The stored payload can still be sent again (mode <c>snapshot</c>).
+    /// </summary>
+    internal static ProblemHttpResult? RerenderRefusal(OutboxDelivery original, DocumentStatus status, int version)
+    {
+        var settled = original.Event == OutputEvents.Rejected
+            ? status == DocumentStatus.Rejected
+            : status is DocumentStatus.Approved or DocumentStatus.AutoApproved;
+        if (!settled)
+        {
+            return EndpointSupport.Conflict(
+                "Document no longer settled",
+                $"The document is {status} now, not in the settled state its {original.Event} delivery was rendered from; re-send the stored payload instead (mode snapshot), or wait for the new version's own delivery.");
+        }
+
+        return version == original.DocumentVersion ? null : VersionMovedOn(original);
+    }
+
+    private static ProblemHttpResult VersionMovedOn(OutboxDelivery original) => EndpointSupport.Conflict(
+        "Document changed",
+        $"The document is no longer at version {original.DocumentVersion.ToString(CultureInfo.InvariantCulture)}, the one this delivery was rendered from (it was reprocessed or changed since); re-send the stored payload instead (mode snapshot), or wait for the new version's own delivery.");
+
+    /// <summary>The document's version moved on between the check and the read of its values view.</summary>
+    private sealed class DocumentMovedOnException : Exception
+    {
+        public DocumentMovedOnException()
+            : base("The document changed while it was rendered again.")
+        {
+        }
     }
 
     /// <summary>

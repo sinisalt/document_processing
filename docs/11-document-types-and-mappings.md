@@ -1602,6 +1602,15 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
   never written), the group separator none, `.`, `,`, `'`, a space, a no-break space (U+00A0) or a narrow no-break
   space (U+202F), and with decimals the two differ; anything else is a `function` error. The visual field map
   refuses the same settings.
+- Correction (P3, fourth review): a mapping version's `ContentType` was free text (at most 100 characters), and
+  `GET /deliveries/{id}/payload` served the payload under it, inline and without `nosniff`, so an integration admin
+  could have the API's origin serve `text/html` built from document data to every reader. The type is now one of
+  `application/json`, `application/xml`, `text/xml`, `text/csv`, `text/plain`, `application/octet-stream` and the
+  `application/<name>+json` and `+xml` types, with an optional `charset` and no other parameter (the formats of this
+  phase and of P6's Liquid output), checked when a draft is created or saved and again at publish (400 under
+  `contentType`), and stored lower-case. The payload route answers with `X-Content-Type-Options: nosniff`, serves JSON,
+  CSV and plain text inline, and everything else as an attachment: XML under its type (a browser could run XHTML or
+  SVG in it), and a type that is not an allowed one (stored before the check) as `application/octet-stream`.
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1739,6 +1748,15 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
     `auth.type` now needs the secret again also when the new type is `hmacSha256`; the exemption stays only for an
     `hmacSha256` destination that stays `hmacSha256` (a key set up for signing never leaves). A move to `none` needs
     no secret, since nothing is sent, and any later move from `none` to an auth that sends one changes `auth.type`.
+- Correction (P3, fourth review): "each value is one escaped URL segment" did not hold for a value of `.` or `..`.
+  The escaping leaves dots alone and the URL parser removes dot segments, so with
+  `https://erp.example.com/api/article-prices/{{output.priceListId}}` and a `priceListId` of `..` (a value of the
+  document) the PUT went to `https://erp.example.com/api/`, and two such values climbed two levels. A value that is `.`
+  or `..` is now a permanent `template` failure, and before a send the transport also checks that the expanded URL's
+  path still starts with the path of the template's text before its first placeholder (a permanent `url` failure
+  otherwise), so a value can add to the template's path but never leave it. A multipart part whose content type
+  (the payload's or the original file's) is not a media type now fails the delivery for good (`request`) instead of
+  being retried as a transport error for 72 hours.
 
 ### 13.4 Multi-call recipes
 
@@ -1860,6 +1878,16 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
   - The renderer pool answers `unavailable` after `Outputs:Renderer:QueueTimeout` (60 s) without a free process
     instead of waiting for ever, and `POST /output-mappings:preview` runs a few at a time per tenant (2 running, 2
     queued, 429 beyond; `Outputs:Preview`), as the table tool does (12.4).
+- Correction (P3, fourth review): `mode: rerender` rendered the document as it is now, while the redelivery keeps the
+  original's revision and event and is never skipped. After a reprocess (a newer version, perhaps back in review and
+  not approved) a rerender of an older delivery sent the current, unapproved data as `document.approved` under the old
+  `X-DocProc-Revision`, which broke "a new delivery of the same document version" and 13.5's promise that a
+  redelivery is reproducible. A rerender now needs the document still at the delivery's `DocumentVersion` and still in
+  the settled state its event comes from (Approved or AutoApproved for `document.approved` and `document.updated`,
+  Rejected for `document.rejected`); otherwise it answers 409 ("Document no longer settled" or "Document changed",
+  each saying to re-send the stored payload instead, or to wait for the new version's own delivery). The version is
+  checked again on the values view the render reads, so a reprocess that commits in between is caught too. `snapshot`
+  is unchanged: the stored payload is what was approved under that revision.
 
 ### 13.7 Batches
 

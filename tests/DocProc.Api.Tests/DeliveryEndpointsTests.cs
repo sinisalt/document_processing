@@ -58,7 +58,47 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
         var payload = await reviewer.GetAsync($"/api/v1/deliveries/{delivered}/payload", Ct);
         payload.StatusCode.ShouldBe(HttpStatusCode.OK);
         payload.Content.Headers.ContentType!.MediaType.ShouldBe("application/json");
+        payload.Headers.GetValues("X-Content-Type-Options").ShouldBe(["nosniff"]);
+        payload.Content.Headers.ContentDisposition.ShouldBeNull("JSON is shown inline");
         (await payload.Content.ReadAsStringAsync(Ct)).ShouldBe("""{"docNo":"RE-1"}""");
+    }
+
+    [Theory]
+    [InlineData("text/html", "application/octet-stream")]
+    [InlineData("not a media type", "application/octet-stream")]
+    [InlineData("image/svg+xml", "application/octet-stream")]
+    [InlineData("application/xml", "application/xml")]
+    [InlineData("application/octet-stream", "application/octet-stream")]
+    public async Task A_payload_that_is_not_json_csv_or_text_downloads_and_is_never_sniffed(string stored, string served)
+    {
+        // A type saved before mappings checked it, or an allowed type a browser could run (XML): never inline.
+        var setup = await SetupAsync("Payload type " + stored, OutputTransports.Http);
+        var delivery = await AddDeliveryAsync(setup, DeliveryStatus.Delivered, "<script>alert(1)</script>", contentType: stored);
+        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], setup.Tenant.ToString()));
+
+        var payload = await viewer.GetAsync($"/api/v1/deliveries/{delivery}/payload", Ct);
+
+        payload.StatusCode.ShouldBe(HttpStatusCode.OK);
+        payload.Content.Headers.ContentType!.MediaType.ShouldBe(served);
+        payload.Headers.GetValues("X-Content-Type-Options").ShouldBe(["nosniff"]);
+        payload.Content.Headers.ContentDisposition.ShouldNotBeNull().DispositionType.ShouldBe("attachment");
+    }
+
+    [Theory]
+    [InlineData("text/csv")]
+    [InlineData("text/plain; charset=utf-8")]
+    [InlineData("application/vnd.erp+json")]
+    public async Task A_csv_text_or_json_payload_is_shown_inline(string stored)
+    {
+        var setup = await SetupAsync("Payload inline " + stored, OutputTransports.Http);
+        var delivery = await AddDeliveryAsync(setup, DeliveryStatus.Delivered, "a;b", contentType: stored);
+        using var viewer = factory.ClientFor(new TokenSpec("viewer", [Roles.Viewer], setup.Tenant.ToString()));
+
+        var payload = await viewer.GetAsync($"/api/v1/deliveries/{delivery}/payload", Ct);
+
+        payload.Content.Headers.ContentType!.MediaType.ShouldBe(stored.Split(';')[0]);
+        payload.Headers.GetValues("X-Content-Type-Options").ShouldBe(["nosniff"]);
+        payload.Content.Headers.ContentDisposition.ShouldBeNull();
     }
 
     [Fact]
@@ -160,7 +200,7 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
     public async Task A_redelivery_renders_again_with_the_bindings_mapping_on_request()
     {
         var setup = await SetupAsync("Rerender", OutputTransports.Http);
-        var dead = await AddDeliveryAsync(setup, DeliveryStatus.DeadLettered, """{"stale":true}""");
+        var dead = await AddDeliveryAsync(setup, DeliveryStatus.DeadLettered, """{"stale":true}""", version: DocumentVersionOf(setup));
         using var admin = factory.TenantAdminOf(setup.Tenant);
 
         (await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "rerender", mappingVersion = 9 }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -174,6 +214,64 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
         var rendered = JsonDocument.Parse(payload).RootElement;
         rendered.GetProperty("documentId").GetString().ShouldBe(setup.Document.ToString("D"), "std.event rendered over the document");
         rendered.GetProperty("eventType").GetString().ShouldBe(OutputEvents.Approved);
+    }
+
+    [Fact]
+    public async Task A_document_reprocessed_since_the_delivery_is_not_rendered_again_but_its_snapshot_can_be_sent()
+    {
+        var setup = await SetupAsync("Rerender moved on", OutputTransports.Http);
+        var dead = await AddDeliveryAsync(setup, DeliveryStatus.DeadLettered, """{"docNo":"RE-1"}""", version: DocumentVersionOf(setup));
+        factory.Run(db => db.Documents.Single(d => d.Id == setup.Document).Status = DocumentStatus.NeedsReview);
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+
+        var refused = await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "rerender" }, Ct);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var problem = await refused.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        problem.GetProperty("title").GetString().ShouldBe("Document no longer settled");
+        problem.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("NeedsReview");
+        problem.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("re-send the stored payload instead");
+        factory.Query(db => db.OutboxDeliveries.Count(d => d.RedeliveryOfId == dead)).ShouldBe(0);
+        factory.Query(db => db.OutboxDeliveries.Single(d => d.Id == dead).Status).ShouldBe(DeliveryStatus.DeadLettered, "the dead letter stays as it was");
+
+        var snapshot = await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "snapshot" }, Ct);
+        snapshot.StatusCode.ShouldBe(HttpStatusCode.Accepted, "the stored payload is what was approved, and can always be sent again");
+        var redelivery = (await snapshot.Content.ReadFromJsonAsync<DeliverySummary>(ApiFactory.Json, Ct))!;
+        (await admin.GetStringAsync($"/api/v1/deliveries/{redelivery.Id}/payload", Ct)).ShouldBe("""{"docNo":"RE-1"}""");
+    }
+
+    [Fact]
+    public async Task A_document_at_another_version_is_not_rendered_again_even_when_it_is_approved_again()
+    {
+        var setup = await SetupAsync("Rerender new version", OutputTransports.Http);
+        var dead = await AddDeliveryAsync(setup, DeliveryStatus.DeadLettered, """{"docNo":"RE-1"}""", version: DocumentVersionOf(setup));
+
+        // Reprocessed and approved again: approved as before, but a newer version, delivered by its own approval.
+        factory.Run(db => db.Documents.Single(d => d.Id == setup.Document).UpdatedAt = factory.Clock.GetUtcNow().AddMinutes(5));
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+
+        var refused = await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "rerender" }, Ct);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var problem = await refused.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        problem.GetProperty("title").GetString().ShouldBe("Document changed");
+        problem.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("wait for the new version's own delivery");
+        factory.Query(db => db.OutboxDeliveries.Count(d => d.RedeliveryOfId == dead)).ShouldBe(0);
+        (await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "snapshot" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+    }
+
+    [Fact]
+    public async Task A_rejection_delivery_is_not_rendered_again_once_the_document_is_approved()
+    {
+        var setup = await SetupAsync("Rerender rejection", OutputTransports.Http);
+        var dead = await AddDeliveryAsync(setup, DeliveryStatus.DeadLettered, """{"eventType":"document.rejected"}""", version: DocumentVersionOf(setup));
+        factory.Run(db => db.OutboxDeliveries.Single(d => d.Id == dead).Event = OutputEvents.Rejected);
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+
+        var refused = await admin.PostAsJsonAsync($"/api/v1/deliveries/{dead}:redeliver", new { mode = "rerender" }, Ct);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict, "the document is Approved, and a rejection is not rendered from an approved document");
+        (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("title").GetString().ShouldBe("Document no longer settled");
     }
 
     [Fact]
@@ -324,11 +422,14 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
         return setup!;
     }
 
-    private async Task<Guid> AddDeliveryAsync(Setup setup, DeliveryStatus status, string payload, int attempts = 1, int version = 1, long? feedSequence = null)
+    /// <summary>The document's version now: what a fan-out at this moment would give its deliveries.</summary>
+    private int DocumentVersionOf(Setup setup) => factory.Query(db => db.Documents.Single(d => d.Id == setup.Document).Version);
+
+    private async Task<Guid> AddDeliveryAsync(Setup setup, DeliveryStatus status, string payload, int attempts = 1, int version = 1, long? feedSequence = null, string contentType = "application/json")
     {
         var blobs = factory.Services.GetRequiredService<IContainerBlobStore>();
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(payload));
-        var stored = await blobs.PutAsync(BlobContainers.Exports, setup.Tenant, stream, "application/json", Ct);
+        var stored = await blobs.PutAsync(BlobContainers.Exports, setup.Tenant, stream, contentType, Ct);
         var id = Guid.CreateVersion7();
         factory.Clock.Advance(TimeSpan.FromSeconds(1));
         factory.Run(db => db.OutboxDeliveries.Add(new OutboxDelivery
@@ -347,7 +448,7 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
             FeedSequence = feedSequence,
             PayloadBlobKey = stored.Key,
             PayloadSha256 = stored.Sha256,
-            ContentType = "application/json",
+            ContentType = contentType,
             CreatedAt = factory.Clock.GetUtcNow(),
             LastError = status == DeliveryStatus.DeadLettered ? "The receiver answered 503." : null,
         }));

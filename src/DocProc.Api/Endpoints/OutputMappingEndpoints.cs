@@ -345,7 +345,7 @@ public static partial class OutputMappingEndpoints
             }
 
             mapping = NewMapping(tenantId, request.Key, request.Name, request.Description, request.SourceTypeKey, OutputMappingOrigin.Custom, actor, now);
-            draft = NewVersion(mapping, 1, engine, request.Expression ?? string.Empty, request.ContentType ?? "application/json", null, SchemaText(request.TargetSchema), actor, now);
+            draft = NewVersion(mapping, 1, engine, request.Expression ?? string.Empty, OutputContentTypes.Normalize(request.ContentType) ?? OutputContentTypes.Default, null, SchemaText(request.TargetSchema), actor, now);
         }
 
         if (await db.OutputMappings.AnyAsync(m => m.TenantId == tenantId && m.Key == mapping.Key, ct))
@@ -511,7 +511,7 @@ public static partial class OutputMappingEndpoints
         var now = clock.GetUtcNow();
         draft.Engine = request.Engine;
         draft.Expression = request.Expression ?? string.Empty;
-        draft.ContentType = request.ContentType ?? "application/json";
+        draft.ContentType = OutputContentTypes.Normalize(request.ContentType) ?? OutputContentTypes.Default;
         draft.FileNameTemplate = TrimToNull(request.FileNameTemplate);
         draft.TargetSchemaJson = SchemaText(request.TargetSchema);
         draft.SampleDocumentIdsJson = JsonSerializer.Serialize(request.SampleDocumentIds ?? [], Json);
@@ -588,6 +588,13 @@ public static partial class OutputMappingEndpoints
         if (TryReadIfMatch(http, out var revision) && revision != draft.Revision)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status412PreconditionFailed, title: "Draft changed", detail: $"The draft is at revision {draft.Revision}.");
+        }
+
+        // Checked when the draft is saved; checked again for a draft saved before that check. The type goes out as the
+        // payload's Content-Type and is what the payload route answers with.
+        if (!OutputContentTypes.IsAllowed(draft.ContentType))
+        {
+            return TypedResults.ValidationProblem(Field("contentType", $"The draft's contentType '{draft.ContentType}' is not one a payload may have: {OutputContentTypes.Describe}. Save the draft with one (PUT .../versions/{version.ToString(CultureInfo.InvariantCulture)})."));
         }
 
         var check = await renderer.CheckAsync(
@@ -844,6 +851,11 @@ public static partial class OutputMappingEndpoints
     private static ValidationProblem? ContentProblems(string engine, string? expression, string? contentType, string? fileNameTemplate, JsonElement? targetSchema, IReadOnlyList<Guid>? samples)
     {
         var errors = new Errors().Optional("contentType", contentType, 100).Optional("fileNameTemplate", fileNameTemplate, 400);
+        if (!errors.Has("contentType") && contentType is not null && !OutputContentTypes.IsAllowed(contentType))
+        {
+            errors.Add("contentType", $"contentType is {OutputContentTypes.Describe}.");
+        }
+
         if (!OutputEngines.Available.Contains(engine, StringComparer.Ordinal))
         {
             errors.Add("engine", engine is "fieldmap" or "liquid"

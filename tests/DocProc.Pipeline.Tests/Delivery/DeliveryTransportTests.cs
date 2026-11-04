@@ -602,6 +602,14 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
 
         var missing = await transport.SendAsync(Context(receiver, config, original: null), Ct);
         missing.ErrorClass.ShouldBe("permanent:original");
+
+        // A content type that is not a media type (saved before mappings checked it, or an original's) fails for good
+        // on the first attempt instead of being retried for 72 hours as a transport error.
+        var badPayloadType = Context(receiver, config, original) with { ContentType = "not a media type" };
+        (await transport.SendAsync(badPayloadType, Ct)).ErrorClass.ShouldBe("permanent:request");
+        var badOriginal = new OriginalFile(original.Bytes, "rechnung.pdf", "pdf please");
+        (await transport.SendAsync(Context(receiver, config, badOriginal), Ct)).ErrorClass.ShouldBe("permanent:request");
+        receiver.Requests.Count.ShouldBe(1, "neither was sent");
     }
 
     [Fact]
@@ -662,6 +670,43 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         var path = context with { Config = new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x/{{output.h}}", ["auth"] = new JsonObject { ["type"] = "bearer" } }, Values = context.Values with { Output = JsonNode.Parse("""{"h":"@evil.example:1/../y"}""") } };
         (await transport.SendAsync(path, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
         receiver.Requests.ShouldHaveSingleItem().PathAndQuery.ShouldBe("/x/%40evil.example%3A1%2F..%2Fy");
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    public async Task A_value_that_is_a_dot_segment_cannot_move_the_request_to_another_path(string value)
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200) };
+        var (transport, _) = Http(receiver);
+        var config = new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/api/article-prices",
+            ["updateUrlTemplate"] = receiver.BaseUrl + "/api/v1/article-prices/{{output.a}}/{{output.b}}/delete",
+        };
+        var context = Context(receiver, config, eventType: OutputEvents.Updated);
+        context = context with { Values = context.Values with { Output = new JsonObject { ["a"] = value, ["b"] = value } } };
+
+        // Escaping leaves dots alone, and the URL parser removes dot segments: /api/v1/article-prices/../../delete
+        // would be sent to /api/delete. The value is refused as a permanent template error, and nothing is sent.
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Permanent);
+        outcome.ErrorClass.ShouldBe("permanent:template");
+        outcome.Error!.ShouldContain("dot segment");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void The_expanded_path_must_stay_below_the_templates_literal_path()
+    {
+        // The send-time check behind the value check: whatever the values were, the URL parser's path of the expanded
+        // URL starts with the path of the template's text before its first placeholder.
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/v1/.{{output.x}}/x", new Uri("https://erp.example/api/v1/../x")).ShouldBeFalse("/api/v1/../x is /api/x");
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/v1/{{output.x}}", new Uri("https://erp.example/api/v1/PL%202027%2F01")).ShouldBeTrue();
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/v1/{{output.x}}", new Uri("https://erp.example/api/v1/../admin")).ShouldBeFalse();
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/items?id={{output.x}}", new Uri("https://erp.example/api/items?id=..")).ShouldBeTrue("a value in the query does not touch the path");
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/items", new Uri("https://erp.example/api/items")).ShouldBeTrue();
     }
 
     [Fact]

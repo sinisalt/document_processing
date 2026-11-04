@@ -2006,7 +2006,7 @@
         "tags": [
           "Suppliers"
         ],
-        "summary": "Deletes a supplier no document references; otherwise 409.",
+        "summary": "Deletes a supplier no document, extractor profile or output binding references; otherwise 409.",
         "operationId": "DeleteSupplier",
         "parameters": [
           {
@@ -2188,7 +2188,7 @@
         "tags": [
           "Channels"
         ],
-        "summary": "Deletes a channel that has never received anything, and its credential; otherwise 409.",
+        "summary": "Deletes a channel that has never received anything and no output binding is scoped to, and its credential; otherwise 409.",
         "operationId": "DeleteChannel",
         "parameters": [
           {

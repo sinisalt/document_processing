@@ -38,8 +38,12 @@ public static partial class DeliveryTemplates
         return Meta.Contains(name) || (name.StartsWith("output.", StringComparison.Ordinal) && OutputPath().IsMatch(name[7..]));
     }
 
-    /// <summary>The URL <paramref name="template"/> names, each value percent-encoded as one path or query segment.</summary>
-    public static string ExpandUrl(string template, DeliveryTemplateValues values) => Expand(template, values, Uri.EscapeDataString);
+    /// <summary>
+    /// The URL <paramref name="template"/> names, each value percent-encoded as one path or query segment. A value of
+    /// <c>.</c> or <c>..</c> is refused (a <see cref="DeliveryTemplateException"/>): escaping leaves dots as they are, so
+    /// it would be a dot segment, which the URL parser removes, and the request would go to another path.
+    /// </summary>
+    public static string ExpandUrl(string template, DeliveryTemplateValues values) => Expand(template, values, UrlSegment);
 
     /// <summary>
     /// The file name <paramref name="template"/> names: values with characters a file name cannot hold
@@ -96,6 +100,10 @@ public static partial class DeliveryTemplates
             _ => null,
         };
     }
+
+    private static string UrlSegment(string value) => value is "." or ".."
+        ? throw new DeliveryTemplateException($"A URL template value is '{value}', a dot segment that would move the request to another path; it is not sent.")
+        : Uri.EscapeDataString(value);
 
     private static string SafeFileName(string value)
     {

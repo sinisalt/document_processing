@@ -83,6 +83,11 @@ public sealed class HttpDeliveryTransport(
                 return DeliveryOutcome.Permanent("url", "The URL this delivery would go to has another scheme, host or port than the destination's URL template; it is not sent.");
             }
 
+            if (!DestinationConfig.KeepsTemplatePath(template, parsed))
+            {
+                return DeliveryOutcome.Permanent("url", "The URL this delivery would go to leaves the path of the destination's URL template (a dot segment); it is not sent.");
+            }
+
             uri = parsed;
         }
         catch (DeliveryTemplateException exception)
@@ -131,6 +136,12 @@ public sealed class HttpDeliveryTransport(
         catch (DeliveryTemplateException exception)
         {
             return DeliveryOutcome.Permanent("original", exception.Message);
+        }
+        catch (FormatException exception)
+        {
+            // A multipart part's content type (the payload's or the original file's) that is not a media type: the
+            // same on every attempt, so it fails now instead of being retried as a transport error.
+            return DeliveryOutcome.Permanent("request", $"The multipart body cannot be built: {exception.Message}");
         }
 
         // One budget per attempt: the token request and the delivery share the destination's timeout, so an attempt

@@ -130,6 +130,55 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
         (await admin.GetFromJsonAsync<OutputMappingDetail>("/api/v1/output-mappings/article-price-import", ApiFactory.Json, Ct))!.SourceTypeKey.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("text/html")]
+    [InlineData("not a media type")]
+    [InlineData("image/svg+xml")]
+    [InlineData("application/json, text/html")]
+    [InlineData("application/json; boundary=x")]
+    [InlineData("application/+json")]
+    public async Task A_content_type_off_the_allowlist_is_refused_on_create_save_and_publish(string contentType)
+    {
+        var tenant = OutputsTenant("Content type " + contentType);
+        using var admin = factory.TenantAdminOf(tenant);
+
+        var created = await admin.PostAsJsonAsync("/api/v1/output-mappings", new { key = "typed", name = "Typed", expression = "meta.documentId", contentType }, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await created.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors.Keys.ShouldContain("contentType");
+
+        (await admin.PostAsJsonAsync("/api/v1/output-mappings", new { key = "typed", name = "Typed", expression = "meta.documentId" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        var saved = await admin.SendAsync(Put("/api/v1/output-mappings/typed/versions/1", new { engine = "jsonata", expression = "meta.documentId", contentType }, 0), Ct);
+        saved.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await saved.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors.Keys.ShouldContain("contentType");
+
+        // A draft saved before the check: publish checks again.
+        factory.Run(db => db.OutputMappingVersions.Single(v => v.TenantId == tenant).ContentType = contentType);
+        var published = await admin.PostAsync("/api/v1/output-mappings/typed/versions/1:publish", null, Ct);
+        published.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await published.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors.Keys.ShouldContain("contentType");
+    }
+
+    [Theory]
+    [InlineData("application/json", "application/json")]
+    [InlineData("Application/JSON; charset=UTF-8", "application/json; charset=UTF-8")]
+    [InlineData("text/csv", "text/csv")]
+    [InlineData("text/xml", "text/xml")]
+    [InlineData("application/xml", "application/xml")]
+    [InlineData("text/plain", "text/plain")]
+    [InlineData("application/octet-stream", "application/octet-stream")]
+    [InlineData("application/vnd.erp.prices+json", "application/vnd.erp.prices+json")]
+    [InlineData("application/vnd.erp.prices+xml", "application/vnd.erp.prices+xml")]
+    public async Task A_content_type_on_the_allowlist_is_saved_and_published(string contentType, string stored)
+    {
+        var tenant = OutputsTenant("Allowed type " + contentType);
+        using var admin = factory.TenantAdminOf(tenant);
+
+        (await admin.PostAsJsonAsync("/api/v1/output-mappings", new { key = "typed", name = "Typed", expression = "meta.documentId", contentType }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await admin.SendAsync(Put("/api/v1/output-mappings/typed/versions/1", new { engine = "jsonata", expression = "meta.documentId", contentType }, 0), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.PostAsync("/api/v1/output-mappings/typed/versions/1:publish", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.GetFromJsonAsync<OutputMappingVersionDetail>("/api/v1/output-mappings/typed/versions/1", ApiFactory.Json, Ct))!.Version.ContentType.ShouldBe(stored);
+    }
+
     [Fact]
     public async Task The_preview_renders_a_template_over_a_documents_values_view_on_the_server()
     {
@@ -505,6 +554,36 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
         (await admin.DeleteAsync($"/api/v1/destinations/{destination.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "a binding refers to it");
         (await admin.DeleteAsync($"/api/v1/output-bindings/{binding.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await admin.DeleteAsync($"/api/v1/destinations/{destination.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_supplier_or_channel_a_binding_is_scoped_to_is_not_deleted_while_the_binding_is()
+    {
+        var tenant = OutputsTenant("Binding scopes");
+        using var admin = factory.TenantAdminOf(tenant);
+        var destination = (await (await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "scoped-feed", transport = "pull" }, Ct)).Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!;
+        var supplier = (await (await admin.PostAsJsonAsync("/api/v1/suppliers", new { name = "Scoped Supplier GmbH" }, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+        var channel = Guid.CreateVersion7();
+        factory.Run(db => db.IngestionChannels.Add(new DocProc.Infrastructure.Persistence.Entities.IngestionChannel { Id = channel, TenantId = tenant, Name = "Scoped mailbox", Type = DocProc.Infrastructure.Persistence.Entities.ChannelType.Mailbox, CreatedAt = factory.Clock.GetUtcNow() }));
+        var bySupplier = await admin.PostAsJsonAsync("/api/v1/output-bindings", new { name = "by-supplier", mappingKey = "std.event", destinationId = destination.Id, supplierId = supplier }, Ct);
+        bySupplier.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var byChannel = await admin.PostAsJsonAsync("/api/v1/output-bindings", new { name = "by-channel", mappingKey = "std.event", destinationId = destination.Id, channelId = channel }, Ct);
+        byChannel.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        var supplierRefused = await admin.DeleteAsync($"/api/v1/suppliers/{supplier}", Ct);
+        supplierRefused.StatusCode.ShouldBe(HttpStatusCode.Conflict, "the database refuses it too; a 409 says why instead of a 500");
+        (await supplierRefused.Content.ReadFromJsonAsync<ProblemDetails>(Ct))!.Detail.ShouldBe("Output bindings are scoped to this supplier; change or delete them first.");
+        var channelRefused = await admin.DeleteAsync($"/api/v1/channels/{channel}", Ct);
+        channelRefused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await channelRefused.Content.ReadFromJsonAsync<ProblemDetails>(Ct))!.Detail.ShouldBe("Output bindings are scoped to this channel; change or delete them first.");
+        factory.Query(db => db.OutputBindings.Where(b => b.TenantId == tenant).Select(b => b.SupplierId ?? b.ChannelId).ToList()).ShouldBe([supplier, channel], ignoreOrder: true, "the scopes stay as they were");
+
+        var supplierBinding = (await bySupplier.Content.ReadFromJsonAsync<OutputBindingResponse>(ApiFactory.Json, Ct))!;
+        var channelBinding = (await byChannel.Content.ReadFromJsonAsync<OutputBindingResponse>(ApiFactory.Json, Ct))!;
+        (await admin.DeleteAsync($"/api/v1/output-bindings/{supplierBinding.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await admin.DeleteAsync($"/api/v1/output-bindings/{channelBinding.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await admin.DeleteAsync($"/api/v1/suppliers/{supplier}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await admin.DeleteAsync($"/api/v1/channels/{channel}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
 
     [Fact]

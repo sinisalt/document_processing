@@ -320,6 +320,13 @@ public static partial class SupplierEndpoints
                 return Conflict("Supplier in use", "Extractor profiles reference this supplier; it cannot be deleted.");
             }
 
+            // The database refuses it as well (NO ACTION). Clearing the scope instead would widen the binding to every
+            // document of the tenant.
+            if (await db.OutputBindings.AnyAsync(b => b.SupplierId == id, ct))
+            {
+                return Conflict("Supplier in use", "Output bindings are scoped to this supplier; change or delete them first.");
+            }
+
             var current = await CurrentTenantAsync(db, ct);
             if (current is not null && current.Settings.AlwaysReviewSupplierIds.Remove(id))
             {
@@ -332,7 +339,7 @@ public static partial class SupplierEndpoints
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("DeleteSupplier")
-        .WithSummary("Deletes a supplier no document references; otherwise 409.");
+        .WithSummary("Deletes a supplier no document, extractor profile or output binding references; otherwise 409.");
 
         suppliers.MapGet("/{id:guid}/activity", async Task<Results<Ok<IReadOnlyList<SupplierActivityItem>>, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, CancellationToken ct) =>
         {

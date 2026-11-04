@@ -249,6 +249,13 @@ public static class ChannelEndpoints
                 return Conflict("Channel in use", "Ingestions reference this channel; pause it instead of deleting it.");
             }
 
+            // The database refuses it as well (NO ACTION). Clearing the scope instead would widen the binding to every
+            // document of the tenant.
+            if (await db.OutputBindings.AnyAsync(b => b.ChannelId == id, ct))
+            {
+                return Conflict("Channel in use", "Output bindings are scoped to this channel; change or delete them first.");
+            }
+
             var reference = SecretReference(channel.TenantId, channel.Id);
             var ownsSecret = OwnsSecret(channel, reference, logger);
             db.IngestionChannels.Remove(channel);
@@ -262,7 +269,7 @@ public static class ChannelEndpoints
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("DeleteChannel")
-        .WithSummary("Deletes a channel that has never received anything, and its credential; otherwise 409.");
+        .WithSummary("Deletes a channel that has never received anything and no output binding is scoped to, and its credential; otherwise 409.");
 
         return group;
     }

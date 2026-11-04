@@ -825,10 +825,11 @@ http://localhost:8086/__admin/requests.
 7. **The article-price mapping, in the visual map.** Output mappings > New mapping: key `article-price-import`, name
    "Article price import", document type `price-list` > New mapping. The editor has three panes: the values view of the
    preview document (the Nordwind list is chosen; `doc`, `roles`, `supplier`, `entity`, `source`, `meta`, `links`, with
-   `doc.lines · 412 rows`), the visual map, and the server-rendered preview. Add field rows (Target field ← Source;
-   the gear opens the options: when empty use another field, lookup table and its default, format, constant when
-   empty, required with a message; a click on a field in the source tree fills the row being edited, relative to the
-   list it is in):
+   `doc.lines · 412 rows`), the visual map, and the server-rendered preview. Add field rows top to bottom as the table
+   lists them, in the fixture's order, so the compiled code is the fixture property for property (Target field ←
+   Source; the gear opens the options: when empty use another field, lookup table and its default, format, constant
+   when empty, required with a message; a click on a field in the source tree fills the row being edited, relative to
+   the list it is in):
 
    | Target | Kind | Source | Options |
    |---|---|---|---|
@@ -841,10 +842,14 @@ http://localhost:8086/__admin/requests.
    | `header.mode` | Expression | `doc.listScope = "Changes" ? "UPSERT" : "REPLACE"` | |
    | `header.dmsId`, `header.revision` | Field | `meta.documentId`, `meta.version` | |
    | `prices` | List | `doc.lines`, only rows where `$not(status = "Discontinued")` | its rows below |
-   | `vendorArticleNo`, `ean`, `group`, `contentQty`, `price` | Field | `supplierSku`, `gtin`, `category`, `packSize`, `price.amount` | |
+   | `vendorArticleNo`, `ean` | Field | `supplierSku`, `gtin` | |
    | `text` | Field | `description` | Format Shorten text, 40 |
-   | `orderUnit`, `contentUnit` | Field | `unit`, `packUnit` | Lookup `erp-uom`, else `ST` |
+   | `group` | Field | `category` | |
+   | `orderUnit` | Field | `unit` | Lookup `erp-uom`, else `ST` |
+   | `contentQty` | Field | `packSize` | |
+   | `contentUnit` | Field | `packUnit` | Lookup `erp-uom`, else `ST` |
    | `priceUnit` | Field | `priceQuantity` | When empty a constant, Number `1` |
+   | `price` | Field | `price.amount` | |
    | `validFrom` | Field | `lineValidFrom` | When empty use `$root.roles.validFrom`, Format Date `yyyyMMdd` |
    | `scales` (in `prices`) | List | `tiers` | rows `fromQty ← minQuantity`, `price ← price.amount` |
    | `delist` | List | `doc.lines`, only rows where `status = "Discontinued"` | one row with an empty target ← `supplierSku` (a list of plain values) |
@@ -865,11 +870,14 @@ http://localhost:8086/__admin/requests.
    with the same mapping > New binding; and `ap-invoices`, type `Invoice`, mapping `erp-ap-import`, destination `erp-ap`.
 9. **A 503, then approve.** Make the article-price stub fail once:
    `curl -X POST http://localhost:8086/__control/article-prices/fail-next`. As `tenant-a-reviewer`, open the price list
-   and Approve. The Deliveries tab lists `erp-articles · article-prices · v1` as Retry pending (last answer 503); about
-   a second later (the stub's `Retry-After: 1`) it is Delivered after 2 attempts. This holds with the tab open before
-   the approval too: the decision makes the tab read again, and it keeps reading an empty list for a minute after the
-   decision, until the worker's publish stage has fanned out. Open the row: the idempotency key
-   (the same for both calls), the external id `AP-IMP-…` (Accepted, from the response mapping), the attempts
+   and Approve. The Deliveries tab lists `erp-articles · article-prices · v1`, Delivered after 2 attempts. The retry
+   waits only about a second (the stub's `Retry-After: 1`), and the tab reads every 1.5 s while its list is empty and
+   every 3 s while a delivery is in flight, so it usually goes straight from an empty list (or Pending) to Delivered;
+   Retry pending (last answer 503) shows only when a read lands in that second (for a screenshot of it, use
+   `__control/article-prices/fail-always`, and `__control/article-prices/reset` afterwards: the next retry delivers).
+   This holds with the tab open before the approval too: the decision makes the tab read again, and it keeps reading
+   an empty list for a minute after the decision, until the worker's publish stage has fanned out. Open the row: the
+   idempotency key (the same for both calls), the external id `AP-IMP-…` (Accepted, from the response mapping), the attempts
    `503 Will be retried · status` and `202 Delivered` with the first 4 KB of each answer, Show payload, and for an
    integration admin Redeliver (from the snapshot) and Render again and redeliver. The Timeline shows
    `document.delivery_failed` then `document.delivery_succeeded`.
@@ -888,22 +896,30 @@ http://localhost:8086/__admin/requests.
     not match it, the invoice binding did not match the price list. Settings > Integrations > Delivery log lists both,
     with filters by status and destination.
 
-The same through the API, with `$H` a tenant admin's token and `$DOC` the price list (the UI calls exactly these):
+The same through the API, with `$H` a tenant admin's token and `$DOC` the price list after steps 1 and 2 (the UI
+calls exactly these; steps 3, 4, 5, 7, 8 and 9 in that order, without the invoice side of steps 5, 6 and 11):
 
 ```bash
 API=http://localhost:5100/api/v1; J='content-type: application/json'
+# Step 3: the supplier's ERP vendor number (the mapping refuses to render without it).
+SUPPLIER=$(curl -s $API/documents/$DOC -H "$H" | jq -r .supplierId)
+curl -s -X PATCH $API/suppliers/$SUPPLIER -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"}}' | jq .attributes
+# Step 4: the lookup table with its four entries.
 curl -s -X POST $API/lookup-tables -H "$H" -H "$J" -d '{"key":"erp-uom"}' > /dev/null
 REV=$(curl -s -D - -o /dev/null $API/lookup-tables/erp-uom -H "$H" | tr -d '\r' | awk -F': ' 'tolower($1)=="etag"{print $2}')
 curl -s -X PUT $API/lookup-tables/erp-uom/entries -H "$H" -H "$J" -H "If-Match: $REV" \
-  -d '{"entries":[{"from":"KAR","to":"KAR"},{"from":"ST","to":"ST"},{"from":"PCK","to":"PCK"}]}' | jq .entryCount
-DEST=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"erp-articles","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/article-prices","responseMapping":"importId"}}' | jq -r .id)
-# The mapping: the compiled visual map (or any JSONata of your own) as draft v1, previewed, published.
+  -d '{"entries":[{"from":"KAR","to":"KAR"},{"from":"ST","to":"ST"},{"from":"PCK","to":"PCK"},{"from":"Karton","to":"KAR"}]}' | jq .entryCount
+# Step 5: the destination, with the update URL a re-approval is sent to.
+DEST=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"erp-articles","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/article-prices","responseMapping":"importId","updateUrlTemplate":"http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}"}}' | jq -r .id)
+# Step 7: the compiled visual map (or any JSONata of your own) as draft v1, previewed (no errors, 412 prices), published.
 jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata '{key:"article-price-import",name:"Article price import",sourceTypeKey:"price-list",engine:"jsonata",expression:$e}' \
   | curl -s -X POST $API/output-mappings -H "$H" -H "$J" -d @- | jq .key
 jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata --arg d "$DOC" '{expression:$e,documentId:$d}' \
   | curl -s -X POST $API/output-mappings:preview -H "$H" -H "$J" -d @- | jq '{errors, n: (.output.prices | length), outputBytes}'
 curl -s -X POST $API/output-mappings/article-price-import/versions/1:publish -H "$H" -H "$J" -d '{}' | jq .publishedVersion
-curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"article-prices\",\"documentTypeKey\":\"price-list\",\"mappingKey\":\"article-price-import\",\"destinationId\":\"$DEST\"}" | jq .id
+# Step 8: the binding; a re-approval is sent as an update, rendered with the same mapping.
+curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"article-prices\",\"documentTypeKey\":\"price-list\",\"mappingKey\":\"article-price-import\",\"destinationId\":\"$DEST\",\"onReapproval\":\"Update\",\"updateMappingKey\":\"article-price-import\"}" | jq .id
+# Step 9: one 503, then approve.
 curl -s -X POST http://localhost:8086/__control/article-prices/fail-next
 curl -s -X POST "$API/documents/$DOC:approve" -H "$H" -H "$J" -d '{}' | jq .status
 curl -s "$API/deliveries?documentId=$DOC" -H "$H" | jq '.items[] | {destinationName, status, attempts, lastStatusCode}'

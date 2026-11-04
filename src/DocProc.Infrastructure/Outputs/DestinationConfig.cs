@@ -230,6 +230,23 @@ public static partial class DestinationConfig
             && literal.Port == expanded.Port;
     }
 
+    /// <summary>
+    /// Whether the path of <paramref name="expanded"/>, the URL a delivery is sent to, still starts with the literal path
+    /// of <paramref name="template"/> before its first placeholder, as the URL parser reads both. Values are refused when
+    /// they are a dot segment of their own (<see cref="DeliveryTemplates.ExpandUrl"/>); this check also covers a
+    /// value that makes one with the template's own text (<c>/api/.{{output.x}}</c> with <c>x = "."</c>), so the payload
+    /// can add to the template's path but never climb out of it.
+    /// </summary>
+    public static bool KeepsTemplatePath(string template, Uri expanded)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(expanded);
+        var first = template.IndexOf("{{", StringComparison.Ordinal);
+        var literal = first < 0 ? template : template[..first];
+        return Uri.TryCreate(literal, UriKind.Absolute, out var prefix)
+            && expanded.AbsolutePath.StartsWith(prefix.AbsolutePath, StringComparison.Ordinal);
+    }
+
     /// <summary>Whether two URL templates name the same origin: the text before the path (<c>scheme://host:port</c>), case-insensitive, with the scheme's default port written or not.</summary>
     private static bool SameOrigin(string? before, string? after) => string.Equals(Origin(before), Origin(after), StringComparison.Ordinal);
 

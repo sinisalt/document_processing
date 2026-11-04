@@ -1163,6 +1163,20 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       two tenants whose receivers never answer leave a slot for the others; with the defaults it takes three such
       tenants to fill the lane (before: two). The claim that a slow receiver holds up no other tenant's deliveries was
       true for one tenant only and is corrected in docs/11 §13.6, docs/09 and the code's comments.
+  - Done (fourth review, recorded as "Correction (P3, fourth review)" in docs/11 §13.1, §13.3 and §13.6):
+    - `:redeliver` with `mode: rerender` answers 409 when the document is no longer at the delivery's version, or no
+      longer in the settled state its event comes from (a reprocessed document's current, unapproved data went out
+      as the old revision's approval); `snapshot` is unchanged;
+    - a URL template value of `.` or `..` is a permanent `template` failure, and the expanded URL's path must start
+      with the template's literal path (a dot segment moved the request to another path of the receiver);
+    - a mapping version's `contentType` is checked against an allowlist on create, save and publish; the payload
+      route sends `nosniff` and serves anything but JSON, CSV and plain text as an attachment; a multipart part whose
+      content type is not a media type fails permanently instead of being retried for 72 h;
+    - `DELETE /suppliers/{id}` and `DELETE /channels/{id}` answer 409 while an output binding is scoped to them (a
+      500 from the foreign key before);
+    - docs/09's API version of the outputs demo sets the supplier's `erpVendorId` (it dead-lettered without it), has
+      the fourth lookup entry and the binding's `onReapproval: Update` with the update URL; step 7 lists the field
+      rows in the fixture's order, and step 9 says what the Deliveries tab reliably shows.
   - Left for later:
     - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
       (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
@@ -1195,6 +1209,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       sent twice, but the order between two revisions across hosts rests on the skip rule;
     - in the Production topology the API runs no runner, so a redelivery's nudge is not read; the worker's delivery
       sweeper sends it after `Delivery:SweepGrace` (as with the publish nudge, docs/11 §13.5);
+    - a settlement whose outbox row the publish stage adds itself (a decision from before the row was written with
+      it, `DocumentOutbox.AddMissing`) claims the document, which moves its version one past the one its deliveries
+      carry; a rerender of such a delivery is refused as "Document changed" (`snapshot` still sends it);
     - `OutputBatch` and `OutboxDelivery.BatchId` (batches, P6), recipes (`RecipeJson` is a column, the API takes none),
       the `liquid` engine (a `fieldmap` engine is not needed, the visual map compiles to JSONata), callbacks
       (`CallbackConfigJson` is a column), `sftp` and `email` transports;

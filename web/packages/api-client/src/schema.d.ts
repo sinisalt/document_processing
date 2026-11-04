@@ -67,7 +67,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deletes a channel that has never received anything, and its credential; otherwise 409. */
+        /** Deletes a channel that has never received anything and no output binding is scoped to, and its credential; otherwise 409. */
         delete: operations["DeleteChannel"];
         options?: never;
         head?: never;
@@ -1265,7 +1265,7 @@ export interface paths {
         get: operations["GetSupplier"];
         put?: never;
         post?: never;
-        /** Deletes a supplier no document references; otherwise 409. */
+        /** Deletes a supplier no document, extractor profile or output binding references; otherwise 409. */
         delete: operations["DeleteSupplier"];
         options?: never;
         head?: never;
