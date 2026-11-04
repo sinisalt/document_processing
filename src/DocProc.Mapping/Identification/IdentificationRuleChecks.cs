@@ -12,7 +12,7 @@ public enum IdentificationScope
 
 /// <summary>
 /// The checks at save of docs/11 §8.5 that do not need other documents: the meta-schema, the format, patterns that
-/// compile and stay within <see cref="PatternSize.MaxUnrolled"/>, at least one positive identifier, at most
+/// compile and stay within the bounds of <see cref="PatternSize"/>, at least one positive identifier, at most
 /// <see cref="IdentificationRule.MaxIdentifiers"/> identifiers, <c>allowOcrErrors</c> never on the only positive
 /// identifier, no <c>supplierValue</c> in a tenant rule, and no structured identifier before the structured layers
 /// exist (P6). The identification test against the supplier's documents (§8.3) runs where the documents are.
@@ -120,9 +120,9 @@ public static class IdentificationRuleChecks
 
     private static void CheckPattern(string pattern, string path, List<IdentificationProblem> problems)
     {
-        if (!PatternSize.IsSmallEnough(pattern))
+        if (PatternSize.Problem(pattern) is { } problem)
         {
-            problems.Add(new IdentificationProblem(path, $"The pattern unrolls to more than {PatternSize.MaxUnrolled} atoms; use fewer or smaller counted repetitions."));
+            problems.Add(new IdentificationProblem(path, $"The pattern repeats too much: {problem}"));
             return;
         }
 

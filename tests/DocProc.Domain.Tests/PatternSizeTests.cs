@@ -40,4 +40,55 @@ public sealed class PatternSizeTests
     {
         PatternSize.IsSmallEnough("^" + new string('x', 199)).ShouldBeTrue();
     }
+
+    /// <summary>
+    /// Patterns that unroll to fewer than <see cref="PatternSize.MaxUnrolled"/> atoms but run for seconds per match
+    /// under NonBacktracking (10 to 50 s on 20,000 characters, whatever the match timeout): a repeated group whose
+    /// length varies, a loop over such repetitions, alternatives of different length ranges in a long sequence, and a
+    /// multi-character group repeated a varying number of times before more wildcards.
+    /// </summary>
+    [Theory]
+    [InlineData("(.{0,15}a){30}x")]
+    [InlineData("(.{0,15}e){30}q")]
+    [InlineData("([abc]{0,15}a){30}x")]
+    [InlineData("(.?.?.?.?.?.?.?.?.?.?.?.?.?.?.?a){30}x")]
+    [InlineData("(?:a.{0,14}|b){30}x")]
+    [InlineData("(?:(.{0,8}a){4}|(.{0,8}b){4}|(.{0,8}c){4})+x")]
+    [InlineData("(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})(?:a|.{0,14})x")]
+    [InlineData("(?:.{8}){0,55}.{0,15}a.{0,15}bx")]
+    [InlineData("((.{0,3}a){5}){6}x")]
+    public void Refuses_repeated_groups_whose_length_varies(string pattern)
+    {
+        PatternSize.Estimate(pattern).ShouldBeLessThanOrEqualTo(PatternSize.MaxUnrolled, "the unrolled count alone let it through");
+        PatternSize.Variation(pattern).ShouldBeGreaterThan(PatternSize.MaxVariation);
+        PatternSize.IsSmallEnough(pattern).ShouldBeFalse();
+        PatternSize.Problem(pattern).ShouldNotBeNull().ShouldContain("combination of lengths");
+    }
+
+    [Theory]
+    [InlineData(@"[A-Z]{2}\d{2}(?: ?[0-9A-Z]{4}){3,7}(?: ?[0-9A-Z]{1,3})?", 27)]
+    [InlineData(@"[A-Z]{2}\d{2}(?:\s?[0-9A-Z]{4}){2,8}\s?[0-9A-Z]{1,4}", 38)]
+    [InlineData(@"\+?\d{1,3}(?:[ -]?\d{2,4}){2,4}", 22)]
+    [InlineData(@"\d{1,3}(?:[.,]\d{3}){0,5}", 20)]
+    [InlineData(@"\d{1,3}(?:[ .]?\d{3})*,\d{2}", 8)]
+    [InlineData(@"(?:Rechnung|Invoice|Facture)\s*(?:Nr|No|Nummer)\.?\s*(\S+)", 0)]
+    [InlineData(@"^(?:ab|from|von)\s*(\d(?:[\d.,\s]*\d)?)", 0)]
+    [InlineData(@"(?:\d{3}){4}", 0)]
+    [InlineData(".{0,450}a", 0)]
+    [InlineData(".{0,15}a.{0,15}b.{0,15}c", 0)]
+    [InlineData("(?:.{0,15}a|.{0,15}b)", 0)]
+    [InlineData("(?:a|.{0,14})", 14)]
+    [InlineData("(.{0,16}a){4}x", 64)]
+    public void Field_and_line_patterns_stay_within_the_variation(string pattern, long expected)
+    {
+        PatternSize.Variation(pattern).ShouldBe(expected);
+        PatternSize.IsSmallEnough(pattern).ShouldBeTrue();
+        PatternSize.Problem(pattern).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_pattern_past_the_unrolled_count_names_that_bound()
+    {
+        PatternSize.Problem("a{501}").ShouldNotBeNull().ShouldContain("unrolled");
+    }
 }

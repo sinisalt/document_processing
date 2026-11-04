@@ -132,11 +132,16 @@ public sealed record IdentificationResult(bool Holds, IReadOnlyList<IdentifierEv
 public static class IdentificationRuleEvaluator
 {
     /// <summary>
-    /// The time a pattern may take on one text. A pattern runs NonBacktracking, in time linear in the text, and patterns
-    /// and texts are bounded, so this is a safety net for a pathological input, not a budget: it is generous enough that
-    /// a loaded machine (the lazily built automaton of a first match, a busy thread pool) does not run out of it. A
-    /// match that does run out of time is reported (an identifier names it in <see cref="IdentificationResult.Failed"/>,
-    /// the layout engine in <c>LayoutExtraction.TimedOut</c>), never read as "no match".
+    /// The match timeout of a pattern. It does not bound a pattern's work: the NonBacktracking engine checks it only at
+    /// some points of a match, not while it builds the states of its automaton, so a pattern that makes many large
+    /// states runs on past any timeout (<c>(.{0,15}a){30}x</c> ran about 11 s per match with 100 ms, 500 ms or 2 s, and
+    /// returned "no match"). What bounds the work is <see cref="DocProc.Domain.Validation.PatternSize"/>, which every
+    /// pattern a tenant or a reviewer supplies passes at save and in <c>identification-rules:test</c>: the slowest
+    /// accepted patterns found take under a second on a first match over 20,000 characters, and later matches on the
+    /// cached instance are faster. The timeout is generous so that a loaded machine (the lazily built automaton of a
+    /// first match, a busy thread pool) does not run out of it where the engine does check it; a match that does time
+    /// out is reported (an identifier names it in <see cref="IdentificationResult.Failed"/>, the layout engine in
+    /// <c>LayoutExtraction.TimedOut</c>), never read as "no match".
     /// </summary>
     public static readonly TimeSpan PatternTimeout = TimeSpan.FromSeconds(2);
 

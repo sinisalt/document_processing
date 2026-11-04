@@ -1464,9 +1464,30 @@ is reported: an identifier names it in the rule's failures ("could not be checke
 positive identifier does not hold, a negative one does not count as absent), and a field or table of a layout is not
 read and is named in `LayoutExtraction.TimedOut` (`AppliedConfigJson.layout.drift.timedOut`, a warning in the worker's
 log), and a drift it causes does not count against the layout (§8.2).
+
+Correction (P4, fifth review fixes): the timeout is not a safety net either. The NonBacktracking engine checks it only
+at some points of a match, not while it builds the states of its automaton, and a pattern within the 500 unrolled atoms
+can make it build many large ones: `(.{0,15}a){30}x` (481 atoms) ran about 11 s per match on 20,000 characters (half a
+second on 100) with a timeout of 100 ms, 500 ms or 2 s alike, and answered "no match", so a Viewer's
+`identification-rules:test` could hold an API thread for seconds with each new pattern, and a timeout could not be
+reported. What bounds a pattern's work is the pattern: `PatternSize` now also bounds its variation, how much the
+length of its varying groups can vary (at most 64). `{n,m}` of a body adds `m` times the body's range (longest minus
+shortest text) and the variation inside it, and for a body longer than one character also `m - n` times its longest
+text; `*`, `+` and `{n,}` add 8 times the body's range; alternatives of different length ranges, one of which varies
+itself, add the group's range. A repetition of one character or class (`.{0,450}`, `\s*`), a fixed body repeated a fixed
+number of times and words of different lengths add nothing; an IBAN's `(?: ?[0-9A-Z]{4}){3,7}` is 27, a phone number's
+`(?:[ -]?\d{2,4}){2,4}` 22. A pattern above it is refused wherever the 500 atoms are checked (identification and
+layout patterns at save and in `identification-rules:test`, the table tool, field patterns, extraction hints and
+`pattern` rules at publish) with "repeats too much: a repeated group whose length varies ... makes the engine track
+every combination of lengths". The shapes it was built against ran 2 to 50 s per first match in a probe (it also
+refuses some harmless ones, such as `(.{0,2}a){40}`); the slowest accepted patterns found (crafted at both limits, and
+several hundred random ones) take under a second on a first match over 20,000 characters, later matches on the cached
+instance much less. The 2 s timeout stays, for a loaded machine where the
+engine does check it, and a timeout that happens is still reported as above.
 - `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
 - The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
-  (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.
+  (NonBacktracking, within `PatternSize`: at most 500 unrolled atoms and a variation of 64) and the scope are the
+  checks at save.
 
 ### 8.6 Large tables: price lists over many pages
 
@@ -1780,7 +1801,7 @@ A "Map from page" toggle sits next to Words (`PageViewer.tsx:125-128`). It is on
   - **A lone anchor value** (only the row anchor column holds a value while the mapping fills others) is rejected as `anchorOnly`, not taken for an article.
   - The page report lists the texts of the group headings read (`headings`) and counts `repeatedLines` and `leftOutLines`; the page strip shows them for the page in view.
   - The proposal (step 2) reads its page with the request's `groupHeader`, which the portal sends when the row has a category.
-  - **Limits**: the table tool runs in the API every tenant shares, which this section did not bound. A `skipRows`, `stopAt`, tier header or field pattern whose counted repetitions unroll to more than 500 atoms is refused (the NonBacktracking engine unrolls `{n,m}`, and nested ones multiply: a 23-character pattern can become ten thousand nodes and hundreds of MB per line); the same bound applies at publish (5.7) to field patterns, extraction hints and `pattern` rules. A pattern that runs out of time stops the read (400) instead of counting as no match on every line. One read runs within a time budget (10 s) and stops when the client goes away (422 `TABLE_READ_TOO_SLOW`), and `regions:table` and `regions:read` run a few at a time per tenant (429 beyond).
+  - **Limits**: the table tool runs in the API every tenant shares, which this section did not bound. A `skipRows`, `stopAt`, tier header or field pattern whose counted repetitions unroll to more than 500 atoms is refused (the NonBacktracking engine unrolls `{n,m}`, and nested ones multiply: a 23-character pattern can become ten thousand nodes and hundreds of MB per line), and so is one whose varying groups vary by more than 64 (`(.{0,15}a){30}x` is 481 atoms but about 11 s per line, which the match timeout does not cut; §8.5 "Correction (P4, fifth review fixes)"); the same bounds apply at publish (5.7) to field patterns, extraction hints and `pattern` rules. A pattern that runs out of time stops the read (400) instead of counting as no match on every line. One read runs within a time budget (10 s) and stops when the client goes away (422 `TABLE_READ_TOO_SLOW`), and `regions:table` and `regions:read` run a few at a time per tenant (429 beyond).
   - Correction (P2, third review): the limits above bounded the read, not the write. `set` on a whole group (`PATCH …/fields`) was held only to each group's own `maxItems`, and `tiers` has none, so one correction could write millions of nested rows. As built, a group inside a row without `maxItems` holds at most 100 rows, a tree at most 100,000 rows across all its groups (both checked before any row is built, for `set`, `append` and the table tool's write); `PATCH …/fields` takes at most 5,000 corrections and an 8 MB body, `regions:table` 2 MB (with `pages` at most 200 characters) and `regions:read` 16 KB.
   - Correction (P2, fourth review): within those limits one request was still quadratic. A remove cleared the row count, so alternating removes and appends recounted the whole tree once per pair, and every correction read a field's history and wrote it out again, one entry longer each time. As built, the row count is taken once per request and kept up to date through removes and appends, and a correction appends to the stored history as it is.
 

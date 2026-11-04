@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using DocProc.Definitions;
+using DocProc.Domain.Validation;
 using DocProc.Mapping.Identification;
 using DocProc.Mapping.Layouts;
 using DocProc.Mapping.Values;
@@ -108,6 +111,8 @@ public sealed class LayoutEngineTests
     [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "guess" } ] } } }""", "not a strategy")]
     [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "label-right" } ] } } }""", "label")]
     [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "regex-anywhere", "pattern": "(a)\\1" } ] } } }""", "does not compile")]
+    [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "regex-anywhere", "pattern": "(.{0,15}a){30}x" } ] } } }""", "combination of lengths")]
+    [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "constant", "value": "x" } ], "transforms": [ { "op": "regex", "pattern": "(.{0,15}a){30}x" } ] } } }""", "combination of lengths")]
     [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "region", "bBox": [10, 10, 5, 5] } ] } } }""", "x0 < x1")]
     [InlineData("""{ "fields": { "a": { "rules": [ { "strategy": "constant", "value": "x" } ], "transforms": [ { "op": "parseNumber" } ] } } }""", "not a transform")]
     [InlineData("""{ "fields": { "lines.x": { "strategy": "column-table", "bBox": [0, 0, 10, 10], "columns": [ { "x0": 0, "x1": 5 } ] } } }""", "top-level")]
@@ -163,6 +168,35 @@ public sealed class LayoutEngineTests
         LayoutEngine.Transform("Markt 0815 Nord", [new LayoutTransform("regex", @"Markt\s+(\d+)", 1)]).ShouldBe("0815");
         LayoutEngine.Transform("12-34", [new LayoutTransform("replace", "-", With: string.Empty)]).ShouldBe("1234");
         LayoutEngine.Transform("none here", [new LayoutTransform("regex", @"\d+")]).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The pattern bound is what keeps a match short, not the match timeout (the engine does not check it while it
+    /// builds its automaton): a pattern at the bound's limit, on a fresh instance, answers or reports a timeout within a
+    /// few seconds over 20,000 characters (a few hundred milliseconds on an idle machine), where
+    /// <c>(.{0,15}a){30}x</c>, now refused, ran about 11 s and answered "no match".
+    /// </summary>
+    [Fact]
+    public void A_pattern_at_the_bound_finishes_a_first_match_quickly()
+    {
+        var pattern = "(.{0,16}a){4}" + string.Concat(Enumerable.Repeat(".{0,15}a", 26)) + "x";
+        PatternSize.IsSmallEnough(pattern).ShouldBeTrue();
+        PatternSize.Variation(pattern).ShouldBe(PatternSize.MaxVariation);
+        var random = new Random(7);
+        var text = new string([.. Enumerable.Range(0, 20_000).Select(_ => "abc"[random.Next(3)])]);
+        var regex = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, IdentificationRuleEvaluator.PatternTimeout);
+
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            regex.IsMatch(text).ShouldBeFalse();
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // Reported as a timeout by the caller, which is a bound too.
+        }
+
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(8));
     }
 
     [Fact]

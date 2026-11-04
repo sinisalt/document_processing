@@ -38,6 +38,7 @@ public sealed class TableToolLimitsTests(ApiFactory factory) : MapModeTestBase(f
             ("stopAt[0]", new { page = 1, bBox = box, columns, stopAt = new[] { Explosive } }),
             ("skipRows[1]", new { page = 1, bBox = box, columns, skipRows = new[] { "^Seite", Explosive } }),
             ("stopAt[0]", new { page = 1, bBox = box, stopAt = new[] { "(.{0,99}){0,99}Q" } }),
+            ("skipRows[0]", new { page = 1, bBox = box, columns, skipRows = new[] { "(.{0,15}a){30}x" } }),
         })
         {
             var response = await reviewer.PostAsJsonAsync(Doc(id, "/regions:table"), body, Ct);

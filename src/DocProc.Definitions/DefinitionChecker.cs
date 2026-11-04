@@ -229,12 +229,12 @@ public static partial class DefinitionChecker
 
         if (field.Pattern is { } pattern && !IsValidPattern(pattern))
         {
-            problems.Add(new(at, PatternSize.IsSmallEnough(pattern) ? "pattern is not a valid regular expression." : TooLarge("pattern")));
+            problems.Add(new(at, PatternSize.IsSmallEnough(pattern) ? "pattern is not a valid regular expression." : TooLarge("pattern", pattern)));
         }
 
         if (field.Extraction?.Pattern is { } hint && !IsValidPattern(hint))
         {
-            problems.Add(new(at, PatternSize.IsSmallEnough(hint) ? "extraction.pattern is not a valid regular expression." : TooLarge("extraction.pattern")));
+            problems.Add(new(at, PatternSize.IsSmallEnough(hint) ? "extraction.pattern is not a valid regular expression." : TooLarge("extraction.pattern", hint)));
         }
 
         if (field.VisibleWhen is { } visible && DefinitionPaths.Find(definition, visible.Field) is null)
@@ -453,13 +453,13 @@ public static partial class DefinitionChecker
         }
     }
 
-    /// <summary>The message for a pattern above <see cref="PatternSize.MaxUnrolled"/>.</summary>
-    internal static string TooLarge(string what) =>
-        $"{what} repeats too much: counted repetitions such as {{0,99}} are unrolled, and nested ones multiply; at most {PatternSize.MaxUnrolled} characters unrolled.";
+    /// <summary>The message for a pattern above <see cref="PatternSize.MaxUnrolled"/> or <see cref="PatternSize.MaxVariation"/>.</summary>
+    internal static string TooLarge(string what, string pattern) =>
+        $"{what} repeats too much: {PatternSize.Problem(pattern)}";
 
     /// <summary>
     /// Whether <paramref name="pattern"/> compiles the way the platform runs it (NonBacktracking, culture-invariant) and
-    /// stays within <see cref="PatternSize.MaxUnrolled"/>: field patterns, extraction hints and the <c>pattern</c> rule's
+    /// stays within the bounds of <see cref="PatternSize"/>: field patterns, extraction hints and the <c>pattern</c> rule's
     /// <c>params.pattern</c>.
     /// </summary>
     internal static bool IsValidPattern(string pattern)

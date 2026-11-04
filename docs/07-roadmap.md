@@ -1660,6 +1660,20 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       the warm-up slot is no longer listed as left for later;
     - left for later: a tier header pattern of a `column-table` (`ColumnTableEngine.TierQuantity`) that runs out of time
       still reads as no quantity.
+  - Fifth review fixes (recorded as "Correction (P4, fifth review fixes)" in docs/11 §8.5):
+    - done: the 2 s timeout of the fourth fixes is not a safety net, nor was the 100 ms before it: NonBacktracking
+      checks it only at some points of a match, not while it builds its automaton's states, so `(.{0,15}a){30}x`
+      (481 atoms, accepted) ran about 11 s per match with any timeout and answered "no match", also through a
+      Viewer's `identification-rules:test`. `PatternSize` now also bounds a pattern's variation (how much the length
+      of its varying groups can vary, at most 64; an IBAN is 27, a phone number 22), and every place that checks the
+      500 atoms refuses a pattern above it with "repeats too much" (identification and layout patterns, the table
+      tool, field patterns, extraction hints and `pattern` rules). The slowest accepted patterns found take under a
+      second on a first match over 20,000 characters; the timeout stays as a last resort and is still reported
+      (`PatternSizeTests`, `IdentificationRuleTests`, `LayoutEngineTests`, `LayoutEndpointsTests`,
+      `TableToolLimitsTests`, `DefinitionCompilerTests`);
+    - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
+      schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
+      subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

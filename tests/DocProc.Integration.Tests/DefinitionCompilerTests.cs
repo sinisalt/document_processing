@@ -750,6 +750,11 @@ public sealed class DefinitionCompilerTests
         rule.CanPublish.ShouldBeFalse();
         rule.Problems.ShouldContain(p => p.Where == "rules[0] (r_probe).params" && p.Message.StartsWith("pattern repeats too much", StringComparison.Ordinal));
 
+        // Few atoms, but a repeated group whose length varies: seconds per match whatever the timeout.
+        var varying = Publish(ReturnSlipJson(rules: """[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"(.{0,15}a){30}x"}}]"""));
+        varying.CanPublish.ShouldBeFalse();
+        varying.Problems.ShouldContain(p => p.Message.StartsWith("pattern repeats too much", StringComparison.Ordinal) && p.Message.Contains("combination of lengths", StringComparison.Ordinal));
+
         Publish(ReturnSlipJson(rules: """[{"id":"r_probe","kind":"pattern","params":{"path":"returnNumber","pattern":"^RMA-[0-9]{4,12}$"}}]""")).CanPublish.ShouldBeTrue();
     }
 

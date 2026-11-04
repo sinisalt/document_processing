@@ -398,9 +398,19 @@ public sealed class LayoutMapping
             return;
         }
 
-        if (pattern.Length > MaxPatternLength || !PatternSize.IsSmallEnough(pattern) || IdentificationRuleEvaluator.Compile(pattern) is null)
+        if (pattern.Length > MaxPatternLength)
         {
-            throw new LayoutMappingException(at, $"The pattern does not compile, is longer than {MaxPatternLength} characters or unrolls to more than {PatternSize.MaxUnrolled} atoms.");
+            throw new LayoutMappingException(at, $"The pattern is longer than {MaxPatternLength} characters.");
+        }
+
+        if (PatternSize.Problem(pattern) is { } problem)
+        {
+            throw new LayoutMappingException(at, $"The pattern repeats too much: {problem}");
+        }
+
+        if (IdentificationRuleEvaluator.Compile(pattern) is null)
+        {
+            throw new LayoutMappingException(at, "The pattern does not compile (NonBacktracking: no backreferences or lookarounds).");
         }
     }
 

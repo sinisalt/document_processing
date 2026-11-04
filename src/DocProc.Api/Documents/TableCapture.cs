@@ -477,9 +477,9 @@ public static partial class TableCapture
 
     /// <summary>
     /// A pattern as the platform runs patterns (NonBacktracking, culture-invariant, a time limit per match), or null with
-    /// the error; at most <see cref="MaxPatternLength"/> characters, and at most <see cref="PatternSize.MaxUnrolled"/>
-    /// once its counted repetitions are unrolled (a short pattern with nested <c>{0,99}</c> would cost the shared API
-    /// seconds of CPU and hundreds of megabytes per line). Field patterns of the type version come through here too.
+    /// the error; at most <see cref="MaxPatternLength"/> characters, and within the bounds of <see cref="PatternSize"/>
+    /// (a short pattern with nested <c>{0,99}</c>, or a repeated group whose length varies, would cost the shared API
+    /// seconds of CPU per line, which the time limit does not cut). Field patterns of the type version come through here too.
     /// </summary>
     private static Regex? Pattern(string? pattern, string key, Dictionary<string, string[]> errors, bool ignoreCase = false)
     {
@@ -489,9 +489,9 @@ public static partial class TableCapture
             return null;
         }
 
-        if (!PatternSize.IsSmallEnough(pattern))
+        if (PatternSize.Problem(pattern) is { } problem)
         {
-            errors[key] = [$"The pattern repeats too much: counted repetitions such as {{0,99}} are unrolled, and nested ones multiply; at most {PatternSize.MaxUnrolled} characters unrolled."];
+            errors[key] = [$"The pattern repeats too much: {problem}"];
             return null;
         }
 

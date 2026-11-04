@@ -255,7 +255,8 @@ public sealed class IdentificationRuleTests
         Problems("""{ "none": [ { "text": "Gutschrift" } ] }""").ShouldContain(p => p.Message.Contains("positive identifier", StringComparison.Ordinal));
         Problems("""{ "all": [ { "text": "Rechnung", "allowOcrErrors": true } ] }""").ShouldContain(p => p.Path == "all[0]" && p.Message.Contains("only positive", StringComparison.Ordinal));
         Problems("""{ "all": [ { "regex": "(a)\\1" } ] }""").ShouldContain(p => p.Message.Contains("does not compile", StringComparison.Ordinal));
-        Problems("""{ "all": [ { "regex": "(?:[^x]{0,99}\\d){0,99}x" } ] }""").ShouldContain(p => p.Message.Contains("unrolls", StringComparison.Ordinal));
+        Problems("""{ "all": [ { "regex": "(?:[^x]{0,99}\\d){0,99}x" } ] }""").ShouldContain(p => p.Message.Contains("unrolled", StringComparison.Ordinal));
+        Problems("""{ "all": [ { "regex": "(.{0,15}a){30}x" } ] }""").ShouldContain(p => p.Path == "all[0]" && p.Message.Contains("combination of lengths", StringComparison.Ordinal));
         Problems("""{ "all": [ { "supplierValue": "vatId" }, { "text": "Rechnung" } ] }""", IdentificationScope.Tenant).ShouldContain(p => p.Path == "all[0]");
         Problems("""{ "all": [ { "cell": "A1", "equals": "Preisliste" } ] }""").ShouldContain(p => p.Message.Contains("P6", StringComparison.Ordinal));
         Problems("""{ "all": [ { "supplierValue": "name" } ] }""").ShouldNotBeEmpty("the meta-schema names the keys");

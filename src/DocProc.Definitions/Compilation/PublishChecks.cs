@@ -294,7 +294,7 @@ public static class PublishChecks
             {
                 yield return new DefinitionProblem(at, DocProc.Domain.Validation.PatternSize.IsSmallEnough(pattern)
                     ? "pattern is not a valid regular expression (backreferences, lookarounds and atomic groups are not supported)."
-                    : DefinitionChecker.TooLarge("pattern"));
+                    : DefinitionChecker.TooLarge("pattern", pattern));
             }
 
             foreach (var name in kind.PathParams)

@@ -220,6 +220,7 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
     [Theory]
     [InlineData("""{ "none": [ { "text": "Gutschrift" } ] }""", "rule.(root)")]
     [InlineData("""{ "all": [ { "regex": "(a)\\1" } ] }""", "rule.all[0]")]
+    [InlineData("""{ "all": [ { "text": "Rechnung" }, { "regex": "(.{0,15}e){30}q" } ] }""", "rule.all[1]")]
     [InlineData("""{ "all": [ { "text": "x", "colour": "red" } ] }""", "rule./all/0")]
     public async Task A_rule_that_does_not_pass_the_checks_at_save_is_refused_with_its_place(string rule, string key)
     {
