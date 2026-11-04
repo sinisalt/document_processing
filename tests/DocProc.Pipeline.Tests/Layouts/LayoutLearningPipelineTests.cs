@@ -298,9 +298,6 @@ public sealed class LayoutLearningPipelineTests
         var tree = JsonNode.Parse(first.CanonicalJson!)!.ToJsonString();
         tree.ShouldContain(DemoNordwindInvoices.WebShop[0].Number);
         tree.ShouldContain("401187");
-        // The ERP layout's constant tax rate alone makes no tax row (it raised TAX_MISMATCH and INVALID_VALUE in the compose demo).
-        (JsonNode.Parse(first.CanonicalJson!)!["taxBreakdown"] as JsonArray ?? []).ShouldBeEmpty();
-        first.Flags.ShouldNotContain(f => f.Code == FlagCodes.TaxMismatch || f.Code == FlagCodes.InvalidValue);
 
         // Saved by a MappingAuthor: the replay reads the lines as the stored record has them (units by name), so the
         // forked invoice's own rows agree and the version is Active (the compose demo got 0 % on lines before).
@@ -310,6 +307,35 @@ public sealed class LayoutLearningPipelineTests
         saved.Code.ShouldBeNull(saved.Problem);
         saved.Activation!.Activated.ShouldBeTrue(saved.Activation.Refusal + " " + string.Join(", ", saved.Activation.Replay.Fields.Select(f => $"{f.Path} {f.Agreement}")));
         saved.Activation.Replay.Fields.Single(f => f.Path == "lines").Agreement.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public async Task A_single_tax_rate_without_a_breakdown_takes_its_amounts_from_the_printed_totals()
+    {
+        // The web shop prints one rate and its totals but no breakdown: the learned layout has the rate as a constant.
+        // Without amounts the row raised "the taxable amounts sum to 0.00" (TAX_MISMATCH) in the compose demo.
+        await using var host = await PipelineTestHost.StartAsync();
+        using var scope = host.CreateTenantScope(PipelineTestHost.TenantA);
+        var configs = scope.ServiceProvider.GetRequiredService<IEffectiveConfigResolver>();
+        var descriptors = (await configs.ResolveAsync(new EffectiveConfigRequest(PipelineTestHost.TenantA, DocProc.Domain.Documents.DocumentTypeKey.Invoice, null), Ct)).Type!.Compiled!.Descriptors;
+        LayoutHit Hit(string path, string kind, JsonNode value) => new(path, kind, value.ToJsonString(), value, 1, null, "test@1#" + path, "label-right", 0.95);
+        var hits = new[]
+        {
+            Hit("taxBreakdown.rate", "percent", JsonValue.Create(19m)),
+            Hit("subtotalNet", "money", JsonValue.Create(83.10m)),
+            Hit("totalTax", "money", JsonValue.Create(15.79m)),
+        };
+
+        var (tree, written) = LayoutTreeWriter.Build(descriptors, new LayoutExtraction(hits, new Dictionary<string, DocProc.Mapping.Tables.TableResult>(), new DriftReport(0, 0, [], [], false)), [], new Dictionary<string, string>(), "EUR", typedRecord: true, DocProc.Domain.Documents.DocumentTypeKey.Invoice);
+
+        var row = tree["taxBreakdown"]!.AsArray().ShouldHaveSingleItem()!.AsObject();
+        row["taxableAmount"]!["amount"]!.GetValue<decimal>().ShouldBe(83.10m);
+        row["taxAmount"]!["amount"]!.GetValue<decimal>().ShouldBe(15.79m);
+        written["taxBreakdown.taxableAmount"].ShouldBe("derived:subtotalNet");
+
+        // Without the totals the rate-only row stays as it was read.
+        var (bare, _) = LayoutTreeWriter.Build(descriptors, new LayoutExtraction([hits[0]], new Dictionary<string, DocProc.Mapping.Tables.TableResult>(), new DriftReport(0, 0, [], [], false)), [], new Dictionary<string, string>(), "EUR", typedRecord: true, DocProc.Domain.Documents.DocumentTypeKey.Invoice);
+        bare["taxBreakdown"]!.AsArray().ShouldHaveSingleItem()!["taxableAmount"].ShouldBeNull();
     }
 
     [Fact]

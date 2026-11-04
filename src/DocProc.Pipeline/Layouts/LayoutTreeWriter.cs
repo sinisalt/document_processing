@@ -92,17 +92,24 @@ internal static class LayoutTreeWriter
             }
         }
 
-        // A tax row of which only the rate was found (a constant rate of the layout, or of another layout in the pre-fill)
-        // is no tax row: it would only raise "the taxable amounts sum to 0.00". It is left out.
+        // A single tax row of which only the rate was found (a layout's constant rate; a design that prints one rate and
+        // its totals but no breakdown, like Nordwind's web shop) takes its amounts from the net total and the total tax,
+        // which are printed, so it is a whole row and not "the taxable amounts sum to 0.00".
         foreach (var taxRows in descriptors.Roots.Where(f => f.Kind == FieldKinds.TaxRow && f.IsList && !f.Provenance))
         {
-            if (root[taxRows.Key] is JsonArray rows && rows.Count > 0 && rows.All(r => r is JsonObject row && row["taxableAmount"] is null && row["taxAmount"] is null))
+            if (root[taxRows.Key] is not JsonArray rows || rows.Count == 0 || !rows.All(r => r is JsonObject row && row["taxableAmount"] is null && row["taxAmount"] is null))
             {
-                root[taxRows.Key] = new JsonArray();
-                foreach (var key in written.Keys.Where(k => k.StartsWith($"{taxRows.Key}.", StringComparison.Ordinal)).ToList())
-                {
-                    written.Remove(key);
-                }
+                continue;
+            }
+
+            var net = DefinitionTree.ValueOf(root["subtotalNet"] as JsonObject);
+            var tax = DefinitionTree.ValueOf(root["totalTax"] as JsonObject);
+            if (rows.Count == 1 && rows[0] is JsonObject single && net is JsonObject && tax is JsonObject)
+            {
+                single["taxableAmount"] = net.DeepClone();
+                single["taxAmount"] = tax.DeepClone();
+                written[$"{taxRows.Key}.taxableAmount"] = "derived:subtotalNet";
+                written[$"{taxRows.Key}.taxAmount"] = "derived:totalTax";
             }
         }
 
