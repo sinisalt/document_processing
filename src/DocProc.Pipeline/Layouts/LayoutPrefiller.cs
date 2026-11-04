@@ -125,6 +125,10 @@ internal sealed class LayoutPrefiller(DocProcDbContext db, PipelineBlobs blobs, 
             Take(LayoutPrefill.Search(LayoutPrefill.FromLayouts(others), words, KindOf, locale, cancellationToken), PrefillSources.OtherLayout);
         }
 
+        // 2b. The type's own labels (display and extraction labels, every language) for what the other layouts did not find:
+        // the only label source of a supplier's first layout of a type.
+        Take(LayoutPrefill.SearchDefinitionLabels(DefinitionLabelsOf(type.Definition).Where(f => !sources.ContainsKey(f.Path)), words, KindOf, locale, cancellationToken), PrefillSources.DefinitionLabel);
+
         // 3. Master data and known values, located on the page by their text.
         var located = new List<PrefillValue>();
         var party = descriptors.Find("supplier") is { Kind: FieldKinds.Party } ? "supplier" : null;
@@ -181,6 +185,16 @@ internal sealed class LayoutPrefiller(DocProcDbContext db, PipelineBlobs blobs, 
 
         return new PrefillApplication(extracted, sources, extraction, basis);
     }
+
+    /// <summary>The type's top-level fields with their labels: extraction labels first (they name how the value is printed), then the display labels.</summary>
+    internal static IEnumerable<DefinitionLabels> DefinitionLabelsOf(TypeDefinition definition) =>
+        definition.Fields
+            .Where(f => !f.Deprecated && !f.ReadOnly)
+            .Select(f => new DefinitionLabels(
+                f.Key,
+                f.Kind,
+                [.. (f.Extraction?.Labels?.Values.SelectMany(l => l) ?? []), .. (f.Label?.Values ?? [])]))
+            .Where(f => f.Labels.Count > 0);
 
     /// <summary>
     /// The values that were the same on every approved document of the supplier and type (at least

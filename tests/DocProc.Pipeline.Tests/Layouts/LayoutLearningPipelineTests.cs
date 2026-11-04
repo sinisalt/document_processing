@@ -246,4 +246,31 @@ public sealed class LayoutLearningPipelineTests
         overlapping.Activation.Replay.Overlaps.Select(o => o.DocumentId).ShouldContain(erpDocument.Id);
         overlapping.Version!.Status.ShouldBe(SupplierLayoutVersionStatus.Candidate);
     }
+
+    [Fact]
+    public async Task The_prefill_reads_the_number_by_the_types_labels_and_an_LLM_that_cannot_answer_leaves_the_prefill_for_review()
+    {
+        // The demo stacks' LLM is a replay store without an answer for this PDF (a miss is InvalidRequest, never retried):
+        // the pre-filled values stand and the document waits in review instead of failing.
+        var (host, nordwind) = await StartAsync();
+        await using var _ = host;
+        await host.AddReplayProviderAsync();
+        for (var i = 0; i < 4; i++)
+        {
+            host.Llm.Enqueue(new DocProc.Llm.LlmException(DocProc.Llm.LlmErrorKind.InvalidRequest, "No recorded response for this request."));
+        }
+
+        await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, NordwindLayouts.ErpRule, NordwindLayouts.ErpMapping());
+
+        var document = await ProcessAsync(host, DemoNordwindInvoices.WebShop[0]);
+
+        document.Status.ShouldBe(DocumentStatus.NeedsReview, document.FailureReason);
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.NewLayout && f.ResolvedAt == null);
+        var tree = JsonNode.Parse(document.CanonicalJson.ShouldNotBeNull())!.AsObject();
+        Value(tree, "invoiceNumber")!["verbatim"]!.GetValue<string>().ShouldBe(DemoNordwindInvoices.WebShop[0].Number, "'Invoice no.', the template's label, is printed in the web-shop box; 'Rechnungs-Nr.' of the ERP layout is not");
+        tree["invoiceNumber"]!["status"]!.GetValue<string>().ShouldBe("Inferred");
+        var prefill = JsonNode.Parse(document.AppliedConfigJson!)!["prefill"]!;
+        prefill["sources"]!["invoiceNumber"]!.GetValue<string>().ShouldBe(PrefillSources.DefinitionLabel);
+        prefill["filledByLlm"]!.GetValue<bool>().ShouldBeFalse();
+    }
 }

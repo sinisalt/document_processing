@@ -97,7 +97,27 @@ internal static class DemoNordwindInvoices
         ]),
     ];
 
-    public static IEnumerable<Invoice> All => Erp.Concat(WebShop);
+    /// <summary>
+    /// One more of each design for the compose demo (docs/09 "Demo: routing and layouts"): the ERP invoice dropped into the
+    /// watched folder, and the web-shop invoice the second tenant gets while its layout is still a Candidate. Kept out of
+    /// <see cref="Erp"/> and <see cref="WebShop"/>, whose counts the pipeline tests rely on.
+    /// </summary>
+    public static IReadOnlyList<Invoice> More { get; } =
+    [
+        new(Design.Erp, "NW-RE-2026-1130", new DateOnly(2026, 11, 2),
+        [
+            new(1, "100234", "Riesling trocken Pfalz 0,75 l", 12, "Stk", 6.90m),
+            new(2, "200015", "Pils 20 x 0,5 l", 10, "Kiste", 16.90m),
+            new(3, "500077", "Olivenöl nativ extra 5 l", 1, "Stk", 38.50m),
+        ]),
+        new(Design.WebShop, "WS-2026-000391", new DateOnly(2026, 11, 3),
+        [
+            new(1, "100410", "Spätburgunder Baden 0,75 l", 6, "Stk", 9.90m),
+            new(2, "500140", "Kapern 0,5 kg", 2, "Stk", 9.20m),
+        ]),
+    ];
+
+    public static IEnumerable<Invoice> All => Erp.Concat(WebShop).Concat(More);
 
     /// <summary>A German amount (<c>1.234,50</c>; the build runs with invariant globalization, so the separators are swapped by hand).</summary>
     public static string Amount(decimal value) =>

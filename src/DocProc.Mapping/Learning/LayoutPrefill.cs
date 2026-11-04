@@ -15,8 +15,12 @@ public static class PrefillSources
     public const string OtherLayout = "otherLayout";
     public const string KnownValue = "knownValue";
     public const string PendingLayout = "pendingLayout";
+    public const string DefinitionLabel = "definitionLabel";
     public const string Llm = "llm";
 }
+
+/// <summary>A top-level field of the type with the labels it is printed under (its display labels and extraction labels, every language).</summary>
+public sealed record DefinitionLabels(string Path, string Kind, IReadOnlyList<string> Labels);
 
 /// <summary>A value the pre-fill searches for on the page: the supplier's master data or a value that was the same on every approved document of the supplier.</summary>
 public sealed record PrefillValue(string Path, string Kind, string Text, string Source, bool WriteUnplaced = false);
@@ -95,6 +99,64 @@ public static class LayoutPrefill
         ArgumentNullException.ThrowIfNull(mapping);
         var run = LayoutEngine.Run(mapping, words, "prefill@0", kindOf, _ => null, locale, cancellationToken: cancellationToken);
         return [.. run.Hits.Select(h => h with { Confidence = Math.Min(h.Confidence, LabelConfidence), Inferred = true, RuleRef = PrefillSources.OtherLayout, Strategy = PrefillSources.OtherLayout })];
+    }
+
+    /// <summary>The field kinds the type's own labels are searched for: values that always carry a digit.</summary>
+    private static readonly HashSet<string> DigitKinds = new(StringComparer.Ordinal) { "identifier", "money", "date", "integer", "decimal", "percent" };
+
+    /// <summary>
+    /// The type's own labels (docs/11 §12.10 step 4, P4 part D): for a field of a kind that is always printed with a digit
+    /// (identifiers, amounts, dates, numbers), its display labels and extraction labels in every language, searched as
+    /// label-right and then label-below anywhere in the document, one label at a time; a value without a digit, or one
+    /// holding a word of the field's labels (the rest of a bilingual label, "/ Invoice no.:"), is no hit. This is what pre-fills a supplier's first layout of a type,
+    /// when it has no other layout whose labels could be borrowed.
+    /// </summary>
+    public static IReadOnlyList<LayoutHit> SearchDefinitionLabels(IEnumerable<DefinitionLabels> fields, DocumentWords words, Func<string, LayoutFieldKind?> kindOf, ValueLocale locale, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        ArgumentNullException.ThrowIfNull(words);
+        var hits = new List<LayoutHit>();
+        foreach (var field in fields)
+        {
+            if (!DigitKinds.Contains(field.Kind))
+            {
+                continue;
+            }
+
+            // The words of the field's labels: a value that holds one is the rest of another label on the same line.
+            var labelWords = field.Labels
+                .SelectMany(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Select(w => IdentificationRuleEvaluator.Token(w))
+                .Where(w => w.Length >= 2 && w.Any(char.IsLetter))
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var label in field.Labels.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var labels = new JsonArray(JsonValue.Create(label));
+                var mapping = LayoutMapping.Parse(new JsonObject
+                {
+                    ["fields"] = new JsonObject
+                    {
+                        [field.Path] = new JsonObject
+                        {
+                            ["rules"] = new JsonArray(
+                                new JsonObject { ["strategy"] = LayoutStrategies.LabelRight, ["labels"] = labels.DeepClone() },
+                                new JsonObject { ["strategy"] = LayoutStrategies.LabelBelow, ["labels"] = labels.DeepClone() }),
+                        },
+                    },
+                }.ToJsonString());
+                var hit = LayoutEngine.Run(mapping, words, "prefill@0", kindOf, _ => null, locale, cancellationToken: cancellationToken).Hits
+                    .FirstOrDefault(h => h.Path == field.Path && h.Value is not null && h.Text.Any(char.IsDigit)
+                        && !h.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(w => labelWords.Contains(IdentificationRuleEvaluator.Token(w))));
+                if (hit is not null)
+                {
+                    hits.Add(hit with { Confidence = Math.Min(hit.Confidence, LabelConfidence), Inferred = true, RuleRef = PrefillSources.DefinitionLabel, Strategy = PrefillSources.DefinitionLabel });
+                    break;
+                }
+            }
+        }
+
+        return hits;
     }
 
     /// <summary>

@@ -34,6 +34,7 @@ public static class DevUsers
         new("tenant-a-reviewer", "reviewer@tenant-a.local", "Rea", "Reviewer", [Roles.Reviewer, Roles.MappingAuthor], TenantA),
         new("tenant-b-admin", "admin@tenant-b.local", "Bo", "Admin", [Roles.TenantAdmin], TenantB),
         new("tenant-b-viewer", "viewer@tenant-b.local", "Vic", "Viewer", [Roles.Viewer], TenantB),
+        new("tenant-b-reviewer", "reviewer@tenant-b.local", "Ben", "Reviewer", [Roles.Reviewer], TenantB),
     ];
 
     public static DevUser? Find(string? username) =>

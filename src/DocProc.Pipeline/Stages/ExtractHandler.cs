@@ -127,12 +127,14 @@ internal sealed class ExtractHandler(
                 {
                     filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
                 }
-                catch (DocProc.Llm.LlmException ex) when (ex.Kind == DocProc.Llm.LlmErrorKind.Unavailable)
+                catch (DocProc.Llm.LlmException ex) when (!ex.IsRetryable)
                 {
-                    // No LLM is configured for the tenant: the layout's values stand, and review fills the rest (§12.10 step 4).
+                    // No LLM is configured for the tenant, or it cannot answer this request (a replay store without the
+                    // document, a refusal, a key or quota problem): the layout's values stand, and review fills the rest
+                    // (§12.10 step 4). Only a retryable failure retries the stage.
                     if (Logger.IsEnabled(LogLevel.Information))
                     {
-                        Logger.LogInformation("Document {DocumentId}: no LLM is configured to fill what the layout left Missing; the layout's values stand.", document.Id);
+                        Logger.LogInformation("Document {DocumentId}: the LLM did not fill what the layout left Missing ({Kind}); the layout's values stand.", document.Id, ex.Kind);
                     }
                 }
 
@@ -161,12 +163,14 @@ internal sealed class ExtractHandler(
                 {
                     filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
                 }
-                catch (DocProc.Llm.LlmException ex) when (ex.Kind == DocProc.Llm.LlmErrorKind.Unavailable)
+                catch (DocProc.Llm.LlmException ex) when (!ex.IsRetryable)
                 {
-                    // No LLM is configured: the pre-filled values stand, and the panel says the LLM source was skipped (§12.10 step 4).
+                    // No LLM is configured, or it cannot answer this request (a replay store without the document, a
+                    // refusal, a key or quota problem): the pre-filled values stand, the document goes to review as it
+                    // is, and the panel says the LLM source was skipped (§12.10 step 4).
                     if (Logger.IsEnabled(LogLevel.Information))
                     {
-                        Logger.LogInformation("Document {DocumentId}: no LLM is configured to fill what the pre-fill left Missing.", document.Id);
+                        Logger.LogInformation("Document {DocumentId}: the LLM did not fill what the pre-fill left Missing ({Kind}).", document.Id, ex.Kind);
                     }
                 }
 

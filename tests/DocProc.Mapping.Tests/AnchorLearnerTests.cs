@@ -272,4 +272,35 @@ public sealed class AnchorLearnerTests
         vat.Page.ShouldBe(1);
         vat.Box.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void The_prefill_searches_the_types_own_labels_and_skips_a_value_without_a_digit()
+    {
+        // A bilingual web-shop box: "Rechnungsnummer / Invoice no.:" with the number far to the right.
+        var words = IdentificationRuleTests.Words(new PageBuilder(1)
+            .Text(330, 54, "RECHNUNG / INVOICE")
+            .Text(306, 96, "Rechnungsnummer / Invoice no.:").Text(500, 96, "WS-2026-000318")
+            .Text(306, 128, "Kundennummer / Customer no.:").Text(520, 128, "401187")
+            .Text(60, 300, "Gesamt / Total").Text(500, 300, "1.487,50 EUR"));
+        var fields = new[]
+        {
+            // The Invoice template's display labels for its number, its date, and a custom field's extraction labels.
+            new DefinitionLabels("invoiceNumber", FieldKinds.Identifier, ["Rechnungsnummer", "Invoice no."]),
+            new DefinitionLabels("issueDate", FieldKinds.Date, ["Rechnungsdatum", "Invoice date"]),
+            new DefinitionLabels("supplierCustomerRef", FieldKinds.Identifier, ["Kundennummer", "Kunden-Nr.", "Customer No."]),
+            new DefinitionLabels("customer.name", FieldKinds.String, ["Kunde"]),
+        };
+        var kinds = new Dictionary<string, LayoutFieldKind>(Kinds) { ["supplierCustomerRef"] = new(FieldKinds.Identifier) };
+
+        var hits = LayoutPrefill.SearchDefinitionLabels(fields, words, p => kinds.GetValueOrDefault(p), ValueLocale.German, TestContext.Current.CancellationToken);
+
+        var number = hits.Single(h => h.Path == "invoiceNumber");
+        number.Value!.GetValue<string>().ShouldBe("WS-2026-000318", "'Rechnungsnummer' reads '/ Invoice no.: WS-…', which holds a word of another label; 'Invoice no.' reads the number");
+        number.RuleRef.ShouldBe(PrefillSources.DefinitionLabel);
+        number.Inferred.ShouldBeTrue();
+        number.Page.ShouldBe(1);
+        hits.Single(h => h.Path == "supplierCustomerRef").Value!.GetValue<string>().ShouldBe("401187");
+        hits.ShouldNotContain(h => h.Path == "issueDate", "no date label is printed");
+        hits.ShouldNotContain(h => h.Path == "customer.name", "only kinds that carry a digit are searched by the type's labels");
+    }
 }

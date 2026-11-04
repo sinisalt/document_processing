@@ -53,7 +53,7 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
                 u.TryGetProperty("attributes", out var attributes) && attributes.TryGetProperty("tenant_id", out var tenant) ? Guid.Parse(tenant[0].GetString()!) : null))
             .OrderBy(u => u.Username, StringComparer.Ordinal)
             .ToList();
-        expected.Count.ShouldBe(6);
+        expected.Count.ShouldBe(7);
 
         using var client = factory.CreateClient();
         var users = (await client.GetFromJsonAsync<List<DevUser>>(UsersUri, Ct))!;
@@ -68,6 +68,8 @@ public sealed class DevAuthTests(DevModeFactory factory) : IClassFixture<DevMode
             .ToDictionary(u => u.GetProperty("username").GetString()!, u => u.GetProperty("tenantName").GetString());
         names["tenant-a-admin"].ShouldBe("Gasthaus zur Post GmbH");
         names["tenant-b-viewer"].ShouldBe("Pizzeria Napoli d.o.o.");
+        // The second demo tenant's reviewer holds no MappingAuthor grant (the Candidate path of docs/11 §12.10, P4 demo).
+        users.Single(u => u.Username == "tenant-b-reviewer").Roles.ShouldBe([Roles.Reviewer]);
         names["superadmin"].ShouldBeNull();
     }
 

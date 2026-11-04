@@ -299,6 +299,17 @@
       "attributes": { "tenant_id": ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] },
       "credentials": [{ "type": "password", "value": "tenant-b-viewer", "temporary": false }],
       "realmRoles": ["Viewer"]
+    },
+    {
+      "username": "tenant-b-reviewer",
+      "enabled": true,
+      "email": "reviewer@tenant-b.local",
+      "emailVerified": true,
+      "firstName": "Ben",
+      "lastName": "Reviewer",
+      "attributes": { "tenant_id": ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] },
+      "credentials": [{ "type": "password", "value": "tenant-b-reviewer", "temporary": false }],
+      "realmRoles": ["Reviewer"]
     }
   ]
 }

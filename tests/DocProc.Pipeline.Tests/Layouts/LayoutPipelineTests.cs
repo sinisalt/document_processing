@@ -149,6 +149,28 @@ public sealed class LayoutPipelineTests
     }
 
     [Fact]
+    public async Task The_demo_layout_fixture_identifies_and_fills_every_ERP_invoice()
+    {
+        // fixtures/demo/layouts/nordwind-invoice-erp.json is the body docs/09 "Demo: routing and layouts" posts to
+        // /suppliers/{id}/layouts; it must read every ERP invoice of the demo, the one dropped into the folder included.
+        var (host, nordwind) = await StartAsync();
+        await using var _ = host;
+        var body = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(DemoFixtureTests.RepositoryRoot(), "fixtures", "demo", "layouts", "nordwind-invoice-erp.json"), TestContext.Current.CancellationToken))!;
+        body["layoutKey"]!.GetValue<string>().ShouldBe(NordwindLayouts.ErpKey);
+        var (_, version) = await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, body["identification"]!.ToJsonString(), body["mapping"]!.ToJsonString());
+
+        foreach (var invoice in DemoNordwindInvoices.Erp.Append(DemoNordwindInvoices.More[0]))
+        {
+            var document = await ProcessAsync(host, invoice);
+            document.SupplierLayoutVersionId.ShouldBe(version.Id, invoice.Number);
+            ShouldHoldTheInvoice(document, invoice);
+            document.Status.ShouldBe(DocumentStatus.AutoApproved, invoice.Number);
+        }
+
+        (await ProcessAsync(host, DemoNordwindInvoices.More[1])).Flags.ShouldContain(f => f.Code == FlagCodes.NewLayout, "the web-shop design is not this layout's");
+    }
+
+    [Fact]
     public async Task Both_designs_are_identified_by_their_own_layout_and_filled_with_their_golden_values()
     {
         var (host, nordwind) = await StartAsync();
