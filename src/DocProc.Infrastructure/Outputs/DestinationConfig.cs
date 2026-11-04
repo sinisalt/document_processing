@@ -131,7 +131,10 @@ public static partial class DestinationConfig
     /// stored secret somewhere it was not set up for: another origin (scheme, host and port) of <c>urlTemplate</c>, of
     /// the URL a re-approval sends to (<c>updateUrlTemplate</c>, else <c>urlTemplate</c>) or of the OAuth
     /// <c>tokenUrl</c>, another <c>auth.type</c>, or another <c>headerName</c>. Empty when the new auth sends no secret
-    /// (<c>none</c>, and <c>hmacSha256</c>, whose key never leaves) or nothing of that changed. Such a change needs the
+    /// (<c>none</c>; any later move to an auth that sends one changes <c>auth.type</c> again), when an <c>hmacSha256</c>
+    /// destination stays <c>hmacSha256</c> (a key set up for signing never leaves, so its origin may move), or when
+    /// nothing of that changed. A move from another auth type to <c>hmacSha256</c> is a change: the stored credential
+    /// would become a signing key whose signatures over a known text go to the new host. Such a change needs the
     /// secret again (docs/05, <c>PATCH /destinations/{id}</c>): otherwise anyone who may edit the destination could
     /// point it at a host of their own and read the credential set up for the real receiver.
     /// </summary>
@@ -140,13 +143,22 @@ public static partial class DestinationConfig
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         var type = AuthTypeOf(after);
-        if (type is HttpAuthTypes.None or HttpAuthTypes.HmacSha256)
+        var typeChanged = AuthTypeOf(before) != type;
+        if (type == HttpAuthTypes.None)
         {
             return [];
         }
 
+        if (type == HttpAuthTypes.HmacSha256)
+        {
+            // A key set up for HMAC signs and never travels, so it may follow the destination to another host. A
+            // credential set up for another auth type may not become that key without being given again: the receiver
+            // gets HMAC(secret, timestamp + "." + body) over text it knows, and a guessable password falls offline.
+            return typeChanged ? ["auth.type"] : [];
+        }
+
         var changes = new List<string>();
-        if (AuthTypeOf(before) != type)
+        if (typeChanged)
         {
             changes.Add("auth.type");
         }
@@ -174,6 +186,50 @@ public static partial class DestinationConfig
         return changes;
     }
 
+    /// <summary>
+    /// The text of a URL template up to the end of its authority: up to the first <c>/</c>, <c>?</c> or <c>#</c> after
+    /// <c>://</c>, or the whole text when it has no <c>://</c>. A <c>\</c>, which a URL parser may read as <c>/</c>,
+    /// does not end it, so a template is judged by the longest text that can still be its host.
+    /// </summary>
+    private static string OriginText(string template)
+    {
+        var start = template.IndexOf("://", StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return template;
+        }
+
+        var end = template.IndexOfAny(['/', '?', '#'], start + 3);
+        return end < 0 ? template : template[..end];
+    }
+
+    /// <summary>
+    /// Whether a URL template has a <c>{{...}}</c> placeholder (or the start of one) in its scheme or authority. A
+    /// value is escaped as one segment, which leaves <c>.</c> and <c>-</c> as they are, so a placeholder there would
+    /// let the rendered payload, and so a document's content, choose the host that gets the delivery and its credential.
+    /// </summary>
+    public static bool HasPlaceholderInOrigin(string template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        return OriginText(template).Contains("{{", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="expanded"/>, the URL a delivery is sent to, has the scheme, host and port of
+    /// <paramref name="template"/> as it is written (its placeholders, which stand in the path and the query only, read
+    /// as text). False for a template with a placeholder in its origin, and for one that does not parse.
+    /// </summary>
+    public static bool KeepsTemplateOrigin(string template, Uri expanded)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(expanded);
+        return !HasPlaceholderInOrigin(template)
+            && Uri.TryCreate(Placeholder().Replace(template, "x"), UriKind.Absolute, out var literal)
+            && string.Equals(literal.Scheme, expanded.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(literal.IdnHost, expanded.IdnHost, StringComparison.OrdinalIgnoreCase)
+            && literal.Port == expanded.Port;
+    }
+
     /// <summary>Whether two URL templates name the same origin: the text before the path (<c>scheme://host:port</c>), case-insensitive, with the scheme's default port written or not.</summary>
     private static bool SameOrigin(string? before, string? after) => string.Equals(Origin(before), Origin(after), StringComparison.Ordinal);
 
@@ -184,14 +240,7 @@ public static partial class DestinationConfig
             return null;
         }
 
-        var start = template.IndexOf("://", StringComparison.Ordinal);
-        if (start < 0)
-        {
-            return template.Trim().ToLowerInvariant();
-        }
-
-        var end = template.IndexOfAny(['/', '?', '#'], start + 3);
-        var origin = (end < 0 ? template : template[..end]).Trim().ToLowerInvariant();
+        var origin = OriginText(template).Trim().ToLowerInvariant();
         return origin.EndsWith(":443", StringComparison.Ordinal) && origin.StartsWith("https://", StringComparison.Ordinal) ? origin[..^4]
             : origin.EndsWith(":80", StringComparison.Ordinal) && origin.StartsWith("http://", StringComparison.Ordinal) ? origin[..^3]
             : origin;
@@ -298,7 +347,11 @@ public static partial class DestinationConfig
 
         if (Text(config[name]) is not { Length: > 0 } url || url.Length > MaxTemplateLength)
         {
-            problems.Add(($"config.{name}", $"{name} is {(required ? "required: " : string.Empty)}an absolute http or https URL of at most {MaxTemplateLength} characters ({{{{...}}}} placeholders allowed)."));
+            problems.Add(($"config.{name}", $"{name} is {(required ? "required: " : string.Empty)}an absolute http or https URL of at most {MaxTemplateLength} characters ({{{{...}}}} placeholders allowed in its path and query)."));
+        }
+        else if (HasPlaceholderInOrigin(url))
+        {
+            problems.Add(($"config.{name}", $"{name} has a placeholder in its scheme or host: placeholders go in the path or the query only, so the rendered payload cannot choose the host the delivery and its credential go to."));
         }
         else if (!Uri.TryCreate(Placeholder().Replace(url, "x"), UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo))
         {

@@ -1595,6 +1595,13 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
   (`$fmtNum(1234.5, 2, "", "")` gave `123450`) or one equal to the group separator (`1.234.50`); at any count, a
   separator with a digit or a sign. Without decimals the decimal separator is never written, so
   `$fmtNum(1234, 0, ".", ".")` stays `1.234`. The visual field map refuses the same settings.
+- Correction (P3, third review): refusing an empty, an equal and a digit-or-sign separator still let other text
+  write another number or none: `$fmtNum(1234.5, 2, "e", "")` gave `1234e50` (an exponent), and a group separator
+  that holds the decimal one gave text nobody can read back (`(1234567.5, 2, ",", ",,")` gave `1,,234,,567,50`). The
+  separators now come from short lists: the decimal separator is `.` or `,` (or empty with 0 decimals, where it is
+  never written), the group separator none, `.`, `,`, `'`, a space, a no-break space (U+00A0) or a narrow no-break
+  space (U+202F), and with decimals the two differ; anything else is a `function` error. The visual field map
+  refuses the same settings.
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1716,6 +1723,22 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
     (reference and time it was set), token URL, client id and scope it was obtained with.
   - The OAuth token request counts against the attempt's `timeoutSeconds` (at most 30 s of it), so an attempt waits on
     a tenant's endpoints for at most its timeout, not the timeout plus 30 s.
+- Correction (P3, third review): two ways around the secret rules above remained.
+  - "Each value is one escaped URL segment" did not hold in the host: a placeholder was allowed anywhere in
+    `urlTemplate` and `updateUrlTemplate`, and the segment escaping leaves `.` and `-` alone, so with
+    `https://{{output.host}}/api` or `https://erp.example{{output.docNo}}/api` the rendered payload (and so a value of
+    the document or a supplier attribute the mapping copies) chose the host that got the delivery and its bearer token,
+    API key, Basic credential or OAuth token, and no `PATCH` of the destination ran the secret check. Placeholders now
+    go in the path and the query only: the text up to the first `/`, `?` or `#` after `://` (all of it without `://`)
+    may hold no `{{`, checked when the config is saved (400 under `config.urlTemplate` or `config.updateUrlTemplate`).
+    Before a send the transport refuses a template saved before the rule (a permanent `template` failure) and an
+    expanded URL whose scheme, host or port differs from the template's (a permanent `url` failure).
+  - The `hmacSha256` exemption let two `PATCH`es without the secret turn a credential set up for another auth type
+    into a signing key for a host of the editor's choosing: the receiver gets `HMAC-SHA256(secret, timestamp + "." +
+    body)` over text it knows, so a weak secret such as a person's Basic password can be guessed offline. A change of
+    `auth.type` now needs the secret again also when the new type is `hmacSha256`; the exemption stays only for an
+    `hmacSha256` destination that stays `hmacSha256` (a key set up for signing never leaves). A move to `none` needs
+    no secret, since nothing is sent, and any later move from `none` to an auth that sends one changes `auth.type`.
 
 ### 13.4 Multi-call recipes
 
@@ -1821,6 +1844,17 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
     of which one tenant holds at most `Delivery:MaxParallelismPerTenant` (default 2); the reader never waits for a
     delivery slot, so documents queued behind deliveries are taken at once. An attempt takes its
     `destination:document` key first, then its tenant's place, then a lane slot.
+  - Correction (P3, third review): the per-tenant share alone kept one tenant from filling the lane, not two. With
+    the defaults two tenants whose receivers never answer held two slots each, all four, for up to `timeoutSeconds`
+    on every retry round, and every other tenant's deliveries waited. A tenant that holds a slot now never takes the
+    lane's last free one, which is kept for a tenant that holds none (`DeliveryLaneGate`, which replaced the
+    per-tenant gate and the lane's semaphore; a freed slot goes to the first waiter whose tenant may take it). So one
+    or two tenants with slow receivers always leave a slot for the others; slow receivers fill the lane only when at
+    least ceil((`MaxParallelism` - 1) / `MaxParallelismPerTenant`) + 1 tenants have them (three with the defaults),
+    and in the worst case `MaxParallelism` tenants with one slow receiver each fill any bounded lane. The price: a
+    tenant's second attempt waits while only one slot is free, even when nobody else is waiting. Guaranteeing every
+    tenant a slot whatever the others do (a fair queue across tenants, or moving a receiver that keeps timing out to
+    a slower lane) is left for later (docs/07).
   - A tenant has at most 25 bindings and 25 destinations (409 beyond), which bounds the renders one approval's
     fan-out runs in the publish stage (a condition and a mapping per binding in scope).
   - The renderer pool answers `unavailable` after `Outputs:Renderer:QueueTimeout` (60 s) without a free process

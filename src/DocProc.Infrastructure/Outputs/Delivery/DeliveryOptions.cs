@@ -24,7 +24,10 @@ public sealed class DeliveryOptions
 
     /// <summary>
     /// Delivery attempts of one tenant a worker runs at once, within <see cref="MaxParallelism"/>: a tenant whose
-    /// receiver never answers ties up this many of the lane's slots, never all of them.
+    /// receiver never answers ties up at most this many of the lane's slots. A tenant that holds a slot never takes the
+    /// last free one, which is kept for a tenant with nothing in flight, so tenants with slow receivers fill the lane
+    /// only when at least ceil((<see cref="MaxParallelism"/> - 1) / this) + 1 of them have one (three with the
+    /// defaults); below that, the other tenants' deliveries go on.
     /// </summary>
     public int MaxParallelismPerTenant { get; set; } = 2;
 

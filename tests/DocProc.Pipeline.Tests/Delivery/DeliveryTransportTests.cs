@@ -460,8 +460,22 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         DestinationConfig.SecretRedirects(erp, Config("http://erp.example/api/ap")).ShouldContain("the host of urlTemplate");
         DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap", update: "https://attacker.example/{{meta.documentId}}")).ShouldBe(["the host of updateUrlTemplate"]);
         DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap", type: HttpAuthTypes.Basic)).ShouldBe(["auth.type"]);
-        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.HmacSha256)).ShouldBeEmpty("an HMAC key never leaves");
-        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.None)).ShouldBeEmpty();
+        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.None)).ShouldBeEmpty("none sends nothing, and a later move to an auth that sends a secret changes auth.type again");
+
+        // A bearer token, a basic password or any other credential does not become an HMAC key for another host
+        // without the secret again: the receiver would get HMAC(secret, timestamp.body) over text it knows.
+        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.HmacSha256)).ShouldBe(["auth.type"]);
+        DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap", type: HttpAuthTypes.HmacSha256)).ShouldBe(["auth.type"]);
+        var basic = Config("https://erp.example/api", HttpAuthTypes.Basic);
+        DestinationConfig.SecretRedirects(basic, Config("https://collector.attacker.example/hook", HttpAuthTypes.HmacSha256)).ShouldBe(["auth.type"]);
+        var none = Config("https://erp.example/api", HttpAuthTypes.None);
+        DestinationConfig.SecretRedirects(none, Config("https://erp.example/api", HttpAuthTypes.HmacSha256)).ShouldBe(["auth.type"]);
+        DestinationConfig.SecretRedirects(none, Config("https://erp.example/api", HttpAuthTypes.Bearer)).ShouldBe(["auth.type"]);
+
+        // A key set up for HMAC signs and never travels: it may follow the destination to another origin.
+        var hmac = Config("https://erp.example/api", HttpAuthTypes.HmacSha256);
+        DestinationConfig.SecretRedirects(hmac, Config("https://other.example/hook", HttpAuthTypes.HmacSha256)).ShouldBeEmpty("an HMAC key never leaves");
+        DestinationConfig.SecretRedirects(hmac, Config("https://erp.example/api", HttpAuthTypes.Bearer)).ShouldBe(["auth.type"]);
 
         var oauth = Config("https://erp.example/api/ap", HttpAuthTypes.OAuth2ClientCredentials, tokenUrl: "https://login.example/token");
         DestinationConfig.SecretRedirects(oauth, Config("https://erp.example/api/ap", HttpAuthTypes.OAuth2ClientCredentials, tokenUrl: "https://login.example/v2/token")).ShouldBeEmpty();
@@ -615,6 +629,42 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
     }
 
     [Fact]
+    public async Task The_payload_cannot_choose_the_host_a_credential_goes_to()
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(201) };
+        var (transport, secrets) = Http(receiver);
+
+        // Saved before the check of the config: a placeholder in the host, filled from the rendered payload.
+        var config = new JsonObject { ["urlTemplate"] = $"http://{{{{output.h}}}}:{receiver.Port}/x", ["auth"] = new JsonObject { ["type"] = "bearer" } };
+        var context = Context(receiver, config);
+        context = context with { Values = context.Values with { Output = JsonNode.Parse("""{"h":"127.0.0.1"}""") } };
+        await secrets.SetAsync(context.Destination.SecretRef!, "TOPSECRET", Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+        outcome.ErrorClass.ShouldBe("permanent:template");
+        receiver.Requests.ShouldBeEmpty("nothing is sent, so neither is the token");
+
+        var update = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["updateUrlTemplate"] = $"http://127.0.0.1{{{{output.sfx}}}}:{receiver.Port}/x", ["auth"] = new JsonObject { ["type"] = "bearer" } }, eventType: OutputEvents.Updated);
+        update = update with { Values = update.Values with { Output = JsonNode.Parse("""{"sfx":".nip.example"}""") } };
+        await secrets.SetAsync(update.Destination.SecretRef!, "TOPSECRET", Ct);
+        (await transport.SendAsync(update, Ct)).ErrorClass.ShouldBe("permanent:template");
+        receiver.Requests.ShouldBeEmpty();
+
+        // The check at send time compares the expanded URL with the template's literal scheme, host and port.
+        DestinationConfig.KeepsTemplateOrigin("https://erp.example/api/{{output.x}}", new Uri("https://erp.example/api/PL%202027")).ShouldBeTrue();
+        DestinationConfig.KeepsTemplateOrigin("https://ERP.example:443/api/{{output.x}}", new Uri("https://erp.example/api/1")).ShouldBeTrue();
+        DestinationConfig.KeepsTemplateOrigin("https://erp.example/api/{{output.x}}", new Uri("https://evil.example/api/1")).ShouldBeFalse();
+        DestinationConfig.KeepsTemplateOrigin("https://erp.example/api/{{output.x}}", new Uri("https://erp.example:8443/api/1")).ShouldBeFalse();
+        DestinationConfig.KeepsTemplateOrigin("https://erp.example/api/{{output.x}}", new Uri("http://erp.example/api/1")).ShouldBeFalse();
+        DestinationConfig.KeepsTemplateOrigin("https://{{output.h}}/api", new Uri("https://x/api")).ShouldBeFalse("a placeholder in the origin is never the template's own");
+
+        // A value in the path stays one escaped segment: the receiver's host is the template's.
+        var path = context with { Config = new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x/{{output.h}}", ["auth"] = new JsonObject { ["type"] = "bearer" } }, Values = context.Values with { Output = JsonNode.Parse("""{"h":"@evil.example:1/../y"}""") } };
+        (await transport.SendAsync(path, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        receiver.Requests.ShouldHaveSingleItem().PathAndQuery.ShouldBe("/x/%40evil.example%3A1%2F..%2Fy");
+    }
+
+    [Fact]
     public async Task A_receiver_that_does_not_answer_in_time_is_retried()
     {
         using var receiver = new FakeReceiver
@@ -707,6 +757,17 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
             .ShouldContain(p => p.Field == "config.multipart.parts");
         DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/", ["headers"] = new JsonObject { ["X-DocProc-Signature"] = "x" } })
             .ShouldContain(p => p.Field == "config.headers.X-DocProc-Signature");
+        foreach (var url in new[] { "http://{{output.h}}:8080/x", "https://erp{{output.sfx}}/api", "https://erp.example{{output.docNo}}/api", "https://erp.example:{{meta.version}}/", "{{output.url}}", "http{{output.s}}://erp.example/", "https://erp.example\\{{output.x}}/api" })
+        {
+            foreach (var field in new[] { "urlTemplate", "updateUrlTemplate" })
+            {
+                var config = new JsonObject { ["urlTemplate"] = "https://erp.example/api", ["auth"] = new JsonObject { ["type"] = "bearer" } };
+                config[field] = url;
+                DestinationConfig.Validate(OutputTransports.Http, config).ShouldContain(p => p.Field == "config." + field && p.Message.Contains("path or the query only"), url);
+            }
+        }
+
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/{{output.a}}?b={{meta.version}}#{{meta.event}}" }).ShouldBeEmpty();
         DestinationConfig.Validate(OutputTransports.Blob, new JsonObject { ["path"] = "a", ["fileNameTemplate"] = "{{meta.documentId}}-{{meta.version}}.json" }).ShouldBeEmpty();
         DestinationConfig.Validate(OutputTransports.Blob, new JsonObject { ["path"] = "a", ["fileNameTemplate"] = "{{doc.number}}.json" }).ShouldContain(p => p.Field == "config.fileNameTemplate");
     }

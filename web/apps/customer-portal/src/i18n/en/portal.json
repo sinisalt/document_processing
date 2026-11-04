@@ -898,7 +898,7 @@
         "secret": "Secret"
       },
       "hints": {
-        "urlTemplate": "Placeholders: {{placeholders}}; output.<path> is a value of the rendered payload.",
+        "urlTemplate": "Placeholders in the path or the query only (the host is written out): {{placeholders}}; output.<path> is a value of the rendered payload.",
         "headers": "One per line, Name: value. Credentials go to the secret, not here.",
         "responseMapping": "A JSONata expression over the receiver's answer whose value is kept as the document's external id.",
         "updateUrlTemplate": "Used when a re-approved document is sent as an update (binding: on re-approval Update). Empty: the URL above.",

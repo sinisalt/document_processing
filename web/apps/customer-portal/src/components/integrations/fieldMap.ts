@@ -233,19 +233,27 @@ export function fieldMapOf(expression: string): { map: FieldMap | null; inSync: 
   return { map, inSync: map !== null && compileFieldMap(map) === expression };
 }
 
-/** What keeps the map from compiling to a sensible expression, row by row. */
+/** The decimal separators `$fmtNum` writes. */
+const DECIMAL_SEPARATORS = new Set([".", ","]);
+/** The group separators `$fmtNum` writes: none, or one character no number is written with. */
+const GROUP_SEPARATORS = new Set(["", ".", ",", "'", " ", " ", " "]);
+
 /**
- * The separators of `$fmtNum` as the renderer accepts them (a function error otherwise): with decimals the decimal
- * separator is not empty and differs from the group separator, and no separator holds a digit or a sign, so the text
- * reads back as the same number.
+ * The separators of `$fmtNum` as the renderer accepts them (a function error otherwise), so the text reads back as
+ * the same number: the decimal separator is "." or "," (or empty without decimals, where it is never written), the
+ * group separator none, ".", ",", "'", a space, a no-break space or a narrow no-break space, and with decimals the two
+ * differ.
  */
 export function separatorsValid(format: { decimals: number; decimalSeparator?: string; groupSeparator?: string }): boolean {
   const decimal = format.decimalSeparator ?? ".";
   const group = format.groupSeparator ?? "";
-  if (/[\p{Nd}+\-−]/u.test(decimal + group)) return false;
-  return Math.trunc(format.decimals) === 0 || (decimal !== "" && decimal !== group);
+  const withDecimals = Math.trunc(format.decimals) !== 0;
+  if (!(DECIMAL_SEPARATORS.has(decimal) || (!withDecimals && decimal === ""))) return false;
+  if (!GROUP_SEPARATORS.has(group)) return false;
+  return !withDecimals || decimal !== group;
 }
 
+/** What keeps the map from compiling to a sensible expression, row by row. */
 export function fieldMapProblems(map: FieldMap): FieldMapProblem[] {
   const problems: FieldMapProblem[] = [];
   const check = (rows: MapRow[], prefix: string, inList: boolean) => {

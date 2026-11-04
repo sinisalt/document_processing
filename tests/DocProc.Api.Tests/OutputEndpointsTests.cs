@@ -301,6 +301,56 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
         (await SecretErrors(await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { secret = "" }, Ct))).ShouldHaveSingleItem().ShouldContain("not empty");
     }
 
+    [Fact]
+    public async Task A_credential_does_not_become_an_hmac_key_for_another_host_without_the_secret_again()
+    {
+        var tenant = OutputsTenant("Secret to hmac");
+        using var admin = factory.TenantAdminOf(tenant);
+        var secrets = factory.Services.GetRequiredService<ISecretStore>();
+        var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "erp", transport = "http", config = new { urlTemplate = "https://erp.example/api", auth = new { type = "basic", username = "u" } }, secret = "Summer2026" }, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.Id;
+
+        foreach (var url in new[] { "https://collector.attacker.example/hook", "https://erp.example/api" })
+        {
+            var refused = await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = new { urlTemplate = url, auth = new { type = "hmacSha256" } } }, Ct);
+            refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest, await refused.Content.ReadAsStringAsync(Ct));
+            (await refused.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["secret"].ShouldHaveSingleItem().ShouldContain("auth.type");
+        }
+
+        var row = factory.Query(db => db.OutputDestinations.Single(d => d.Id == id));
+        row.ConfigJson.ShouldContain("\"basic\"");
+        row.ConfigJson.ShouldContain("https://erp.example/api");
+        (await secrets.GetAsync(row.SecretRef!, Ct)).ShouldBe("Summer2026");
+
+        // With a key given for the purpose, the switch is fine.
+        var switched = await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = new { urlTemplate = "https://collector.example/hook", auth = new { type = "hmacSha256" } }, secret = "a-long-random-signing-key" }, Ct);
+        switched.StatusCode.ShouldBe(HttpStatusCode.OK, await switched.Content.ReadAsStringAsync(Ct));
+        (await secrets.GetAsync(factory.Query(db => db.OutputDestinations.Single(d => d.Id == id).SecretRef)!, Ct)).ShouldBe("a-long-random-signing-key");
+    }
+
+    [Theory]
+    [InlineData("https://{{output.host}}/api")]
+    [InlineData("https://erp{{output.sfx}}/api")]
+    [InlineData("https://erp.example{{output.docNo}}/api")]
+    [InlineData("https://erp.example:{{meta.version}}/api")]
+    [InlineData("{{output.url}}")]
+    public async Task A_url_template_with_a_placeholder_in_its_host_is_refused(string url)
+    {
+        var tenant = OutputsTenant($"Host placeholder {Guid.NewGuid():N}");
+        using var admin = factory.TenantAdminOf(tenant);
+        var refused = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "erp", transport = "http", config = new { urlTemplate = url, auth = new { type = "bearer" } }, secret = "t" }, Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["config.urlTemplate"].ShouldHaveSingleItem().ShouldContain("path or the query only");
+
+        var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "erp", transport = "http", config = new { urlTemplate = "https://erp.example/api/{{output.docNo}}?v={{meta.version}}", auth = new { type = "bearer" } }, secret = "t" }, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var id = (await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.Id;
+        var patched = await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = new { urlTemplate = "https://erp.example/api", updateUrlTemplate = url, auth = new { type = "bearer" } }, secret = "t2" }, Ct);
+        patched.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await patched.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["config.updateUrlTemplate"].ShouldHaveSingleItem().ShouldContain("path or the query only");
+    }
+
     [Theory]
     [InlineData("bearer", "abc\r\nInjected: yes", "line break")]
     [InlineData("apiKeyHeader", "abc\ndef", "line break")]

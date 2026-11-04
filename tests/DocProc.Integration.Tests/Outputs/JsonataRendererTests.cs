@@ -89,6 +89,9 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     [InlineData("""$fmtNum(1234, 0, ".", ".")""", "1.234")]
     [InlineData("""$fmtNum(1234, 0, "", "'")""", "1'234")]
     [InlineData("""$fmtNum(1234.5, 2, ",", " ")""", "1 234,50")]
+    [InlineData("""$fmtNum(1234567.5, 2, ".", "'")""", "1'234'567.50")]
+    [InlineData("""$fmtNum(1234567.5, 2, ",", " ")""", "1 234 567,50")]
+    [InlineData("""$fmtNum(1234567.5, 2, ",", " ")""", "1 234 567,50")]
     [InlineData("""$today()""", "2026-11-03")]
     public async Task The_formatting_functions_and_today(string expression, string expected) =>
         (await OutputAsync(expression))!.GetValue<string>().ShouldBe(expected);
@@ -121,10 +124,18 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     [InlineData("""$fmtNum(1234.5, 2, "", ".")""", "decimal separator is not empty")]
     [InlineData("""$fmtNum(1234.5, 2, ".", ".")""", "differ")]
     [InlineData("""$fmtNum(1234.5, 2, ",", ",")""", "differ")]
-    [InlineData("""$fmtNum(1234.5, 2, "0")""", "no digit")]
-    [InlineData("""$fmtNum(1234.5, 2, ",", "1")""", "no digit")]
-    [InlineData("""$fmtNum(1234.5, 2, "-")""", "no digit")]
-    [InlineData("""$fmtNum(1234, 0, ".", "-")""", "no digit")]
+    [InlineData("""$fmtNum(1234.5, 2, "0")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234.5, 2, ",", "1")""", "group separator is")]
+    [InlineData("""$fmtNum(1234.5, 2, "-")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234, 0, ".", "-")""", "group separator is")]
+    [InlineData("""$fmtNum(1234.5, 2, "e", "")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234.5, 2, "E", "")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234, 0, "e", "")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234.5, 2, ", ", ".")""", "decimal separator is")]
+    [InlineData("""$fmtNum(1234567.5, 2, ",", ",,")""", "group separator is")]
+    [InlineData("""$fmtNum(1234567.5, 2, ".", " .")""", "group separator is")]
+    [InlineData("""$fmtNum(1234567.5, 2, ".", "e")""", "group separator is")]
+    [InlineData("""$fmtNum(1234567.5, 2, ".", "_")""", "group separator is")]
     public async Task A_custom_function_used_wrongly_is_a_function_error(string expression, string message)
     {
         var result = await RenderAsync(expression);

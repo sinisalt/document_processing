@@ -63,12 +63,24 @@ public sealed class HttpDeliveryTransport(
         var update = context.Delivery.Event == OutputEvents.Updated;
         var method = update ? Text(config, "updateMethod") ?? "PUT" : Text(config, "method") ?? "POST";
         var template = (update ? Text(config, "updateUrlTemplate") : null) ?? Text(config, "urlTemplate") ?? string.Empty;
+        // Refused when the config is saved; checked again here for what was saved before that check. A placeholder in
+        // the scheme or host would let the rendered payload (a document's content) choose where the credential goes.
+        if (DestinationConfig.HasPlaceholderInOrigin(template))
+        {
+            return DeliveryOutcome.Permanent("template", "The destination's URL template has a placeholder in its scheme or host; placeholders go in the path or the query only (PATCH /destinations/{id}).");
+        }
+
         Uri uri;
         try
         {
             if (!Uri.TryCreate(DeliveryTemplates.ExpandUrl(template, context.Values), UriKind.Absolute, out var parsed))
             {
                 return DeliveryOutcome.Permanent("url", "The destination's URL template does not give an absolute URL.");
+            }
+
+            if (!DestinationConfig.KeepsTemplateOrigin(template, parsed))
+            {
+                return DeliveryOutcome.Permanent("url", "The URL this delivery would go to has another scheme, host or port than the destination's URL template; it is not sent.");
             }
 
             uri = parsed;

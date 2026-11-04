@@ -93,6 +93,12 @@ public static class RenderFunctions
     /// <summary>The most decimals <c>$fmtNum</c> takes.</summary>
     public const int MaxDecimals = 10;
 
+    /// <summary>The decimal separators <c>$fmtNum</c> writes.</summary>
+    private static readonly HashSet<string> DecimalSeparators = new(StringComparer.Ordinal) { ".", "," };
+
+    /// <summary>The group separators <c>$fmtNum</c> writes: none, or one character no number is written with.</summary>
+    private static readonly HashSet<string> GroupSeparators = new(StringComparer.Ordinal) { string.Empty, ".", ",", "'", " ", " ", " " };
+
     [ThreadStatic]
     private static RenderContext? _current;
 
@@ -217,22 +223,29 @@ public static class RenderFunctions
         var dec = TextOf(decimalSeparator ?? JValue.CreateUndefined()) ?? ".";
         var group = TextOf(groupSeparator ?? JValue.CreateUndefined()) ?? string.Empty;
 
-        // The text must read back as the same number: with decimals, a decimal separator that is missing or equal to the
-        // group separator gives another number (or an ambiguous one), and a separator with a digit or a sign does at any
-        // count. Without decimals the decimal separator is never written, so "1.234" from (n, 0, ".", ".") is fine.
+        // The text must read back as the same number, so the separators come from short lists: any other text could
+        // write another number ("e" an exponent, a digit or a sign another value) or an ambiguous one (",," as the
+        // group separator around the decimal ","). With decimals the decimal separator is "." or "," and differs
+        // from the group separator. Without decimals it is never written, so "1.234" from (n, 0, ".", ".") is fine
+        // and an empty one is too.
         if (count > 0 && dec.Length == 0)
         {
             throw new RenderFunctionException("$fmtNum: with decimals the decimal separator is not empty.");
         }
 
+        if (!DecimalSeparators.Contains(dec) && !(count == 0 && dec.Length == 0))
+        {
+            throw new RenderFunctionException("$fmtNum: the decimal separator is \".\" or \",\".");
+        }
+
+        if (!GroupSeparators.Contains(group))
+        {
+            throw new RenderFunctionException("$fmtNum: the group separator is none (\"\"), \".\", \",\", \"'\", a space, a no-break space (U+00A0) or a narrow no-break space (U+202F).");
+        }
+
         if (count > 0 && dec == group)
         {
             throw new RenderFunctionException("$fmtNum: the decimal and the group separator differ.");
-        }
-
-        if (dec.Any(IsNumberCharacter) || group.Any(IsNumberCharacter))
-        {
-            throw new RenderFunctionException("$fmtNum: a separator has no digit and no sign.");
         }
 
         var result = new StringBuilder(formatted.Length + 8);
@@ -249,8 +262,6 @@ public static class RenderFunctions
         return new JValue(result.ToString());
     }
 
-    /// <summary>A character that is part of a number's text, so not a separator of <c>$fmtNum</c>: a digit or a sign.</summary>
-    private static bool IsNumberCharacter(char c) => char.IsDigit(c) || c is '-' or '+' or '\u2212';
 
     /// <summary><c>$today()</c>: today (<c>yyyy-MM-dd</c>) in the tenant's time zone.</summary>
     public static JToken today() => new JValue(Current.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));

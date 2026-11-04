@@ -1050,7 +1050,7 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Outputs:Renderer:DotnetHostPath` | the running runtime's `dotnet` | The `dotnet` host that runs it. |
 | `Delivery:RetrySchedule` | empty: 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h | The waits between attempts of a delivery (docs/11 §13.6), each with up to 10 % jitter; the last entry repeats. |
 | `Delivery:MaxParallelism` | 4 | Delivery attempts the runner sends at once, in a lane of their own beside `Pipeline:MaxParallelism` (an attempt waits on a receiver for up to its `timeoutSeconds`, and must not hold up the document stages). Below 1 counts as 1. |
-| `Delivery:MaxParallelismPerTenant` | 2 | Of those, the most one tenant's attempts take, so a receiver that never answers holds up only its own tenant's deliveries. Below 1 counts as 1. |
+| `Delivery:MaxParallelismPerTenant` | 2 | Of those, the most one tenant's attempts take. A tenant that holds a slot never takes the last free one, which is kept for a tenant with nothing in flight, so one or two tenants whose receivers never answer leave a slot for the others; it takes three such tenants with the defaults (ceil((MaxParallelism - 1) / MaxParallelismPerTenant) + 1) to fill the lane. Below 1 counts as 1. |
 | `Delivery:MaxAttempts` | 15 | Attempts before a retryable failure is dead-lettered (`DELIVERY_FAILED`). |
 | `Delivery:MaxAge` | `3.00:00:00` | How long after its creation a delivery is still retried. |
 | `Delivery:MaxRetryAfter` | `12:00:00` | The longest `Retry-After` of a receiver that is honoured (the shortest is 1 s). |

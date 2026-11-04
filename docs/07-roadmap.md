@@ -1148,6 +1148,21 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `$fmtNum` refuses separators that would write another number (an empty decimal separator or one equal to the
       group separator with decimals, a digit or a sign in either), as does the visual field map;
     - this section's heading still said "P1 in progress".
+  - Done (third review, recorded as "Correction (P3, third review)" in docs/11 §13.1, §13.3 and §13.6):
+    - `urlTemplate` and `updateUrlTemplate` take placeholders in the path and query only (400 when one stands in
+      the scheme or host, where the rendered payload could choose the host the credential goes to); the transport
+      refuses such a template saved earlier (permanent `template`) and an expanded URL whose scheme, host or port
+      differs from the template's (permanent `url`);
+    - `PATCH /destinations/{id}` that moves another auth type to `hmacSha256` needs the secret again (the stored
+      credential would become a signing key for the new host); an `hmacSha256` destination that stays so may still
+      move without it;
+    - `$fmtNum` takes the decimal separator `.` or `,` and a group separator from none, `.`, `,`, `'`, a space,
+      a no-break space or a narrow no-break space (`e` wrote an exponent, `,,` around `,` unreadable text), as does
+      the visual field map;
+    - in the delivery lane a tenant that holds a slot never takes the last free one (`DeliveryLaneGate`), so one or
+      two tenants whose receivers never answer leave a slot for the others; with the defaults it takes three such
+      tenants to fill the lane (before: two). The claim that a slow receiver holds up no other tenant's deliveries was
+      true for one tenant only and is corrected in docs/11 §13.6, docs/09 and the code's comments.
   - Left for later:
     - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
       (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
@@ -1167,6 +1182,10 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       render limits, so one approval's fan-out can still keep a pool process busy for that long), `timeoutSeconds`
       keeps its ceiling of 120 s (it ties up one of the tenant's two lane slots, not the pipeline), there is no budget
       of delivery attempts per tenant over time, and the document pipeline itself has no per-tenant share either;
+    - the delivery lane guarantees a slot to the other tenants only while fewer than ceil((`Delivery:MaxParallelism`
+      - 1) / `Delivery:MaxParallelismPerTenant`) + 1 tenants (three with the defaults) have receivers that never
+      answer; more of them fill it for up to `timeoutSeconds` per retry round. A fair queue across tenants, or a
+      slower lane for a destination that keeps timing out, would bound that; neither is built;
     - a cap on the number of lookup tables per tenant (a render's lookup data is bounded in total instead);
     - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
       them later; `RecipeJson` stays unused;

@@ -140,10 +140,26 @@ describe("checking a field map", () => {
       { decimals: 2, decimalSeparator: ".", groupSeparator: "." },
       { decimals: 2, decimalSeparator: "0" },
       { decimals: 0, groupSeparator: "-" },
+      // An exponent, and separators that hold one another: text that reads as another number or not at all.
+      { decimals: 2, decimalSeparator: "e", groupSeparator: "" },
+      { decimals: 2, decimalSeparator: "E" },
+      { decimals: 0, decimalSeparator: "e" },
+      { decimals: 2, decimalSeparator: ",", groupSeparator: ",," },
+      { decimals: 2, decimalSeparator: ".", groupSeparator: " ." },
+      { decimals: 2, decimalSeparator: ", ", groupSeparator: "." },
+      { decimals: 2, decimalSeparator: ".", groupSeparator: "_" },
     ]) {
       expect(fieldMapProblems(row(bad))).toEqual([{ at: "0", code: "formatInvalid" }]);
     }
-    for (const good of [{ decimals: 2, decimalSeparator: ",", groupSeparator: "." }, { decimals: 0, decimalSeparator: ".", groupSeparator: "." }, { decimals: 2 }, { decimals: 2, groupSeparator: " " }]) {
+    for (const good of [
+      { decimals: 2, decimalSeparator: ",", groupSeparator: "." },
+      { decimals: 0, decimalSeparator: ".", groupSeparator: "." },
+      { decimals: 0, decimalSeparator: "", groupSeparator: "'" },
+      { decimals: 2 },
+      { decimals: 2, groupSeparator: " " },
+      { decimals: 2, decimalSeparator: ",", groupSeparator: " " },
+      { decimals: 2, decimalSeparator: ",", groupSeparator: " " },
+    ]) {
       expect(fieldMapProblems(row(good))).toEqual([]);
     }
   });
