@@ -244,6 +244,7 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
             case LayoutResolution.Identified:
                 var selected = result.Selected!;
                 document.SupplierLayoutVersionId = selected.Candidate.VersionId;
+                document.PendingLayoutVersionId = null;
                 timeline.Record(document, LayoutEventTypes.Identified, null, null, new
                 {
                     stepId,
@@ -264,6 +265,7 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
 
             case LayoutResolution.Ambiguous:
                 document.SupplierLayoutVersionId = null;
+                document.PendingLayoutVersionId = null;
                 var keys = string.Join(", ", result.Tied.Select(t => $"{t.Candidate.LayoutKey}@{t.Candidate.Version}"));
                 raised.Add(FlagCodes.Create(
                     FlagCodes.LayoutAmbiguous,
@@ -278,6 +280,16 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
 
             case LayoutResolution.NewLayout:
                 document.SupplierLayoutVersionId = null;
+
+                // A Candidate whose rule holds (docs/11 §8.4 step 5): the document waits for it, and the MappingAuthors hear of it.
+                document.PendingLayoutVersionId = result.Pending?.Candidate.VersionId;
+                if (result.Pending is { } waiting && setting.Layouts.FirstOrDefault(l => l.Id == waiting.Candidate.LayoutId) is { } pendingLayout
+                    && pendingLayout.Versions.FirstOrDefault(v => v.Id == waiting.Candidate.VersionId) is { } pendingVersion)
+                {
+                    var others = await db.Documents.CountAsync(d => d.PendingLayoutVersionId == pendingVersion.Id && d.Id != document.Id && d.Status == DocumentStatus.NeedsReview, cancellationToken).ConfigureAwait(false);
+                    await LayoutNotifications.UpsertAsync(db, pendingLayout, pendingVersion, setting.Supplier.Name, others + 1, timeline.Now, cancellationToken).ConfigureAwait(false);
+                }
+
                 var suggestions = LayoutSuggester.Suggest(
                     SimilarityProfile.Of(words, ItemKindOf(document)),
                     result.Evaluated.Where(e => e.Candidate.State is LayoutCandidateState.Active or LayoutCandidateState.Degraded)
@@ -309,6 +321,7 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
 
             default:
                 document.SupplierLayoutVersionId = null;
+                document.PendingLayoutVersionId = null;
                 break;
         }
 

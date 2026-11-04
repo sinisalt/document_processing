@@ -49,6 +49,7 @@ internal sealed class ExtractHandler(
     IEffectiveConfigResolver configResolver,
     ITenantFeatures features,
     LayoutExtractor layouts,
+    LayoutPrefiller prefiller,
     ILogger<ExtractHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
@@ -73,11 +74,22 @@ internal sealed class ExtractHandler(
         var application = config.Type is { } layoutType && document.EmbeddedXmlBlob is null
             ? await layouts.ApplyAsync(document, layoutType, typedRecord: document.Type.IsInvoiceFamily && !definitionDriven, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
             : null;
+        // layout-prefill (docs/11 §9.3, §12.10 step 4): a NEW_LAYOUT document of a known supplier is pre-filled from the
+        // pending Candidate, the supplier's other layouts' labels, its master data and known values, never by a layout.
+        var prefill = application is null && config.Type is { } prefillType && document.EmbeddedXmlBlob is null
+            ? await prefiller.PrefillAsync(document, prefillType, typedRecord: document.Type.IsInvoiceFamily && !definitionDriven, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
+            : null;
         if (!document.Type.IsInvoiceFamily && definitionDriven)
         {
             if (application is not null)
             {
                 await StoreLayoutTreeAsync(document, config.Type!, application, cancellationToken).ConfigureAwait(false);
+                return StageOutcome.Advanced;
+            }
+
+            if (prefill is not null)
+            {
+                await StorePrefillTreeAsync(document, config.Type!, prefill, cancellationToken).ConfigureAwait(false);
                 return StageOutcome.Advanced;
             }
 
@@ -136,6 +148,36 @@ internal sealed class ExtractHandler(
             }
         }
 
+        if (outcome is null && prefill is not null)
+        {
+            // layout-prefill: the located values first; the LLM fills what is left (fill-missing) where one is configured.
+            tried.Add(LayoutPrefiller.StepId);
+            outcome = new ExtractionOutcome(prefill.Document, ExtractionMethod.Profile, [], DocumentCost.Free);
+            if (extractors.FirstOrDefault(x => x.Method == ExtractionMethod.Llm && x.CanHandle(input)) is { } llm)
+            {
+                tried.Add(ExtractionMethod.Llm.ToString());
+                ExtractionOutcome? filled = null;
+                try
+                {
+                    filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
+                }
+                catch (DocProc.Llm.LlmException ex) when (ex.Kind == DocProc.Llm.LlmErrorKind.Unavailable)
+                {
+                    // No LLM is configured: the pre-filled values stand, and the panel says the LLM source was skipped (§12.10 step 4).
+                    if (Logger.IsEnabled(LogLevel.Information))
+                    {
+                        Logger.LogInformation("Document {DocumentId}: no LLM is configured to fill what the pre-fill left Missing.", document.Id);
+                    }
+                }
+
+                if (filled is not null)
+                {
+                    outcome = new ExtractionOutcome(new ExtractedDocument(LayoutExtractor.Merge(prefill.Document.Root, filled.Document.Root)), ExtractionMethod.Llm, filled.Flags, filled.Cost);
+                    filledByLlm = true;
+                }
+            }
+        }
+
         foreach (var extractor in outcome is null ? extractors.OrderBy(e => Array.IndexOf(PathOrder, e.Method)) : Enumerable.Empty<IDocumentExtractor>())
         {
             if (!extractor.CanHandle(input))
@@ -169,7 +211,7 @@ internal sealed class ExtractHandler(
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, config.Type?.IndexedFields ?? [], cancellationToken).ConfigureAwait(false);
         // The extraction wrote every repeating group anew: a table report of the review tool describes rows that are gone.
         await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
-        document.AppliedConfigJson = AppliedConfig(config.Type, outcome.Method == ExtractionMethod.Llm || filledByLlm ? input.Definition?.LlmSchema?.ToString() ?? DocProc.Llm.Schema.CanonicalSchemas.InvoiceExtraction.ToString() : null, application?.AppliedConfig(filledByLlm));
+        document.AppliedConfigJson = AppliedConfig(config.Type, outcome.Method == ExtractionMethod.Llm || filledByLlm ? input.Definition?.LlmSchema?.ToString() ?? DocProc.Llm.Schema.CanonicalSchemas.InvoiceExtraction.ToString() : null, application?.AppliedConfig(filledByLlm), prefill?.AppliedConfig(filledByLlm));
         if (application is not null)
         {
             await StoreLayoutReportsAsync(document, application, cancellationToken).ConfigureAwait(false);
@@ -283,6 +325,23 @@ internal sealed class ExtractHandler(
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// A definition-driven type without an extraction path (a price list) held with <c>NEW_LAYOUT</c>: the tree the
+    /// pre-fill wrote (docs/11 §12.10 step 4), every value Inferred with its place, for the reviewer to confirm.
+    /// </summary>
+    private async Task StorePrefillTreeAsync(Document document, EffectiveType type, PrefillApplication prefill, CancellationToken cancellationToken)
+    {
+        DefinitionTree.Complete(prefill.Document.Root, type.Compiled!.Descriptors);
+        Apply(document, prefill.Document, type.Roles, definitionDriven: true);
+        document.ExtractionMethod = ExtractionMethod.Profile;
+        await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
+        await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
+        document.AppliedConfigJson = AppliedConfig(type, llmSchema: null, prefill: prefill.AppliedConfig(filledByLlm: false));
+        flags.Replace(document, OwnedFlags, []);
+        Timeline.Transition(document, DocumentStatus.Extracted, new { method = LayoutPrefiller.StepId, definition = new { key = type.TypeKey, version = type.Version }, sources = prefill.Sources.Count });
+        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>The table report of every group the layout's <c>column-table</c> wrote (docs/11 §6.2, <c>Origin=Layout</c>).</summary>
     private async Task StoreLayoutReportsAsync(Document document, LayoutApplication application, CancellationToken cancellationToken)
     {
@@ -343,7 +402,7 @@ internal sealed class ExtractHandler(
     }
 
     /// <summary>The <c>AppliedConfigJson</c> of docs/11 §6.2 as far as P1 knows it: the type version and, after an LLM extraction, the schema it was sent (<c>name@version</c>).</summary>
-    private string? AppliedConfig(EffectiveType? type, string? llmSchema, JsonObject? layout = null)
+    private string? AppliedConfig(EffectiveType? type, string? llmSchema, JsonObject? layout = null, JsonObject? prefill = null)
     {
         if (type is null)
         {
@@ -366,6 +425,11 @@ internal sealed class ExtractHandler(
         if (layout is not null)
         {
             applied["layout"] = layout;
+        }
+
+        if (prefill is not null)
+        {
+            applied["prefill"] = prefill;
         }
 
         return applied.ToJsonString();

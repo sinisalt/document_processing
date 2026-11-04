@@ -82,6 +82,7 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddScoped<Layouts.LayoutIdentification>();
         services.TryAddScoped<Layouts.LayoutExtractor>();
         services.TryAddScoped<Layouts.LayoutReviewGate>();
+        services.TryAddScoped<Layouts.LayoutPrefiller>();
 
         services.TryAddScoped<IIngestionHandler, IngestHandler>();
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, NormalizeHandler>());

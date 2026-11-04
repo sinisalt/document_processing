@@ -254,6 +254,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<int>("PageStart")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("PendingLayoutVersionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("PeriodEnd")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("datetime2")
@@ -418,6 +421,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("SupplierSourceRuleId");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "PendingLayoutVersionId");
 
                     b.HasIndex("TenantId", "Status");
 
@@ -985,6 +990,61 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("GlobalSuppliers", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.GoldenDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("AddedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExpectedOutputsJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("ExpectedValuesJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("SupplierLayoutVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TypeKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DocumentId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "SupplierId", "TypeKey");
+
+                    b.ToTable("GoldenDocuments", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.IdempotencyKey", b =>
@@ -1630,6 +1690,78 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("LookupTables", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DedupeKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EntityType")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("json");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DedupeKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Audience", "ResolvedAt");
+
+                    b.ToTable("Notifications", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.OutboxDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2176,6 +2308,55 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ReceivingEntities", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.RegressionRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CandidateConfigJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("Passed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.ToTable("RegressionRuns", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReviewTask", b =>
@@ -3018,6 +3199,23 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Supplier");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.GoldenDocument", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Ingestion", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.IngestionChannel", "Channel")
@@ -3097,6 +3295,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Table");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Notification", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.OutboxDelivery", b =>
@@ -3224,6 +3431,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.RegressionRun", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
                 });
 
@@ -3379,6 +3595,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                                 .IsRequired();
 
                             b1.Property<double>("AutoApproveConfidenceThreshold");
+
+                            b1.Property<int?>("LayoutAgreementPercent");
 
                             b1.Property<int?>("LayoutReviewWarmup");
 

@@ -230,8 +230,26 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV9 = new(LayoutProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>LayoutLearningAndGovernance</c> migration (P4 part C): <see cref="LayoutProtectedTables"/>
+    /// plus the golden documents, the sandbox and regression runs and the notifications of docs/11 §6.9 and §12.10. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> GovernanceProtectedTables =
+    [
+        .. LayoutProtectedTables,
+        ("GoldenDocuments", "TenantId"),
+        ("RegressionRuns", "TenantId"),
+        ("Notifications", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>LayoutLearningAndGovernance</c> migration (P4 part C): <see cref="PolicyV9"/> with the
+    /// governance tables among the strict tables. None of them is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV10 = new(GovernanceProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV9;
+    public static PolicyDefinition CurrentPolicy => PolicyV10;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

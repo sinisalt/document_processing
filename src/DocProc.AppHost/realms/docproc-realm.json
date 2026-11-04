@@ -12,7 +12,8 @@
       { "name": "Operator", "description": "Platform: global review queue, retries, read any document" },
       { "name": "TenantAdmin", "description": "Tenant: members, suppliers, channels, policy, API keys, webhooks" },
       { "name": "Reviewer", "description": "Tenant: review, correct, approve" },
-      { "name": "Viewer", "description": "Tenant: read documents and exports" }
+      { "name": "Viewer", "description": "Tenant: read documents and exports" },
+      { "name": "MappingAuthor", "description": "Activates and retires supplier layouts (docs/11 §16); held besides Reviewer" }
     ]
   },
   "clientScopes": [
@@ -275,7 +276,7 @@
       "lastName": "Reviewer",
       "attributes": { "tenant_id": ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"] },
       "credentials": [{ "type": "password", "value": "tenant-a-reviewer", "temporary": false }],
-      "realmRoles": ["Reviewer"]
+      "realmRoles": ["Reviewer", "MappingAuthor"]
     },
     {
       "username": "tenant-b-admin",

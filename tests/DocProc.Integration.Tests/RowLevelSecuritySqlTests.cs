@@ -352,6 +352,41 @@ public sealed class RowLevelSecuritySqlTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public void The_governance_migration_puts_the_part_C_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.9, §6.10: golden documents, sandbox and regression runs and notifications belong to one tenant;
+        // LayoutLearningAndGovernance re-creates the policy with them (PolicyV10), its Down goes back to PolicyV9.
+        var migration = new LayoutLearningAndGovernance();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        if (up)
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10)]);
+        }
+        else
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV9)]);
+        }
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV10);
+        RowLevelSecurity.PolicyV10.StrictTables.Except(RowLevelSecurity.PolicyV9.StrictTables).Select(t => t.Table)
+            .ShouldBe(["GoldenDocuments", "RegressionRuns", "Notifications"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV10.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV9.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[Notifications] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void The_layouts_migration_puts_the_layout_tables_under_the_strict_policy(bool up)
     {
         // docs/11 §6.6, §6.10: supplier layouts and their versions belong to one tenant; SupplierLayoutsAndIdentification
@@ -368,7 +403,6 @@ public sealed class RowLevelSecuritySqlTests
             statements.Last().ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV8));
         }
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV9);
         RowLevelSecurity.PolicyV9.StrictTables.Except(RowLevelSecurity.PolicyV8.StrictTables).Select(t => t.Table)
             .ShouldBe(["SupplierLayouts", "SupplierLayoutVersions"], ignoreOrder: true);
         RowLevelSecurity.PolicyV9.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV8.PlatformRowTables);

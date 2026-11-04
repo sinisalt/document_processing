@@ -103,7 +103,39 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
-            // P4 part B first, with one of everything it writes: a layout with an Active version, a document identified by
+            // P4 part C first, with one of everything it writes: a golden document, a sandbox run, a notification and a
+            // document waiting for a Candidate layout. Down to part B, the tables and the column are gone and the policy
+            // of part B is back; up again, they are new.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                seeding.GoldenDocuments.Add(new GoldenDocument { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = target, TypeKey = "Invoice", ExpectedValuesJson = """{"invoiceNumber":"NW-1"}""", AddedAt = now });
+                seeding.RegressionRuns.Add(new RegressionRun { Id = Guid.CreateVersion7(), TenantId = TenantA, Kind = RegressionRunKind.Sandbox, Trigger = "sandbox", DocumentId = target, CandidateConfigJson = "{}", ResultJson = """{"passed":true}""", Passed = true, CreatedAt = now });
+                seeding.Notifications.Add(new Notification { Id = Guid.CreateVersion7(), TenantId = TenantA, Audience = "MappingAuthor", Kind = "layout.candidate_waiting", Title = "t", Message = "m", DedupeKey = "layout-candidate:x", CreatedAt = now, UpdatedAt = now });
+                var waiting = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                waiting.PendingLayoutVersionId = Guid.CreateVersion7();
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261104080328_SupplierLayoutsAndIdentification", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104080328_SupplierLayoutsAndIdentification");
+            foreach (var table in new[] { "GoldenDocuments", "RegressionRuns", "Notifications" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var table in new[] { "Documents", "DocumentsHistory" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = N'PendingLayoutVersionId'").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            (await platform.Database.SqlQuery<int>($"SELECT CAST(temporal_type AS int) AS [Value] FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.Documents')").SingleAsync(ct)).ShouldBe(2, "system versioning is on");
+            await platform.Database.MigrateAsync(ct);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.Notifications')").SingleAsync(ct)).ShouldBe(3);
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).PendingLayoutVersionId.ShouldBeNull("up again, the column is new");
+
+            // P4 part B next, with one of everything it writes: a layout with an Active version, a document identified by
             // it (TypeSource Identification in the history) and then held with a proposed type, and its NEW_LAYOUT.
             await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
             {

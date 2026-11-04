@@ -74,6 +74,18 @@ public sealed class TenantSettings
     /// <summary>The warm-up in effect: <see cref="LayoutReviewWarmup"/>, or <see cref="DefaultLayoutReviewWarmup"/>.</summary>
     public int EffectiveLayoutReviewWarmup() => LayoutReviewWarmup ?? DefaultLayoutReviewWarmup;
 
+    /// <summary>The field agreement a layout version needs on its replay set to be activated (docs/11 §8.3): 90 % per field.</summary>
+    public const int DefaultLayoutAgreementPercent = 90;
+
+    /// <summary>
+    /// The tenant's field agreement threshold of the activation condition (docs/11 §8.3, "at or above the tenant
+    /// threshold, default 90 % per field"), in percent; null for <see cref="DefaultLayoutAgreementPercent"/>.
+    /// </summary>
+    public int? LayoutAgreementPercent { get; set; }
+
+    /// <summary>The agreement threshold in effect, as a share (0.9).</summary>
+    public double EffectiveLayoutAgreement() => (LayoutAgreementPercent ?? DefaultLayoutAgreementPercent) / 100.0;
+
     /// <summary>
     /// Forwarder domains trusted for every mailbox channel of the tenant (docs/11 §7.1), next to a channel's own
     /// <c>trustedForwarderDomains</c>: a forward from such a domain is unwrapped to its original sender. Null or empty for none.

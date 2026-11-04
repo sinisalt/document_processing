@@ -283,12 +283,16 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 | Role | Scope | Policies satisfied |
 |---|---|---|
-| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, Review, Ingest, Read |
+| SuperAdmin | platform, or one tenant via `X-Tenant-Id` | PlatformAdmin, Platform, TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, MappingAuthor, Review, Ingest, Read |
 | Operator | platform | Platform, Review, Read |
-| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, Review, Ingest, Read |
+| TenantAdmin | own tenant | TenantAdmin, ConfigAdmin, IntegrationAdmin, DeliveriesRead, MappingAuthor, Review, Ingest, Read |
 | Reviewer | own tenant | Review, Ingest, Read |
 | Viewer | own tenant | Read |
 | API key (`ingest`, `read`, `deliveries:read`) | own tenant | Ingest, Read and/or DeliveriesRead |
+
+`MappingAuthor` is a grant held besides a tenant role (docs/11 §16), not a role of its own: it adds the MappingAuthor
+policy (activating and retiring supplier layouts; a layout a MappingAuthor saves from a `NEW_LAYOUT` review is Active at
+once, one a plain Reviewer saves is a Candidate). The demo realm gives it to `tenant-a-reviewer`.
 
 Machine clients use tenant **API keys** instead of OIDC: `X-Api-Key: dpk_…` (or
 `Authorization: ApiKey dpk_…`). A key has the scopes `ingest`, `read` and/or `deliveries:read` (a pull

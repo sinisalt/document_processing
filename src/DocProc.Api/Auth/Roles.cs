@@ -12,7 +12,16 @@ public static class Roles
     public const string Reviewer = "Reviewer";
     public const string Viewer = "Viewer";
 
+    /// <summary>
+    /// A grant held besides a tenant role (docs/11 §16): activating and retiring layouts, including a layout saved from a
+    /// <c>NEW_LAYOUT</c> review, which then becomes Active at once (decision 2). A Reviewer without it saves Candidates.
+    /// </summary>
+    public const string MappingAuthor = "MappingAuthor";
+
     public static readonly IReadOnlyList<string> All = [SuperAdmin, Operator, TenantAdmin, Reviewer, Viewer];
+
+    /// <summary>Grants that add to a role and give no access alone (<see cref="MappingAuthor"/>).</summary>
+    public static readonly IReadOnlyList<string> Grants = [MappingAuthor];
 
     /// <summary>Roles that work in platform scope (no tenant of their own).</summary>
     public static readonly IReadOnlyList<string> PlatformRoles = [SuperAdmin, Operator];
@@ -53,6 +62,13 @@ public static class Policies
     /// </summary>
     public const string DeliveriesRead = "DeliveriesRead";
 
+    /// <summary>
+    /// Activate and retire supplier layouts (docs/11 §16 <c>MappingAuthor</c>, decision 2 of §24): tenant admins, and
+    /// members holding the <see cref="Roles.MappingAuthor"/> grant. Proposing a Candidate layout from review
+    /// (<c>MappingEditor</c> of §16) is the <see cref="Review"/> policy.
+    /// </summary>
+    public const string MappingAuthor = "MappingAuthor";
+
     /// <summary>Review, correct, approve, reject documents.</summary>
     public const string Review = "Review";
 
@@ -70,6 +86,7 @@ public static class Policies
         [ConfigAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [IntegrationAdmin] = [Roles.SuperAdmin, Roles.TenantAdmin],
         [DeliveriesRead] = [Roles.SuperAdmin, Roles.TenantAdmin],
+        [MappingAuthor] = [Roles.SuperAdmin, Roles.TenantAdmin, Roles.MappingAuthor],
         [Review] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer],
         [Ingest] = [Roles.SuperAdmin, Roles.TenantAdmin, Roles.Reviewer],
         [Read] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer],

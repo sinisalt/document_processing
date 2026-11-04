@@ -216,6 +216,21 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
             (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(5, $"{table}: the read filter and four blocks");
         }
 
+        // The P4 migrations: routing, layouts and (part C) the governance tables are strict tenant tables, and a tenant
+        // session reads and writes its own rows of the new tables through the policy.
+        foreach (var table in new[] { "SupplierGroups", "ReceivingEntities", "SupplierEntityAttributes", "SupplierSourceRules", "SupplierLayouts", "SupplierLayoutVersions", "GoldenDocuments", "RegressionRuns", "Notifications" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+        }
+
+        if (!await asA.Notifications.AnyAsync(ct))
+        {
+            asA.Notifications.Add(new Infrastructure.Persistence.Entities.Notification { Id = Guid.CreateVersion7(), TenantId = TenantA, Audience = "MappingAuthor", Kind = "layout.candidate_waiting", Title = "t", Message = "m", DedupeKey = "k", CreatedAt = At, UpdatedAt = At });
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.Notifications.AsNoTracking().CountAsync(ct)).ShouldBe(1);
+
         (await asA.OutputMappings.AsNoTracking().Where(m => m.TenantId == null).Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"]);
         (await asA.OutputMappingVersions.AsNoTracking().CountAsync(v => v.TenantId == null, ct)).ShouldBe(2);
         (await asA.Suppliers.AsNoTracking().AllAsync(s => s.AttributesJson == null, ct)).ShouldBeTrue("nothing to back-fill");

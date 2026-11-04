@@ -9,6 +9,8 @@ export const Roles = {
   TenantAdmin: "TenantAdmin",
   Reviewer: "Reviewer",
   Viewer: "Viewer",
+  /** A grant held besides a tenant role (docs/11 §16): activates and retires supplier layouts. */
+  MappingAuthor: "MappingAuthor",
 } as const;
 
 export type Role = (typeof Roles)[keyof typeof Roles];
@@ -20,6 +22,7 @@ export const Policies = {
   ConfigAdmin: "ConfigAdmin",
   IntegrationAdmin: "IntegrationAdmin",
   DeliveriesRead: "DeliveriesRead",
+  MappingAuthor: "MappingAuthor",
   Review: "Review",
   Ingest: "Ingest",
   Read: "Read",
@@ -27,7 +30,7 @@ export const Policies = {
 
 export type Policy = (typeof Policies)[keyof typeof Policies];
 
-export const allRoles: readonly Role[] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer];
+export const allRoles: readonly Role[] = [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer, Roles.MappingAuthor];
 
 /** Roles that work in platform scope (no tenant of their own). */
 export const platformRoles: readonly Role[] = [Roles.SuperAdmin, Roles.Operator];
@@ -39,6 +42,7 @@ export const rolesByPolicy: Readonly<Record<Policy, readonly Role[]>> = {
   ConfigAdmin: [Roles.SuperAdmin, Roles.TenantAdmin],
   IntegrationAdmin: [Roles.SuperAdmin, Roles.TenantAdmin],
   DeliveriesRead: [Roles.SuperAdmin, Roles.TenantAdmin],
+  MappingAuthor: [Roles.SuperAdmin, Roles.TenantAdmin, Roles.MappingAuthor],
   Review: [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer],
   Ingest: [Roles.SuperAdmin, Roles.TenantAdmin, Roles.Reviewer],
   Read: [Roles.SuperAdmin, Roles.Operator, Roles.TenantAdmin, Roles.Reviewer, Roles.Viewer],

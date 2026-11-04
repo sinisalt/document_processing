@@ -76,6 +76,13 @@ public sealed class Document : ITenantScoped, IVersioned
     /// </summary>
     public Guid? SupplierLayoutVersionId { get; set; }
 
+    /// <summary>
+    /// The Candidate layout version a <c>NEW_LAYOUT</c> document waits for (docs/11 §8.4 step 5, §12.10 steps 2 and 7): its
+    /// rule holds on the document, or a reviewer attached the document to it. Never applied; activating the version
+    /// offers to reprocess the documents waiting for it, and the inbox filters by it (<c>?pendingLayoutVersionId=</c>).
+    /// </summary>
+    public Guid? PendingLayoutVersionId { get; set; }
+
     /// <summary>The tenant's company the document is addressed to (docs/11 §6.4): from the source rule, the channel default or the customer VAT id.</summary>
     public Guid? ReceivingEntityId { get; set; }
 
