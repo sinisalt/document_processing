@@ -275,6 +275,26 @@ public static class LayoutEngine
         return [];
     }
 
+    /// <summary>Whether a run of the line's words reads as <paramref name="header"/> (compared as the table engine compares headers).</summary>
+    private static bool HasRun(TextLine line, string header)
+    {
+        var normalized = line.Words.Select(w => ColumnTableEngine.NormalizeHeader(w.Text)).ToList();
+        for (var start = 0; start < normalized.Count; start++)
+        {
+            var joined = new System.Text.StringBuilder();
+            for (var end = start; end < normalized.Count && joined.Length < header.Length; end++)
+            {
+                joined.Append(normalized[end]);
+                if (string.Equals(joined.ToString(), header, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The transforms in order (docs/11 §8.1).</summary>
     public static string? Transform(string? text, IReadOnlyList<LayoutTransform> transforms)
     {
@@ -337,17 +357,36 @@ public static class LayoutEngine
         if (table.HeaderRow is not null && headers.Count > 0)
         {
             var need = table.MinAnchors > 0 ? Math.Min(table.MinAnchors, headers.Count) : Math.Min(3, headers.Count);
-            var found = words.Pages
-                .SelectMany(p => PageGeometry.Lines(p.Words).Select(l => (Page: p.Number, Line: l)))
-                .FirstOrDefault(x => headers.Count(h => ColumnTableEngine.NormalizeHeader(x.Line.Text).Contains(h, StringComparison.Ordinal)) >= need);
+
+            // The header row is the line on the first page that has one where most column headers are printed, each as a
+            // run of whole words ("ab 10"), not as part of a longer word: a sentence such as "Staffelpreise ab 10 und
+            // ab 50 Gebinden" is no header. Among equally good lines the one nearest the stored band wins.
+            (int Page, TextLine? Line) found = (0, null);
+            foreach (var candidate in words.Pages)
+            {
+                var best = PageGeometry.Lines(candidate.Words)
+                    .Select(l => (Line: l, Matches: headers.Count(h => HasRun(l, h))))
+                    .Where(x => x.Matches >= need)
+                    .OrderByDescending(x => x.Matches)
+                    .ThenBy(x => Math.Abs(x.Line.Box.Y0 - table.HeaderRow.Value.Y0))
+                    .FirstOrDefault();
+                if (best.Line is not null)
+                {
+                    found = (candidate.Number, best.Line);
+                    break;
+                }
+            }
+
             if (found.Line is null)
             {
                 return null;
             }
 
             page = found.Page;
-            headerRow = (found.Line.Box.Y0, found.Line.Box.Y1);
-            region = new BoundingBox(table.Region.X0, found.Line.Box.Y0, table.Region.X1, table.MarginBottom ?? ColumnTableEngine.PageBottom);
+
+            // The band a little wider than the line, so every word of the header row lies inside it and none is read as a row.
+            headerRow = (found.Line.Box.Y0 - 1, found.Line.Box.Y1 + 1);
+            region = new BoundingBox(table.Region.X0, found.Line.Box.Y0 - 1, table.Region.X1, table.MarginBottom ?? ColumnTableEngine.PageBottom);
         }
         else
         {
