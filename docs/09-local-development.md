@@ -1089,9 +1089,9 @@ writes the `Authentication-Results` header the receiving server would (`dmarc=pa
    page 1 from the header "Artikel-Nr." to below the last line's amount, assign the columns (article number,
    description, quantity, unit price, line total; leave the unit column), untick all pages > Preview > Write: two
    lines.
-10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed "text in the page-1 title area") > Add
-    identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id (last page)") > Add
-    identifier.
+10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed `text "RECHNUNG / INVOICE" (page 1,
+    title area)`) > Add identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id
+    (last page)") > Add identifier.
     The Identification tab tests the rule as it changes: "Holds for this document", "Matches 0 of the supplier's last
     2 documents" (the ERP invoices).
 11. **Approve and save as layout.** Fields: layout key `nordwind-invoice-webshop`, name "Nordwind invoice (web shop)" >

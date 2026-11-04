@@ -1531,6 +1531,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - done: the `document.supplier_identified_by_source` event carries the channel, folder path, sender, mailbox and
       the rule in words, and the Timeline shows them; every document event type has an en and de Timeline label
       (`TimelineLabelTests` checks them against the backend's constants);
+    - done: the compose demo re-run in Playwright through step 15 of docs/09 "Demo: routing and layouts" (the sender
+      rule with the trusted receiver's DMARC pass, the identifiers in words, warm-up 1 of 5, warm-up 0, delivery, the
+      folder's Timeline), plus a mail whose `dmarc=pass` names an unlisted `authserv-id`: `SUPPLIER_SOURCE_UNVERIFIED`;
     - left for later: the LLM classifier's own enum restricted to the allowed types (P5's classifier); forwards
       unwrapped from the inline `From:` block still count for a trusted forwarder (only the attached form carries the
       original headers); the UIDVALIDITY change is tested by resetting the cursor to another validity, not on a server
