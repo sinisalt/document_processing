@@ -298,6 +298,15 @@ public sealed class LayoutLearningPipelineTests
         var tree = JsonNode.Parse(first.CanonicalJson!)!.ToJsonString();
         tree.ShouldContain(DemoNordwindInvoices.WebShop[0].Number);
         tree.ShouldContain("401187");
+
+        // Saved by a MappingAuthor: the replay reads the lines as the stored record has them (units by name), so the
+        // forked invoice's own rows agree and the version is Active (the compose demo got 0 % on lines before).
+        first.CanonicalSchemaVersion.ShouldBe(2, "a forked invoice is stored as a definition tree");
+        await ConfirmValuesAsync(host, first.Id);
+        var saved = await SaveAsync(host, first.Id, mappingAuthor: true);
+        saved.Code.ShouldBeNull(saved.Problem);
+        saved.Activation!.Activated.ShouldBeTrue(saved.Activation.Refusal + " " + string.Join(", ", saved.Activation.Replay.Fields.Select(f => $"{f.Path} {f.Agreement}")));
+        saved.Activation.Replay.Fields.Single(f => f.Path == "lines").Agreement.ShouldBe(1.0);
     }
 
     [Fact]

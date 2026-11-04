@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import {
   addDivider,
+  anchorAfterTargets,
   dividers,
   moveDivider,
   pageReport,
@@ -162,7 +163,11 @@ export function useTableTool(document: DocumentDetail, formSpec: FormSpec | null
       if (state || propose.isPending) return;
       propose.mutate({ page, box });
     },
-    onColumnTarget: (index: number, target: ColumnTarget) => state && change({ ...state, columns: state.columns.map((c, i) => (i === index ? withTarget(c, target) : c)) }),
+    onColumnTarget: (index: number, target: ColumnTarget) => {
+      if (!state) return;
+      const columns = state.columns.map((c, i) => (i === index ? withTarget(c, target) : c));
+      change({ ...state, columns, rowAnchor: anchorAfterTargets(columns, (fields.group as { anchor?: string } | null)?.anchor, state.rowAnchor) });
+    },
     onRemoveDivider: (index: number) => state && change({ ...state, columns: removeDivider(state.columns, index) }),
     onAllPagesChange: (allPages: boolean) => state && change({ ...state, allPages }),
     onGroupHeadingsChange: (on: boolean) => state && change({ ...state, groupHeadingTarget: on ? "category" : null }),

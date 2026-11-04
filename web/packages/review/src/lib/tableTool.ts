@@ -259,6 +259,19 @@ export function tableRequest(state: TableToolState, write: boolean, reason?: str
   };
 }
 
+/**
+ * The row anchor after the reviewer re-targeted the columns: the group's own anchor (the definition's `anchor`, the
+ * field every row has) once a column holds it, else the anchor kept while its column is still mapped, else the first
+ * mapped field. The proposal picks its anchor from the columns it could name itself (on a German table only "Einheit"
+ * perhaps), so without this a table read by unit is replayed and learned by unit.
+ */
+export function anchorAfterTargets(columns: readonly { field?: string | null }[], definitionAnchor: string | null | undefined, current: string | null): string | null {
+  const mapped = columns.map((c) => c.field).filter((f): f is string => !!f);
+  if (definitionAnchor && mapped.includes(definitionAnchor)) return definitionAnchor;
+  if (current && mapped.includes(current)) return current;
+  return mapped[0] ?? null;
+}
+
 /** Whether the mapping can be read: a row anchor whose column is mapped, at least one column with a field, and the margins in order. */
 export function mappingProblem(state: Pick<TableToolState, "columns" | "rowAnchor" | "margins">): "noColumns" | "noAnchor" | "margins" | null {
   if (!state.columns.some((c) => c.field)) return "noColumns";

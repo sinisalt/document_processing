@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { templates } from "../test/templates";
 import {
   addDivider,
+  anchorAfterTargets,
   addLineText,
   decimalSeparatorOf,
   defaultTablePath,
@@ -192,5 +193,17 @@ describe("table tool", () => {
     expect(pageReport(report, 2)?.rejectedLines).toHaveLength(1);
     expect(pageReport(report, 9)).toBeNull();
     expect(stripEntries(null)).toEqual([]);
+  });
+});
+
+describe("the row anchor after re-targeting columns", () => {
+  it("takes the group's own anchor once a column holds it, else keeps a mapped one, else the first mapped field", () => {
+    const columns = (fields: (string | null)[]) => fields.map((field) => ({ field }));
+    // The proposal of a German table named only "Einheit", so it anchored on unit; the reviewer then named the rest.
+    expect(anchorAfterTargets(columns(["supplierSku", "description", "quantity", "unit"]), "description", "unit")).toBe("description");
+    expect(anchorAfterTargets(columns(["supplierSku", null, "quantity", "unit"]), "description", "unit")).toBe("unit");
+    expect(anchorAfterTargets(columns(["supplierSku", null, "quantity"]), "description", "unit")).toBe("supplierSku");
+    expect(anchorAfterTargets(columns([null, null]), "description", "unit")).toBeNull();
+    expect(anchorAfterTargets(columns(["price"]), undefined, null)).toBe("price");
   });
 });

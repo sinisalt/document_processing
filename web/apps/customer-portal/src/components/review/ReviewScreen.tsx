@@ -743,6 +743,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                         active={identifyMode}
                         onActivate={() => changeIdentifyMode(true)}
                         identifiedBy={identifiedLayout && !learnable ? `${identifiedLayout.layoutKey} v${identifiedLayout.version}` : null}
+                        canMark={learnable}
                       />
                     </TabsContent>
                   )}

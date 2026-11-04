@@ -559,7 +559,8 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
         var descriptors = compiled.Descriptors;
         var locale = setting is null ? ValueLocale.German : LocaleOf(setting.Supplier, mapping);
         var extraction = LayoutEngine.Run(mapping, words, $"{layout.LayoutKey}@{version.Version}", p => LayoutTreeWriter.KindOf(descriptors, p), p => LayoutTreeWriter.RowFieldsOf(descriptors, p), locale, cancellationToken: cancellationToken);
-        var typedRecord = document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion && document.Type.IsInvoiceFamily;
+        // An invoice is written as the coded record also when the tenant forked its type (as ExtractHandler writes it).
+        var typedRecord = document.Type.IsInvoiceFamily;
         var (actual, _) = LayoutTreeWriter.Build(descriptors, extraction, mapping.Defaults, setting?.Attributes ?? new Dictionary<string, string>(), document.Currency, typedRecord, document.Type);
         foreach (var path in mapping.Coverage)
         {
@@ -620,7 +621,7 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
         var locale = setting is null ? ValueLocale.German : LocaleOf(setting.Supplier, mapping);
         var required = descriptors.Roots.Where(f => f.Required).Select(f => f.Path).ToList();
         var extraction = LayoutEngine.Run(mapping, words, layoutRef, p => LayoutTreeWriter.KindOf(descriptors, p), p => LayoutTreeWriter.RowFieldsOf(descriptors, p), locale, required, cancellationToken);
-        var typedRecord = document.Type.IsInvoiceFamily && document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion;
+        var typedRecord = document.Type.IsInvoiceFamily;
         var (tree, _) = LayoutTreeWriter.Build(descriptors, extraction, mapping.Defaults, setting?.Attributes ?? new Dictionary<string, string>(), document.Currency, typedRecord, DocumentTypeKey.Parse(typeKey));
         return (identification, tree, extraction.Drift);
     }

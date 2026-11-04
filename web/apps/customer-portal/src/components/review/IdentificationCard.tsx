@@ -20,6 +20,8 @@ export interface IdentificationCardProps {
   onActivate: () => void;
   /** The layout that identified the document, whose evidence the page shows. */
   identifiedBy?: string | null;
+  /** Identifiers can be marked (a document held with NEW_LAYOUT); otherwise the card only explains the evidence. */
+  canMark?: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface IdentificationCardProps {
  * these" or "Any of these", per chip widen the location, case-sensitive, "must not contain" and remove; the rule's
  * live test on this document and on the supplier's recent documents, with the overlaps with other layouts in red.
  */
-export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy }: IdentificationCardProps) {
+export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy, canMark = true }: IdentificationCardProps) {
   const { t } = useTranslation();
   const holds = here.data?.documents.find((d) => d.documentId === documentId);
   const others = (recent.data?.documents ?? []).filter((d) => d.documentId !== documentId);
@@ -46,7 +48,7 @@ export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCa
         <h2 id="identification-heading" className="text-sm font-semibold">
           {t("review.identify.title")}
         </h2>
-        {!active && (
+        {!active && canMark && (
           <Button type="button" size="sm" variant="outline" onClick={onActivate} data-testid="identify-start">
             {t("review.identify.start")}
           </Button>
@@ -107,7 +109,7 @@ export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCa
         </ToggleGroup>
       )}
 
-      {draft.chips.length === 0 ? (
+      {!canMark ? null : draft.chips.length === 0 ? (
         <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="identify-empty">
           {t("review.identify.empty")}
         </p>
