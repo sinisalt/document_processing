@@ -137,6 +137,10 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
     [InlineData("application/json, text/html")]
     [InlineData("application/json; boundary=x")]
     [InlineData("application/+json")]
+    [InlineData("text/plain; charset=\"x,text/html\"")]
+    [InlineData("application/json; charset=\"utf 8\"")]
+    [InlineData("application/json; charset=\"a b\"")]
+    [InlineData("text/plain; charset=\"x;y=z\"")]
     public async Task A_content_type_off_the_allowlist_is_refused_on_create_save_and_publish(string contentType)
     {
         var tenant = OutputsTenant("Content type " + contentType);
@@ -161,6 +165,7 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
     [Theory]
     [InlineData("application/json", "application/json")]
     [InlineData("Application/JSON; charset=UTF-8", "application/json; charset=UTF-8")]
+    [InlineData("text/plain; charset=\"utf-8\"", "text/plain; charset=utf-8")]
     [InlineData("text/csv", "text/csv")]
     [InlineData("text/xml", "text/xml")]
     [InlineData("application/xml", "application/xml")]

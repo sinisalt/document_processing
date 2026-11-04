@@ -39,11 +39,53 @@ public static partial class DeliveryTemplates
     }
 
     /// <summary>
-    /// The URL <paramref name="template"/> names, each value percent-encoded as one path or query segment. A value of
-    /// <c>.</c> or <c>..</c> is refused (a <see cref="DeliveryTemplateException"/>): escaping leaves dots as they are, so
-    /// it would be a dot segment, which the URL parser removes, and the request would go to another path.
+    /// The URL <paramref name="template"/> names, each value percent-encoded as one path or query segment. A path
+    /// segment that is <c>.</c> or <c>..</c> and holds a value (<c>/{{output.x}}/</c> with <c>x = ".."</c>, or
+    /// <c>/{{output.x}}{{output.y}}/</c> with both <c>"."</c>) is refused (a <see cref="DeliveryTemplateException"/>):
+    /// escaping leaves dots as they are, so it is a dot segment, which the URL parser removes, and the request would go
+    /// to another path. The same value in the query, or beside other text of its segment (<c>.z</c>), is sent as it is.
     /// </summary>
-    public static string ExpandUrl(string template, DeliveryTemplateValues values) => Expand(template, values, UrlSegment);
+    public static string ExpandUrl(string template, DeliveryTemplateValues values)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(values);
+        var builder = new StringBuilder(template.Length);
+        var filled = new List<(int Start, int End)>();
+        var at = 0;
+        foreach (Match match in Placeholder().Matches(template))
+        {
+            builder.Append(template, at, match.Index - at);
+            var start = builder.Length;
+            builder.Append(Uri.EscapeDataString(Value(match.Value, values)));
+            filled.Add((start, builder.Length));
+            at = match.Index + match.Length;
+        }
+
+        builder.Append(template, at, template.Length - at);
+        var url = builder.ToString();
+
+        // Escaping turns a value's '/', '?' and '#' into %2F, %3F and %23, so the path ends at the template's own
+        // first '?' or '#', and its segments are the text between the '/'s before it.
+        var end = url.IndexOfAny(['?', '#']);
+        end = end < 0 ? url.Length : end;
+        var segment = 0;
+        for (var i = 0; i <= end; i++)
+        {
+            if (i < end && url[i] != '/')
+            {
+                continue;
+            }
+
+            if (url.AsSpan(segment, i - segment) is "." or ".." && filled.Exists(f => f.Start < i && f.End > segment))
+            {
+                throw new DeliveryTemplateException($"A URL template value makes the path segment '{url[segment..i]}', a dot segment that would move the request to another path; it is not sent.");
+            }
+
+            segment = i + 1;
+        }
+
+        return url;
+    }
 
     /// <summary>
     /// The file name <paramref name="template"/> names: values with characters a file name cannot hold
@@ -60,23 +102,26 @@ public static partial class DeliveryTemplates
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(values);
-        return Placeholder().Replace(template, match =>
+        return Placeholder().Replace(template, match => encode(Value(match.Value, values)));
+    }
+
+    /// <summary>The value <paramref name="placeholder"/> names for this delivery; a missing or empty one is a <see cref="DeliveryTemplateException"/>.</summary>
+    private static string Value(string placeholder, DeliveryTemplateValues values)
+    {
+        var name = Name(placeholder);
+        var value = name switch
         {
-            var name = Name(match.Value);
-            var value = name switch
-            {
-                "meta.documentId" => values.DocumentId.ToString("D"),
-                "meta.version" => values.Version.ToString(CultureInfo.InvariantCulture),
-                "meta.event" => values.Event,
-                "meta.typeKey" => values.TypeKey,
-                "meta.deliveryId" => values.DeliveryId.ToString("D"),
-                _ when name.StartsWith("output.", StringComparison.Ordinal) => Read(values.Output, name[7..]),
-                _ => null,
-            };
-            return value is { Length: > 0 } text
-                ? encode(text)
-                : throw new DeliveryTemplateException($"The template's {match.Value} has no value for this delivery.");
-        });
+            "meta.documentId" => values.DocumentId.ToString("D"),
+            "meta.version" => values.Version.ToString(CultureInfo.InvariantCulture),
+            "meta.event" => values.Event,
+            "meta.typeKey" => values.TypeKey,
+            "meta.deliveryId" => values.DeliveryId.ToString("D"),
+            _ when name.StartsWith("output.", StringComparison.Ordinal) => Read(values.Output, name[7..]),
+            _ => null,
+        };
+        return value is { Length: > 0 } text
+            ? text
+            : throw new DeliveryTemplateException($"The template's {placeholder} has no value for this delivery.");
     }
 
     private static string? Read(JsonNode? node, string path)
@@ -100,10 +145,6 @@ public static partial class DeliveryTemplates
             _ => null,
         };
     }
-
-    private static string UrlSegment(string value) => value is "." or ".."
-        ? throw new DeliveryTemplateException($"A URL template value is '{value}', a dot segment that would move the request to another path; it is not sent.")
-        : Uri.EscapeDataString(value);
 
     private static string SafeFileName(string value)
     {

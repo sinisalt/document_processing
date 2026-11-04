@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 
 namespace DocProc.Infrastructure.Outputs;
 
@@ -10,7 +11,7 @@ namespace DocProc.Infrastructure.Outputs;
 /// draft is created or saved and again at publish; a value saved before that check is served as opaque bytes and fails
 /// a multipart delivery for good.
 /// </summary>
-public static class OutputContentTypes
+public static partial class OutputContentTypes
 {
     public const string Default = "application/json";
 
@@ -27,7 +28,12 @@ public static class OutputContentTypes
     /// </summary>
     private static readonly HashSet<string> Inline = new(StringComparer.Ordinal) { "application/json", "text/csv", "text/plain" };
 
-    /// <summary>The value as a header carries it (lower-case type, the charset kept), or null when it is not an allowed content type.</summary>
+    /// <summary>
+    /// The value as a header carries it (lower-case type, the charset kept without quotes), or null when it is not an
+    /// allowed content type. A charset is a token (RFC 9110): a quoted one that holds a comma, a space, a semicolon or
+    /// any other character a token cannot hold is refused, since without its quotes it would read as another value
+    /// (<c>charset="x,text/html"</c>); so the result normalises to itself and a saved draft always publishes.
+    /// </summary>
     public static string? Normalize(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || !MediaTypeHeaderValue.TryParse(value.Trim(), out var parsed) || parsed.MediaType is not { } media)
@@ -46,7 +52,13 @@ public static class OutputContentTypes
             return null;
         }
 
-        return parsed.CharSet is { Length: > 0 } charset ? $"{media}; charset={charset.Trim('"')}" : media;
+        if (parsed.CharSet is not { Length: > 0 } charset)
+        {
+            return media;
+        }
+
+        charset = charset.Length >= 2 && charset[0] == '"' && charset[^1] == '"' ? charset[1..^1] : charset;
+        return Token().IsMatch(charset) ? $"{media}; charset={charset}" : null;
     }
 
     public static bool IsAllowed(string? value) => Normalize(value) is not null;
@@ -65,6 +77,9 @@ public static class OutputContentTypes
         var media = normalized.Split(';', 2)[0];
         return (normalized, Inline.Contains(media) || (media.StartsWith("application/", StringComparison.Ordinal) && media.EndsWith("+json", StringComparison.Ordinal)));
     }
+
+    [GeneratedRegex(@"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")]
+    private static partial Regex Token();
 
     private static bool IsSuffixed(string media)
     {

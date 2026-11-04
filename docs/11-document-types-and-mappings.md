@@ -1611,6 +1611,13 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
   `contentType`), and stored lower-case. The payload route answers with `X-Content-Type-Options: nosniff`, serves JSON,
   CSV and plain text inline, and everything else as an attachment: XML under its type (a browser could run XHTML or
   SVG in it), and a type that is not an allowed one (stored before the check) as `application/octet-stream`.
+- Correction (P3, fifth review): the check above parsed a quoted `charset` and stored it without its quotes, so
+  `text/plain; charset="x,text/html"` was saved as `text/plain; charset=x,text/html`, a value the check itself
+  refuses (and that a browser reads as `text/html`); create and save answered 201 and 200, and only publish answered
+  400, naming the saved draft's own type. A `charset` is now a token (letters, digits and
+  ``!#$%&'*+.^_`|~-``), quoted or not: a quoted one with a comma, a space, a semicolon, a backslash or any other
+  character is refused on create and save as well (400 under `contentType`), and `charset="utf-8"` is stored as
+  `charset=utf-8`. What is stored is what the check accepts, so a saved draft's type always publishes.
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1757,6 +1764,15 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
   otherwise), so a value can add to the template's path but never leave it. A multipart part whose content type
   (the payload's or the original file's) is not a media type now fails the delivery for good (`request`) instead of
   being retried as a transport error for 72 hours.
+- Correction (P3, fifth review): the value check above refused any value that was `.` or `..`, wherever it stood:
+  in the query (`?note={{output.x}}`), where a dot moves nothing, and beside other text of its path segment
+  (`/{{output.x}}{{output.y}}` with `.` and `z` gives `.z`), so a delivery with a harmless URL dead-lettered as a
+  permanent `template` failure. What is refused now is a path segment of the expanded URL that is `.` or `..` and
+  holds a value: alone (`/{{output.x}}/` with `..`), with another value (`/{{output.x}}{{output.y}}/` with `.` and
+  `.`) or with the template's text (`/.{{output.x}}/` with `.`). The path ends at the template's own first `?` or
+  `#` (a value's `/`, `?` and `#` are escaped), so a value in the query or the fragment is sent as it is. A dot
+  segment of the template's own text is the destination's; the check of the expanded path against the template's
+  literal path stays behind both.
 
 ### 13.4 Multi-call recipes
 

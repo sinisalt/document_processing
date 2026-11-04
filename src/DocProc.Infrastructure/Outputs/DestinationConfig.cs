@@ -232,10 +232,11 @@ public static partial class DestinationConfig
 
     /// <summary>
     /// Whether the path of <paramref name="expanded"/>, the URL a delivery is sent to, still starts with the literal path
-    /// of <paramref name="template"/> before its first placeholder, as the URL parser reads both. Values are refused when
-    /// they are a dot segment of their own (<see cref="DeliveryTemplates.ExpandUrl"/>); this check also covers a
-    /// value that makes one with the template's own text (<c>/api/.{{output.x}}</c> with <c>x = "."</c>), so the payload
-    /// can add to the template's path but never climb out of it.
+    /// of <paramref name="template"/> before its first placeholder, as the URL parser reads both. A path segment that is
+    /// <c>.</c> or <c>..</c> and holds a value is refused when the URL is expanded (<see cref="DeliveryTemplates.ExpandUrl"/>);
+    /// this check is the net behind it, for whatever else would make the parser's path leave the template's (a dot
+    /// segment of the template's own text after its first placeholder), so the payload can add to the template's path
+    /// but never climb out of it.
     /// </summary>
     public static bool KeepsTemplatePath(string template, Uri expanded)
     {

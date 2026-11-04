@@ -697,6 +697,60 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         receiver.Requests.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("/api/items?note={{output.x}}", ".", "z", "/api/items?note=.")]
+    [InlineData("/api/items?note={{output.x}}", "..", "z", "/api/items?note=..")]
+    [InlineData("/api/items?note={{output.x}}&b={{output.y}}", "..", "..", "/api/items?note=..&b=..")]
+    [InlineData("/api/items/x#{{output.x}}", "..", "z", "/api/items/x")]
+    [InlineData("/api/v1/{{output.x}}{{output.y}}", ".", "z", "/api/v1/.z")]
+    [InlineData("/api/v1/{{output.x}}/{{output.y}}", "...", "a.b", "/api/v1/.../a.b")]
+    [InlineData("/api/v1/{{output.x}}.{{output.y}}", ".", ".", "/api/v1/...")]
+    public async Task A_dot_value_that_is_no_whole_path_segment_is_sent(string path, string x, string y, string sent)
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200) };
+        var (transport, _) = Http(receiver);
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + path });
+        context = context with { Values = context.Values with { Output = new JsonObject { ["x"] = x, ["y"] = y } } };
+
+        // A dot segment is a whole path segment: in the query, in the fragment or beside other text of its segment a
+        // value of "." or ".." moves nothing, and the delivery goes out.
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        receiver.Requests.ShouldHaveSingleItem().PathAndQuery.ShouldBe(sent);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/{{output.x}}{{output.y}}/delete", ".", ".")]
+    [InlineData("/api/v1/.{{output.x}}/delete", ".", "z")]
+    [InlineData("/api/v1/{{output.x}}", "..", "z")]
+    [InlineData("/api/v1/{{output.x}}?id={{output.y}}", ".", "z")]
+    [InlineData("/api/v1/{{output.y}}/{{output.x}}/delete", ".", "z")]
+    public async Task A_value_that_makes_a_whole_path_segment_a_dot_segment_is_refused(string path, string x, string y)
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200) };
+        var (transport, _) = Http(receiver);
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + path });
+        context = context with { Values = context.Values with { Output = new JsonObject { ["x"] = x, ["y"] = y } } };
+
+        // Alone or with the template's text or another value, the segment is "." or "..", which the URL parser removes
+        // (/api/v1/z/./delete is /api/v1/z/delete): a permanent template error, and nothing is sent.
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ErrorClass.ShouldBe("permanent:template");
+        outcome.Error!.ShouldContain("dot segment");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_dot_segment_of_the_templates_own_text_is_left_to_the_path_check()
+    {
+        // Only a segment that holds a value is refused when the URL is expanded; the template's own text is the
+        // destination's, and the path check judges what the parser makes of it.
+        var values = new DeliveryTemplateValues(Guid.NewGuid(), 1, OutputEvents.Approved, "Invoice", Guid.NewGuid(), new JsonObject { ["x"] = "a" });
+        DeliveryTemplates.ExpandUrl("https://erp.example/api/./v1/{{output.x}}", values).ShouldBe("https://erp.example/api/./v1/a");
+        DeliveryTemplates.ExpandUrl("https://erp.example/api/v1/{{output.x}}/../b", values).ShouldBe("https://erp.example/api/v1/a/../b");
+        DestinationConfig.KeepsTemplatePath("https://erp.example/api/v1/{{output.x}}/../../b", new Uri("https://erp.example/api/v1/a/../../b")).ShouldBeFalse();
+    }
+
     [Fact]
     public void The_expanded_path_must_stay_below_the_templates_literal_path()
     {

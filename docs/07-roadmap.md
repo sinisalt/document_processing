@@ -1177,6 +1177,13 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - docs/09's API version of the outputs demo sets the supplier's `erpVendorId` (it dead-lettered without it), has
       the fourth lookup entry and the binding's `onReapproval: Update` with the update URL; step 7 lists the field
       rows in the fixture's order, and step 9 says what the Deliveries tab reliably shows.
+  - Done (fifth review, recorded as "Correction (P3, fifth review)" in docs/11 §13.1 and §13.3):
+    - a URL template value of `.` or `..` is refused only where it makes a whole path segment `.` or `..` (alone, with
+      another value or with the template's text); in the query, the fragment or beside other text of its segment it
+      is sent (it dead-lettered as a permanent `template` failure before);
+    - a mapping version's `charset` is a token, quoted or not: a quoted one with characters a token cannot hold
+      (`charset="x,text/html"`) is refused on create and save, where before it was stored without its quotes as a
+      value only publish refused.
   - Left for later:
     - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
       (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
