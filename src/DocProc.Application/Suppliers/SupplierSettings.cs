@@ -33,18 +33,54 @@ public enum SupplierReviewMode
     Always,
 }
 
-/// <summary>A tri-state switch that can defer to the tenant default (<c>layouts.required</c>).</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<InheritableSwitch>))]
+/// <summary>
+/// A tri-state switch that can defer to the tenant default (<c>layouts.required</c>): the JSON booleans <c>true</c> and
+/// <c>false</c> or the string <c>"inherit"</c> (docs/05 "Suppliers"); the strings <c>"true"</c> and <c>"false"</c>, which
+/// the first P4 builds stored, are read too. Written as a boolean, or <c>"inherit"</c>.
+/// </summary>
+[JsonConverter(typeof(InheritableSwitchConverter))]
 public enum InheritableSwitch
 {
-    [JsonStringEnumMemberName("inherit")]
     Inherit,
 
-    [JsonStringEnumMemberName("true")]
     On,
 
-    [JsonStringEnumMemberName("false")]
     Off,
+}
+
+/// <summary>Reads and writes <see cref="InheritableSwitch"/> as docs/05 documents it: <c>true</c>, <c>false</c> or <c>"inherit"</c>.</summary>
+public sealed class InheritableSwitchConverter : JsonConverter<InheritableSwitch>
+{
+    public override InheritableSwitch Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.TokenType switch
+    {
+        JsonTokenType.True => InheritableSwitch.On,
+        JsonTokenType.False => InheritableSwitch.Off,
+        JsonTokenType.String => reader.GetString()?.Trim().ToLowerInvariant() switch
+        {
+            "inherit" => InheritableSwitch.Inherit,
+            "true" => InheritableSwitch.On,
+            "false" => InheritableSwitch.Off,
+            var other => throw new JsonException($"'{other}' is not true, false or inherit."),
+        },
+        _ => throw new JsonException("Expected true, false or \"inherit\"."),
+    };
+
+    public override void Write(Utf8JsonWriter writer, InheritableSwitch value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        switch (value)
+        {
+            case InheritableSwitch.On:
+                writer.WriteBooleanValue(true);
+                break;
+            case InheritableSwitch.Off:
+                writer.WriteBooleanValue(false);
+                break;
+            default:
+                writer.WriteStringValue("inherit");
+                break;
+        }
+    }
 }
 
 /// <summary>The supplier's locale for parsing printed values (stored; the layouts' parse transforms read it, P4 part B).</summary>

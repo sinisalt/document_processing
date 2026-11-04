@@ -24,7 +24,7 @@ import {
 import type { DocumentFlag } from "./queries";
 
 const flag = (code: string, patch: Partial<DocumentFlag> = {}): DocumentFlag =>
-  ({ id: code, code, severity: "Blocking", field: null, message: code, params: {}, createdBy: "System", createdAt: "2026-11-03T10:00:00Z", resolvedAt: null, resolvedBy: null, ...patch }) as DocumentFlag;
+  ({ id: code, code, severity: "Blocking", field: null, message: code, params: {}, createdBy: "Pipeline", createdAt: "2026-11-03T10:00:00Z", resolvedAt: null, resolvedBy: null, ...patch }) as DocumentFlag;
 
 const choice = (patch: Partial<LayoutSaveChoice> = {}): LayoutSaveChoice => ({ saveAsLayout: true, saveAs: "newLayout", targetLayoutId: null, layoutKey: "nordwind-invoice-webshop", name: "", pendingLayoutVersionId: null, confirmNotRecognised: false, ...patch });
 

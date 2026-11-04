@@ -20,7 +20,7 @@ export interface SupplierSettingsValues {
   locale?: { culture?: string; dateOrder?: "DMY" | "MDY" | "YMD" };
   review?: { mode?: "inherit" | "always"; autoApproveMinConfidence?: number };
   defaults?: { currency?: string };
-  layouts?: { required?: boolean | "inherit" };
+  layouts?: { required?: boolean | "inherit" | "true" | "false" };
   requireSenderAuth?: boolean;
 }
 
@@ -49,7 +49,7 @@ export function settingsDraft(supplier: Supplier): Draft {
     dateOrder: settings.locale?.dateOrder ?? NONE,
     reviewMode: settings.review?.mode ?? "inherit",
     currency: settings.defaults?.currency ?? "",
-    layoutsRequired: required === true ? "yes" : required === false ? "no" : "inherit",
+    layoutsRequired: required === true || required === "true" ? "yes" : required === false || required === "false" ? "no" : "inherit",
     requireSenderAuth: settings.requireSenderAuth === true ? "yes" : settings.requireSenderAuth === false ? "no" : "inherit",
   };
 }
@@ -243,14 +243,14 @@ export function SupplierSettingsTab({ supplier, canEdit }: { supplier: Supplier;
         <legend className="text-sm font-medium">{t("suppliers.settings.allowedTypes")}</legend>
         <div className="flex flex-wrap gap-3">
           {published.map((type) => (
-            <label key={type.key} className="flex items-center gap-2 text-sm">
+            <Label key={type.key} className="flex items-center gap-2 text-sm font-normal">
               <Switch
                 checked={draft.allowedTypeKeys.includes(type.key)}
                 onCheckedChange={(on) => set("allowedTypeKeys", on ? [...draft.allowedTypeKeys, type.key] : draft.allowedTypeKeys.filter((k) => k !== type.key))}
                 disabled={!canEdit}
               />
               {localized(type.name, i18n.language) ?? type.key}
-            </label>
+            </Label>
           ))}
         </div>
         <span className="text-xs text-muted-foreground">{t("suppliers.settings.allowedTypesHint")}</span>

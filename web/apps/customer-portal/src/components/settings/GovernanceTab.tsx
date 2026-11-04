@@ -225,10 +225,10 @@ export function GovernanceTab() {
           <fieldset className="flex flex-wrap gap-3">
             <legend className="mb-1 text-sm font-medium">{t("settings.governance.include")}</legend>
             {BUNDLE_PARTS.map((part) => (
-              <label key={part} className="flex items-center gap-2 text-sm">
+              <Label key={part} className="flex items-center gap-2 text-sm font-normal">
                 <Checkbox checked={include.includes(part)} onCheckedChange={(c) => setInclude((current) => (c === true ? [...current, part] : current.filter((p) => p !== part)))} />
                 {t(`settings.governance.parts.${part}`)}
-              </label>
+              </Label>
             ))}
           </fieldset>
           <div>

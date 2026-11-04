@@ -30,6 +30,19 @@ public sealed class SupplierConfigurationTests
     }
 
     [Fact]
+    public void Layouts_required_reads_the_booleans_of_docs_05_and_the_strings_stored_before()
+    {
+        SupplierSettings.Parse("""{"layouts":{"required":true}}""").LayoutsRequired(tenantDefault: false).ShouldBeTrue();
+        SupplierSettings.Parse("""{"layouts":{"required":false}}""").LayoutsRequired(tenantDefault: true).ShouldBeFalse();
+        SupplierSettings.Parse("""{"layouts":{"required":"true"}}""").LayoutsRequired(tenantDefault: false).ShouldBeTrue("the string the first P4 builds stored");
+        SupplierSettings.Parse("""{"layouts":{"required":"inherit"}}""").LayoutsRequired(tenantDefault: true).ShouldBeTrue();
+        SupplierSettings.Parse("""{"layouts":{"required":true}}""").ToJson().ShouldBe("""{"layouts":{"required":true}}""");
+        SupplierSettings.Parse("""{"layouts":{"required":"inherit"}}""").ToJson().ShouldBe("""{"layouts":{"required":"inherit"}}""");
+        Should.Throw<JsonException>(() => JsonSerializer.Deserialize<SupplierSettings>("""{"layouts":{"required":"maybe"}}""", SupplierSettings.JsonOptions));
+        Should.Throw<JsonException>(() => JsonSerializer.Deserialize<SupplierSettings>("""{"layouts":{"required":1}}""", SupplierSettings.JsonOptions));
+    }
+
+    [Fact]
     public void A_single_allowed_type_is_pinned_when_the_source_matched_or_always()
     {
         var whenSource = SupplierSettings.Parse("""{"allowedTypeKeys":["Invoice"]}""");

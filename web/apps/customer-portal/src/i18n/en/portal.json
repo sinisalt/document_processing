@@ -282,7 +282,7 @@
       "approveAndSave": "Approve and save as layout",
       "approvedAndSaved": "Document approved and saved as a layout.",
       "saveAsLayout": "Save as layout",
-      "saveAsLayoutOff": "The document is approved only; NEW_LAYOUT is resolved as approved without a layout.",
+      "saveAsLayoutOff": "The document is approved only; the new-layout flag is resolved as approved without a layout.",
       "saveAsLayoutPending": "Confirms the pending layout with this document (no second layout).",
       "saveAsLayoutVersion": "Saves a new version of the chosen layout.",
       "saveAsLayoutNew": "Saves the identifiers and field positions as {{layout}} ({{rule}}).",
@@ -544,7 +544,7 @@
       "layoutKeyInvalid": "Lower-case letters, digits and dashes; at most 64 characters.",
       "name": "Name",
       "target": "Layout to replace",
-      "versionWarning": "Documents in the old design will no longer be recognised once the new version is active; they would get NEW_LAYOUT.",
+      "versionWarning": "Documents in the old design will no longer be recognised once the new version is active; they would go to review as a new layout.",
       "confirmNotRecognised": "I confirm that the old design will no longer be recognised",
       "prefilled_one": "Pre-filled: {{count}} value",
       "prefilled_other": "Pre-filled: {{count}} values",
@@ -679,7 +679,7 @@
     },
     "settings": {
       "layoutsRequired": "Layouts required",
-      "layoutsRequiredHint": "A layout-managed supplier's documents are processed only by its layouts; a design none recognises goes to review with NEW_LAYOUT.",
+      "layoutsRequiredHint": "A layout-managed supplier's documents are processed only by its layouts; a design none recognises goes to review as a new layout.",
       "inheritTenant": "Inherit (tenant default: {{value}})",
       "yes": "Yes",
       "no": "No",
@@ -830,7 +830,7 @@
       "activateRefused": "The version was not activated",
       "retire": "Retire layout",
       "retireTitle": "Retire {{layout}}?",
-      "retireDescription": "Documents in this design are no longer recognised by it; they get NEW_LAYOUT.",
+      "retireDescription": "Documents in this design are no longer recognised by it; they go to review as a new layout.",
       "retired": "{{layout}} retired."
     },
     "groups": {

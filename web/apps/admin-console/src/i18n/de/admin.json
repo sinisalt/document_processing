@@ -630,7 +630,7 @@
   },
   "features": {
     "title": "Funktionsschalter",
-    "description": "Konfigurierbare Dokumenttypen und Ausgaben (docs/11). Standardmäßig aus; wieder ausgeschaltet, nutzen die Dokumente des Mandanten die übernommenen Standardtypen wie zuvor, und es wird nichts zugestellt.",
+    "description": "Konfigurierbare Dokumenttypen, Ausgaben, Quellzuordnung und Lieferantenlayouts (docs/11). Standardmäßig aus; wieder ausgeschaltet, arbeitet der Mandant wie zuvor: die übernommenen Standardtypen, keine Zustellung, kein Kanal abgerufen, kein Layout verwendet.",
     "saved": "Funktionsschalter gespeichert.",
     "saveFailed": "Die Schalter wurden nicht gespeichert.",
     "configurableTypes": {
@@ -644,6 +644,14 @@
     "outputs": {
       "label": "Ausgaben",
       "hint": "Der Mandant kann Ziele, Ausgabe-Mappings und Verknüpfungen einrichten (Einstellungen > Integrationen); Freigaben und Ablehnungen werden dann zugestellt. Aus: Freigeben und Veröffentlichen wie bisher, es wird nichts zugestellt."
+    },
+    "sourceRouting": {
+      "label": "Quellzuordnung",
+      "hint": "Die Postfächer und überwachten Ordner des Mandanten werden abgerufen; Quellregeln (Absender mit DMARC, Empfänger, Ordner, Betreff) geben Dokumenten beim Eingang Lieferant und Typ; Lieferanteneinstellungen, Gruppen, empfangende Gesellschaften und typisierte Attribute. Aus: Dokumente werden wie bisher über ihren Inhalt zugeordnet, kein Kanal wird abgerufen."
+    },
+    "supplierLayouts": {
+      "label": "Lieferantenlayouts",
+      "hint": "Dokumente eines Lieferanten werden an den Erkennungsregeln seiner Layouts erkannt und von deren Feldzuordnung gefüllt; ein Layout, das keines erkennt, geht als neues Layout in die Prüfung und wird dort als Layout gespeichert. Aus: kein Layout wird verwendet, die Dokumente laufen wie bisher."
     }
   }
 }

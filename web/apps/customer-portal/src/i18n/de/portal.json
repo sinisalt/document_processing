@@ -282,7 +282,7 @@
       "approveAndSave": "Freigeben und als Layout speichern",
       "approvedAndSaved": "Dokument freigegeben und als Layout gespeichert.",
       "saveAsLayout": "Als Layout speichern",
-      "saveAsLayoutOff": "Das Dokument wird nur freigegeben; NEW_LAYOUT wird als ohne Layout freigegeben erledigt.",
+      "saveAsLayoutOff": "Das Dokument wird nur freigegeben; der Hinweis „Neues Layout“ wird als ohne Layout freigegeben erledigt.",
       "saveAsLayoutPending": "Bestätigt das wartende Layout mit diesem Dokument (kein zweites Layout).",
       "saveAsLayoutVersion": "Speichert eine neue Version des gewählten Layouts.",
       "saveAsLayoutNew": "Speichert die Merkmale und Feldpositionen als {{layout}} ({{rule}}).",
@@ -544,7 +544,7 @@
       "layoutKeyInvalid": "Kleinbuchstaben, Ziffern und Bindestriche; höchstens 64 Zeichen.",
       "name": "Name",
       "target": "Zu ersetzendes Layout",
-      "versionWarning": "Dokumente im alten Layout werden nach Aktivierung der neuen Version nicht mehr erkannt; sie bekämen NEW_LAYOUT.",
+      "versionWarning": "Dokumente im alten Layout werden nach Aktivierung der neuen Version nicht mehr erkannt; sie gingen als neues Layout in die Prüfung.",
       "confirmNotRecognised": "Ich bestätige, dass das alte Layout nicht mehr erkannt wird",
       "prefilled_one": "Vorbefüllt: {{count}} Wert",
       "prefilled_other": "Vorbefüllt: {{count}} Werte",
@@ -679,7 +679,7 @@
     },
     "settings": {
       "layoutsRequired": "Layouts erforderlich",
-      "layoutsRequiredHint": "Dokumente eines layoutgesteuerten Lieferanten werden nur von seinen Layouts verarbeitet; ein Layout, das keines erkennt, geht mit NEW_LAYOUT in die Prüfung.",
+      "layoutsRequiredHint": "Dokumente eines layoutgesteuerten Lieferanten werden nur von seinen Layouts verarbeitet; ein Layout, das keines erkennt, geht als neues Layout in die Prüfung.",
       "inheritTenant": "Erben (Mandantenvorgabe: {{value}})",
       "yes": "Ja",
       "no": "Nein",
@@ -830,7 +830,7 @@
       "activateRefused": "Die Version wurde nicht aktiviert",
       "retire": "Layout außer Betrieb nehmen",
       "retireTitle": "{{layout}} außer Betrieb nehmen?",
-      "retireDescription": "Dokumente in diesem Layout werden dann nicht mehr erkannt; sie bekommen NEW_LAYOUT.",
+      "retireDescription": "Dokumente in diesem Layout werden dann nicht mehr erkannt; sie gehen als neues Layout in die Prüfung.",
       "retired": "{{layout}} außer Betrieb genommen."
     },
     "groups": {

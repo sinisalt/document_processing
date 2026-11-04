@@ -197,7 +197,7 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
         var patched = await admin.PatchAsJsonAsync($"/api/v1/suppliers/{supplier.Id}", new PatchSupplierRequest(null, null, null, null, null, null, null, null)
         {
             GroupId = groupRow.Id,
-            Settings = JsonDocument.Parse("""{"allowedTypeKeys":["Invoice"],"layouts":{"required":"true"}}""").RootElement,
+            Settings = JsonDocument.Parse("""{"allowedTypeKeys":["Invoice"],"layouts":{"required":true}}""").RootElement,
         }, Ct);
         patched.StatusCode.ShouldBe(HttpStatusCode.OK, await patched.Content.ReadAsStringAsync(Ct));
         var put = await admin.PutAsJsonAsync($"/api/v1/suppliers/{supplier.Id}/entity-attributes/{entityRow.Id}", new SupplierEntityAttributesRequest(new Dictionary<string, JsonElement> { ["erpVendorId"] = JsonDocument.Parse("\"V-2000-7\"").RootElement }), Ct);
@@ -205,7 +205,7 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
 
         var shown = (await admin.GetFromJsonAsync<SupplierResponse>($"/api/v1/suppliers/{supplier.Id}", ApiFactory.Json, Ct))!;
         shown.GroupId.ShouldBe(groupRow.Id);
-        shown.Settings.GetProperty("layouts").GetProperty("required").GetString().ShouldBe("true");
+        shown.Settings.GetProperty("layouts").GetProperty("required").GetBoolean().ShouldBeTrue("docs/05: required is true, false or \"inherit\"");
         shown.EntityAttributes.ShouldHaveSingleItem().ReceivingEntityCode.ShouldBe(code);
 
         (await admin.DeleteAsync($"/api/v1/supplier-groups/{groupRow.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "it has a member");

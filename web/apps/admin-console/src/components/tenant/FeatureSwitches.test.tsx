@@ -48,4 +48,18 @@ describe("feature switches", () => {
     const put = shell.requests.find((r) => r.route === "PUT /api/v1/settings")!.init as { body: unknown };
     expect(put.body).toEqual({ ...settings, features: { ...off, outputs: true } });
   });
+
+  it("switches source routing and supplier layouts on, each by itself (docs/11 P4)", async () => {
+    expect(withSwitch(off, "sourceRouting", true)).toEqual({ ...off, sourceRouting: true });
+    expect(withSwitch(off, "supplierLayouts", true)).toEqual({ ...off, supplierLayouts: true });
+    answer("GET /api/v1/settings", { tenant: {}, settings });
+    shell.handlers.set("PUT /api/v1/settings", ({ init }) => ({ body: { tenant: {}, settings: (init as { body: unknown }).body } }));
+    renderScreen(<FeatureSwitches />);
+    fireEvent.click(await screen.findByRole("switch", { name: /Supplier layouts/ }));
+    await waitFor(() => expect(shell.calls).toContain("PUT /api/v1/settings"));
+    const put = shell.requests.find((r) => r.route === "PUT /api/v1/settings")!.init as { body: unknown };
+    expect(put.body).toEqual({ ...settings, features: { ...off, supplierLayouts: true } });
+    expect(screen.getByRole("switch", { name: /Source routing/ })).not.toBeChecked();
+    expect(screen.queryByRole("switch", { name: /structuredSources/ })).toBeNull();
+  });
 });

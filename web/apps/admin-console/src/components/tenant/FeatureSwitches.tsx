@@ -9,10 +9,12 @@ type Features = components["schemas"]["TenantFeaturesDto"];
 type Settings = components["schemas"]["TenantSettingsDto"];
 
 /**
- * The switches of docs/11 §3 (principle 6) that are built: the type catalogue (P1) and outputs (P3, the Integrations
- * tab, the fan-out and delivery); the other switches change nothing yet and stay as they are.
+ * The switches of docs/11 §3 (principle 6) that are built: the type catalogue (P1), outputs (P3, the Integrations
+ * tab, the fan-out and delivery), source routing and supplier layouts (P4: mailboxes and watched folders polled,
+ * source rules, supplier settings; layouts, identification rules and the new-layout flow); `structuredSources`
+ * changes nothing yet and stays as it is.
  */
-export const builtSwitches = ["configurableTypes", "customTypes", "outputs"] as const;
+export const builtSwitches = ["configurableTypes", "customTypes", "outputs", "sourceRouting", "supplierLayouts"] as const;
 export type BuiltSwitch = (typeof builtSwitches)[number];
 
 const allOff: Features = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false };

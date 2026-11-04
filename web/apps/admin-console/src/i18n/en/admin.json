@@ -630,7 +630,7 @@
   },
   "features": {
     "title": "Feature switches",
-    "description": "Configurable document types and outputs (docs/11). Off by default; switched off again, the tenant's documents use the adopted standard types as before and nothing is delivered.",
+    "description": "Configurable document types, outputs, source routing and supplier layouts (docs/11). Off by default; switched off again, the tenant works as before: the adopted standard types, nothing delivered, no channel polled, no layout used.",
     "saved": "Feature switches saved.",
     "saveFailed": "The switches were not saved.",
     "configurableTypes": {
@@ -644,6 +644,14 @@
     "outputs": {
       "label": "Outputs",
       "hint": "The tenant can set up destinations, output mappings and bindings (Settings > Integrations); approvals and rejections are then delivered. Off: approve and publish as before, nothing is delivered."
+    },
+    "sourceRouting": {
+      "label": "Source routing",
+      "hint": "The tenant's mailboxes and watched folders are polled; source rules (sender with DMARC, recipient, folder, subject) give documents their supplier and type at ingest; supplier settings, groups, receiving entities and typed attributes. Off: documents are matched by their content as before and no channel is polled."
+    },
+    "supplierLayouts": {
+      "label": "Supplier layouts",
+      "hint": "Documents of a supplier are recognised by its layouts' identification rules and filled by their field mappings; a design no layout recognises goes to review as a new layout and is saved as one there. Off: no layout is used and the documents run as before."
     }
   }
 }
