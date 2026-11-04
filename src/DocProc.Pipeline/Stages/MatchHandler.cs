@@ -8,6 +8,8 @@ using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure.Classification;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Mapping.Identification;
+using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Routing;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +31,13 @@ namespace DocProc.Pipeline.Stages;
 /// and replaces a default (<c>DefaultWhenNoContentMatch</c>, the channel default), undoing a type that only the old
 /// supplier's configuration pinned (<c>TypeSource=Supplier</c>), which is classified again from the pages.
 /// </para>
+/// <para>
+/// <c>match.layout</c> (docs/11 §8.4 "Where it runs"): a supplier found here by content, or one that replaced a source
+/// supplier, has its layouts resolved here. A layout whose rule holds sets the layout and corrects a type the keyword
+/// rules or the LLM gave (never one a human, the source or the e-invoice XML fixed); a layout-managed supplier whose
+/// layouts all fail gets <c>NEW_LAYOUT</c> with the classified type as the proposal. Replacing a source supplier reverts
+/// what <c>classify.identification</c> decided for it (its flags, its layout, a type it identified or proposed).
+/// </para>
 /// </summary>
 internal sealed class MatchHandler(
     DocProcDbContext db,
@@ -38,6 +47,7 @@ internal sealed class MatchHandler(
     IEInvoiceParser eInvoices,
     KeywordDocumentClassifier keywords,
     IServiceProvider services,
+    LayoutIdentification layouts,
     IOptions<PipelineOptions> options,
     ILogger<MatchHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
@@ -81,6 +91,7 @@ internal sealed class MatchHandler(
         flags.Replace(document, OwnedFlags, match is null
             ? [FlagCodes.Create(FlagCodes.SupplierUnmatched, "No supplier of the tenant matched the document; a new supplier may be needed.")]
             : []);
+        var layout = await MatchLayoutAsync(document, cancellationToken).ConfigureAwait(false);
 
         Timeline.Transition(document, DocumentStatus.Matched, new
         {
@@ -90,6 +101,7 @@ internal sealed class MatchHandler(
             method = match?.Method,
             vatIdsFound = signals.VatIds.Order(StringComparer.Ordinal).ToList(),
             senderDomain = signals.SenderDomain,
+            layout,
         });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;
@@ -176,7 +188,12 @@ internal sealed class MatchHandler(
         document.SupplierMatchMethod = MethodOf(evidence);
         document.SupplierSourceRuleId = null;
         document.ExtractorProfileId = null;
-        if (document.TypeSource == TypeSource.Supplier)
+
+        // What classify.identification decided for the old supplier goes with it (docs/11 §8.5): its flags, its layout
+        // and a type its layout identified or proposed, which is classified again for the new supplier.
+        layouts.Clear(document, LayoutIdentification.ClassifyStep);
+        document.SupplierLayoutVersionId = null;
+        if (document.TypeSource is TypeSource.Supplier or TypeSource.Identification or TypeSource.Proposed)
         {
             var (outcome, _) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken).ConfigureAwait(false);
             ClassifyHandler.SetType(document, outcome);
@@ -186,6 +203,7 @@ internal sealed class MatchHandler(
         }
 
         flags.Replace(document, OwnedFlags, []);
+        var layout = await MatchLayoutAsync(document, cancellationToken).ConfigureAwait(false);
         Timeline.Transition(document, DocumentStatus.Matched, new
         {
             supplierId = evidence.Supplier.Id,
@@ -194,9 +212,48 @@ internal sealed class MatchHandler(
             method = evidence.Method,
             replacedSourceSupplier = routed.Id,
             type = document.Type,
+            layout,
         });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;
+    }
+
+    /// <summary>
+    /// <c>match.layout</c> for a supplier found by content (docs/11 §8.4): resolves its layouts, corrects a classified type
+    /// to the identified layout's (<see cref="TypeSource.Identification"/>), turns it into a proposal under
+    /// <c>NEW_LAYOUT</c>, and records the step's outcome. Without a supplier (or without <c>supplierLayouts</c>) it clears
+    /// what an earlier run of the step decided. Returns the resolution for the timeline.
+    /// </summary>
+    private async Task<string?> MatchLayoutAsync(Document document, CancellationToken cancellationToken)
+    {
+        var fixedType = LayoutIdentification.IsTypeFixed(document) ? document.Type.Value : null;
+        var identification = await layouts.ResolveAsync(document, fixedType, cancellationToken).ConfigureAwait(false);
+        if (identification is not { } found)
+        {
+            document.SupplierLayoutVersionId = null;
+            layouts.Clear(document, LayoutIdentification.MatchStep);
+            return null;
+        }
+
+        if (fixedType is null && found.Result is { Resolution: LayoutResolution.Identified, Selected: { } selected })
+        {
+            var type = DocumentTypeKey.FromStored(selected.Candidate.DocumentTypeKey);
+            if (type != document.Type)
+            {
+                Timeline.Record(document, LayoutEventTypes.TypeCorrected, null, null, new { from = document.Type.Value, to = type.Value, layoutKey = selected.Candidate.LayoutKey, version = selected.Candidate.Version });
+            }
+
+            ClassifyHandler.SetType(document, new ClassificationOutcome(type, 1.0, TypeSource.Identification));
+            flags.Replace(document, [FlagCodes.TypeUnknown], []);
+        }
+        else if (fixedType is null && found.Result.Resolution == LayoutResolution.NewLayout && !document.Type.IsUnknown)
+        {
+            document.TypeSource = TypeSource.Proposed;
+        }
+
+        var proposed = document.TypeSource == TypeSource.Proposed || fixedType is not null ? document.Type.Value : null;
+        await layouts.RecordAsync(document, LayoutIdentification.MatchStep, found.Result, found.Setting, found.Words, proposed, cancellationToken).ConfigureAwait(false);
+        return found.Result.Resolution.ToString();
     }
 
     private static string? MethodName(SupplierMatchMethod? method) => method switch

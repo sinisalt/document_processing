@@ -213,8 +213,25 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV8 = new(RoutingProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>SupplierLayoutsAndIdentification</c> migration (P4 part B): <see cref="RoutingProtectedTables"/>
+    /// plus the supplier layouts and their versions of docs/11 §6.6. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> LayoutProtectedTables =
+    [
+        .. RoutingProtectedTables,
+        ("SupplierLayouts", "TenantId"),
+        ("SupplierLayoutVersions", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>SupplierLayoutsAndIdentification</c> migration (P4 part B): <see cref="PolicyV8"/> with the layout
+    /// tables among the strict tables. Neither is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV9 = new(LayoutProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV8;
+    public static PolicyDefinition CurrentPolicy => PolicyV9;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

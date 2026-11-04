@@ -70,6 +70,12 @@ public sealed class Document : ITenantScoped, IVersioned
     /// <summary>The source rule that routed the document to its supplier (docs/11 §7.2); null unless <see cref="SupplierMatchMethod"/> is <c>SourceRule</c>.</summary>
     public Guid? SupplierSourceRuleId { get; set; }
 
+    /// <summary>
+    /// The supplier layout version whose identification rule identified the document (docs/11 §6.2, §8.4): its field
+    /// mapping filled the document, and the review gate reads its state and warm-up. Null when no layout identified it.
+    /// </summary>
+    public Guid? SupplierLayoutVersionId { get; set; }
+
     /// <summary>The tenant's company the document is addressed to (docs/11 §6.4): from the source rule, the channel default or the customer VAT id.</summary>
     public Guid? ReceivingEntityId { get; set; }
 
@@ -122,6 +128,7 @@ public sealed class Document : ITenantScoped, IVersioned
     public Supplier? Supplier { get; set; }
     public ExtractorProfile? ExtractorProfile { get; set; }
     public DocumentTypeVersion? DocumentTypeVersion { get; set; }
+    public SupplierLayoutVersion? SupplierLayoutVersion { get; set; }
     public ICollection<DocumentFlagRecord> Flags { get; } = [];
     public ICollection<DocumentEvent> Events { get; } = [];
     public ICollection<ReviewTask> ReviewTasks { get; } = [];

@@ -329,11 +329,12 @@ public sealed class DemoFixtureTests
             (Path.Combine(demo, "tenant-a", DemoPdfs.DeliveryNoteFileName), DemoPdfs.DeliveryNote),
             (CreditNotePath(), DemoPdfs.CreditNote),
             (PriceListPath(), DemoPriceList.Pdf),
+            .. DemoNordwindInvoices.All.Select(i => (NordwindInvoicePath(i), (Func<byte[]>)i.Pdf)),
         ];
 
-        // "1" redraws every PDF; a file name redraws only that one, so adding a demo PDF leaves the others' bytes alone.
+        // "1" redraws every PDF; file names (comma-separated) redraw only those, so adding a demo PDF leaves the others' bytes alone.
         var regenerate = Environment.GetEnvironmentVariable(RegeneratePdfsVariable);
-        foreach (var (path, draw) in pdfs.Where(p => regenerate == "1" || regenerate == Path.GetFileName(p.Path)))
+        foreach (var (path, draw) in pdfs.Where(p => regenerate == "1" || (regenerate?.Split(',').Contains(Path.GetFileName(p.Path), StringComparer.Ordinal) ?? false)))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, draw());
@@ -357,6 +358,9 @@ public sealed class DemoFixtureTests
 
     /// <summary>The Nordwind price list the P2 demo uploads (docs/09 "Demo: manual mapping"; not ingested by the demo data).</summary>
     internal static string PriceListPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", DemoPriceList.FileName);
+
+    /// <summary>A Nordwind invoice of the P4 layouts demo (docs/11 §23 P4; not ingested by the demo data).</summary>
+    internal static string NordwindInvoicePath(DemoNordwindInvoices.Invoice invoice) => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", invoice.FileName);
 
     /// <summary>What <c>POST /document-types {from: template, mode: adopt}</c> does (configurableTypes is already on).</summary>
     private static async Task AdoptAsync(IHost host, Guid tenantId, string template)

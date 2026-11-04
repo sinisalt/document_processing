@@ -8,6 +8,7 @@ using DocProc.Domain.Flags;
 using DocProc.Domain.Validation;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,12 @@ namespace DocProc.Pipeline.Stages;
 /// <c>roles.duplicateKey</c> (<see cref="DuplicateKeyCheck"/>). The review task takes its priority from
 /// <c>review.priority</c>.
 /// </para>
+/// <para>
+/// The layout conditions of the gate (docs/11 §11): an open <c>NEW_LAYOUT</c> or <c>LAYOUT_AMBIGUOUS</c> never
+/// auto-approves, checked by name whatever its severity, nor does a type that is only proposed
+/// (<see cref="TypeSource.Proposed"/>); for a layout-managed supplier the identified layout version must be Active and the
+/// document past its review warm-up (<see cref="LayoutReviewGate"/>, <c>LAYOUT_WARMUP</c>).
+/// </para>
 /// </summary>
 internal sealed class ValidateHandler(
     DocProcDbContext db,
@@ -41,6 +48,7 @@ internal sealed class ValidateHandler(
     IPipelineQueue queue,
     DocumentValidator validator,
     IEffectiveConfigResolver configResolver,
+    LayoutReviewGate layoutGate,
     ILogger<ValidateHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     public const string ApprovedBy = DocumentTimeline.Actor;
@@ -92,6 +100,9 @@ internal sealed class ValidateHandler(
             Timeline.Record(document, DocumentEventTypes.Flagged, null, null, new { code = flag.Code, severity = flag.Severity, field = flag.Field, message = flag.Message });
         }
 
+        var layout = await layoutGate.EvaluateAsync(document, cancellationToken).ConfigureAwait(false);
+        flags.Replace(document, [FlagCodes.LayoutWarmup], layout.Warmup is { } warmup ? [warmup] : []);
+
         var open = DocumentFlagWriter.Unresolved(document);
         var alwaysReview = supplier?.AlwaysReview == true
                            || (document.SupplierId is { } sid && tenant.Settings.AlwaysReviewSupplierIds.Contains(sid))
@@ -99,9 +110,12 @@ internal sealed class ValidateHandler(
 
         // SUPPLIER_SOURCE_UNVERIFIED is a warning that never auto-approves (docs/11 §7.2): a rule for another supplier
         // would have routed the document had its sender been authenticated.
+        // NEW_LAYOUT and LAYOUT_AMBIGUOUS block by name (docs/11 §11), so a severity override cannot let them through.
         var eligible = result is { IsEligibleForAutoApproval: true }
                        && type is { AutoApprove: true }
-                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified)
+                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified or FlagCodes.NewLayout or FlagCodes.LayoutAmbiguous)
+                       && document.TypeSource != TypeSource.Proposed
+                       && layout.Passes
                        && !alwaysReview;
 
         Timeline.Transition(document, DocumentStatus.Validated, new
@@ -110,6 +124,7 @@ internal sealed class ValidateHandler(
             openFlags = open.Select(f => f.Code).Distinct(StringComparer.Ordinal).ToList(),
             eligibleForAutoApproval = eligible,
             alwaysReview,
+            layout = layout.Passes ? null : layout.Reason,
             threshold = tenant.Settings.AutoApproveConfidenceThreshold,
         });
 
@@ -132,7 +147,7 @@ internal sealed class ValidateHandler(
 
         var reason = open.Count > 0
             ? string.Join(", ", open.Select(f => f.Code).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-            : alwaysReview ? "ALWAYS_REVIEW" : "MANUAL_REVIEW";
+            : alwaysReview ? "ALWAYS_REVIEW" : !layout.Passes ? layout.Reason! : "MANUAL_REVIEW";
         Db.ReviewTasks.Add(new ReviewTask
         {
             Id = Guid.CreateVersion7(),

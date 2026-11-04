@@ -8,6 +8,8 @@ using DocProc.Infrastructure.Classification;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm.Extraction;
+using DocProc.Mapping.Identification;
+using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Support;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -22,6 +24,13 @@ namespace DocProc.Pipeline.Stages;
 /// the LLM classifier with the first page image. <c>Unknown</c> is still a classification: the document carries
 /// <c>TYPE_UNKNOWN</c> and review decides. A type a reviewer set (<see cref="TypeSource.Human"/>) is kept as it is
 /// (docs/11 §9.4 rule 1), with its version pin and tree.
+/// <para>
+/// With <c>supplierLayouts</c> on, <c>classify.identification</c> is the fixed first step (docs/11 §9.4, §10.1) for a
+/// supplier known from the source (a source rule, the channel default, a hint, a reviewer): the supplier's layouts
+/// decide the layout and, unless the type is fixed, the type (<see cref="TypeSource.Identification"/>), and the keyword
+/// rules and the LLM are not asked. When the supplier is layout-managed and none holds, they run only to propose a type
+/// (<see cref="TypeSource.Proposed"/>) for the <c>NEW_LAYOUT</c> review.
+/// </para>
 /// </summary>
 internal sealed class ClassifyHandler(
     DocProcDbContext db,
@@ -31,6 +40,7 @@ internal sealed class ClassifyHandler(
     KeywordDocumentClassifier keywords,
     IEInvoiceParser eInvoices,
     IServiceProvider services,
+    LayoutIdentification layouts,
     IOptions<PipelineOptions> options,
     ILogger<ClassifyHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
@@ -64,6 +74,7 @@ internal sealed class ClassifyHandler(
         ClassificationOutcome? outcome = null;
         var usedLlm = false;
         string? xmlIgnored = null;
+        (LayoutResolverResult Result, LayoutSetting Setting, DocProc.Mapping.Identification.DocumentWords Words)? identification = null;
         if (document.EmbeddedXmlBlob is { } xmlBlob)
         {
             try
@@ -82,12 +93,33 @@ internal sealed class ClassifyHandler(
             }
         }
 
+        if (outcome is null && KnownFromSource(document))
+        {
+            // classify.identification (docs/11 §9.4 step 2): a layout whose rule holds decides the type, and nothing else is asked.
+            identification = await layouts.ResolveAsync(document, fixedType: null, cancellationToken).ConfigureAwait(false);
+            if (identification?.Result is { Resolution: LayoutResolution.Identified, Selected: { } selected })
+            {
+                outcome = new ClassificationOutcome(DocumentTypeKey.FromStored(selected.Candidate.DocumentTypeKey), 1.0, TypeSource.Identification);
+            }
+        }
+        else if (outcome is not null && KnownFromSource(document))
+        {
+            // An e-invoice keeps the type its XML carries; only a layout restricted to e-invoices is looked for (§8.4).
+            identification = await layouts.ResolveAsync(document, outcome.Type.Value, cancellationToken).ConfigureAwait(false);
+        }
+
         if (outcome is null)
         {
             (outcome, usedLlm) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken).ConfigureAwait(false);
+            if (identification?.Result.Resolution == LayoutResolution.NewLayout && outcome.Type != DocumentTypeKey.Unknown)
+            {
+                // Under NEW_LAYOUT the classifiers only propose (§8.4 step 5): the type never counts as decided.
+                outcome = outcome with { Source = TypeSource.Proposed };
+            }
         }
 
         SetType(document, outcome);
+        await RecordIdentificationAsync(document, identification, cancellationToken).ConfigureAwait(false);
         flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
             ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
             : []);
@@ -100,6 +132,7 @@ internal sealed class ClassifyHandler(
             language = outcome.Language,
             usedLlm,
             embeddedXmlIgnored = xmlIgnored,
+            layout = identification?.Result.Resolution.ToString(),
         });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;
@@ -160,8 +193,32 @@ internal sealed class ClassifyHandler(
         document.TypeSource = outcome.Source;
     }
 
+    /// <summary>Whether the supplier was known before Classify (docs/11 §8.4 "Where it runs"): from the source or from a reviewer.</summary>
+    internal static bool KnownFromSource(Document document) =>
+        document.SupplierId is not null
+        && document.SupplierMatchMethod is SupplierMatchMethod.SourceRule or SupplierMatchMethod.ChannelDefault or SupplierMatchMethod.Hint or SupplierMatchMethod.Human;
+
+    /// <summary>Records <c>classify.identification</c>'s outcome, or clears what an earlier run decided when the step did not run.</summary>
+    private async Task RecordIdentificationAsync(Document document, (LayoutResolverResult Result, LayoutSetting Setting, DocProc.Mapping.Identification.DocumentWords Words)? identification, CancellationToken cancellationToken)
+    {
+        if (identification is { } found)
+        {
+            var proposed = document.TypeSource == TypeSource.Proposed || LayoutIdentification.IsTypeFixed(document) ? document.Type.Value : null;
+            await layouts.RecordAsync(document, LayoutIdentification.ClassifyStep, found.Result, found.Setting, found.Words, proposed, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        document.SupplierLayoutVersionId = null;
+        layouts.Clear(document, LayoutIdentification.ClassifyStep);
+    }
+
     private async Task<StageOutcome> KeepAsync(Document document, CancellationToken cancellationToken)
     {
+        // Only the layout is resolved among the kept type's layouts (docs/11 §9.4 rule 1).
+        var identification = KnownFromSource(document) && !document.Type.IsUnknown
+            ? await layouts.ResolveAsync(document, document.Type.Value, cancellationToken).ConfigureAwait(false)
+            : null;
+        await RecordIdentificationAsync(document, identification, cancellationToken).ConfigureAwait(false);
         flags.Replace(document, OwnedFlags, document.Type == DocumentTypeKey.Unknown
             ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
             : []);
@@ -171,6 +228,7 @@ internal sealed class ClassifyHandler(
             confidence = document.TypeConfidence,
             source = document.TypeSource,
             kept = true,
+            layout = identification?.Result.Resolution.ToString(),
         });
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;

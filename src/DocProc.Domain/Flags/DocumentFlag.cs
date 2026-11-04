@@ -81,6 +81,20 @@ public static class FlagCodes
     /// <summary>The content names another supplier than an authoritative source rule; the source supplier is kept and review decides.</summary>
     public const string SupplierConflict = "SUPPLIER_CONFLICT";
 
+    // Supplier layouts and identification (docs/11 §8.4, §8.2, P4).
+
+    /// <summary>The supplier is layout-managed and none of its Active layouts' identification rules holds; the document is held for review.</summary>
+    public const string NewLayout = "NEW_LAYOUT";
+
+    /// <summary>Two Active layouts of the supplier hold with equal priority and specificity; none is applied.</summary>
+    public const string LayoutAmbiguous = "LAYOUT_AMBIGUOUS";
+
+    /// <summary>The layout's identification rule held, but its field rules found less than the layout's usual coverage.</summary>
+    public const string MappingDrift = "MAPPING_DRIFT";
+
+    /// <summary>The document is one of the first under a new layout version (its review warm-up, decision 2 of docs/11 §24); it goes to review.</summary>
+    public const string LayoutWarmup = "LAYOUT_WARMUP";
+
     /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
     public static readonly string DefinitionScopedPrefix = "X_";
 
@@ -114,6 +128,10 @@ public static class FlagCodes
         new(SupplierSourceUnverified, FlagSeverity.Warning, "A source rule for another supplier would have matched, but the sender is not authenticated (DMARC); the document is never auto-approved."),
         new(SupplierAmbiguous, FlagSeverity.Warning, "Several suppliers match the source rules (or the VAT id and IBAN) equally; review assigns the supplier."),
         new(SupplierConflict, FlagSeverity.Blocking, "The document's content names another supplier than its authoritative source rule; the source supplier is kept until review decides."),
+        new(NewLayout, FlagSeverity.Blocking, "The supplier sent a design none of its layouts recognises; the document is held for review and not processed with another layout."),
+        new(LayoutAmbiguous, FlagSeverity.Blocking, "Several layouts of the supplier recognise the document equally; none was applied and review decides."),
+        new(MappingDrift, FlagSeverity.Warning, "The layout recognised the document, but its field rules found fewer fields than usual; the supplier may have moved them."),
+        new(LayoutWarmup, FlagSeverity.Info, "The document is one of the first documents under a new layout version and goes to review (the layout's warm-up), already filled by the layout."),
         new(DeliveryFailed, FlagSeverity.Warning, "A delivery to a destination failed for good (retries ran out or the receiver refused it); an integration admin redelivers it."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 

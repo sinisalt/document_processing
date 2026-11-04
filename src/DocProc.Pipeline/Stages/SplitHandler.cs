@@ -1,4 +1,5 @@
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -8,6 +9,8 @@ using DocProc.Infrastructure.Pdf;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm.Extraction;
+using DocProc.Mapping.Identification;
+using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Support;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,6 +24,12 @@ namespace DocProc.Pipeline.Stages;
 /// layer); every further range becomes a new row at <c>Split</c>, queued straight for classification. No part keeps
 /// the normalised PDF, which holds every range: later stages read a part from its own pages. Single-page files,
 /// e-invoices and a part of an earlier split (reprocessed from Normalize) skip all of it.
+/// <para>
+/// The split prefilter (docs/11 §5.8): for a supplier known from the source with <c>supplierLayouts</c> on, the
+/// supplier's layouts are evaluated on the whole item before any cut; when exactly one holds and its type's
+/// <c>processing.split.mode</c> is <c>never</c> (a price list), the item stays one document. The prefilter writes no
+/// layout and no type: Classify evaluates again on the resulting document.
+/// </para>
 /// </summary>
 internal sealed class SplitHandler(
     DocProcDbContext db,
@@ -32,6 +41,8 @@ internal sealed class SplitHandler(
     IOptions<PdfProcessingOptions> pdfOptions,
     IServiceProvider services,
     IPipelineQueue queue,
+    LayoutIdentification layouts,
+    IEffectiveConfigResolver configResolver,
     ILogger<SplitHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
@@ -45,6 +56,25 @@ internal sealed class SplitHandler(
 
     protected override bool Accepts(DocumentStatus status) => status == DocumentStatus.Normalized;
 
+    /// <summary>
+    /// The split prefilter (docs/11 §5.8 step 2): the reason to keep the item whole when exactly one of the supplier's
+    /// layouts holds on it and its type's split mode is <c>never</c>; null otherwise.
+    /// </summary>
+    private async Task<string?> PrefilterAsync(Document document, CancellationToken cancellationToken)
+    {
+        if (!ClassifyHandler.KnownFromSource(document)
+            || await layouts.ResolveAsync(document, fixedType: null, cancellationToken).ConfigureAwait(false) is not { Result: { Resolution: LayoutResolution.Identified, Selected: { } selected } })
+        {
+            return null;
+        }
+
+        var type = DocumentTypeKey.FromStored(selected.Candidate.DocumentTypeKey);
+        var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, type, document.SupplierId), cancellationToken).ConfigureAwait(false);
+        return string.Equals(config.Type?.Definition.Processing?.Split?.Mode, "never", StringComparison.Ordinal)
+            ? $"split prefilter: layout {selected.Candidate.LayoutKey} holds and {type} is never split"
+            : null;
+    }
+
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
         // A part of an earlier split (a reprocess from Normalize) keeps its range: splitting it again would create
@@ -55,7 +85,7 @@ internal sealed class SplitHandler(
             : document.PageCount <= 1 ? "single page"
             : document.TypeSource == TypeSource.Supplier ? "type pinned by the supplier configuration"
             : await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false) ? "already split"
-            : null;
+            : await PrefilterAsync(document, cancellationToken).ConfigureAwait(false);
         if (skipReason is not null)
         {
             Timeline.Transition(document, DocumentStatus.Split, new

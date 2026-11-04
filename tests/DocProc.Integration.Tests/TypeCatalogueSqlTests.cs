@@ -103,7 +103,51 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
-            // P4 part A first, with one of everything it writes: a supplier group, a receiving entity, the supplier's
+            // P4 part B first, with one of everything it writes: a layout with an Active version, a document identified by
+            // it (TypeSource Identification in the history) and then held with a proposed type, and its NEW_LAYOUT.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var nordwind = await seeding.Suppliers.SingleAsync(s => s.Name == "Nordwind", ct);
+                var layout = new SupplierLayout { Id = Guid.CreateVersion7(), TenantId = TenantA, Scope = SupplierLayoutScope.Supplier, SupplierId = nordwind.Id, OwnerId = nordwind.Id, DocumentTypeKey = "Invoice", LayoutKey = "nordwind-invoice-erp", Name = "Nordwind ERP", ItemKinds = ["pdf"], ActiveVersion = 1, CreatedAt = now, UpdatedAt = now };
+                var version = new SupplierLayoutVersion { Id = Guid.CreateVersion7(), TenantId = TenantA, LayoutId = layout.Id, Version = 1, Status = SupplierLayoutVersionStatus.Active, IdentificationJson = """{"all":[{"text":"Rechnung"}]}""", IdentificationHash = "abcdef01", MappingJson = """{"fields":{}}""", CoverageJson = "[]", SimilarityProfileJson = """{"tokens":["RECHNUNG"]}""", CreatedAt = now };
+                seeding.SupplierLayouts.Add(layout);
+                seeding.SupplierLayoutVersions.Add(version);
+                await seeding.SaveChangesAsync(ct);
+                var identified = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                identified.SupplierLayoutVersionId = version.Id;
+                identified.TypeSource = TypeSource.Identification;
+                await seeding.SaveChangesAsync(ct);
+                identified.SupplierLayoutVersionId = null;
+                identified.TypeSource = TypeSource.Proposed;
+                seeding.DocumentFlags.Add(DocumentFlagRecord.FromDomain(TenantA, target, Domain.Flags.FlagCodes.Create(Domain.Flags.FlagCodes.NewLayout, "new layout"), now));
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261104064837_SourceRoutingAndSupplierConfig", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104064837_SourceRoutingAndSupplierConfig");
+            foreach (var table in new[] { "SupplierLayouts", "SupplierLayoutVersions" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var table in new[] { "Documents", "DocumentsHistory" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = N'SupplierLayoutVersionId'").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            // The build before part B has no Identification and no Proposed type source: both read as a rule's, in the
+            // table and its history.
+            (await platform.Database.SqlQuery<string>($"SELECT [TypeSource] AS [Value] FROM dbo.Documents WHERE Id = {target}").SingleAsync(ct)).ShouldBe(nameof(TypeSource.Rule));
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Documents FOR SYSTEM_TIME ALL WHERE [TypeSource] IN (N'Identification', N'Proposed')").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            (await platform.Database.SqlQuery<int>($"SELECT CAST(temporal_type AS int) AS [Value] FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.Documents')").SingleAsync(ct)).ShouldBe(2, "system versioning is on again");
+            await platform.Database.MigrateAsync(ct);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.SupplierLayoutVersions')").SingleAsync(ct)).ShouldBe(3);
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).SupplierLayoutVersionId.ShouldBeNull("up again, the column is new");
+            await migrator.MigrateAsync("20261104064837_SourceRoutingAndSupplierConfig", ct);
+
+            // P4 part A next, with one of everything it writes: a supplier group, a receiving entity, the supplier's
             // settings, group and entity attributes, a source rule, a channel default and source key, the source facts
             // of an ingestion and its item's route, a routed document with a pinned type and its SUPPLIER_CONFLICT.
             await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))

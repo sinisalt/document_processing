@@ -106,6 +106,48 @@ internal sealed class SupplierSourceRuleConfiguration : IEntityTypeConfiguration
     }
 }
 
+internal sealed class SupplierLayoutConfiguration : IEntityTypeConfiguration<SupplierLayout>
+{
+    public void Configure(EntityTypeBuilder<SupplierLayout> b)
+    {
+        b.ToTable("SupplierLayouts");
+        b.Property(l => l.DocumentTypeKey).HasMaxLength(64);
+        b.Property(l => l.LayoutKey).HasMaxLength(SupplierLayout.MaxKeyLength);
+        b.Property(l => l.Name).HasMaxLength(SupplierLayout.MaxNameLength);
+        b.Property(l => l.CreatedBy).HasMaxLength(200);
+
+        // docs/11 §6.6: unique on (tenant, scope owner, type, layout key); the resolver loads by owner.
+        b.HasIndex(l => new { l.TenantId, l.Scope, l.OwnerId, l.DocumentTypeKey, l.LayoutKey }).IsUnique();
+        b.HasIndex(l => l.SupplierId);
+        b.HasIndex(l => l.GroupId);
+
+        b.HasOne(l => l.Supplier).WithMany().HasForeignKey(l => l.SupplierId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(l => l.Group).WithMany().HasForeignKey(l => l.GroupId).OnDelete(DeleteBehavior.NoAction);
+        b.HasOne<ReceivingEntity>().WithMany().HasForeignKey(l => l.ReceivingEntityId).OnDelete(DeleteBehavior.NoAction);
+        b.HasOne<Tenant>().WithMany().HasForeignKey(l => l.TenantId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class SupplierLayoutVersionConfiguration : IEntityTypeConfiguration<SupplierLayoutVersion>
+{
+    public void Configure(EntityTypeBuilder<SupplierLayoutVersion> b)
+    {
+        b.ToTable("SupplierLayoutVersions");
+        b.Property(v => v.IdentificationJson).HasColumnType("json");
+        b.Property(v => v.IdentificationHash).HasMaxLength(SupplierLayoutVersion.HashLength).IsFixedLength();
+        b.Property(v => v.MappingJson).HasColumnType("json");
+        b.Property(v => v.CoverageJson).HasColumnType("json");
+        b.Property(v => v.SourceDocumentIdsJson).HasColumnType("json");
+        b.Property(v => v.ReplayJson).HasColumnType("json");
+        b.Property(v => v.SimilarityProfileJson).HasColumnType("json");
+        b.Property(v => v.ApprovedBy).HasMaxLength(200);
+        b.Property(v => v.CreatedBy).HasMaxLength(200);
+        b.HasIndex(v => new { v.LayoutId, v.Version }).IsUnique();
+        b.HasOne(v => v.Layout).WithMany(l => l.Versions).HasForeignKey(v => v.LayoutId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Tenant>().WithMany().HasForeignKey(v => v.TenantId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
 internal sealed class ExtractorProfileConfiguration : IEntityTypeConfiguration<ExtractorProfile>
 {
     public void Configure(EntityTypeBuilder<ExtractorProfile> b)

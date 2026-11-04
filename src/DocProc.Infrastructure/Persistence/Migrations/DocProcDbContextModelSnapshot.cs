@@ -275,6 +275,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("SupplierId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("SupplierLayoutVersionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<double?>("SupplierMatchConfidence")
                         .HasColumnType("float");
 
@@ -409,6 +412,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReceivingEntityId");
 
                     b.HasIndex("SupplierId");
+
+                    b.HasIndex("SupplierLayoutVersionId");
 
                     b.HasIndex("SupplierSourceRuleId");
 
@@ -2374,6 +2379,196 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("SupplierGroups", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierLayout", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("ActiveVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("CreatedFromDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DocumentTypeKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.PrimitiveCollection<string>("ItemKinds")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<DateTimeOffset?>("LastMatchedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LayoutKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ReceivingEntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("ShadowVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("ReceivingEntityId");
+
+                    b.HasIndex("SupplierId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Scope", "OwnerId", "DocumentTypeKey", "LayoutKey")
+                        .IsUnique();
+
+                    b.ToTable("SupplierLayouts", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierLayoutVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Agreed")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Applied")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("BuiltAgainstTypeVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Corrected")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CoverageJson")
+                        .HasColumnType("json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("IdentificationHash")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nchar(8)")
+                        .IsFixedLength();
+
+                    b.Property<string>("IdentificationJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<int>("Identified")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("LayoutId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MappingJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ReplayJson")
+                        .HasColumnType("json");
+
+                    b.Property<int>("ReviewWarmup")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SimilarityProfileJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("SourceDocumentIdsJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarmupSeen")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("LayoutId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("SupplierLayoutVersions", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierSourceRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2666,6 +2861,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.NoAction);
 
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.SupplierLayoutVersion", "SupplierLayoutVersion")
+                        .WithMany()
+                        .HasForeignKey("SupplierLayoutVersionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.OwnsOne("DocProc.Infrastructure.Persistence.Entities.DocumentCosts", "Costs", b1 =>
                         {
                             b1.Property<Guid>("DocumentId");
@@ -2710,6 +2910,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("IngestionItem");
 
                     b.Navigation("Supplier");
+
+                    b.Navigation("SupplierLayoutVersion");
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.DocumentEvent", b =>
@@ -3095,6 +3297,51 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierLayout", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.SupplierGroup", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ReceivingEntityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Supplier");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierLayoutVersion", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.SupplierLayout", "Layout")
+                        .WithMany("Versions")
+                        .HasForeignKey("LayoutId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Layout");
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierSourceRule", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.IngestionChannel", null)
@@ -3132,6 +3379,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                                 .IsRequired();
 
                             b1.Property<double>("AutoApproveConfidenceThreshold");
+
+                            b1.Property<int?>("LayoutReviewWarmup");
 
                             b1.Property<bool>("LayoutsRequiredByDefault");
 
@@ -3260,6 +3509,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.OutputMapping", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierLayout", b =>
                 {
                     b.Navigation("Versions");
                 });

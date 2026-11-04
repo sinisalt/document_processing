@@ -79,6 +79,9 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
         services.TryAddScoped<Routing.SourceRouting>();
+        services.TryAddScoped<Layouts.LayoutIdentification>();
+        services.TryAddScoped<Layouts.LayoutExtractor>();
+        services.TryAddScoped<Layouts.LayoutReviewGate>();
 
         services.TryAddScoped<IIngestionHandler, IngestHandler>();
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, NormalizeHandler>());

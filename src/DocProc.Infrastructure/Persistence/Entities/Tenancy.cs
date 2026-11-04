@@ -57,6 +57,23 @@ public sealed class TenantSettings
     /// </summary>
     public bool LayoutsRequiredByDefault { get; set; }
 
+    /// <summary>The warm-up of decision 2 (docs/11 §24): the first 5 documents under every new layout version go to review.</summary>
+    public const int DefaultLayoutReviewWarmup = 5;
+
+    /// <summary>The largest warm-up a tenant may set.</summary>
+    public const int MaxLayoutReviewWarmup = 100;
+
+    /// <summary>
+    /// The review warm-up a layout version gets when it is activated (docs/11 §8.3, <c>TenantSettings.LayoutActivation</c>,
+    /// stored flat): how many documents under it go to review before it may auto-approve. Null for the default of
+    /// decision 2, <see cref="DefaultLayoutReviewWarmup"/>; a tenant admin can lower it (the P4 demo sets 0) or raise it.
+    /// Nullable so settings stored before the property existed read as the default, not as 0.
+    /// </summary>
+    public int? LayoutReviewWarmup { get; set; }
+
+    /// <summary>The warm-up in effect: <see cref="LayoutReviewWarmup"/>, or <see cref="DefaultLayoutReviewWarmup"/>.</summary>
+    public int EffectiveLayoutReviewWarmup() => LayoutReviewWarmup ?? DefaultLayoutReviewWarmup;
+
     /// <summary>
     /// Forwarder domains trusted for every mailbox channel of the tenant (docs/11 §7.1), next to a channel's own
     /// <c>trustedForwarderDomains</c>: a forward from such a domain is unwrapped to its original sender. Null or empty for none.

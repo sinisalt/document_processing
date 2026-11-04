@@ -9,6 +9,7 @@ using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,12 @@ namespace DocProc.Pipeline.Stages;
 /// (docs/11 §9.1) and the tree is completed with every field of the definition. Every other document is stored
 /// exactly as before.
 /// </para>
+/// <para>
+/// A document a supplier layout identified (<c>SupplierLayoutVersionId</c>, docs/11 §8.2) is filled by that layout's
+/// field mapping first (<c>supplier-mapping</c>, <see cref="ExtractionMethod.Profile"/>), its tables with their table
+/// report (<c>Origin=Layout</c>); when the mapping leaves covered or required fields Missing (a drift), the LLM fills
+/// only those, where a provider is configured. A document no layout identified is never filled by a layout.
+/// </para>
 /// </summary>
 internal sealed class ExtractHandler(
     DocProcDbContext db,
@@ -41,11 +48,12 @@ internal sealed class ExtractHandler(
     IEnumerable<IDocumentExtractor> extractors,
     IEffectiveConfigResolver configResolver,
     ITenantFeatures features,
+    LayoutExtractor layouts,
     ILogger<ExtractHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
     // succeeds owns it too, so the flag does not outlive the outage.
-    private static readonly string[] OwnedFlags = [FlagCodes.ProfileFallback, FlagCodes.CurrencyInferred, FlagCodes.UnsupportedType, FlagCodes.LlmProviderUnavailable];
+    private static readonly string[] OwnedFlags = [FlagCodes.ProfileFallback, FlagCodes.CurrencyInferred, FlagCodes.UnsupportedType, FlagCodes.LlmProviderUnavailable, FlagCodes.MappingDrift];
     private static readonly ExtractionMethod[] PathOrder = [ExtractionMethod.StructuredXml, ExtractionMethod.Profile, ExtractionMethod.Llm];
 
     public override PipelineStage Stage => PipelineStage.Extract;
@@ -61,8 +69,18 @@ internal sealed class ExtractHandler(
         var configurable = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, cancellationToken).ConfigureAwait(false);
         var definitionDriven = CanonicalStorage.IsDefinitionDriven(config.Type, configurable);
 
+        var tenantRow = await LoadTenantAsync(document, cancellationToken).ConfigureAwait(false);
+        var application = config.Type is { } layoutType && document.EmbeddedXmlBlob is null
+            ? await layouts.ApplyAsync(document, layoutType, typedRecord: document.Type.IsInvoiceFamily && !definitionDriven, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
+            : null;
         if (!document.Type.IsInvoiceFamily && definitionDriven)
         {
+            if (application is not null)
+            {
+                await StoreLayoutTreeAsync(document, config.Type!, application, cancellationToken).ConfigureAwait(false);
+                return StageOutcome.Advanced;
+            }
+
             await StoreDefinitionTreeAsync(document, config.Type!, cancellationToken).ConfigureAwait(false);
             return StageOutcome.Advanced;
         }
@@ -83,7 +101,42 @@ internal sealed class ExtractHandler(
         var input = await BuildInputAsync(document, Resolved(config.Type, definitionDriven), cancellationToken).ConfigureAwait(false);
         ExtractionOutcome? outcome = null;
         var tried = new List<string>();
-        foreach (var extractor in extractors.OrderBy(e => Array.IndexOf(PathOrder, e.Method)))
+        var filledByLlm = false;
+        if (application is not null)
+        {
+            // supplier-mapping (docs/11 §8.2): the identified layout's values; the LLM fills only what it left Missing.
+            tried.Add(ExtractionMethod.Profile.ToString());
+            outcome = new ExtractionOutcome(application.Document, ExtractionMethod.Profile, application.Flags, DocumentCost.Free);
+            if (application.NeedsFill && extractors.FirstOrDefault(x => x.Method == ExtractionMethod.Llm && x.CanHandle(input)) is { } llm)
+            {
+                tried.Add(ExtractionMethod.Llm.ToString());
+                ExtractionOutcome? filled = null;
+                try
+                {
+                    filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
+                }
+                catch (DocProc.Llm.LlmException ex) when (ex.Kind == DocProc.Llm.LlmErrorKind.Unavailable)
+                {
+                    // No LLM is configured for the tenant: the layout's values stand, and review fills the rest (§12.10 step 4).
+                    if (Logger.IsEnabled(LogLevel.Information))
+                    {
+                        Logger.LogInformation("Document {DocumentId}: no LLM is configured to fill what the layout left Missing; the layout's values stand.", document.Id);
+                    }
+                }
+
+                if (filled is not null)
+                {
+                    outcome = new ExtractionOutcome(
+                        new ExtractedDocument(LayoutExtractor.Merge(application.Document.Root, filled.Document.Root)),
+                        ExtractionMethod.Profile,
+                        [.. application.Flags, .. filled.Flags],
+                        filled.Cost);
+                    filledByLlm = true;
+                }
+            }
+        }
+
+        foreach (var extractor in outcome is null ? extractors.OrderBy(e => Array.IndexOf(PathOrder, e.Method)) : Enumerable.Empty<IDocumentExtractor>())
         {
             if (!extractor.CanHandle(input))
             {
@@ -116,7 +169,13 @@ internal sealed class ExtractHandler(
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, config.Type?.IndexedFields ?? [], cancellationToken).ConfigureAwait(false);
         // The extraction wrote every repeating group anew: a table report of the review tool describes rows that are gone.
         await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
-        document.AppliedConfigJson = AppliedConfig(config.Type, outcome.Method == ExtractionMethod.Llm ? input.Definition?.LlmSchema?.ToString() ?? DocProc.Llm.Schema.CanonicalSchemas.InvoiceExtraction.ToString() : null);
+        document.AppliedConfigJson = AppliedConfig(config.Type, outcome.Method == ExtractionMethod.Llm || filledByLlm ? input.Definition?.LlmSchema?.ToString() ?? DocProc.Llm.Schema.CanonicalSchemas.InvoiceExtraction.ToString() : null, application?.AppliedConfig(filledByLlm));
+        if (application is not null)
+        {
+            await StoreLayoutReportsAsync(document, application, cancellationToken).ConfigureAwait(false);
+            await layouts.CountAsync(document, application, cancellationToken).ConfigureAwait(false);
+        }
+
         document.ExtractionMethod = outcome.Method;
         AddCost(document.Costs, outcome.Cost);
         flags.Replace(document, OwnedFlags, outcome.Flags);
@@ -198,6 +257,56 @@ internal sealed class ExtractHandler(
         await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// A definition-driven type without an extraction path (a price list) that a layout identified (docs/11 §8.6): the
+    /// tree the layout's field mapping and <c>column-table</c> wrote, with the table reports of its groups, instead of
+    /// the empty tree for the reviewer.
+    /// </summary>
+    private async Task StoreLayoutTreeAsync(Document document, EffectiveType type, LayoutApplication application, CancellationToken cancellationToken)
+    {
+        Apply(document, application.Document, type.Roles, definitionDriven: true);
+        document.ExtractionMethod = ExtractionMethod.Profile;
+        await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
+        await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
+        await StoreLayoutReportsAsync(document, application, cancellationToken).ConfigureAwait(false);
+        await layouts.CountAsync(document, application, cancellationToken).ConfigureAwait(false);
+        document.AppliedConfigJson = AppliedConfig(type, llmSchema: null, application.AppliedConfig(filledByLlm: false));
+        flags.Replace(document, OwnedFlags, application.Flags);
+        Timeline.Transition(document, DocumentStatus.Extracted, new
+        {
+            method = ExtractionMethod.Profile,
+            definition = new { key = type.TypeKey, version = type.Version },
+            layout = new { application.Layout.LayoutKey, application.Version.Version },
+            rows = application.Extraction.Tables.ToDictionary(t => t.Key, t => t.Value.Report.Rows, StringComparer.Ordinal),
+            flags = application.Flags.Select(f => f.Code).ToList(),
+        });
+        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The table report of every group the layout's <c>column-table</c> wrote (docs/11 §6.2, <c>Origin=Layout</c>).</summary>
+    private async Task StoreLayoutReportsAsync(Document document, LayoutApplication application, CancellationToken cancellationToken)
+    {
+        foreach (var (path, table) in application.Extraction.Tables)
+        {
+            if (table.Rows.Count == 0 || !application.Written.ContainsKey(path))
+            {
+                continue;
+            }
+
+            await DocumentTableReports.ReplaceAsync(Db, new DocumentTableReport
+            {
+                TenantId = document.TenantId,
+                DocumentId = document.Id,
+                Path = path,
+                Origin = TableReportOrigin.Layout,
+                StepId = LayoutExtractor.StepId,
+                ProducedAtVersion = document.Version + 1,
+                ReportJson = LayoutExtractor.ReportJson(table.Report),
+                CreatedAt = Timeline.Now,
+            }, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Whether the stored tree was resolved for <paramref name="type"/>'s key (<c>AppliedConfigJson.typeKey</c>); a tree without a record of it is the document's type's.</summary>
     private static bool IsTreeOf(Document document, EffectiveType type)
     {
@@ -234,7 +343,7 @@ internal sealed class ExtractHandler(
     }
 
     /// <summary>The <c>AppliedConfigJson</c> of docs/11 §6.2 as far as P1 knows it: the type version and, after an LLM extraction, the schema it was sent (<c>name@version</c>).</summary>
-    private string? AppliedConfig(EffectiveType? type, string? llmSchema)
+    private string? AppliedConfig(EffectiveType? type, string? llmSchema, JsonObject? layout = null)
     {
         if (type is null)
         {
@@ -252,6 +361,11 @@ internal sealed class ExtractHandler(
         if (llmSchema is not null)
         {
             applied["llm"] = new JsonObject { ["schema"] = llmSchema };
+        }
+
+        if (layout is not null)
+        {
+            applied["layout"] = layout;
         }
 
         return applied.ToJsonString();
@@ -304,6 +418,7 @@ internal sealed class ExtractHandler(
 
         var tenant = await LoadTenantAsync(document, cancellationToken).ConfigureAwait(false);
         var supplier = await SupplierHintsAsync(document, cancellationToken).ConfigureAwait(false);
+
 
         return new ExtractionInput(
             document.TenantId,

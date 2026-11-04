@@ -14,6 +14,18 @@ public enum TypeSource
     /// allowed type under <c>fixDocumentType</c>, or the channel's default type. Split and Classify leave it.
     /// </summary>
     Supplier,
+
+    /// <summary>
+    /// Decided by an identification rule (docs/11 §8.4, §8.5): the supplier layout whose rule held set the type
+    /// (<c>Documents.SupplierLayoutVersionId</c> names it).
+    /// </summary>
+    Identification,
+
+    /// <summary>
+    /// Proposed for a document held with <c>NEW_LAYOUT</c> (docs/11 §8.4 step 5): tenant rules, keywords or the LLM gave
+    /// it, but it never counts as decided; the document cannot auto-approve and review confirms or changes it.
+    /// </summary>
+    Proposed,
 }
 
 public enum ExtractionMethod

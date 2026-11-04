@@ -8,6 +8,7 @@
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
     <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
     <ProjectReference Include="../DocProc.Extraction.EInvoice/DocProc.Extraction.EInvoice.csproj" />
+    <ProjectReference Include="../DocProc.Mapping/DocProc.Mapping.csproj" />
     <!-- The vendor adapters the processing stack registers so a host can talk to a real provider. -->
     <ProjectReference Include="../DocProc.Llm.Anthropic/DocProc.Llm.Anthropic.csproj" />
     <ProjectReference Include="../DocProc.Llm.OpenAi/DocProc.Llm.OpenAi.csproj" />

@@ -333,11 +333,46 @@ public sealed class RowLevelSecuritySqlTests
             statements.Last().ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV7));
         }
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV8);
         RowLevelSecurity.PolicyV8.StrictTables.Except(RowLevelSecurity.PolicyV7.StrictTables).Select(t => t.Table)
             .ShouldBe(["SupplierGroups", "ReceivingEntities", "SupplierEntityAttributes", "SupplierSourceRules"], ignoreOrder: true);
         RowLevelSecurity.PolicyV8.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV7.PlatformRowTables);
         RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV8).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[SupplierSourceRules] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_layouts_migration_puts_the_layout_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.6, §6.10: supplier layouts and their versions belong to one tenant; SupplierLayoutsAndIdentification
+        // re-creates the policy with them (PolicyV9), and its Down goes back to PolicyV8 after dropping the policy first.
+        var migration = new SupplierLayoutsAndIdentification();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        if (up)
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV9)]);
+        }
+        else
+        {
+            statements.First().ShouldBe(RowLevelSecurity.DropSql());
+            statements.Last().ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV8));
+        }
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV9);
+        RowLevelSecurity.PolicyV9.StrictTables.Except(RowLevelSecurity.PolicyV8.StrictTables).Select(t => t.Table)
+            .ShouldBe(["SupplierLayouts", "SupplierLayoutVersions"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV9.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV8.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV9).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[SupplierLayoutVersions] AFTER UPDATE");
 
         var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
         if (up)

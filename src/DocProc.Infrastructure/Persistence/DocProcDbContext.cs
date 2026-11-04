@@ -56,6 +56,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<ReceivingEntity> ReceivingEntities => Set<ReceivingEntity>();
     public DbSet<SupplierEntityAttributes> SupplierEntityAttributes => Set<SupplierEntityAttributes>();
     public DbSet<SupplierSourceRule> SupplierSourceRules => Set<SupplierSourceRule>();
+    public DbSet<SupplierLayout> SupplierLayouts => Set<SupplierLayout>();
+    public DbSet<SupplierLayoutVersion> SupplierLayoutVersions => Set<SupplierLayoutVersion>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -152,6 +154,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<ReceivingEntity>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<SupplierEntityAttributes>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<SupplierSourceRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierLayout>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierLayoutVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
