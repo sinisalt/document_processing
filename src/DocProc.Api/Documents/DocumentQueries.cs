@@ -137,6 +137,7 @@ public static class DocumentQueries
             TypeSource = d.TypeSource,
             SupplierLayoutVersionId = d.SupplierLayoutVersionId,
             PendingLayoutVersionId = d.PendingLayoutVersionId,
+            IdentificationRuleVersionId = d.IdentificationRuleVersionId,
             PipelineHash = d.PipelineHash,
         };
     }

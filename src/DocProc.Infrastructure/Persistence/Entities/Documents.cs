@@ -84,6 +84,13 @@ public sealed class Document : ITenantScoped, IVersioned
     public Guid? PendingLayoutVersionId { get; set; }
 
     /// <summary>
+    /// The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; <see cref="TypeSource.Identification"/>
+    /// without a layout): it pins the immutable <c>TypeIdentificationRuleVersion</c>, so a later edit never changes which
+    /// rule typed a past document. Null when no tenant rule typed it.
+    /// </summary>
+    public Guid? IdentificationRuleVersionId { get; set; }
+
+    /// <summary>
     /// The hash of the pipeline the document's last stage ran (docs/11 §10.1 <c>pipelineHash</c>, P5), whose steps
     /// <c>PipelineSnapshots</c> keeps; null for a tenant without <c>configurableSteps</c>, where every document runs the
     /// built-in steps.

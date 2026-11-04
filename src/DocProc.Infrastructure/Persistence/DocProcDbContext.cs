@@ -58,6 +58,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<SupplierSourceRule> SupplierSourceRules => Set<SupplierSourceRule>();
     public DbSet<SupplierLayout> SupplierLayouts => Set<SupplierLayout>();
     public DbSet<SupplierLayoutVersion> SupplierLayoutVersions => Set<SupplierLayoutVersion>();
+    public DbSet<TypeIdentificationRule> TypeIdentificationRules => Set<TypeIdentificationRule>();
+    public DbSet<TypeIdentificationRuleVersion> TypeIdentificationRuleVersions => Set<TypeIdentificationRuleVersion>();
     public DbSet<GoldenDocument> GoldenDocuments => Set<GoldenDocument>();
     public DbSet<RegressionRun> RegressionRuns => Set<RegressionRun>();
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -162,6 +164,8 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<SupplierSourceRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<SupplierLayout>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<SupplierLayoutVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<TypeIdentificationRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<TypeIdentificationRuleVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<GoldenDocument>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<RegressionRun>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<Notification>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);

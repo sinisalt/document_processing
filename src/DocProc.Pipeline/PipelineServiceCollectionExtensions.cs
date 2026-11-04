@@ -83,6 +83,7 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddScoped<ExtractLookups>();
         services.TryAddScoped<Routing.SourceRouting>();
         services.TryAddScoped<Layouts.LayoutIdentification>();
+        services.TryAddScoped<Layouts.TenantIdentification>();
         services.TryAddScoped<Layouts.LayoutExtractor>();
         services.TryAddScoped<Layouts.LayoutReviewGate>();
         services.TryAddScoped<Layouts.LayoutPrefiller>();

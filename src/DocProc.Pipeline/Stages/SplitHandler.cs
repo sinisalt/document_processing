@@ -43,6 +43,7 @@ internal sealed class SplitHandler(
     IServiceProvider services,
     IPipelineQueue queue,
     LayoutIdentification layouts,
+    TenantIdentification tenantRules,
     IEffectiveConfigResolver configResolver,
     StagePipeline pipelines,
     ILogger<SplitHandler> logger) : DocumentStageHandler(db, timeline, logger)
@@ -64,17 +65,39 @@ internal sealed class SplitHandler(
     /// </summary>
     private async Task<string?> PrefilterAsync(Document document, CancellationToken cancellationToken)
     {
-        if (!ClassifyHandler.KnownFromSource(document)
-            || await layouts.ResolveAsync(document, fixedType: null, cancellationToken).ConfigureAwait(false) is not { Result: { Resolution: LayoutResolution.Identified, Selected: { } selected } })
+        var resolved = ClassifyHandler.KnownFromSource(document) ? await layouts.ResolveAsync(document, fixedType: null, cancellationToken).ConfigureAwait(false) : null;
+        if (resolved is { Result: { Resolution: LayoutResolution.Identified, Selected: { } selected } })
+        {
+            var type = DocumentTypeKey.FromStored(selected.Candidate.DocumentTypeKey);
+            return await NeverSplitAsync(document, type, cancellationToken).ConfigureAwait(false)
+                ? $"split prefilter: layout {selected.Candidate.LayoutKey} holds and {type} is never split"
+                : null;
+        }
+
+        // The tenant fallback rules (docs/11 §5.8 step 2, P5): when the supplier is unknown, or has no layouts and they are
+        // not required, rules of exactly one type that hold on the whole item decide its split mode the same way.
+        if (resolved is not null && resolved.Value.Result.Resolution != LayoutResolution.NotManaged)
         {
             return null;
         }
 
-        var type = DocumentTypeKey.FromStored(selected.Candidate.DocumentTypeKey);
+        async Task<DocProc.Mapping.Identification.DocumentWords> Words() =>
+            resolved?.Words ?? DocProc.Mapping.Identification.DocumentWords.From(await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false));
+        if (await tenantRules.ResolveAsync(document, Words, cancellationToken).ConfigureAwait(false) is { Resolution: DocProc.Mapping.Identification.TenantRuleResolution.Identified, Selected: { } rule })
+        {
+            var type = DocumentTypeKey.FromStored(rule.Candidate.DocumentTypeKey);
+            return await NeverSplitAsync(document, type, cancellationToken).ConfigureAwait(false)
+                ? $"split prefilter: tenant rule '{rule.Candidate.Name}' holds and {type} is never split"
+                : null;
+        }
+
+        return null;
+    }
+
+    private async Task<bool> NeverSplitAsync(Document document, DocumentTypeKey type, CancellationToken cancellationToken)
+    {
         var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, type, document.SupplierId), cancellationToken).ConfigureAwait(false);
-        return string.Equals(config.Type?.Definition.Processing?.Split?.Mode, "never", StringComparison.Ordinal)
-            ? $"split prefilter: layout {selected.Candidate.LayoutKey} holds and {type} is never split"
-            : null;
+        return string.Equals(config.Type?.Definition.Processing?.Split?.Mode, "never", StringComparison.Ordinal);
     }
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)

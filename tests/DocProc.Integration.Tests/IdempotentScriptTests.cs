@@ -246,6 +246,23 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
 
         (await asA.LlmBudgets.AsNoTracking().CountAsync(ct)).ShouldBe(1);
 
+        // TenantIdentificationRules (P5 part B): the tenant fallback rules and their versions are strict tenant tables,
+        // and a tenant session writes and reads its own rule through the policy.
+        foreach (var table in new[] { "TypeIdentificationRules", "TypeIdentificationRuleVersions" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+        }
+
+        if (!await asA.TypeIdentificationRules.AnyAsync(ct))
+        {
+            var rule = new Infrastructure.Persistence.Entities.TypeIdentificationRule { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentTypeKey = "price-list", Name = "Preisliste", CreatedAt = At, UpdatedAt = At };
+            rule.Versions.Add(new Infrastructure.Persistence.Entities.TypeIdentificationRuleVersion { Id = Guid.CreateVersion7(), TenantId = TenantA, Version = 1, RuleJson = """{"all":[{"text":"Preisliste"}]}""", RuleHash = "abcd1234", CreatedAt = At });
+            asA.TypeIdentificationRules.Add(rule);
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.TypeIdentificationRuleVersions.AsNoTracking().CountAsync(ct)).ShouldBe(1);
+
         (await asA.OutputMappings.AsNoTracking().Where(m => m.TenantId == null).Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"]);
         (await asA.OutputMappingVersions.AsNoTracking().CountAsync(v => v.TenantId == null, ct)).ShouldBe(2);
         (await asA.Suppliers.AsNoTracking().AllAsync(s => s.AttributesJson == null, ct)).ShouldBeTrue("nothing to back-fill");

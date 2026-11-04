@@ -229,6 +229,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<Guid?>("IdentificationRuleVersionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("IngestionItemId")
                         .HasColumnType("uniqueidentifier");
 
@@ -413,6 +416,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("DocumentTypeVersionId");
 
                     b.HasIndex("ExtractorProfileId");
+
+                    b.HasIndex("IdentificationRuleVersionId");
 
                     b.HasIndex("IngestionItemId");
 
@@ -3111,6 +3116,129 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("TenantMembers", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("ActiveVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("CreatedFromDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DocumentTypeKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Matched")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Overridden")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DocumentTypeKey");
+
+                    b.ToTable("TypeIdentificationRules", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRuleVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ExcludedSupplierIdsJson")
+                        .HasColumnType("json");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RuleHash")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nchar(8)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RuleJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TestJson")
+                        .HasColumnType("json");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("RuleId", "Version")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "State");
+
+                    b.ToTable("TypeIdentificationRuleVersions", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ApiKey", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", "Tenant")
@@ -3155,6 +3283,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ExtractorProfileId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRuleVersion", null)
+                        .WithMany()
+                        .HasForeignKey("IdentificationRuleVersionId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.IngestionItem", "IngestionItem")
                         .WithMany("Documents")
@@ -3846,6 +3979,32 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Tenant");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRule", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRuleVersion", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRule", "Rule")
+                        .WithMany("Versions")
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Rule");
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Document", b =>
                 {
                     b.Navigation("Corrections");
@@ -3906,6 +4065,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Channels");
 
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.TypeIdentificationRule", b =>
+                {
+                    b.Navigation("Versions");
                 });
 #pragma warning restore 612, 618
         }

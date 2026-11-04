@@ -168,3 +168,102 @@ public sealed class SupplierLayoutVersion : ITenantScoped
 
     public SupplierLayout? Layout { get; set; }
 }
+
+/// <summary>A tenant fallback rule is Active until a <c>ConfigAdmin</c> disables it (docs/11 §6.6).</summary>
+public enum TypeIdentificationRuleStatus
+{
+    Active,
+    Disabled,
+}
+
+/// <summary>
+/// The lifecycle of a tenant fallback rule version (docs/11 §6.6): <see cref="Draft"/> while edited and tested,
+/// <see cref="PendingApproval"/> (reserved for <c>configApprovals.identificationRules</c>, four-eyes in P6),
+/// <see cref="Active"/> (evaluated in <c>classify.identification</c>) and <see cref="Retired"/> (replaced by a later
+/// version, or its rule disabled). Out of Draft a version never changes.
+/// </summary>
+public enum TypeIdentificationRuleVersionState
+{
+    Draft,
+    PendingApproval,
+    Active,
+    Retired,
+}
+
+/// <summary>
+/// A tenant fallback identification rule (docs/11 §6.6 <c>TypeIdentificationRule</c>, §8.5): a strict rule that
+/// decides only the type, for documents whose supplier is unknown at Classify or has no layouts of its own or of its
+/// group (and <c>layouts.required</c> is off). Versioned in <see cref="TypeIdentificationRuleVersion"/>; documents pin
+/// the version that typed them (<c>Documents.IdentificationRuleVersionId</c>).
+/// </summary>
+public sealed class TypeIdentificationRule : ITenantScoped
+{
+    public const int MaxNameLength = 200;
+    public const int DefaultPriority = 100;
+
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+
+    /// <summary>The type the rule decides (a key of the tenant's types).</summary>
+    public required string DocumentTypeKey { get; set; }
+
+    public required string Name { get; set; }
+
+    /// <summary>Orders Active rules of the same type only (the evidence when two hold); never decides between types.</summary>
+    public int Priority { get; set; } = DefaultPriority;
+
+    /// <summary>The Active version, by number; null while none is.</summary>
+    public int? ActiveVersion { get; set; }
+
+    public TypeIdentificationRuleStatus Status { get; set; } = TypeIdentificationRuleStatus.Active;
+
+    /// <summary>The document the rule was created from in review ("use for all suppliers without own layouts").</summary>
+    public Guid? CreatedFromDocumentId { get; set; }
+
+    /// <summary>Documents the rule typed.</summary>
+    public int Matched { get; set; }
+
+    /// <summary>Documents it typed whose type a reviewer changed.</summary>
+    public int Overridden { get; set; }
+
+    public string? CreatedBy { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public ICollection<TypeIdentificationRuleVersion> Versions { get; } = [];
+}
+
+/// <summary>A version of a tenant fallback rule (docs/11 §6.6 <c>TypeIdentificationRuleVersion</c>), immutable once out of Draft.</summary>
+public sealed class TypeIdentificationRuleVersion : ITenantScoped
+{
+    public const int HashLength = 8;
+
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid RuleId { get; set; }
+    public int Version { get; set; }
+
+    public TypeIdentificationRuleVersionState State { get; set; } = TypeIdentificationRuleVersionState.Draft;
+
+    /// <summary>The identification rule (docs/11 §8.5) in tenant scope: no <c>supplierValue</c>.</summary>
+    public required string RuleJson { get; set; }
+
+    /// <summary>The first 8 hex characters of the rule's SHA-256.</summary>
+    public required string RuleHash { get; set; }
+
+    /// <summary>Suppliers whose documents the rule never types (an array of ids); null for none.</summary>
+    public string? ExcludedSupplierIdsJson { get; set; }
+
+    /// <summary>The save-time test against the last 500 approved documents of the tenant (an object); null until tested.</summary>
+    public string? TestJson { get; set; }
+
+    /// <summary>A Draft's edit counter, the If-Match of <c>PUT …/versions/{v}</c>.</summary>
+    public int Revision { get; set; } = 1;
+
+    public string? ApprovedBy { get; set; }
+    public DateTimeOffset? ApprovedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public TypeIdentificationRule? Rule { get; set; }
+}

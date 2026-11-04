@@ -148,6 +148,37 @@ internal sealed class SupplierLayoutVersionConfiguration : IEntityTypeConfigurat
     }
 }
 
+internal sealed class TypeIdentificationRuleConfiguration : IEntityTypeConfiguration<TypeIdentificationRule>
+{
+    public void Configure(EntityTypeBuilder<TypeIdentificationRule> b)
+    {
+        b.ToTable("TypeIdentificationRules");
+        b.Property(r => r.DocumentTypeKey).HasMaxLength(64);
+        b.Property(r => r.Name).HasMaxLength(TypeIdentificationRule.MaxNameLength);
+        b.Property(r => r.CreatedBy).HasMaxLength(200);
+        b.HasIndex(r => new { r.TenantId, r.DocumentTypeKey });
+        b.HasOne<Tenant>().WithMany().HasForeignKey(r => r.TenantId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class TypeIdentificationRuleVersionConfiguration : IEntityTypeConfiguration<TypeIdentificationRuleVersion>
+{
+    public void Configure(EntityTypeBuilder<TypeIdentificationRuleVersion> b)
+    {
+        b.ToTable("TypeIdentificationRuleVersions");
+        b.Property(v => v.RuleJson).HasColumnType("json");
+        b.Property(v => v.RuleHash).HasMaxLength(TypeIdentificationRuleVersion.HashLength).IsFixedLength();
+        b.Property(v => v.ExcludedSupplierIdsJson).HasColumnType("json");
+        b.Property(v => v.TestJson).HasColumnType("json");
+        b.Property(v => v.ApprovedBy).HasMaxLength(200);
+        b.Property(v => v.CreatedBy).HasMaxLength(200);
+        b.HasIndex(v => new { v.RuleId, v.Version }).IsUnique();
+        b.HasIndex(v => new { v.TenantId, v.State });
+        b.HasOne(v => v.Rule).WithMany(r => r.Versions).HasForeignKey(v => v.RuleId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Tenant>().WithMany().HasForeignKey(v => v.TenantId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
 internal sealed class ExtractorProfileConfiguration : IEntityTypeConfiguration<ExtractorProfile>
 {
     public void Configure(EntityTypeBuilder<ExtractorProfile> b)

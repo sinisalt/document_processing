@@ -63,6 +63,17 @@ internal static class TestPdfs
         AddTextPage(doc, page);
     });
 
+    /// <summary>Several pages of <see cref="TextDocument"/>'s shape: each page's first line in the title area, the rest below.</summary>
+    public static byte[] TextPages(params string[][] pages) => Build(doc =>
+    {
+        foreach (var lines in pages)
+        {
+            var page = new List<Line> { new(60, 10, "Südhof Feinkost GmbH · Hofweg 3 · 79100 Freiburg"), new(120, 22, lines[0]) };
+            page.AddRange(lines.Skip(1).Select((text, i) => new Line(160 + (i * 16), 11, text)));
+            AddTextPage(doc, page);
+        }
+    });
+
     /// <summary>A return slip (docs/11 §5.4): "Retourenschein" in the title, its number, date and two returned items.</summary>
     public static byte[] ReturnSlip() => TextDocument(
         "Retourenschein",

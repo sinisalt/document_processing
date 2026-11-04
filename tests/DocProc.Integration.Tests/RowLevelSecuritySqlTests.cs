@@ -354,6 +354,36 @@ public sealed class RowLevelSecuritySqlTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public void The_tenant_identification_rules_migration_puts_the_P5_part_B_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.6, §8.5: tenant fallback rules and their versions belong to one tenant; TenantIdentificationRules
+        // re-creates the policy with them (PolicyV12), its Down goes back to PolicyV11.
+        var migration = new TenantIdentificationRules();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        statements.ShouldBe(up
+            ? [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12)]
+            : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11)]);
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV12);
+        RowLevelSecurity.PolicyV12.StrictTables.Except(RowLevelSecurity.PolicyV11.StrictTables).Select(t => t.Table)
+            .ShouldBe(["TypeIdentificationRules", "TypeIdentificationRuleVersions"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV12.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV11.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[TypeIdentificationRuleVersions] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void The_configurable_steps_migration_puts_the_P5_part_A_tables_under_the_strict_policy(bool up)
     {
         // docs/11 §10, §16: pipeline snapshots, lookup results and LLM budgets belong to one tenant;
@@ -364,7 +394,6 @@ public sealed class RowLevelSecuritySqlTests
             ? [RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.BackfillFlagSql), RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11)]
             : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10), RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.RemoveFlagSql)]);
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV11);
         RowLevelSecurity.PolicyV11.StrictTables.Except(RowLevelSecurity.PolicyV10.StrictTables).Select(t => t.Table)
             .ShouldBe(["PipelineSnapshots", "LookupResults", "LlmBudgets"], ignoreOrder: true);
         RowLevelSecurity.PolicyV11.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV10.PlatformRowTables);

@@ -201,6 +201,7 @@ public static partial class DocumentEndpoints
             }
 
             var change = new DocumentStatusChange(document.Status, DocumentStatus.Matched);
+            await CountRuleOverrideAsync(db, document, key, ct);
             ApplyType(document, key, type, now);
             ClearCaptured(document);
             await DocumentFieldIndexWriter.RefreshAsync(db, document, [], ct);
@@ -225,6 +226,7 @@ public static partial class DocumentEndpoints
         // the empty record of its kind; a type the tenant has no data path for (a purchase order without
         // configurableTypes) gets none, as Extract leaves it.
         var configurable = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct);
+        await CountRuleOverrideAsync(db, document, key, ct);
         ApplyType(document, key, type, now);
         ClearCaptured(document);
         await DocumentTableReports.RemoveAllAsync(db, document.Id, ct);
@@ -804,6 +806,29 @@ public static partial class DocumentEndpoints
                 detail: DocumentStateMachine.IsSettled(document.Status) || document.Status == DocumentStatus.Cancelled
                     ? $"Document {document.Id} is {document.Status}; reprocess it before you {action}."
                     : $"Document {document.Id} is {document.Status}: the pipeline is still writing it. You can {action} once it is NeedsReview, Validated or Failed.");
+
+    /// <summary>
+    /// A reviewer changed the type a tenant fallback rule decided (docs/11 §6.6 <c>Overridden</c>): the rule counts it, and
+    /// the document no longer pins the rule's version (a human's type is not the rule's).
+    /// </summary>
+    internal static async Task CountRuleOverrideAsync(DocProcDbContext db, Document document, DocumentTypeKey key, CancellationToken ct)
+    {
+        if (document.IdentificationRuleVersionId is not { } pinned)
+        {
+            return;
+        }
+
+        if (document.Type != key)
+        {
+            var ruleId = await db.TypeIdentificationRuleVersions.AsNoTracking().Where(v => v.Id == pinned).Select(v => (Guid?)v.RuleId).FirstOrDefaultAsync(ct);
+            if (ruleId is { } overridden)
+            {
+                await db.TypeIdentificationRules.Where(r => r.Id == overridden).ExecuteUpdateAsync(u => u.SetProperty(r => r.Overridden, r => r.Overridden + 1), ct);
+            }
+        }
+
+        document.IdentificationRuleVersionId = null;
+    }
 
     internal static void ApplyType(Document document, DocumentTypeKey key, EffectiveType type, DateTimeOffset now)
     {

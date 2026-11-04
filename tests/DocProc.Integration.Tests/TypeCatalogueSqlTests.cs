@@ -103,6 +103,44 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
+            // P5 part B first, with one of everything it writes: a tenant fallback rule with an Active version and a
+            // document it typed (its version pinned). Down to P5 part A, the tables and the column are gone and the policy
+            // of part A is back; up again, they are new.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var rule = new TypeIdentificationRule { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentTypeKey = "price-list", Name = "Preisliste im Titel", ActiveVersion = 1, Matched = 1, CreatedAt = now, UpdatedAt = now };
+                var ruleVersion = new TypeIdentificationRuleVersion { Id = Guid.CreateVersion7(), TenantId = TenantA, Version = 1, State = TypeIdentificationRuleVersionState.Active, RuleJson = """{"all":[{"text":"Preisliste","page":1,"region":"title"}]}""", RuleHash = "0123abcd", ExcludedSupplierIdsJson = "[]", TestJson = """{"tested":1,"byType":{"price-list":1}}""", CreatedAt = now };
+                rule.Versions.Add(ruleVersion);
+                seeding.TypeIdentificationRules.Add(rule);
+                await seeding.SaveChangesAsync(ct);
+                var typed = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                typed.IdentificationRuleVersionId = ruleVersion.Id;
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261104221250_ConfigurableStepsAndBudgets", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104221250_ConfigurableStepsAndBudgets");
+            foreach (var table in new[] { "TypeIdentificationRules", "TypeIdentificationRuleVersions" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var table in new[] { "Documents", "DocumentsHistory" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = N'IdentificationRuleVersionId'").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            await platform.Database.MigrateAsync(ct);
+            foreach (var table in new[] { "TypeIdentificationRules", "TypeIdentificationRuleVersions" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+            }
+
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).IdentificationRuleVersionId.ShouldBeNull("up again, the column is new");
+            (await platform.TypeIdentificationRules.AsNoTracking().CountAsync(ct)).ShouldBe(0);
+
             // P5 part A first, with one of everything it writes: a pipeline snapshot, a document that ran it (its hash),
             // a lookup result and an LLM budget. Down to P4 part C, the tables and the column are gone and the policy of
             // part C is back; up again, they are new.

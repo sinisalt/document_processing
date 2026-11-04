@@ -159,6 +159,9 @@ public sealed record DocumentDetail(
     /// <summary>The Candidate layout version the document waits for (docs/11 §12.10); never applied.</summary>
     public Guid? PendingLayoutVersionId { get; init; }
 
+    /// <summary>The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; <c>GET /identification-rules/{id}</c>); null when none did.</summary>
+    public Guid? IdentificationRuleVersionId { get; init; }
+
     /// <summary>
     /// The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; <c>GET /pipelines/{hash}</c> lists its
     /// steps); null for a tenant without <c>configurableSteps</c>.

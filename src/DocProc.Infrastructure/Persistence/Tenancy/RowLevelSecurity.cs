@@ -266,8 +266,25 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV11 = new(StepsProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>TenantIdentificationRules</c> migration (P5 part B): <see cref="StepsProtectedTables"/>
+    /// plus the tenant fallback identification rules and their versions of docs/11 §6.6. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> TenantRuleProtectedTables =
+    [
+        .. StepsProtectedTables,
+        ("TypeIdentificationRules", "TenantId"),
+        ("TypeIdentificationRuleVersions", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>TenantIdentificationRules</c> migration (P5 part B): <see cref="PolicyV11"/> with the tenant
+    /// fallback rule tables among the strict tables. Neither is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV12 = new(TenantRuleProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV11;
+    public static PolicyDefinition CurrentPolicy => PolicyV12;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

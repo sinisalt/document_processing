@@ -44,6 +44,7 @@ internal sealed class ClassifyHandler(
     IEInvoiceParser eInvoices,
     IServiceProvider services,
     LayoutIdentification layouts,
+    TenantIdentification tenantRules,
     IOptions<PipelineOptions> options,
     StagePipeline pipelines,
     ILogger<ClassifyHandler> logger) : DocumentStageHandler(db, timeline, logger)
@@ -112,6 +113,29 @@ internal sealed class ClassifyHandler(
             identification = await layouts.ResolveAsync(document, outcome.Type.Value, cancellationToken).ConfigureAwait(false);
         }
 
+        // The tenant fallback rules (docs/11 §8.5, §9.4 step 2, P5): for a supplier unknown at Classify, or known without
+        // layouts of its own or its group (and layouts.required off), a tenant rule that holds decides the type; under
+        // NEW_LAYOUT it only proposes one. They run after the supplier's layouts and before the keyword rules and the LLM.
+        document.IdentificationRuleVersionId = null;
+        DocProc.Mapping.Identification.TenantRuleResult? tenantRule = null;
+        var tenantRuleDecides = false;
+        if (outcome is null && identification?.Result.Resolution is null or LayoutResolution.NotManaged or LayoutResolution.NewLayout)
+        {
+            async Task<DocProc.Mapping.Identification.DocumentWords> Words() =>
+                identification?.Words ?? DocProc.Mapping.Identification.DocumentWords.From(await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false));
+            tenantRule = await tenantRules.ResolveAsync(document, Words, cancellationToken).ConfigureAwait(false);
+            if (tenantRule is { Resolution: DocProc.Mapping.Identification.TenantRuleResolution.Identified, Selected: { } rule })
+            {
+                var allowedForRule = KnownFromSource(document) ? await AllowedTypesAsync(Db, document.SupplierId, cancellationToken).ConfigureAwait(false) : null;
+                if (allowedForRule is not { Count: > 0 } || allowedForRule.Contains(rule.Candidate.DocumentTypeKey, StringComparer.Ordinal))
+                {
+                    var proposedOnly = identification?.Result.Resolution == LayoutResolution.NewLayout;
+                    tenantRuleDecides = !proposedOnly;
+                    outcome = new ClassificationOutcome(DocumentTypeKey.FromStored(rule.Candidate.DocumentTypeKey), 1.0, proposedOnly ? TypeSource.Proposed : TypeSource.Identification);
+                }
+            }
+        }
+
         DocProc.Llm.Gateway.LlmBudgetExceededException? budget = null;
         if (outcome is null)
         {
@@ -130,6 +154,11 @@ internal sealed class ClassifyHandler(
 
         SetType(document, outcome);
         await RecordIdentificationAsync(document, identification, cancellationToken).ConfigureAwait(false);
+        if (tenantRule is not null && (tenantRule.Resolution == DocProc.Mapping.Identification.TenantRuleResolution.Conflicting || outcome.Type.Value == tenantRule.Selected?.Candidate.DocumentTypeKey))
+        {
+            await tenantRules.RecordAsync(document, tenantRule, tenantRuleDecides, cancellationToken).ConfigureAwait(false);
+        }
+
         pipelines.RecordBudget(document, StepKindCatalogue.ClassifyLlm, budget);
         flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
             ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
