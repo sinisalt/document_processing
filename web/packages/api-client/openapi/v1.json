@@ -3604,7 +3604,7 @@
         "tags": [
           "Suppliers"
         ],
-        "summary": "Deletes a receiving entity no document, source rule, channel or supplier attribute names (409 otherwise).",
+        "summary": "Deletes a receiving entity no document, source rule, channel, supplier attribute or supplier layout names (409 otherwise).",
         "operationId": "DeleteReceivingEntity",
         "parameters": [
           {

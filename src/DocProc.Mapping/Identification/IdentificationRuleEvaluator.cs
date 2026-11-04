@@ -131,8 +131,14 @@ public sealed record IdentificationResult(bool Holds, IReadOnlyList<IdentifierEv
 /// </summary>
 public static class IdentificationRuleEvaluator
 {
-    /// <summary>The time a pattern may take on one text before it counts as not holding.</summary>
-    public static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(100);
+    /// <summary>
+    /// The time a pattern may take on one text. A pattern runs NonBacktracking, in time linear in the text, and patterns
+    /// and texts are bounded, so this is a safety net for a pathological input, not a budget: it is generous enough that
+    /// a loaded machine (the lazily built automaton of a first match, a busy thread pool) does not run out of it. A
+    /// match that does run out of time is reported (an identifier names it in <see cref="IdentificationResult.Failed"/>,
+    /// the layout engine in <c>LayoutExtraction.TimedOut</c>), never read as "no match".
+    /// </summary>
+    public static readonly TimeSpan PatternTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>The fewest letters a word must have for <c>allowOcrErrors</c> to relax it.</summary>
     public const int OcrToleranceMinLetters = 6;
@@ -223,9 +229,22 @@ public static class IdentificationRuleEvaluator
             {
                 var identifier = (Identifier)members[i];
                 var effective = identifier.Location.Over(location);
-                var hit = Find(identifier, effective, context);
-                held = hit is not null;
                 var description = identifier.Describe(effective);
+                Hit? hit;
+                try
+                {
+                    hit = Find(identifier, effective, context);
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // Not "not present": the identifier could not be checked, and the failure says so (a positive one
+                    // does not hold, a negative one does not count as absent).
+                    failed.Add($"{path}: {description} could not be checked, its pattern ran out of time");
+                    results.Add(!positive);
+                    continue;
+                }
+
+                held = hit is not null;
                 if (hit is { } h)
                 {
                     evidence.Add(new IdentifierEvidence(path, KindName(identifier.Kind), description, positive, h.Page, h.Box, h.Text));
@@ -312,15 +331,9 @@ public static class IdentificationRuleEvaluator
             return string.Equals(value, equals, StringComparison.OrdinalIgnoreCase) ? new Hit(null, null, value) : null;
         }
 
+        // A timeout is the caller's to report (Members), not a no-match.
         var regex = Compile(identifier.Pattern!, ignoreCase: true);
-        try
-        {
-            return regex is not null && regex.IsMatch(value) ? new Hit(null, null, value) : null;
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return null;
-        }
+        return regex is not null && regex.IsMatch(value) ? new Hit(null, null, value) : null;
     }
 
     /// <summary>
@@ -442,15 +455,7 @@ public static class IdentificationRuleEvaluator
         }
 
         var (text, spans) = Joined(words);
-        Match match;
-        try
-        {
-            match = regex.Match(text);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return null;
-        }
+        var match = regex.Match(text); // a timeout is the caller's to report (Members), not a no-match
 
         if (!match.Success)
         {

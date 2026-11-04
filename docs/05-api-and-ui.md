@@ -183,7 +183,7 @@ A tenant without the switch sees the API as before: the new response members are
 | `DELETE /supplier-groups/{id}` | TenantAdmin | 409 while suppliers belong to it. |
 | `GET /receiving-entities`, `GET /receiving-entities/{id}` | Read | The tenant's own companies or branches: `{id, code, name, vatIds, addresses, attributes, createdAt, updatedAt}`, by code. |
 | `POST /receiving-entities`, `PATCH /receiving-entities/{id}` | TenantAdmin | `{code (unique in the tenant, 409), name, vatIds? (at most 10, compacted), addresses? (object or array, 8 KB), attributes?}`. |
-| `DELETE /receiving-entities/{id}` | TenantAdmin | 409 while a document, a source rule, a channel default or supplier attributes name it. |
+| `DELETE /receiving-entities/{id}` | TenantAdmin | 409 while a document, a source rule, a channel default, supplier attributes or a supplier layout (`receivingEntityId`) name it. |
 | `GET /suppliers/{id}/entity-attributes` | Read | The supplier's attributes per receiving entity `[{receivingEntityId, receivingEntityCode, attributes, updatedAt}]`; `GET /suppliers/{id}` carries them as `entityAttributes`. |
 | `PUT /suppliers/{id}/entity-attributes/{entityId}`, `DELETE …` | TenantAdmin | `{attributes}` replaces the supplier's attributes in that entity; the values view merges them over the supplier's (the vendor number in company 1000). |
 
@@ -205,8 +205,9 @@ A tenant without the switch sees the API as before: the new response members are
   `PUT`; changing one needs `sourceRouting`, sending back what `GET` gave does not.
 - **Channels.** With `sourceRouting` on, a `Mailbox` config is `{address, host?, port?, security? (ssl, starttls),
   username?, folder? (INBOX), unwrapForwards? (true), trustedForwarderDomains? (no free-mail provider), authServId?}`
-  (the `authserv-id` of the mailbox's receiving server, whose `Authentication-Results` are then believed; without it
-  and without `Mail:TrustedAuthServIds` no sender counts as authenticated) (without `host` the
+  (the `authserv-id` of the mailbox's receiving server, whose `Authentication-Results` are then believed; on a
+  tenant `host` it is the only one believed, so without it no sender there counts as authenticated; on the platform
+  server it is believed next to `Mail:TrustedAuthServIds`, and with neither no sender counts) (without `host` the
   platform's server, `Mail:ImapHost`, is read; a tenant `host` must be a public name or address and is reached over
   TLS; the password is the write-only `secret`), a `WatchedFolder` config `{path? (relative to the tenant's drop-zone
   root, no `..`), pattern? (*), stableSeconds?}`; unknown members are refused. Such a channel gets `sourceKey`, unique

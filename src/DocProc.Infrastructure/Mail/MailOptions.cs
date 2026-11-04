@@ -27,10 +27,14 @@ public sealed class MailOptions
     public List<string> AllowedHosts { get; set; } = [];
 
     /// <summary>
-    /// The <c>authserv-id</c>s of the receiving servers whose <c>Authentication-Results</c> header is believed (with a
-    /// channel's own <c>authServId</c>). Empty: no <c>Authentication-Results</c> header is believed and no sender counts as
-    /// authenticated, so every source rule that needs sender authentication (the default for mail rules) is skipped
-    /// with <c>SUPPLIER_SOURCE_UNVERIFIED</c>; a header any sender could have written is never taken as proof.
+    /// The <c>authserv-id</c>s of the platform's receiving server (the MTA in front of <see cref="ImapHost"/>, one for
+    /// every tenant's mailbox there) whose <c>Authentication-Results</c> header is believed, for a mailbox on the platform
+    /// server only (with that channel's own <c>authServId</c>); a mailbox on a tenant's own host believes only its
+    /// channel's <c>authServId</c>. The list is global: every server named here must strip or override a header that
+    /// claims any of the ids, whichever tenant's address the mail is for. Empty: no <c>Authentication-Results</c> header
+    /// of the platform server is believed and no sender counts as authenticated, so every source rule that needs sender
+    /// authentication (the default for mail rules) is skipped with <c>SUPPLIER_SOURCE_UNVERIFIED</c>; a header any
+    /// sender could have written is never taken as proof.
     /// </summary>
     public List<string> TrustedAuthServIds { get; set; } = [];
 

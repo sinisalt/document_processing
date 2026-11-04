@@ -117,7 +117,7 @@ same `-p` and `-f` options as before). `docker compose ps -a` shows `worker` and
 | `servicebus` | `mcr.microsoft.com/azure-messaging/servicebus-emulator` (the AppHost's tag), `linux/amd64` | `messaging` | entities from `docker/servicebus/Config.json`; stores them in `sqlserver`. The image has no shell, so the one-shot `servicebus-ready` polls its `:5300/health` and the API waits for that |
 | `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
 | `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
-| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; nothing reads `Mail__ImapHost` yet. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
+| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; the platform IMAP server of the `Mailbox` channels: the worker reads `Mail__ImapHost`/`Mail__ImapPort` (3143, plain IMAP, `Mail__ImapSecurity: None`) and believes the `Authentication-Results` of the one platform receiver `mx.platform.local` (`Mail__TrustedAuthServIds`); SMTP on :3025 for the demo mails. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
 | `mock-erp` | `wiremock/wiremock` (the AppHost's tag), `--disable-banner --verbose` | `mock-erp` | the receiving ERP of the delivery demos, `:8086`; stubs mounted read-only from `docker/mock-erp` ("Mock ERP" below); the image's `curl` checks `/__admin/health` |
 | `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
 | `worker` | `src/Dockerfile`, target `worker` | `worker` | waits for the API's health check; no HTTP endpoint, so no health check of its own |
@@ -536,9 +536,11 @@ docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` swit
   (and those of a message attached to it) the items. The ingestion records the sender, recipients, mailbox, subject
   and the `Authentication-Results` the receiving server wrote. Only a header whose `authserv-id` is listed in
   `Mail:TrustedAuthServIds` (or the channel's `authServId`) is believed; with none listed no sender is authenticated.
-  GreenMail writes no header, so compose and the AppHost list `mx.tenant-a.local` and `mx.tenant-b.local`, and an .eml
-  carries the header itself to try the DMARC rules: `Authentication-Results: mx.tenant-a.local; dmarc=pass
-  header.from=nordwind.example`. A forward from a trusted forwarder domain (not a free-mail provider) is unwrapped to
+  The platform's list names the receiving server in front of the platform IMAP server, one for every tenant, and counts
+  for mailboxes on that server only: a mailbox on a tenant's own host believes only its channel's `authServId`, and
+  without one no sender there is authenticated. GreenMail writes no header, so compose and the AppHost list
+  `mx.platform.local`, and an .eml carries the header itself to try the DMARC rules: `Authentication-Results:
+  mx.platform.local; dmarc=pass header.from=nordwind.example`. A forward from a trusted forwarder domain (not a free-mail provider) is unwrapped to
   its original sender. A poll that fails names the reason in the channel's `lastError`.
 - **Watched folders.** The worker scans `Intake:FolderRoot/<tenant slug>/<channel path>/` (in compose
   `./fixtures/dropzone/tenant-a/...`, mounted at `/data/dropzone`): `POST /api/v1/channels
@@ -1041,9 +1043,9 @@ review instead of failing), portal on http://localhost:5173, admin console on ht
 journal on http://localhost:8086/__admin/requests, GreenMail's SMTP on `localhost:3025`.
 
 The mails are sent with `fixtures/demo/mail/send-invoice.sh <pdf> <to> [subject] [dmarc]`: it attaches the PDF and
-writes the `Authentication-Results` header the receiving server would (`dmarc=pass` by default, as
-`mx.<recipient domain>`; GreenMail writes none, and compose's worker believes only `mx.tenant-a.local` and
-`mx.tenant-b.local`, `Mail:TrustedAuthServIds`), then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
+writes the `Authentication-Results` header the platform's receiving server would (`dmarc=pass` by default, as
+`mx.platform.local`, `RECEIVER` names another; GreenMail writes none, and compose's worker believes only
+`mx.platform.local`, `Mail:TrustedAuthServIds`, for the mailboxes on GreenMail), then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
 
 1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
    switches: Configurable document types, Outputs, Source routing and Supplier layouts on ("Feature switches saved.").
@@ -1363,7 +1365,7 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Mail:ImapPort` | 143; `3143` in compose | Its port. |
 | `Mail:ImapSecurity` | `Auto`; `None` in compose and under the AppHost | `None`, `StartTls`, `SslOnConnect` or `Auto` for the platform server. A tenant's own server is always reached over TLS (`ssl` or `starttls` in its config). |
 | `Mail:AllowedHosts` | empty | IMAP hosts a tenant's mailbox may name past the public-host check (loopback, private and reserved addresses are refused otherwise, as for tenant endpoints). |
-| `Mail:TrustedAuthServIds` | empty (compose and the AppHost: `mx.tenant-a.local`, `mx.tenant-b.local`) | `authserv-id`s of the receiving servers whose `Authentication-Results` header is believed; a channel's `authServId` adds one. With none, no header is read and no sender counts as authenticated (a server that writes none would leave the sender's own header on top). |
+| `Mail:TrustedAuthServIds` | empty (compose and the AppHost: `mx.platform.local`) | `authserv-id`s of the platform's receiving server (the MTA in front of `Mail:ImapHost`, one for every tenant; each server listed must strip or override a header claiming any listed id) whose `Authentication-Results` header is believed, for mailboxes on the platform server only; a channel's `authServId` adds one there. A mailbox on a tenant's own host believes only its channel's `authServId`. With none, no header is read and no sender counts as authenticated (a server that writes none would leave the sender's own header on top). |
 | `Mail:MaxMessageBytes` | 52428800 (50 MB) | The largest message ingested; a larger one is skipped (the cursor moves past it) and named in the channel's last error. |
 | `Mail:Timeout` | `00:00:30` | Connect, login and read timeout of one IMAP operation. |
 

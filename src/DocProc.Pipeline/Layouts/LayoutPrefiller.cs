@@ -204,8 +204,10 @@ internal sealed class LayoutPrefiller(DocProcDbContext db, PipelineBlobs blobs, 
     private async Task<Dictionary<string, string>> KnownValuesAsync(Document document, Guid supplierId, DescriptorIndex descriptors, CancellationToken cancellationToken)
     {
         var type = document.Type;
-        var trees = await db.Documents.AsNoTracking()
-            .Where(d => d.SupplierId == supplierId && d.Type == type && d.Id != document.Id && (d.Status == DocumentStatus.Approved || d.Status == DocumentStatus.AutoApproved) && d.CanonicalJson != null)
+        var approved = db.Documents.AsNoTracking()
+            .Where(d => d.SupplierId == supplierId && d.Type == type && d.Id != document.Id && (d.Status == DocumentStatus.Approved || d.Status == DocumentStatus.AutoApproved) && d.CanonicalJson != null);
+        // Only the newest few trees are read (the cut is made in SQL); they are ordered and taken here as before.
+        var trees = await (await NewestDocuments.CutAsync(approved, KnownValueDocuments, cancellationToken).ConfigureAwait(false))
             .Select(d => new { d.CreatedAt, d.Id, d.CanonicalJson })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

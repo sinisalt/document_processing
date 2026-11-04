@@ -229,7 +229,7 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         await using var host = await StartAsync();
         var mailbox = $"box-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
         var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
-        await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("Rechnungsversand <rechnungsversand@nordwind.example>", "Rechnung 1", "mx.tenant-a.local; dmarc=pass header.from=nordwind.example", files: ("rechnung-1.pdf", "application/pdf", MailMessageReaderTests.Pdf)));
+        await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("Rechnungsversand <rechnungsversand@nordwind.example>", "Rechnung 1", "mx.platform.local; dmarc=pass header.from=nordwind.example", files: ("rechnung-1.pdf", "application/pdf", MailMessageReaderTests.Pdf)));
         await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 2", files: [("a.pdf", "application/pdf", "%PDF-1.4 a"u8.ToArray()), ("b.xml", "application/xml", "<x/>"u8.ToArray())]));
         var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
 
@@ -386,7 +386,7 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         var mailbox = $"unt-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
         var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
         var original = MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 79", files: ("rechnung-79.pdf", "application/pdf", "%PDF-1.4 seventy-nine"u8.ToArray()));
-        var forward = MailMessageReaderTests.Message("kollegin@private.example", "Fwd: Rechnung 79", "mx.tenant-a.local; dmarc=pass header.from=private.example");
+        var forward = MailMessageReaderTests.Message("kollegin@private.example", "Fwd: Rechnung 79", "mx.platform.local; dmarc=pass header.from=private.example");
         var body = new BodyBuilder { TextBody = "bitte buchen" };
         body.Attachments.Add(new MessagePart { Message = original });
         forward.Body = body.ToMessageBody();
@@ -412,13 +412,13 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}","trustedForwarderDomains":["bureau.example"]}""", ChannelType.Mailbox);
 
         var original = MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 77", files: ("rechnung-77.pdf", "application/pdf", "%PDF-1.4 seventy-seven"u8.ToArray()));
-        var forward = MailMessageReaderTests.Message("scans@bureau.example", "Fwd: Rechnung 77", "mx.tenant-a.local; dmarc=pass header.from=bureau.example");
+        var forward = MailMessageReaderTests.Message("scans@bureau.example", "Fwd: Rechnung 77", "mx.platform.local; dmarc=pass header.from=bureau.example");
         var body = new BodyBuilder { TextBody = "weitergeleitet" };
         body.Attachments.Add(new MessagePart { Message = original });
         forward.Body = body.ToMessageBody();
         await mail.AppendAsync(mailbox, forward);
 
-        var spoofed = MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 78", "mx.tenant-a.local; spf=fail; dmarc=fail header.from=nordwind.example", files: ("rechnung-78.pdf", "application/pdf", "%PDF-1.4 seventy-eight"u8.ToArray()));
+        var spoofed = MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 78", "mx.platform.local; spf=fail; dmarc=fail header.from=nordwind.example", files: ("rechnung-78.pdf", "application/pdf", "%PDF-1.4 seventy-eight"u8.ToArray()));
         await mail.AppendAsync(mailbox, spoofed);
 
         var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();

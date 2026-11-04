@@ -27,7 +27,22 @@ public sealed record DriftReport(int Covered, int Found, IReadOnlyList<string> M
 }
 
 /// <summary>What the field mapping of one layout version found on a document.</summary>
-public sealed record LayoutExtraction(IReadOnlyList<LayoutHit> Hits, IReadOnlyDictionary<string, TableResult> Tables, DriftReport Drift);
+public sealed record LayoutExtraction(IReadOnlyList<LayoutHit> Hits, IReadOnlyDictionary<string, TableResult> Tables, DriftReport Drift)
+{
+    /// <summary>
+    /// The fields and tables whose pattern (a value pattern, a <c>regex</c> or <c>replace</c> transform, a table's
+    /// <c>skipRows</c> or <c>stopAt</c>) ran out of time: they were not read, which is not the same as not printed, so
+    /// they are reported here and a drift they cause is not the layout's (docs/11 §8.2).
+    /// </summary>
+    public IReadOnlyList<string> TimedOut { get; init; } = [];
+}
+
+/// <summary>A pattern of a field rule or transform ran out of time (<see cref="IdentificationRuleEvaluator.PatternTimeout"/>): the value was not read, rather than read as if the pattern did not match.</summary>
+public sealed class LayoutPatternTimeoutException(string pattern, Exception? inner = null)
+    : TimeoutException($"The pattern '{pattern}' took too long; simplify it.", inner)
+{
+    public string Pattern { get; } = pattern;
+}
 
 /// <summary>
 /// Runs a layout version's field mapping over a document's words (docs/11 §8.2, the <c>supplier-mapping</c> step): for
@@ -68,6 +83,7 @@ public static class LayoutEngine
         ArgumentNullException.ThrowIfNull(rowFieldsOf);
         ArgumentNullException.ThrowIfNull(locale);
         var hits = new List<LayoutHit>();
+        var timedOut = new List<string>();
         foreach (var field in mapping.Fields)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -76,21 +92,42 @@ public static class LayoutEngine
                 continue;
             }
 
-            if (Field(field, kind, words, layoutRef, locale) is { } hit)
+            try
             {
-                hits.Add(hit);
+                if (Field(field, kind, words, layoutRef, locale) is { } hit)
+                {
+                    hits.Add(hit);
+                }
+            }
+            catch (LayoutPatternTimeoutException)
+            {
+                timedOut.Add(field.Path);
             }
         }
 
         var tables = new Dictionary<string, TableResult>(StringComparer.Ordinal);
         foreach (var table in mapping.Tables)
         {
-            if (rowFieldsOf(table.Path) is not { } rowFields || Table(table, rowFields, words, locale, cancellationToken) is not { } result)
+            if (rowFieldsOf(table.Path) is not { } rowFields)
             {
                 continue;
             }
 
-            tables[table.Path] = result;
+            TableResult? result;
+            try
+            {
+                result = ReadTable(table, rowFields, words, locale, cancellationToken);
+            }
+            catch (TablePatternTimeoutException)
+            {
+                timedOut.Add(table.Path);
+                continue;
+            }
+
+            if (result is not null)
+            {
+                tables[table.Path] = result;
+            }
         }
 
         var coverage = mapping.Coverage;
@@ -98,7 +135,7 @@ public static class LayoutEngine
         var missing = coverage.Where(p => !found.Contains(p)).ToList();
         var required = (requiredPaths ?? []).Concat(mapping.RequiredFields).Where(p => coverage.Contains(p, StringComparer.Ordinal) && !found.Contains(p)).Distinct(StringComparer.Ordinal).ToList();
         var drift = coverage.Count > 0 && (required.Count > 0 || (double)found.Count / coverage.Count < DriftReport.MinCoverage);
-        return new LayoutExtraction(hits, tables, new DriftReport(coverage.Count, found.Count, missing, required, drift));
+        return new LayoutExtraction(hits, tables, new DriftReport(coverage.Count, found.Count, missing, required, drift)) { TimedOut = timedOut };
     }
 
     private static LayoutHit? Field(LayoutFieldMapping field, LayoutFieldKind kind, DocumentWords words, string layoutRef, ValueLocale locale)
@@ -186,7 +223,10 @@ public static class LayoutEngine
         }
     }
 
-    /// <summary>The text itself, or the pattern's match (its group) in it; null when the pattern does not match.</summary>
+    /// <summary>
+    /// The text itself, or the pattern's match (its group) in it; null when the pattern does not match. A pattern that
+    /// runs out of time throws <see cref="LayoutPatternTimeoutException"/>: that is not "no match".
+    /// </summary>
     private static string? Pick(string text, Regex? regex, int group)
     {
         if (regex is null)
@@ -204,9 +244,9 @@ public static class LayoutEngine
 
             return group > 0 && group < match.Groups.Count && match.Groups[group].Success ? match.Groups[group].Value : match.Value;
         }
-        catch (RegexMatchTimeoutException)
+        catch (RegexMatchTimeoutException ex)
         {
-            return null;
+            throw new LayoutPatternTimeoutException(regex.ToString(), ex);
         }
     }
 
@@ -295,7 +335,10 @@ public static class LayoutEngine
         return false;
     }
 
-    /// <summary>The transforms in order (docs/11 §8.1).</summary>
+    /// <summary>
+    /// The transforms in order (docs/11 §8.1). A <c>regex</c> or <c>replace</c> pattern that runs out of time throws
+    /// <see cref="LayoutPatternTimeoutException"/> instead of reading as no match or no change.
+    /// </summary>
     public static string? Transform(string? text, IReadOnlyList<LayoutTransform> transforms)
     {
         ArgumentNullException.ThrowIfNull(transforms);
@@ -328,9 +371,9 @@ public static class LayoutEngine
         {
             return regex is null ? value : regex.Replace(value, with);
         }
-        catch (RegexMatchTimeoutException)
+        catch (RegexMatchTimeoutException ex)
         {
-            return value;
+            throw new LayoutPatternTimeoutException(pattern, ex);
         }
     }
 
@@ -338,9 +381,23 @@ public static class LayoutEngine
     /// A <c>column-table</c> rule on another document of the design: the first page with a line holding the columns'
     /// headers is the mapping page (the header row is that line), the table is read from there to the foot of the page
     /// (or <c>pageMargins.bottom</c>) and on every later page, by the review tool's engine. A table without a header row
-    /// is read in its box as drawn. Null when the header is found nowhere.
+    /// is read in its box as drawn. Null when the header is found nowhere, or when a <c>skipRows</c> or <c>stopAt</c>
+    /// pattern ran out of time (<see cref="Run"/> reports that one in <see cref="LayoutExtraction.TimedOut"/>).
     /// </summary>
     public static TableResult? Table(LayoutTableMapping table, IReadOnlyDictionary<string, TableField> rowFields, DocumentWords words, ValueLocale locale, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ReadTable(table, rowFields, words, locale, cancellationToken);
+        }
+        catch (TablePatternTimeoutException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary><see cref="Table"/>, with a pattern that ran out of time thrown as <see cref="TablePatternTimeoutException"/>.</summary>
+    private static TableResult? ReadTable(LayoutTableMapping table, IReadOnlyDictionary<string, TableField> rowFields, DocumentWords words, ValueLocale locale, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(rowFields);
@@ -426,10 +483,6 @@ public static class LayoutEngine
             return ColumnTableEngine.Extract(words.Pages, spec, cancellationToken);
         }
         catch (ArgumentException)
-        {
-            return null;
-        }
-        catch (TablePatternTimeoutException)
         {
             return null;
         }

@@ -98,9 +98,9 @@ builder.AddProject<Projects.DocProc_Worker>("worker")
     .WithEnvironment("Mail__ImapHost", mail.GetEndpoint("imap").Property(EndpointProperty.Host))
     .WithEnvironment("Mail__ImapPort", mail.GetEndpoint("imap").Property(EndpointProperty.Port))
     .WithEnvironment("Mail__ImapSecurity", "None") // GreenMail speaks plain IMAP
-    // GreenMail writes no Authentication-Results; the header a test mail carries is believed for these receivers only.
-    .WithEnvironment("Mail__TrustedAuthServIds__0", "mx.tenant-a.local")
-    .WithEnvironment("Mail__TrustedAuthServIds__1", "mx.tenant-b.local")
+    // GreenMail writes no Authentication-Results; the header a test mail carries is believed when it names the
+    // platform's one receiving server, for the mailboxes on GreenMail only (docs/11 §7.1).
+    .WithEnvironment("Mail__TrustedAuthServIds__0", "mx.platform.local")
     // The drop zone of the watched-folder channels: ./fixtures/dropzone/{tenant slug}/... (docs/11 §7.1).
     .WithEnvironment("Intake__FolderRoot", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "fixtures", "dropzone")))
     .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086")

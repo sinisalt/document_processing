@@ -11,6 +11,7 @@ using DocProc.Mapping.Tables;
 using DocProc.Mapping.Values;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DocProc.Pipeline.Layouts;
 
@@ -42,6 +43,7 @@ internal sealed record LayoutApplication(
             ["found"] = Extraction.Drift.Found,
             ["missing"] = new JsonArray([.. Extraction.Drift.Missing.Select(m => (JsonNode?)JsonValue.Create(m))]),
             ["isDrift"] = Extraction.Drift.IsDrift,
+            ["timedOut"] = Extraction.TimedOut.Count == 0 ? null : new JsonArray([.. Extraction.TimedOut.Select(m => (JsonNode?)JsonValue.Create(m))]),
         },
         ["identification"] = new JsonArray([.. Evidence.Where(e => e.Positive).Select(e => (JsonNode?)new JsonObject
         {
@@ -63,7 +65,7 @@ internal sealed record LayoutApplication(
 /// layout identified, for a Degraded version (the LLM fills everything), and for a tree the coded invoice record cannot
 /// read. A drift (§8.2) raises <c>MAPPING_DRIFT</c>; consecutive drifts make the version Degraded.
 /// </summary>
-internal sealed class LayoutExtractor(DocProcDbContext db, PipelineBlobs blobs, LayoutIdentification identification, DocumentTimeline timeline)
+internal sealed class LayoutExtractor(DocProcDbContext db, PipelineBlobs blobs, LayoutIdentification identification, DocumentTimeline timeline, ILogger<LayoutExtractor> logger)
 {
     /// <summary>Consecutive drifting documents after which a version is Degraded (docs/11 §8.2).</summary>
     public const int DegradeAfter = 3;
@@ -151,49 +153,102 @@ internal sealed class LayoutExtractor(DocProcDbContext db, PipelineBlobs blobs, 
     }
 
     /// <summary>
-    /// The version's counters after an application (docs/11 §6.6 stats): applied, and consecutive drifting documents,
-    /// which make the version Degraded after <see cref="DegradeAfter"/>. A document counts once per version, on its
-    /// first extraction under it (a <c>document.layout_applied</c> event keyed by the version id, as the warm-up does):
-    /// reprocessing a document does not count it again, so one drifting document run three times does not degrade
-    /// its layout. A version that degrades is recorded on the timeline.
+    /// Saves the stage's work (the context's pending changes) together with the version's counters after an application
+    /// (docs/11 §6.6 stats): applied, and consecutive drifting documents, which make the version Degraded after
+    /// <see cref="DegradeAfter"/>. A document counts once per version, on its first extraction under it (a
+    /// <c>document.layout_applied</c> event keyed by the version id, as the warm-up does): reprocessing a document does
+    /// not count it again, so one drifting document run three times does not degrade its layout. The counters are
+    /// written with <c>ExecuteUpdate</c> (atomic against other documents of the version) in one transaction with the
+    /// stage's save, under the context's execution strategy, so they commit with the <c>layout_applied</c> event or not
+    /// at all: a save that fails, or is dropped as a stale twin's (<see cref="DbUpdateConcurrencyException"/>, thrown on
+    /// to the stage), takes its count back with it. A drift caused by a pattern that ran out of time
+    /// (<see cref="LayoutExtraction.TimedOut"/>) counts as applied, not as a failure, and is logged. A version that
+    /// degrades is recorded on the timeline.
     /// </summary>
-    public async Task CountAsync(Document document, LayoutApplication application, CancellationToken cancellationToken)
+    public async Task SaveCountedAsync(Document document, LayoutApplication application, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(application);
         var id = application.Version.Id;
+        var timedOut = application.Extraction.TimedOut;
+        if (timedOut.Count > 0)
+        {
+            logger.LogWarning(
+                "Document {DocumentId}: a pattern of layout {LayoutKey}@{Version} ran out of time on {Paths}; those were not read, and the drift check does not count against the layout.",
+                document.Id,
+                application.Layout.LayoutKey,
+                application.Version.Version,
+                string.Join(", ", timedOut));
+        }
 
         // DetailsJson is a json column, on which SQL Server refuses LIKE: the document's few events of the kind are
         // read and the version is looked for here.
         var marker = $"\"versionId\":\"{id}\"";
-        var counted = await db.DocumentEvents.AsNoTracking()
-            .Where(e => e.DocumentId == document.Id && e.EventType == LayoutEventTypes.Applied && e.DetailsJson != null)
-            .Select(e => e.DetailsJson)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (counted.Any(d => d!.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(marker, StringComparison.OrdinalIgnoreCase)))
+        var counted = (await db.DocumentEvents.AsNoTracking()
+                .Where(e => e.DocumentId == document.Id && e.EventType == LayoutEventTypes.Applied && e.DetailsJson != null)
+                .Select(e => e.DetailsJson)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .Any(d => d!.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(marker, StringComparison.OrdinalIgnoreCase));
+        var drift = application.Extraction.Drift.IsDrift;
+        if (!counted)
         {
-            return;
+            timeline.Record(document, LayoutEventTypes.Applied, null, null, new { versionId = id, layoutKey = application.Layout.LayoutKey, version = application.Version.Version, drift, timedOut = timedOut.Count > 0 ? timedOut : null });
         }
 
-        timeline.Record(document, LayoutEventTypes.Applied, null, null, new { versionId = id, layoutKey = application.Layout.LayoutKey, version = application.Version.Version, drift = application.Extraction.Drift.IsDrift });
-        if (application.Extraction.Drift.IsDrift)
+        DocumentEvent? degradedEvent = null;
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(
+            async ct =>
+            {
+                // A retry after a transient failure starts again: the degrade event of the failed attempt goes.
+                if (degradedEvent is not null)
+                {
+                    db.Entry(degradedEvent).State = EntityState.Detached;
+                    degradedEvent = null;
+                }
+
+                await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+                if (!counted)
+                {
+                    degradedEvent = await CountAsync(document, application, drift && timedOut.Count == 0, drift, ct).ConfigureAwait(false);
+                }
+
+                // The changes are accepted only after the commit, so a retried attempt saves them again.
+                await db.SaveChangesAsync(acceptAllChangesOnSuccess: false, ct).ConfigureAwait(false);
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+        db.ChangeTracker.AcceptAllChanges();
+    }
+
+    /// <summary>The counter updates of <see cref="SaveCountedAsync"/>, in its transaction; the degrade event when the version degraded.</summary>
+    private async Task<DocumentEvent?> CountAsync(Document document, LayoutApplication application, bool failure, bool drift, CancellationToken cancellationToken)
+    {
+        var id = application.Version.Id;
+        if (failure)
         {
             await db.SupplierLayoutVersions.Where(v => v.Id == id)
                 .ExecuteUpdateAsync(s => s.SetProperty(v => v.Applied, v => v.Applied + 1).SetProperty(v => v.ConsecutiveFailures, v => v.ConsecutiveFailures + 1), cancellationToken).ConfigureAwait(false);
             var degraded = await db.SupplierLayoutVersions
                 .Where(v => v.Id == id && v.Status == SupplierLayoutVersionStatus.Active && v.ConsecutiveFailures >= DegradeAfter)
                 .ExecuteUpdateAsync(s => s.SetProperty(v => v.Status, SupplierLayoutVersionStatus.Degraded), cancellationToken).ConfigureAwait(false);
-            if (degraded > 0)
-            {
-                timeline.Record(document, LayoutEventTypes.Degraded, null, null, new { layoutKey = application.Layout.LayoutKey, version = application.Version.Version, after = DegradeAfter });
-            }
+            return degraded > 0
+                ? timeline.Record(document, LayoutEventTypes.Degraded, null, null, new { layoutKey = application.Layout.LayoutKey, version = application.Version.Version, after = DegradeAfter })
+                : null;
         }
-        else
+
+        if (drift)
         {
+            // A drift from a pattern that ran out of time: the document was not read, so it neither fails the version
+            // nor clears its run of failures.
             await db.SupplierLayoutVersions.Where(v => v.Id == id)
-                .ExecuteUpdateAsync(s => s.SetProperty(v => v.Applied, v => v.Applied + 1).SetProperty(v => v.ConsecutiveFailures, 0), cancellationToken).ConfigureAwait(false);
+                .ExecuteUpdateAsync(s => s.SetProperty(v => v.Applied, v => v.Applied + 1), cancellationToken).ConfigureAwait(false);
+            return null;
         }
+
+        await db.SupplierLayoutVersions.Where(v => v.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.Applied, v => v.Applied + 1).SetProperty(v => v.ConsecutiveFailures, 0), cancellationToken).ConfigureAwait(false);
+        return null;
     }
 
     /// <summary>The locale printed values are read in: the mapping's, the supplier's, or the tenant country's.</summary>

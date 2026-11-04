@@ -985,7 +985,8 @@ Correction (P4, part A), as built:
   `sourceRouting` on are polled, so no tenant that has a `Mailbox` channel from before starts ingesting by surprise.
   Compose and the AppHost turn them off in the API (`Intake:PollersEnabled`), the worker polls.
 - The `Authentication-Results` header read is the topmost one (the receiving server's), or the first one whose
-  `authserv-id` is in `Mail:TrustedAuthServIds` or the channel's `authServId`; a DMARC pass stated for another domain
+  `authserv-id` is in `Mail:TrustedAuthServIds` (platform server only, since the fourth review fixes) or the channel's
+  `authServId`; a DMARC pass stated for another domain
   than the From domain does not count. A forward unwrapped from a trusted forwarder counts as authenticated when the
   forwarder's own message is (the original's signatures do not survive a forward, and listing the forwarder's domain is
   the trust); `SenderAuthJson` then records `via: trustedForwarder` with the forwarder's results.
@@ -1003,7 +1004,8 @@ Correction (P4, review fixes):
   only when its `authserv-id` is in `Mail:TrustedAuthServIds` or the channel's `authServId`; with neither, every sender
   is unauthenticated and a sender rule that requires it raises `SUPPLIER_SOURCE_UNVERIFIED`. A trusted server's header
   that does not parse is not passed over for one further down (the reader fails closed). Compose and the AppHost list
-  `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers the demo's mail script writes.
+  the receiver the demo's mail script writes (since the fourth review fixes below: the platform's one receiver
+  `mx.platform.local`, believed for mailboxes on the platform server only).
 - The documents of an attached `message/rfc822` (an Outlook "forward as attachment") are items whoever sent the mail,
   and those of every attached message, not only the first; only the sender, subject and authentication facts are
   unwrapped, and only from a trusted forwarder.
@@ -1060,6 +1062,24 @@ Correction (P4, third review fixes):
 - A message MimeKit cannot read (no header block, empty) stopped the channel's poll before the cursor moved, so every
   later poll failed on it and the messages behind it were never ingested. It is now skipped like one over the size
   limit: the cursor moves past it, it stays in the mailbox, and `LastError` names it.
+
+Correction (P4, fourth review fixes):
+- `Mail:TrustedAuthServIds` was believed for every mailbox channel, also for one on a tenant's own IMAP host. That
+  host is fed by a provider the platform does not run, which never strips a header stamped with the platform's id:
+  a sender could write `Authentication-Results: <platform id>; dmarc=pass header.from=<supplier domain>` below the
+  provider's own header (whose id nobody listed), and that forged header was believed, so a `requireSenderAuth` sender
+  rule routed the mail to the supplier. The trust set is now per channel (`MailboxChannelConfig.TrustedAuthServIds`):
+  a mailbox on the platform server (no `host`) believes the platform's ids and the channel's own `authServId`; a
+  mailbox on a tenant's own host believes only its channel's `authServId`, and with none no header at all, so every
+  sender there is unauthenticated (fails closed, `SUPPLIER_SOURCE_UNVERIFIED` for a sender rule that requires it).
+- `Mail:TrustedAuthServIds` is global by design: it names the platform's receiving server in front of `Mail:ImapHost`,
+  one MTA (or a set run as one) that receives for every tenant's address on the platform server and strips or
+  overrides any header claiming one of the listed ids, whichever tenant the mail is for. It is not a list of
+  per-tenant receivers: listing one id per tenant, as compose and the AppHost did (`mx.tenant-a.local`,
+  `mx.tenant-b.local`), let tenant B's mailbox believe a header that claimed tenant A's receiver. Compose and the
+  AppHost now list the one platform receiver `mx.platform.local`, which `send-invoice.sh` writes (`RECEIVER` names
+  another). A tenant whose mail reaches the platform mailbox through its own MX names that server in the channel's
+  `authServId`.
 
 ### 7.2 Resolution at ingest
 
@@ -1226,6 +1246,16 @@ Correction (P4, review fixes): a document counts towards a version's statistics 
 on its first extraction under that version; the `document.layout_applied` event, keyed by the version id, records it,
 as the warm-up's event does. Reprocessing a document (`:reprocess`, `documents:bulk-reprocess`, an activation's
 `reprocessWaiting`) does not count it again, so one drifting document extracted three times does not degrade its layout.
+
+Correction (P4, fourth review fixes): the counters were written straight away (`ExecuteUpdate`), and the
+`document.layout_applied` event that stops a second count only later, with the Extract stage's own save. A save that
+failed, or was dropped as a stale twin's, left the count without its event, and the next run counted the document
+again, so fewer than three drifting documents could degrade a layout. The counters (and the move to `Degraded` with
+its event) are now written in one transaction with the stage's save, under the execution strategy
+(`LayoutExtractor.SaveCountedAsync`): they commit with the event or not at all. The LLM fill runs before, outside the
+transaction. A drift caused by a pattern that ran out of time (§8.5) counts the document as applied but neither as a
+failure nor as a success. A pipeline test drops the first Extract save as a twin's and checks the drifting document is
+counted once.
 
 Correction (P4, part D), found by the P4 demo:
 - The LLM fill after a layout (and after the `layout-prefill` step, §9.3) tolerated only an unavailable provider. A
@@ -1424,6 +1454,16 @@ that `identifiers:propose` (§12.10) proposed from it on its own document. Acros
 the space is narrow (less than the words' height; a column gap is wider) and the word on the far side of the value is a
 plain group of digits (`67890`, `9`); a date, a document number or a word in another column ends the value. A removed
 `.`, `-` or `/` inside a word with digits on both sides still goes on (`040-12345-67`, `1.12345`).
+
+Correction (P4, fourth review fixes): the patterns of identification and of a layout's field rules and transforms ran
+with a 100 ms match timeout, and a timeout read as "no match": on a loaded machine (the lazily built automaton of a
+first match, a busy thread pool) a `regex` transform returned nothing without an error. The patterns run
+NonBacktracking, in time linear in the text, and patterns (500 unrolled atoms) and texts are bounded, so the timeout is
+a safety net, not a budget: it is 2 s (`IdentificationRuleEvaluator.PatternTimeout`). A match that does run out of time
+is reported: an identifier names it in the rule's failures ("could not be checked, its pattern ran out of time"; a
+positive identifier does not hold, a negative one does not count as absent), and a field or table of a layout is not
+read and is named in `LayoutExtraction.TimedOut` (`AppliedConfigJson.layout.drift.timedOut`, a warning in the worker's
+log), and a drift it causes does not count against the layout (§8.2).
 - `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
 - The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
   (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.

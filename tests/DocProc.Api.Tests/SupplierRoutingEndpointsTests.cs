@@ -227,6 +227,43 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_receiving_entity_a_supplier_layout_names_is_not_deleted()
+    {
+        var before = false;
+        _factory.Run(db =>
+        {
+            var features = db.Tenants.Single(t => t.Id == ApiFactory.TenantA).Settings.Features!;
+            before = features.SupplierLayouts;
+            features.SupplierLayouts = true;
+        });
+        try
+        {
+            using var admin = Admin();
+            var entity = await admin.PostAsJsonAsync("/api/v1/receiving-entities", new CreateReceivingEntityRequest(Unique("L"), "Acme Gastro Nord GmbH"), Ct);
+            entity.StatusCode.ShouldBe(HttpStatusCode.Created, await entity.Content.ReadAsStringAsync(Ct));
+            var entityRow = (await entity.Content.ReadFromJsonAsync<ReceivingEntityResponse>(ApiFactory.Json, Ct))!;
+            var supplier = await SupplierAsync(admin, Unique("Layout"));
+            var layout = await admin.PostAsJsonAsync(
+                $"/api/v1/suppliers/{supplier.Id}/layouts",
+                new CreateLayoutRequest("entity-layout", "Nord", "Invoice", JsonDocument.Parse("""{ "all": [ { "text": "Rechnung" } ] }""").RootElement, JsonDocument.Parse("""{ "fields": {} }""").RootElement, ReceivingEntityId: entityRow.Id),
+                Ct);
+            layout.StatusCode.ShouldBe(HttpStatusCode.Created, await layout.Content.ReadAsStringAsync(Ct));
+
+            var refused = await admin.DeleteAsync($"/api/v1/receiving-entities/{entityRow.Id}", Ct);
+
+            refused.StatusCode.ShouldBe(HttpStatusCode.Conflict, "a layout names it (the foreign key would refuse it with a 500)");
+            var problem = (await refused.Content.ReadFromJsonAsync<ProblemDetails>(Ct))!;
+            problem.Title.ShouldBe("Receiving entity in use");
+            problem.Detail!.ShouldContain("supplier layouts");
+            (await admin.GetAsync($"/api/v1/receiving-entities/{entityRow.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+        finally
+        {
+            _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA).Settings.Features!.SupplierLayouts = before);
+        }
+    }
+
+    [Fact]
     public async Task The_tenants_attribute_schema_types_the_attributes_of_suppliers_groups_and_entities()
     {
         using var admin = Admin();

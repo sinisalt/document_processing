@@ -293,8 +293,37 @@ public sealed class LayoutPipelineTests
         (await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id))).WarmupSeen.ShouldBe(2);
     }
 
-    /// <summary>Fails the first save that records a warm-up place, as a stale twin's save fails.</summary>
-    private sealed class TwinSavesFirst : SaveChangesInterceptor
+    [Fact]
+    public async Task An_extraction_dropped_as_a_stale_twin_takes_its_drift_count_back()
+    {
+        // The Extract save that records the first drifting document's layout_applied event fails as a twin's would: the
+        // counters must roll back with it, or the twin's run counts the same document again (docs/11 §8.2).
+        var twin = new TwinSavesFirst(LayoutEventTypes.Applied);
+        var (host, nordwind) = await StartAsync(services: s => s.ConfigureDbContext<DocProc.Infrastructure.Persistence.DocProcDbContext>(o => o.AddInterceptors(twin)));
+        await using var _ = host;
+        var (_, version) = await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, NordwindLayouts.ErpRule, NordwindLayouts.ErpMapping(numberLabel: "Belegnummer"));
+
+        var dropped = await ProcessAsync(host, DemoNordwindInvoices.Erp[0]);
+        twin.Fired.ShouldBe(1);
+        dropped.Status.ShouldBe(DocumentStatus.Matched, "the attempt was dropped unsaved");
+        var rolledBack = await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id));
+        rolledBack.Applied.ShouldBe(0, "the count rolled back with the attempt");
+        rolledBack.ConsecutiveFailures.ShouldBe(0);
+        (await host.EventsAsync(dropped.Id)).ShouldNotContain(e => e.EventType == LayoutEventTypes.Applied);
+
+        // The twin's run (here the message again) counts the document once.
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, dropped.Id, PipelineStage.Extract), TestContext.Current.CancellationToken);
+        await host.RunUntilIdleAsync();
+        var counted = await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id));
+        counted.Applied.ShouldBe(1);
+        counted.ConsecutiveFailures.ShouldBe(1, "one drifting document, counted once");
+        counted.Status.ShouldBe(SupplierLayoutVersionStatus.Active);
+        (await host.EventsAsync(dropped.Id)).Count(e => e.EventType == LayoutEventTypes.Applied).ShouldBe(1);
+        (await host.DocumentAsync(dropped.Id)).Flags.ShouldContain(f => f.Code == FlagCodes.MappingDrift);
+    }
+
+    /// <summary>Fails the first save that records an event of the kind (a warm-up place by default), as a stale twin's save fails.</summary>
+    private sealed class TwinSavesFirst(string eventType = LayoutEventTypes.Warmup) : SaveChangesInterceptor
     {
         private int _fired;
 
@@ -303,7 +332,7 @@ public sealed class LayoutPipelineTests
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
             if (eventData.Context is { } context
-                && context.ChangeTracker.Entries<DocumentEvent>().Any(e => e.State == EntityState.Added && e.Entity.EventType == LayoutEventTypes.Warmup)
+                && context.ChangeTracker.Entries<DocumentEvent>().Any(e => e.State == EntityState.Added && e.Entity.EventType == eventType)
                 && Interlocked.CompareExchange(ref _fired, 1, 0) == 0)
             {
                 throw new DbUpdateConcurrencyException("Another node saved the document first.");

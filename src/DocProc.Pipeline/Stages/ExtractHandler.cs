@@ -219,7 +219,6 @@ internal sealed class ExtractHandler(
         if (application is not null)
         {
             await StoreLayoutReportsAsync(document, application, cancellationToken).ConfigureAwait(false);
-            await layouts.CountAsync(document, application, cancellationToken).ConfigureAwait(false);
         }
 
         document.ExtractionMethod = outcome.Method;
@@ -236,9 +235,19 @@ internal sealed class ExtractHandler(
             cost = new { outcome.Cost.LlmInputTokens, outcome.Cost.LlmOutputTokens, outcome.Cost.Usd, outcome.Cost.LlmProvider, outcome.Cost.LlmModel, outcome.Cost.KeyOwner },
             flags = outcome.Flags.Select(f => f.Code).ToList(),
         });
-        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SaveAsync(document, application, cancellationToken).ConfigureAwait(false);
         return StageOutcome.Advanced;
     }
+
+    /// <summary>
+    /// The stage's save; with a layout applied, in one transaction with the layout version's counters, so a save that
+    /// fails or is dropped as a stale twin's does not leave a count behind without its <c>layout_applied</c> event
+    /// (<see cref="LayoutExtractor.SaveCountedAsync"/>). The LLM call is made before, outside any transaction.
+    /// </summary>
+    private Task SaveAsync(Document document, LayoutApplication? application, CancellationToken cancellationToken) =>
+        application is null
+            ? Db.SaveChangesAsync(cancellationToken)
+            : layouts.SaveCountedAsync(document, application, cancellationToken);
 
     /// <summary>
     /// Stores the outcome's canonical tree and rewrites the list columns from it through the one role projector, under
@@ -315,7 +324,6 @@ internal sealed class ExtractHandler(
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
         await DocumentTableReports.RemoveAllAsync(Db, document.Id, cancellationToken).ConfigureAwait(false);
         await StoreLayoutReportsAsync(document, application, cancellationToken).ConfigureAwait(false);
-        await layouts.CountAsync(document, application, cancellationToken).ConfigureAwait(false);
         document.AppliedConfigJson = AppliedConfig(type, llmSchema: null, application.AppliedConfig(filledByLlm: false));
         flags.Replace(document, OwnedFlags, application.Flags);
         Timeline.Transition(document, DocumentStatus.Extracted, new
@@ -326,7 +334,7 @@ internal sealed class ExtractHandler(
             rows = application.Extraction.Tables.ToDictionary(t => t.Key, t => t.Value.Report.Rows, StringComparer.Ordinal),
             flags = application.Flags.Select(f => f.Code).ToList(),
         });
-        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SaveAsync(document, application, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

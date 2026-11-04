@@ -1446,7 +1446,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - layouts for a group written through the API, `PATCH /supplier-layouts/{id}`, draft `PUT`, `:shadow`;
     - part A's and part B's other open items (hints on `POST /ingestions`, the Graph mail source, `ROUTE_DIFFERS`,
       `:clone-config`, `POST /suppliers:import`, indexed supplier candidates, receiving entities from the customer VAT
-      id, the warm-up slot taken outside the stage's save) stay as listed above.
+      id) stay as listed above (the warm-up slot taken outside the stage's save was closed by the third review fixes).
   - Decided (part D, recorded as "Correction (P4, part D)" in docs/11 §8.2, §8.3, §9.3, §12.6, §12.10, §19 and §23):
     - a layout posted for a supplier without approved documents in that design is not activated (its replay set is
       empty, docs/11 §8.3 unchanged); it is activated through the Candidate path, by a `MappingAuthor` confirming the
@@ -1505,7 +1505,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - decided: no `Authentication-Results` header is believed unless its `authserv-id` is in `Mail:TrustedAuthServIds`
       or the channel's `authServId` (a server that writes none leaves the sender's own header on top); with none, every
       sender is unauthenticated, and a trusted server's header that does not parse fails closed. Compose and the AppHost
-      list `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers `send-invoice.sh` writes;
+      listed `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers `send-invoice.sh` wrote (one platform receiver,
+      `mx.platform.local`, since the fourth review fixes below);
     - decided: a mailbox message's id is a hash of its `Message-ID` and sender (`imap:mid:`), or of its bytes
       (`imap:sha:`), so a folder renumbered by its server (a new UIDVALIDITY) ingests nothing twice (the second review
       fixes below add the bytes' digest to `imap:mid:`);
@@ -1632,6 +1633,33 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       its login is refused. GreenMail in compose accepts any password, so there the login proves nothing; a production
       platform server must check passwords. On hosts other than Linux x64/arm64 the folder watcher keeps the path checks
       (a narrower window, not none), and a named pipe there still blocks the open.
+  - Fourth review fixes (recorded as "Correction (P4, fourth review fixes)" in docs/11 §7.1, §8.2 and §8.5):
+    - decided: `Mail:TrustedAuthServIds` names the platform's one receiving server in front of `Mail:ImapHost` (global
+      by design: it receives for every tenant's address there and strips or overrides a header claiming a listed id)
+      and is believed only for mailboxes on the platform server; a mailbox on a tenant's own host believes only its
+      channel's `authServId`, and with none no header (fails closed), so a header forged with the platform's id below
+      the tenant provider's own is no longer believed. Compose and the AppHost list the one platform receiver
+      `mx.platform.local` (not one id per tenant, which let tenant B's mailbox believe a header claiming tenant A's
+      receiver); `send-invoice.sh` writes it (`RECEIVER` names another). A reader test covers a tenant-host channel
+      without and with its own `authServId` and the forged platform header;
+    - done: the drift counters (`Applied`, `ConsecutiveFailures`, the move to `Degraded`) commit in one transaction with
+      the Extract stage's save and its `document.layout_applied` event (`LayoutExtractor.SaveCountedAsync`, under the
+      execution strategy; the LLM fill runs before, outside it), so a save that fails or is dropped as a stale twin's
+      takes its count back. A pipeline test drops the first Extract save of a drifting document as a twin's;
+    - done: identification and layout patterns run with a 2 s safety-net timeout (NonBacktracking is linear, so a
+      loaded machine no longer runs out of it, which made `Transforms_apply_in_order` flaky), and a timeout that does
+      happen is reported: an identifier names it in the rule's failures, a layout field or table is named in
+      `LayoutExtraction.TimedOut` (`AppliedConfigJson.layout.drift.timedOut`, a worker warning) and its drift does not
+      count against the layout;
+    - done: `DELETE /receiving-entities/{id}` answers `409 Receiving entity in use` when a supplier layout names the
+      entity (it was a `500` from the foreign key);
+    - done: the known values of the `layout-prefill` step and `matching-documents` (`LayoutLearning.MatchingAsync`)
+      read only the newest documents (the cut at the N-th newest `CreatedAt` made in SQL, ties included, ordered as
+      before in memory), not every approved canonical tree of the supplier;
+    - done: docs/09's compose table describes the `mail` service as the platform IMAP server the worker reads, and
+      the warm-up slot is no longer listed as left for later;
+    - left for later: a tier header pattern of a `column-table` (`ColumnTableEngine.TierQuantity`) that runs out of time
+      still reads as no quantity.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

@@ -38,7 +38,10 @@ public sealed record MailboxChannelConfig
 
     public IReadOnlyList<string>? TrustedForwarderDomains { get; init; }
 
-    /// <summary>The <c>authserv-id</c> of this mailbox's receiving server, next to the platform's <c>Mail:TrustedAuthServIds</c>.</summary>
+    /// <summary>
+    /// The <c>authserv-id</c> of this mailbox's receiving server. On a tenant's own host it is the only one believed; on
+    /// the platform server it is believed next to the platform's <c>Mail:TrustedAuthServIds</c> (<see cref="TrustedAuthServIds"/>).
+    /// </summary>
     public string? AuthServId { get; init; }
 
     public string MailboxAddress => SourceConditions.Address(Address)!;
@@ -48,6 +51,24 @@ public sealed record MailboxChannelConfig
     public string FolderName => string.IsNullOrWhiteSpace(Folder) ? DefaultFolder : Folder.Trim();
 
     public bool UsesPlatformServer => string.IsNullOrWhiteSpace(Host);
+
+    /// <summary>
+    /// The <c>authserv-id</c>s whose <c>Authentication-Results</c> header is believed for this mailbox (docs/11 §7.1),
+    /// trimmed and lower-cased. <paramref name="platformAuthServIds"/> (<c>Mail:TrustedAuthServIds</c>) name the platform's
+    /// receiving server in front of its IMAP server, which strips or overrides a header claiming one of them, so they
+    /// count only for a mailbox on that server (with the channel's own <see cref="AuthServId"/>). A tenant's own host is
+    /// fed by a provider the platform does not run, which leaves a header stamped with the platform's id as the sender
+    /// wrote it: there only the channel's <see cref="AuthServId"/> counts, and without one no header is believed.
+    /// </summary>
+    public IReadOnlySet<string> TrustedAuthServIds(IEnumerable<string> platformAuthServIds)
+    {
+        ArgumentNullException.ThrowIfNull(platformAuthServIds);
+        return (UsesPlatformServer ? platformAuthServIds : Enumerable.Empty<string>())
+            .Append(AuthServId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim().ToLowerInvariant())
+            .ToHashSet(StringComparer.Ordinal);
+    }
 
     /// <summary>
     /// The port the poller connects to on a tenant's own server: <see cref="Port"/>, or the default of the security

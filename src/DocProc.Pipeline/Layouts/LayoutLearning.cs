@@ -735,7 +735,8 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
             }
         }
 
-        var documents = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
+        // Only the newest MaxMatching documents (and those tied with the last) are loaded; they are ordered here as before.
+        var documents = await (await NewestDocuments.CutAsync(query, MaxMatching, cancellationToken).ConfigureAwait(false)).ToListAsync(cancellationToken).ConfigureAwait(false);
         var result = new List<(Document, IdentificationResult)>();
         var settings = new Dictionary<Guid, LayoutSetting?>();
         foreach (var document in documents.OrderByDescending(d => d.CreatedAt).ThenByDescending(d => d.Id).Take(MaxMatching))

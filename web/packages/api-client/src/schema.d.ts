@@ -1417,7 +1417,7 @@ export interface paths {
         get: operations["GetReceivingEntity"];
         put?: never;
         post?: never;
-        /** Deletes a receiving entity no document, source rule, channel or supplier attribute names (409 otherwise). */
+        /** Deletes a receiving entity no document, source rule, channel, supplier attribute or supplier layout names (409 otherwise). */
         delete: operations["DeleteReceivingEntity"];
         options?: never;
         head?: never;

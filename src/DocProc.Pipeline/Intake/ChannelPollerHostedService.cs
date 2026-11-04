@@ -201,16 +201,14 @@ public sealed class ChannelPollerHostedService(
 
     private async Task<int> ReadMailboxAsync(IServiceProvider scoped, DocProcDbContext db, IngestionChannel channel, MailboxChannelConfig config, MailKitImapMailSource source, CancellationToken cancellationToken)
     {
-
         var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == channel.TenantId, cancellationToken).ConfigureAwait(false);
         var forwarders = config.ForwarderDomains
             .Concat((tenant.Settings.TrustedForwarderDomains ?? []).Select(SourceConditions.Domain).Where(d => d is not null).Select(d => d!))
             .Where(d => !SourceConditions.FreeMailDomains.Contains(d)) // refused on save; never trusted from a row written before
             .ToHashSet(StringComparer.Ordinal);
-        var authServIds = _mail.TrustedAuthServIds.Append(config.AuthServId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!.Trim().ToLowerInvariant())
-            .ToHashSet(StringComparer.Ordinal);
+        // The platform's receiving server counts only for a mailbox on the platform's IMAP server; a tenant's own host
+        // trusts only the channel's authServId, and none without one (docs/11 §7.1).
+        var authServIds = config.TrustedAuthServIds(_mail.TrustedAuthServIds);
         var read = new MailReadOptions(config.UnwrapForwards ?? true, forwarders, authServIds);
         var blobs = scoped.GetRequiredService<IBlobStore>();
 

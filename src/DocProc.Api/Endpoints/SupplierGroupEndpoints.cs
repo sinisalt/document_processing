@@ -69,7 +69,7 @@ public static class SupplierGroupEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(SupplierEndpoints.MaxRequestBytes))
             .WithSummary("Changes a receiving entity.");
         entities.MapDelete("/{id:guid}", DeleteEntityAsync).RequireAuthorization(Policies.TenantAdmin).WithName("DeleteReceivingEntity")
-            .WithSummary("Deletes a receiving entity no document, source rule, channel or supplier attribute names (409 otherwise).");
+            .WithSummary("Deletes a receiving entity no document, source rule, channel, supplier attribute or supplier layout names (409 otherwise).");
 
         var attributes = group.MapGroup("/suppliers/{supplierId:guid}/entity-attributes").WithTags("Suppliers");
         attributes.MapGet("/", ListEntityAttributesAsync).RequireAuthorization(Policies.Read).WithName("ListSupplierEntityAttributes")
@@ -370,9 +370,11 @@ public static class SupplierGroupEndpoints
         if (await db.Documents.AnyAsync(d => d.ReceivingEntityId == id, ct)
             || await db.SupplierSourceRules.AnyAsync(r => r.ReceivingEntityId == id, ct)
             || await db.IngestionChannels.AnyAsync(c => c.DefaultReceivingEntityId == id, ct)
-            || await db.SupplierEntityAttributes.AnyAsync(a => a.ReceivingEntityId == id, ct))
+            || await db.SupplierEntityAttributes.AnyAsync(a => a.ReceivingEntityId == id, ct)
+            || await db.SupplierLayouts.AnyAsync(l => l.ReceivingEntityId == id, ct))
         {
-            return Conflict("Receiving entity in use", "Documents, source rules, channels or supplier attributes name this receiving entity.");
+            // Every foreign key to the entity is NO ACTION, so the database would refuse the delete as well (a 500).
+            return Conflict("Receiving entity in use", "Documents, source rules, channels, supplier attributes or supplier layouts name this receiving entity.");
         }
 
         db.ReceivingEntities.Remove(row);
