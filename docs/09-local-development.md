@@ -554,8 +554,8 @@ docs/11 §8 (P4 part B). Everything here needs the tenant's `supplierLayouts` sw
 before. A layout is one design of one type of a supplier: an identification rule (which words prove the design) and a
 field mapping (where each value is printed).
 
-- **Demo invoices.** `fixtures/demo/uploads/tenant-a/` holds three Nordwind invoices in the design of its ERP
-  (`Nordwind_Rechnung_NW-RE-2026-*.pdf`: "Rechnung" in the title, the VAT id `DE312456789` in the letterhead) and three
+- **Demo invoices.** `fixtures/demo/uploads/tenant-a/` holds four Nordwind invoices in the design of its ERP
+  (`Nordwind_Rechnung_NW-RE-2026-*.pdf`: "Rechnung" in the title, the VAT id `DE312456789` in the letterhead) and four
   from its web shop (`Nordwind_Webshop_Rechnung_WS-2026-*.pdf`: "RECHNUNG / INVOICE" top right, the VAT id on page 2).
   They are drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoNordwindInvoices.cs` and redrawn only on request
   (`REGENERATE_DEMO_PDFS=<file name>[,<file name>…]`, docs "Demo data"); the layouts the tests use for them are in
@@ -564,7 +564,11 @@ field mapping (where each value is printed).
   `identification` (for example `{"all":[{"text":"Rechnung","page":1,"region":"title"},{"supplierValue":"vatId","page":1}]}`)
   and `mapping` (`{"fields":{"invoiceNumber":{"rules":[{"strategy":"label-right","labels":["Rechnungs-Nr."]}]}, ...}}`,
   docs/11 §8.1) saves version 1 as a Candidate; `POST /api/v1/supplier-layouts/{id}/versions/1:activate` makes it
-  Active with the tenant's warm-up. `POST /api/v1/identification-rules:test` shows on which of the supplier's documents a
+  Active with the tenant's warm-up once its replay set is not empty: the supplier needs an approved document the rule
+  holds on. Without one the activation is refused ("The replay set is empty"); the first document in that design then
+  arrives with `NEW_LAYOUT` naming the Candidate, and a `MappingAuthor` approving it with "Confirm against pending
+  layout" activates it (docs/11 §8.3, Correction (P4, part D); `fixtures/demo/layouts/nordwind-invoice-erp.json` is
+  the ERP design's layout as such a body). `POST /api/v1/identification-rules:test` shows on which of the supplier's documents a
   rule holds, with the words that made it hold; `GET /api/v1/suppliers/{id}/layouts:resolve?documentId=` explains what
   the resolver decides for a document.
 - **What happens.** For a supplier known at ingest (a source rule, the channel default) the layout is resolved in
@@ -607,7 +611,7 @@ clean checkout without Docker or an LLM key:
 |---|---|
 | Documents | Every file under `fixtures/demo/<tenant slug>/` is ingested for that tenant through the same `UploadIntake` code path as `POST /ingestions` (raw blob, ingestion with one candidate item, `ProcessIngestion` on the in-process queue), from the tenant admin's address. The pipeline then processes them like any upload. |
 | Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) ends `Failed` at once (a miss is an `InvalidRequest`, which no retry fixes) with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use (under docker compose, before `llm-setup` has applied `.env`: its own log names the one in use afterwards), and warns instead when the active configuration is a real provider whose key the gateway cannot resolve (no `Llm:Secrets:<secretRef>` or `LLM_SECRET_<SECRET_REF>`), because every LLM call would then fail. |
-| Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
+| Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-reviewer` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
 | LLM usage | About 50 `LlmUsageEntry` rows over the 14 UTC days up to the first start (both tenants, platform Anthropic configuration, classify and extract, two failed calls), each at 08:00 UTC of its day plus a fixed offset (today's clamped to the start time), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. The rows are written once: the history does not move forward with later starts; reset `data/` to refresh it. |
 
 The demo documents and their designed outcome:
@@ -1011,6 +1015,178 @@ rows`), the field options, the compiled code, the bindings, the Deliveries tab w
 then Delivered with both attempts, the payload, and the delivery log with the price list and the invoice. The mock
 ERP journal had the two article-price calls (503, 202; same `Idempotency-Key`, revision 11, 412 prices, 378 scales in
 309 rows each, header `vendorNo` V-10042, `priceListId` PL-2027-01) and one `POST /api/ap/invoices` (201).
+
+### Demo: routing and layouts
+
+The P4 demo of docs/11 §23, in the browser: Nordwind invoices are mailed to the tenant's GreenMail mailbox, routed to
+Nordwind by a sender rule with DMARC, and identified by "Rechnung" in the title and Nordwind's VAT id; an invoice from
+Nordwind's new web shop is held with `NEW_LAYOUT`, matched to Invoice in review with its supplier data, invoice number
+and customer number already filled, and saved as `nordwind-invoice-webshop` by a `MappingAuthor`; the next web-shop
+invoice goes to review as warm-up 1 of 5, filled correctly; after the tenant sets its warm-up to 0 the following one is
+delivered to the mock ERP without review, and so is one in the old design. In tenant B a reviewer without the grant
+saves the same design as a Candidate, and the next web-shop invoice arrives with "Confirm against pending layout".
+Run it on a fresh compose stack (`docker compose up --build`, no LLM key needed: a document no layout fills waits in
+review instead of failing), portal on http://localhost:5173, admin console on http://localhost:5174, the mock ERP's
+journal on http://localhost:8086/__admin/requests, GreenMail's SMTP on `localhost:3025`.
+
+The mails are sent with `fixtures/demo/mail/send-invoice.sh <pdf> <to> [subject] [dmarc]`: it attaches the PDF and
+writes the `Authentication-Results` header the receiving server would (`dmarc=pass` by default; GreenMail writes none),
+then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types, Outputs, Source routing and Supplier layouts on ("Feature switches saved.").
+   Without the last two the portal shows none of the screens below and documents run as in P3.
+2. **Delivery, the customer number and the supplier.** As `tenant-a-admin` (the curl of those sections, and below
+   for the supplier):
+   - the `erp-ap` destination, the `erp-ap-import` copy of Generic AP JSON and the `ap-invoices` binding of "Demo:
+     outputs and delivery" (steps 5, 6 and 8, the invoice side);
+   - `Invoice` forked with the customer number `supplierCustomerRef` of
+     `fixtures/demo/types/invoice-customer-number.field.json` and published ("A custom field, end to end" above);
+   - Suppliers > New supplier: Nordwind Großhandel GmbH, VAT id `DE312456789`, e-mail domain `nordwind.example`.
+3. **Channels.** Settings > Routing > Add mailbox: name `Rechnungen`, address `invoices@tenant-a.local` > Save
+   ("Channel Rechnungen created"); Add watched folder: name `Scanner`, path `scanner`, stable for 5 s > Save. On Linux
+   the worker's user must be able to write the folder: `mkdir -p fixtures/dropzone/tenant-a/scanner && chmod -R a+rwX
+   fixtures/dropzone/tenant-a`.
+4. **The supplier's settings and source rules.** Suppliers > Nordwind Großhandel GmbH > Settings: Layouts required
+   Yes > Save (`settings.layouts.required: true`: Nordwind is layout-managed before its first layout is active, so a
+   design no layout recognises gets `NEW_LAYOUT`). Routing > Add source rule: sender
+   `rechnungsversand@nordwind.example`, pins type Invoice > Save ("Rule saved"); Add source rule: channel Scanner,
+   folder prefix `lieferanten/nordwind/`, pins Invoice > Save. Test routing on the same tab: sender
+   `rechnungsversand@nordwind.example`, DMARC pass > Test: "Routed to Nordwind Großhandel GmbH" with the sender rule
+   held; DMARC fail > Test: "No supplier from the source", the rule listed with "(sender not authenticated)".
+5. **The ERP design's layout, a Candidate.** Post `fixtures/demo/layouts/nordwind-invoice-erp.json` (the identification
+   rule all of "Rechnung" in the page-1 title area and `supplierValue: vatId` on page 1, none of "Gutschrift"; label,
+   region, constant and column-table rules; curl below). Suppliers > Nordwind > Layouts shows "Invoice:
+   nordwind-invoice-erp" with version 1 Candidate and its rule in words. Activate > Activate is refused: "The replay
+   set is empty", since Nordwind has no approved invoice in that design yet (docs/11 §8.3, Correction (P4, part D)).
+6. **The first ERP invoice confirms it.**
+   `fixtures/demo/mail/send-invoice.sh fixtures/demo/uploads/tenant-a/Nordwind_Rechnung_NW-RE-2026-1041.pdf invoices@tenant-a.local`.
+   It is routed by the sender rule (`supplierMatchMethod: SourceRule`) and arrives in Needs review with `NEW_LAYOUT`
+   naming the Candidate, pre-filled from it. As `tenant-a-reviewer` (a `MappingAuthor`): open it; the New layout panel
+   at the top of the Fields tab leads with the pending layout > Confirm against pending layout ("Confirmed against
+   nordwind-invoice-erp") > Approve: the dialog says it confirms the pending layout > Approve and save as layout. The
+   Layout saved dialog shows nordwind-invoice-erp version 1 Active, "the next 5 documents in this design go to review
+   first (warm-up)".
+7. **The second ERP invoice is identified.** Mail `Nordwind_Rechnung_NW-RE-2026-1077.pdf` the same way. It arrives
+   filled by the layout, with only the info flag `LAYOUT_WARMUP` ("warm-up 1 of 5"); the header shows the layout
+   chip. Identify (key I) draws the evidence: "Rechnung" in the title and the VAT id. Approve: both ERP invoices are
+   now in the mock ERP's journal (`POST /api/ap/invoices`).
+8. **A web-shop invoice: NEW_LAYOUT, pre-filled.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000318.pdf` with subject
+   "Ihre Bestellung im Nordwind Webshop". Its title "RECHNUNG / INVOICE" sits top right and the VAT id is on page 2,
+   so the ERP layout's rule does not hold: it arrives with `NEW_LAYOUT`, no layout applied (it is never processed
+   with the ERP layout). Inbox > New layouts lists it with the New layout badge. The New layout panel offers Match to
+   Invoice and shows the pre-fill: the supplier's name, VAT id and currency from the ERP layout's labels ("other
+   layout"), the invoice number `WS-2026-000318` and the customer number from the type's labels ("type's label",
+   docs/11 §9.3, Correction (P4, part D)).
+9. **Fill the rest from the page.** Match to Invoice ("Matched to Invoice."). Map from page (M): focus Issue date and
+   click `23.10.2026`; focus the customer's name and drag a box around "Gasthaus zur Post GmbH"; on page 2 click
+   `83,10` for Subtotal net, `15,79` for Total tax and `98,89` for Total gross; Save. Table tool: drag one box on
+   page 1 from the header "Artikel-Nr." to below the last line's amount, assign the columns (article number,
+   description, quantity, unit price, line total; leave the unit column), untick all pages > Preview > Write: two
+   lines.
+10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed "text in the page-1 title area") > Add
+    identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id") > Add identifier.
+    The Identification tab tests the rule as it changes: "Holds for this document", "Matches 0 of the supplier's last
+    2 documents" (the ERP invoices).
+11. **Approve and save as layout.** Fields: layout key `nordwind-invoice-webshop`, name "Nordwind invoice (web shop)" >
+    Approve > Approve and save as layout. As a `MappingAuthor`'s save it is replayed (the identification test and
+    the field agreement on its replay set) and Active at once with the tenant's warm-up 5; the Layout saved dialog
+    shows the version, its rule in words and the other documents in review it holds on (none here).
+12. **Warm-up 1 of 5.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000342.pdf`. It is identified by
+    nordwind-invoice-webshop and goes to review with only `LAYOUT_WARMUP` (ordinal 1, warm-up 5), filled correctly:
+    number `WS-2026-000342`, total 128.88, three lines, customer number 401187. Approve.
+13. **Warm-up 0.** As `tenant-a-admin`: Settings > General > Layouts and routing: Review warm-up `0` > Save. The Active
+    versions whose warm-up was the tenant's old value follow: Suppliers > Nordwind > Layouts shows "no warm-up" on both.
+14. **Delivered without review.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000377.pdf` and
+    `Nordwind_Rechnung_NW-RE-2026-1102.pdf`. Both are AutoApproved by their layouts with no flags and delivered; the
+    proof is the mock ERP's journal (curl below), and the document's Deliveries tab.
+15. **The watched folder.** Copy `Nordwind_Rechnung_NW-RE-2026-1130.pdf` to
+    `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/` (on Linux `chmod a+rw` it). After two scans it is taken,
+    routed by the folder rule, AutoApproved by nordwind-invoice-erp, and moved to
+    `fixtures/dropzone/tenant-a/scanner/processed/`; its Timeline names the channel and the rule.
+16. **Tenant B: a Candidate.** As `superadmin`: Pizzeria Napoli d.o.o. > Feature switches: Configurable document
+    types, Source routing, Supplier layouts. As `tenant-b-admin` (curl below): the supplier Nordwind with
+    `layouts.required`, the mailbox `invoices@tenant-b.local` and the sender rule. Mail
+    `Nordwind_Webshop_Rechnung_WS-2026-000318.pdf` to `invoices@tenant-b.local`. As `tenant-b-reviewer` (a Reviewer
+    without `MappingAuthor`): steps 9 to 11 without the table tool (tenant B's `Invoice` is not forked, so the lines are
+    the invoice record's and the table tool is not offered for it). The Layout saved dialog says Candidate: "a mapping
+    author activates it after its replay. Documents in this design wait for it." Mail
+    `Nordwind_Webshop_Rechnung_WS-2026-000342.pdf` to tenant B: it arrives with `NEW_LAYOUT` naming the pending
+    nordwind-invoice-webshop, pre-filled from it ("pending layout"), and the panel offers Confirm against pending
+    layout. As `tenant-b-admin`: Suppliers > Nordwind > Layouts shows the Candidate with the document waiting and
+    "Activate and reprocess 1 document"; `GET /api/v1/notifications` has `layout.candidate_waiting`. The demo invoice
+    is addressed to tenant A's restaurant, so in tenant B it also carries `CUSTOMER_MISMATCH`.
+17. **The rest of the screens.** As `tenant-a-admin`: Settings > General > Attribute schema (for example
+    `{"properties":{"erpVendorId":{"type":"string","title":"ERP vendor id"},"paymentDays":{"type":"integer","title":"Payment days"}},"required":["erpVendorId"]}`)
+    makes Suppliers > Nordwind > Attributes a form; Settings > Receiving entities > Add entity (code `1000`, Gasthaus
+    zur Post GmbH); Suppliers > Supplier groups > Add group. As `tenant-a-reviewer`, an approved web-shop invoice >
+    Mark as golden; as `tenant-a-admin`, Settings > Governance: pick Nordwind and nordwind-invoice-webshop v1 > Run
+    regression ("Passed", one golden document), Sandbox run, Export bundle (a signed JSON file), Import with a dry run.
+
+The same through the API and SMTP, with `$H` tenant A's admin token, `$R` its reviewer's (Keycloak password grant
+as above) and `$B` tenant B's admin token; the review steps 9 to 11 are the review endpoints of docs/05 "Learning"
+(`:match-layout`, `PATCH …/fields`, `regions:table`, `identifiers:propose`, `:approve {learnLayout}`):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'; MAIL=fixtures/demo/mail/send-invoice.sh; PDF=fixtures/demo/uploads/tenant-a
+tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password -d client_id=docproc-portal -d username=$1 -d password=$1 | jq -r .access_token; }
+H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"; B="authorization: Bearer $(tok tenant-b-admin)"
+# Steps 2 to 4: the supplier, the channels, layouts required, the source rules, and routing:test.
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local"}}' | jq .id
+SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"settings":{"layouts":{"required":true}}}' | jq .settings
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","pinTypeKey":"Invoice"}' | jq .describe
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/\",\"pinTypeKey\":\"Invoice\"}" | jq .describe
+curl -s -X POST $API/routing:test -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","senderAuth":{"dmarc":"pass"}}' | jq '{supplierName, method, explanation}'
+curl -s -X POST $API/routing:test -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","senderAuth":{"dmarc":"fail"}}' | jq '{supplierName, unverifiedRuleIds, explanation}'
+# Step 5: the ERP layout as a Candidate; activating it now is refused (the replay set is empty).
+ERP=$(curl -s -X POST $API/suppliers/$NW/layouts -H "$H" -H "$J" -d @fixtures/demo/layouts/nordwind-invoice-erp.json | jq -r .id)
+curl -s -X POST "$API/supplier-layouts/$ERP/versions/1:activate" -H "$H" -H "$J" -d '{}' | jq '{status, title, detail}'
+# Step 6: the first ERP invoice waits for the Candidate; the reviewer confirms it, which activates it.
+$MAIL $PDF/Nordwind_Rechnung_NW-RE-2026-1041.pdf invoices@tenant-a.local; sleep 45
+DOC=$(curl -s "$API/documents?flag=NEW_LAYOUT" -H "$R" | jq -r '.items[0].id')
+PENDING=$(curl -s $API/documents/$DOC -H "$R" | jq -r .pendingLayoutVersionId)
+curl -s -X POST "$API/documents/$DOC:approve" -H "$R" -H "$J" -d "{\"learnLayout\":{\"pendingLayoutVersionId\":\"$PENDING\"}}" | jq .status
+curl -s $API/suppliers/$NW/layouts -H "$H" | jq '.[] | {layoutKey, versions: [.versions[] | {version, status, reviewWarmup}]}'
+# Steps 12 to 14: warm-up 1 of 5, then the tenant's warm-up 0, then delivered without review.
+curl -s $API/settings -H "$H" | jq '.settings | .layoutReviewWarmup = 0' | curl -s -X PUT $API/settings -H "$H" -H "$J" -d @- | jq .settings.layoutReviewWarmup
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000377.pdf invoices@tenant-a.local "Ihre Bestellung im Nordwind Webshop"
+$MAIL $PDF/Nordwind_Rechnung_NW-RE-2026-1102.pdf invoices@tenant-a.local; sleep 60
+curl -s "$API/documents?q=2026" -H "$R" | jq '.items[] | {documentNumber, status}'
+# The proof: what the mock ERP received.
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/ap/invoices")
+  | {status: .responseDefinition.status, invoice: (.request.body | fromjson | .header.documentNumber)}]'
+# Step 15: the watched folder.
+mkdir -p fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind && chmod -R a+rwX fixtures/dropzone/tenant-a
+cp $PDF/Nordwind_Rechnung_NW-RE-2026-1130.pdf fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/
+# Step 16: tenant B (switches in the admin console first).
+NWB=$(curl -s -X POST $API/suppliers -H "$B" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NWB -H "$B" -H "$J" -d '{"settings":{"layouts":{"required":true}}}' > /dev/null
+curl -s -X POST $API/channels -H "$B" -H "$J" -d '{"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-b.local"}}' | jq .id
+curl -s -X POST $API/suppliers/$NWB/source-rules -H "$B" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","pinTypeKey":"Invoice"}' | jq .describe
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000318.pdf invoices@tenant-b.local "Ihre Bestellung im Nordwind Webshop"
+# ... reviewed and saved by tenant-b-reviewer (a Candidate), then:
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000342.pdf invoices@tenant-b.local "Ihre Bestellung im Nordwind Webshop"
+curl -s $API/notifications -H "$B" | jq '.[] | {kind, count}'
+```
+
+The run behind this section (compose project `p4d`, 2026-11-04) used a Playwright script that clicks through steps 1
+to 17 (65 checks, all passed); its screenshots show the switches, the channel forms, Layouts required, the source rules,
+the routing test with DMARC pass and fail, the ERP Candidate and its refused activation, the first ERP invoice
+confirming it, the second identified with its evidence, the New layouts filter, the web-shop invoice's New layout panel
+with the pre-fill, map mode, the table tool, Identify mode and the Identification card, the save, warm-up 1 of 5, the
+warm-up setting, both layouts without warm-up, the auto-approved delivery, the folder drop's timeline, tenant B's
+Candidate and the waiting document, the attribute form, the entities, groups and governance screens. The mock ERP
+journal had a `POST /api/ap/invoices` (201) for every approval and, after the warm-up was set to 0, for WS-2026-000377
+and NW-RE-2026-1102 without review (header `documentNumber`, the supplier with its VAT id, the rows); NW-RE-2026-1130
+from the folder was AutoApproved the same way (the run checked its status and the move to `processed/`).
+
+What the run showed that is not yet as it should be: values the pre-fill placed are Inferred at 75 % and raise
+`LOW_CONFIDENCE` until a reviewer confirms them (the first ERP invoice arrives with several of them); the tax breakdown
+rows are not editable in the generated form (the layout derives a single row's amounts from the totals, docs/11 §8.2,
+Correction (P4, part D)); and the table tool is offered only for a definition-driven type, so a tenant on the built-in
+invoice record learns its lines from the record's values, not from a drawn table.
 
 ## Settings reference
 

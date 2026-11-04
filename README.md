@@ -95,7 +95,7 @@ What comes up (resource name → what the hosts read it as):
 | `sql` / `DocProc` | `mcr.microsoft.com/mssql/server:2025-latest` | `ConnectionStrings:DocProc`; the API applies migrations on start |
 | `storage` / `blobs` | Azurite | containers `raw`, `derived`, `exports` |
 | `messaging` | Azure Service Bus emulator | one queue per pipeline stage, topic `document-events` |
-| `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-viewer`; password = username |
+| `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-reviewer`, `tenant-b-viewer`; password = username |
 | `vault` | Lowkey Vault (Key Vault emulator) on https://localhost:8443 | vault name `docproc`, for the BYOK secret flow |
 | `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled; the worker polls the `Mailbox` channels of tenants with `sourceRouting` on (docs/09 "Source routing") |
 | `mock-erp` | WireMock on http://localhost:8086 with the stubs in `docker/mock-erp` | the receiving ERP of the delivery demos (docs/11 §23): `POST /api/ap/invoices`, `POST /api/article-prices`, a 503 on demand; nothing sends to it before P3 (docs/09 "Mock ERP") |
@@ -155,7 +155,7 @@ and run `docker compose up --build -d` (the apps are built with Keycloak's URL).
 
 | URL | What |
 |---|---|
-| http://localhost:5173 | customer portal; sign in as `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` or `tenant-b-viewer` |
+| http://localhost:5173 | customer portal; sign in as `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-reviewer` or `tenant-b-viewer` |
 | http://localhost:5174 | admin console; sign in as `superadmin` or `operator` |
 | http://localhost:5100/scalar | API reference (Scalar); `/health/ready`, `/openapi/v1.json` |
 | http://localhost:8080 | Keycloak (realm `docproc`; admin console `admin` / `admin`); `DOCPROC_KEYCLOAK_PORT` in `.env` moves it |
@@ -191,8 +191,12 @@ does not recognise, give it its type in review, take its header values from the 
 on page 1 and apply it to all pages: 412 rows, none rejected, then approve) and the P3 demo, outputs and delivery
 (switch outputs on, build the article-price-import mapping of that price list in Settings > Integrations with the
 visual field map, preview it on the server, bind it to price lists with a destination at the mock ERP, approve, watch a
-forced 503 retried and delivered in the document's Deliveries tab, while invoices keep going to erp-ap), step by step
-in docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping" and "Demo: outputs and delivery".
+forced 503 retried and delivered in the document's Deliveries tab, while invoices keep going to erp-ap) and the P4
+demo, routing and layouts (Nordwind invoices mailed to the GreenMail mailbox `invoices@tenant-a.local` and dropped in
+the watched folder, routed by source rules, identified by "Rechnung" and the VAT id; a web-shop invoice held with
+`NEW_LAYOUT`, pre-filled, saved as `nordwind-invoice-webshop` in review; warm-up 1 of 5, then warm-up 0 and delivery
+to the mock ERP without review; a Candidate in tenant B), step by step in docs/09 "Demo data", "Demo: types as data",
+"Demo: manual mapping", "Demo: outputs and delivery" and "Demo: routing and layouts".
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
@@ -292,7 +296,8 @@ realm by the app host). Roles come from the `roles` claim, the tenant from `tena
 
 `MappingAuthor` is a grant held besides a tenant role (docs/11 §16), not a role of its own: it adds the MappingAuthor
 policy (activating and retiring supplier layouts; a layout a MappingAuthor saves from a `NEW_LAYOUT` review is Active at
-once, one a plain Reviewer saves is a Candidate). The demo realm gives it to `tenant-a-reviewer`.
+once, one a plain Reviewer saves is a Candidate). The demo realm gives it to `tenant-a-reviewer`; `tenant-b-reviewer`
+is a Reviewer without it (the Candidate path of the P4 demo).
 
 Machine clients use tenant **API keys** instead of OIDC: `X-Api-Key: dpk_…` (or
 `Authorization: ApiKey dpk_…`). A key has the scopes `ingest`, `read` and/or `deliveries:read` (a pull
@@ -355,7 +360,7 @@ tests/
 web/                          pnpm workspace: apps/customer-portal (with Settings > Integrations and the Deliveries tab, docs/11 §19), apps/admin-console, packages/ui, app-shell,
                               review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
-fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"), the Nordwind invoices in two designs (docs/09 "Supplier layouts"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery"); dropzone/ the watched-folder channels' drop zone, one folder per tenant slug ("Source routing")
+fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"), the Nordwind invoices in two designs (docs/09 "Supplier layouts"), the ERP design's layout and a mail sender for them (demo/layouts, demo/mail; "Demo: routing and layouts"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery"); dropzone/ the watched-folder channels' drop zone, one folder per tenant slug ("Source routing")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
                               template schemas (templates/)
 docs/                         plan and design

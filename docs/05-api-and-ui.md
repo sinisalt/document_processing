@@ -191,7 +191,8 @@ A tenant without the switch sees the API as before: the new response members are
   `settings`, an object of the members to set: `defaultDocumentTypeKey`, `allowedTypeKeys` (at most 20 keys),
   `fixDocumentType` (`whenSourceMatched`, the default, `always`, `never`: a single allowed type is pinned at ingest),
   `locale {culture, dateOrder (DMY, MDY, YMD)}`, `review {mode (inherit, always), autoApproveMinConfidence (0 to 1)}`,
-  `defaults {currency}`, `layouts {required (true, false, inherit)}`, `requireSenderAuth`; unknown members are refused,
+  `defaults {currency}`, `layouts {required (true, false, inherit)}` (a JSON boolean, or the string `"inherit"`;
+  the strings `"true"` and `"false"` are read too, P4 part D), `requireSenderAuth`; unknown members are refused,
   `PATCH` replaces the settings (`{}` clears them). Responses carry `groupId`, `settings` and, for one supplier,
   `entityAttributes`. A reviewer's `:create-supplier` may set neither (403). With the tenant's attribute schema,
   `attributes` are checked against it (`attributes.<key>` errors); its `required` applies to a supplier's own attributes.
@@ -395,6 +396,28 @@ One monorepo, two apps sharing a component and API-client package:
   snapshot or rendered again. The list polls every 3 s while a delivery is pending, sending or waiting for a retry.
 - Suppliers sheet: Attributes as `key = value` lines (`supplier.attributes` of the mappings) until P4's attribute
   schema gives them a form.
+- P4 screens (docs/11 §19, P4 part D; the tenant's `sourceRouting` switch for routing and supplier configuration,
+  `supplierLayouts` for layouts, Identify mode, the New layout panel and governance; no endpoint was added for them):
+  - Review screen: the New layout panel at the top of the Fields tab of a `NEW_LAYOUT` or `LAYOUT_AMBIGUOUS` document
+    (`:match-layout`, the suggestions, "Confirm against pending layout", save as a new layout or a new version, the
+    pre-fill source of every value from `appliedConfig.prefill.sources`); the layout chip ("warm-up n of m") and the
+    New layout badge in the header; Identify mode on the page viewer (key I; a click or a box calls
+    `identifiers:propose`) with the Identification tab (chips, all/any, case, must not contain, the live test with
+    `identification-rules:test`, the evidence of `appliedConfig.layout`); "Approve and save as layout" in the approve
+    dialog (`:approve {learnLayout}`, refusals named by their code), then the Layout saved dialog (the version, its
+    state and rule, the siblings from `matching-documents?state=pending`, reprocessed with `documents:bulk-reprocess`);
+    Mark as golden (`:golden`) for an approved document filled by a layout.
+  - Inbox: New layouts (`?flag=NEW_LAYOUT`), the documents waiting for a Candidate (`?pendingLayoutVersionId=`), a
+    badge per document.
+  - Suppliers: the sheet's Settings (`settings`), Attributes (a form from `supplierAttributeSchema`), Routing (source
+    rules and Test routing with `routing:test`) and Layouts tabs (the layouts by type, versions with their replay
+    matrix, the waiting documents, Replay, Activate with `reviewWarmup` and `reprocessWaiting`, Retire; the last
+    three for a `MappingAuthor`); a Supplier groups tab (create, rename, the attributes their members inherit).
+  - Settings: Routing (typed mailbox and watched-folder channel forms, Test routing), Receiving entities, Governance
+    (golden documents, sandbox and regression runs, bundle export, dry run and import) and on General the layout
+    settings (`layoutReviewWarmup`, `layoutAgreementPercent`, `layoutsRequiredByDefault`, `trustedForwarderDomains`,
+    `supplierAttributeSchema`).
+  - Admin console: the tenant's feature switches include `sourceRouting` and `supplierLayouts`.
 
 ### Shared UI decisions
 

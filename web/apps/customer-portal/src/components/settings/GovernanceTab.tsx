@@ -8,7 +8,7 @@ import type { components } from "@docproc/api-client";
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea } from "@docproc/ui";
 import { ApiError, ConfirmDialog, EmptyState, formatDateTime, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import { useSupplierLayouts } from "@/lib/layoutQueries";
-import { useSuppliers } from "@/lib/queries";
+import { useSuppliers, useTenantSettings } from "@/lib/queries";
 
 type BundleImport = components["schemas"]["BundleImportResponse"];
 type Run = components["schemas"]["RegressionRunDto"];
@@ -41,6 +41,7 @@ export function GovernanceTab() {
   const { t, i18n } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
+  const settings = useTenantSettings();
   const golden = useQuery({ queryKey: queryKeys.governance.golden(), queryFn: async () => unwrap(await client.GET("/api/v1/golden-documents")) });
   const [removing, setRemoving] = useState<string | null>(null);
   const remove = useMutation({
@@ -89,7 +90,7 @@ export function GovernanceTab() {
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = bundleFileName((bundle as { sourceTenantSlug?: string }).sourceTenantSlug);
+      anchor.download = bundleFileName(settings.data?.tenant.slug);
       anchor.click();
       URL.revokeObjectURL(url);
       toast.success(t("settings.governance.exported"));

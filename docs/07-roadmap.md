@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 parts A, B and C done
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1235,8 +1235,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
 - **P4, routing, supplier configuration, layouts and identification – part A done (sources, routing, supplier
   configuration), part B done (the mapping engine with layouts, identification rules), part C done (learning layouts in
-  review, the new-layout flow, golden documents, sandbox runs, config bundles, as API); the UI of P4 (the supplier sheet
-  tabs, the New layout panel, the Identification card) and its compose demo not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
+  review, the new-layout flow, golden documents, sandbox runs, config bundles, as API), part D done (the UI of P4 in
+  the customer portal, the demo fixtures and the compose demo run in the browser, with the fixes it showed).** Everything of part A is behind the tenant's `sourceRouting` switch;
   a tenant without it behaves exactly as before: its channels are not polled and keep their free config, ingest
   assigns no supplier and pins no type, Match, Classify and Split run as before, and the new API routes answer 403
   (docs/05 "Routing and supplier configuration endpoints as built").
@@ -1426,13 +1426,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       (`LayoutLearningEndpointsTests`, `GovernanceEndpointsTests`, the updated `LayoutEndpointsTests`); RLS, the
       idempotent script and the migrate down and up on SQL Server.
   - Left for later (the rest of P4):
-    - no UI for parts A to C: the supplier sheet tabs (Routing, Settings, Attributes, Layouts with the replay matrix and
-      "Activate and reprocess N documents"), the supplier groups and receiving entities screens, the typed channel
-      forms, the New layout panel and its sibling dialog, the Identify mode and Identification card, the inbox's "New
-      layout" badge, the warm-up and agreement fields of the settings page, Settings > Governance; the API serves them;
-    - the compose demo of P4 and its Playwright run (it needs the UI); its scenario runs as
-      `LayoutLearningPipelineTests` instead, and the second demo tenant "where the reviewer is not a MappingAuthor" has
-      no reviewer in the dev realm (the Candidate path runs as a test);
+    - (done in part D) the UI of parts A to C and the compose demo with its Playwright run; the second demo tenant's
+      reviewer without the grant is `tenant-b-reviewer`;
     - the learner does not use `LlmStage.Synthesize`, definition labels as synonyms, or structured sources; the
       pre-fill does not seed the table tool's dividers from other layouts' column headers; corrections on mapped fields
       do not count against a version's `Corrected`;
@@ -1451,6 +1446,60 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - part A's and part B's other open items (hints on `POST /ingestions`, the Graph mail source, `ROUTE_DIFFERS`,
       `:clone-config`, `POST /suppliers:import`, indexed supplier candidates, receiving entities from the customer VAT
       id, the warm-up slot taken outside the stage's save) stay as listed above.
+  - Decided (part D, recorded as "Correction (P4, part D)" in docs/11 §8.2, §8.3, §9.3, §12.6, §12.10, §19 and §23):
+    - a layout posted for a supplier without approved documents in that design is not activated (its replay set is
+      empty, docs/11 §8.3 unchanged); it is activated through the Candidate path, by a `MappingAuthor` confirming the
+      first document in that design against it. The demo does that for `nordwind-invoice-erp`
+      (`fixtures/demo/layouts/nordwind-invoice-erp.json`), and docs/09 "Supplier layouts" says so;
+    - the `layout-prefill` step also searches the type's own labels (extraction labels, then display labels) for fields
+      read from digits, so a new design's invoice number and customer number are pre-filled when its labels differ
+      from the other layouts' (source `definitionLabel`);
+    - a non-retryable LLM error (a replay miss, an invalid request) after a layout or the pre-fill leaves their values
+      standing and the document goes to review; before, only an unavailable provider did;
+    - an `Invoice` fork stays the typed invoice record for layouts and replay; a single tax row with only its rate takes
+      its amounts from the printed totals; a column table learned from the review tool's box gets the stop line under
+      its rows;
+    - the default warm-up stays 5; the demo shows warm-up 1 of 5 and then sets the tenant to 0 (as settled for P4);
+    - `settings.layouts.required` is a JSON boolean, as docs/05 says (the strings `"true"`, `"false"` and `"inherit"`
+      stored before are still read).
+  - Done (part D):
+    - customer portal, review: the New layout panel (type picker and Match, suggestions, Confirm against pending
+      layout, save as a new layout or a new version with the not-recognised confirmation, pre-fill source labels), the
+      layout chip and New layout badge in the header, Identify mode on the page viewer (click or box, proposals from
+      `identifiers:propose`) with the Identification tab (chips with all/any, case, must not contain, widen; the live
+      test with overlaps; the evidence of an identified document), "Approve and save as layout" in the approve dialog
+      with the refusals named, the Layout saved dialog with the siblings and their reprocess, Mark as golden; the
+      table tool keeps the row anchor on a mapped column;
+    - customer portal, elsewhere: the inbox's New layouts filter and badge (and `?pendingLayoutVersionId=`); the
+      supplier sheet's Settings, Attributes (a form from the tenant's attribute schema), Routing (source rules and Test
+      routing) and Layouts (cards per type with the rule in words, versions, state, origin, stats, warm-up, the replay
+      matrix, the waiting documents, Replay, Activate with warm-up and reprocess, Retire) tabs; the Supplier groups
+      tab; Settings > Routing (typed mailbox and watched-folder forms, Test routing), Receiving entities, Governance
+      (golden documents, sandbox and regression runs, bundle export, dry run and import) and the layout settings on
+      General (warm-up, agreement, layouts required by default, trusted forwarders, attribute schema); en and de;
+    - admin console: the `sourceRouting` and `supplierLayouts` feature switches;
+    - backend: the fixes above, `tenant-b-reviewer` (Reviewer of tenant B without `MappingAuthor`) in the realm and the
+      dev users, no `LIKE` on SQL Server json columns (the warm-up ordinal and the table specifications are filtered
+      after the read; `JsonColumnQueryTests` keeps it so), `layouts.required` as booleans;
+    - fixtures: four Nordwind invoices per design (NW-RE-2026-1130 and WS-2026-000391 added, drawn by
+      `DemoNordwindInvoices`), the ERP layout as a POST body, `fixtures/demo/mail/send-invoice.sh` (a demo PDF mailed to
+      GreenMail with the `Authentication-Results` header);
+    - the compose demo (project `p4d`) clicked through in Playwright, docs/09 "Demo: routing and layouts" with the UI
+      steps and the curl and SMTP commands;
+    - tests: vitest for the panel, Identify mode, approve and save, the supplier tabs, the routing test box, the
+      settings bodies and the admin switches; .NET tests for the definition-label pre-fill, the LLM failure, the demo
+      configuration end to end in the pipeline (ERP layout fixture, customer number, the learned web-shop layout with
+      its lines), the tax row, the stop line and the boolean settings.
+  - Left for later (part D):
+    - values the pre-fill placed are Inferred at 75 % and raise `LOW_CONFIDENCE` until confirmed; the tax breakdown rows
+      are not editable in the generated form; the table tool is offered for definition-driven types only;
+    - the visual layout editor (a sample document with every rule's hit box), the supplier sheet's Outputs and
+      Activity tabs, attributes per receiving entity, the `REVISION_OF` panel, Re-send output, the Output preview and
+      Data tabs, the audit log and approvals of Settings > Governance, the admin console's tenant tabs for layouts, the
+      inbox grouped per supplier;
+    - the "new version of X" choice tests X's documents only when the approval is sent (the refusal and a
+      confirmation), not when it is chosen;
+    - Playwright specs in `web/e2e` for these screens (the demo run used a script outside the repository).
 - **P5 to P6** – not started.
 
 ## Risks and open questions

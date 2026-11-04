@@ -1137,6 +1137,21 @@ Correction (P4, part B), as built (`LayoutEngine`, `LayoutExtractor`, `LayoutTre
   layout left Missing only when a provider is configured; without one the layout's values stand and review fills the
   rest.
 
+Correction (P4, part D), found by the P4 demo:
+- The LLM fill after a layout (and after the `layout-prefill` step, §9.3) tolerated only an unavailable provider. A
+  provider that cannot answer the request at all (a replay store without that recording, an invalid request: every
+  LLM error no retry fixes) failed the document, although the layout had already filled it. As built, any
+  non-retryable LLM error leaves the layout's (or the pre-fill's) values standing and the document goes on to Validate
+  and review; a retryable one still retries the stage.
+- An `Invoice` forked from `std.invoice` (a definition-driven type) is still the typed invoice record: the layout
+  writes and the replay compares it as one (`typedRecord` for the invoice family, not only for the built-in type).
+  Writing it generically stored a printed unit ("Stk") as text, which the invoice record's `UnitOfMeasure` refused
+  when the document was read back.
+- A layout that reads only the tax rate (one rate printed, `taxBreakdown.rate` a constant or a label) wrote a tax row
+  without amounts, which raised `TAX_MISMATCH` and `INVALID_VALUE` on every document. When the tree has exactly one tax
+  row and it has only its rate, `LayoutTreeWriter` takes its taxable and tax amounts from `subtotalNet` and `totalTax`
+  (sources `derived:subtotalNet`, `derived:totalTax`); several rows, or a row with amounts, are left as mapped.
+
 ### 8.3 Lifecycle
 
 - A new version is **Draft**. Saving it from review or from the editor makes it **Candidate**.
@@ -1169,6 +1184,15 @@ Correction (P4, part C), as built (`LayoutLearning`, `LayoutLearningSave` in `sr
   could not honour: a change of `layoutReviewWarmup` is applied to the Active versions whose warm-up is still the
   tenant's old value (a version an author gave its own keeps it).
 - Corrections on mapped fields do not count against `Stats` yet (`Corrected` stays 0); only drift degrades a version.
+
+Correction (P4, part D), found by the P4 demo: the one activation condition leaves no way to activate a layout written
+by hand (`POST /suppliers/{id}/layouts`, an import, the editor) for a supplier that has no approved document in that
+design yet: its replay set is empty, so `:activate` is refused ("The replay set is empty") whoever asks. That is kept
+(a version nobody has seen fill a document is not activated); the way in is the Candidate path: the first document in
+that design arrives with `NEW_LAYOUT` naming the Candidate (`pendingLayoutVersionId`, pre-filled from its mapping),
+and a `MappingAuthor`'s approval with "Confirm against pending layout" adds it to the replay set and activates the
+version with the tenant's warm-up (docs/09 "Demo: routing and layouts", the ERP layout). docs/09 said
+"`:activate` makes it Active", which held only for a supplier with approved documents the rule holds on.
 
 ### 8.4 Several layouts per supplier and type
 
@@ -1374,6 +1398,15 @@ The contracts live in `src/DocProc.Application/Abstractions/IDocumentExtractor.c
        the LLM then fills what is Missing where a provider is configured (`ExtractionMethod.Llm`, else `Profile`); a
        definition-driven type without an extraction path stores the pre-filled tree. Without a provider the document
        waits in review, not for one.
+     - Correction (P4, part D), found by the P4 demo: part C left out "then the type's `extraction.labels`", and the
+       sources it did search could not fill the demo's invoice number or customer number: the web shop prints
+       "Rechnungsnummer" and "Kundennummer" where the ERP layout reads "Rechnungs-Nr." and "Kunden-Nr.", and both
+       values differ per document. As built, after the other layouts' labels the step searches each field still
+       empty with the type's own labels (its extraction labels, then its display labels, in the mapping's or the
+       tenant's locale), for fields whose kind is read from digits (identifier, money, date, integer, decimal,
+       percent): label-right, then label-below; a hit must contain a digit and none of the label's words, so a
+       heading next to its label is not taken. The source is `definitionLabel` (chip "type's label"). A provider
+       that cannot answer (a non-retryable LLM error, §8.2) leaves the pre-fill standing as well.
 3. **`llm`**.
    - **Invoice-compatible types** keep `LlmInvoiceExtractor`, today's prompt and examples, and `InvoiceExtractionMapper`. With no custom fields the request stays byte-identical to `invoice_extraction@1`, so `SchemaSnapshotTests` and the replay fixtures pass. Custom fields add the `x_custom` object, compiled once per `(tenant, type version)` as `invoice_extraction@1+x.<hash8>`, never per supplier. `DefinitionMapper` maps `x_custom`.
    - **Other types** use the new `LlmDefinitionExtractor`:
@@ -1649,6 +1682,14 @@ This needs new normalizers (`NormalizeHandler.cs:42-48` throws "unsupported form
     `supplierValue: vatId` on the page it is printed on (`1`, `last`, or any).
   - The proposed source rules are the ingestion's sender, sender domain, folder and mailbox, each marked when the
     supplier has it already; `sourceRules` saves one as `remember` does (disabled for a reviewer).
+- Correction (P4, part D), found by the P4 demo: the review tool's specification is a box around the table, usually
+  without a stop line, and the layout learned from it read every lettered line inside the box below the rows as one
+  more row: the web shop's "Fortsetzung umseitig" footer, so its lines replayed at 0 % and the layout stayed a
+  Candidate. As built, a specification without `stopAt` gets the first lettered line under the last confirmed row
+  within the table's columns as its `stopAt`, as a table measured from the rows does. The portal's table tool also
+  keeps the row anchor on a mapped column (the definition's anchor field when a column is mapped to it, else the
+  anchor chosen, else the first mapped column) when the columns are assigned, instead of the proposal's guess, which
+  could anchor the rows on the unit column.
 
 ### 12.7 Re-split and re-type in review
 
@@ -1743,6 +1784,10 @@ Correction (P4, part C), as built:
   back from Classify. `POST /documents:bulk-reprocess` takes at most 200 documents and runs in the request, not as a
   background job with progress (§15.5).
 - The New layout panel, the sibling dialog and the inbox badge are not built in the portal; the API serves them.
+- Correction (P4, part D): they are built (§19, Correction (P4, part D)). The panel's "would no longer be recognised"
+  warning for "new version of X" is the approval's refusal (`LAYOUT_NOT_RECOGNISED`, naming X's documents) followed
+  by a confirmation checkbox, not a test run when the option is chosen; the queue is a "New layouts" filter of the
+  inbox with a badge per document, not grouped per supplier.
 
 ## 13. Output mappings and delivery (R4)
 
@@ -2551,6 +2596,39 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
 
 **i18n.** Chrome strings stay in the bundles. Field, section and enum labels come from definitions. `resources.test.ts:60-68, 100` checks chrome keys plus label completeness of the shipped templates.
 
+Correction (P4, part D), as built in the customer portal (each part only with its switch: `sourceRouting` for
+routing, supplier settings, attributes, groups and entities, `supplierLayouts` for layouts, Identify mode, the New
+layout panel and governance; a tenant without them sees the screens of P3):
+- **Review screen (item 1).** The header shows the layout and version that filled the document (`layout-chip`, with
+  "warm-up n of m") and a "New layout" badge. The New layout panel heads the Fields tab of a `NEW_LAYOUT` or
+  `LAYOUT_AMBIGUOUS` document: the supplier, the type picker (the supplier's layout types first) with Match
+  (`:match-layout`), the suggestions, "Confirm against pending layout X", Save as new layout (key and name) or new
+  version of X (with the confirmation when X's design would no longer be recognised), and the pre-fill source of every
+  value ("pending layout", "supplier master data", "other layout", "known value", "type's label", "LLM"). Identify mode
+  is a toggle of the page viewer (key I): a click or a box proposes an identifier (`identifiers:propose`), the
+  Identification tab holds the chips with all/any, case and must-not-contain, and tests the rule as it changes
+  (holds here, overlaps with the supplier's other documents); on an identified document it draws the evidence.
+  "Approve and save as layout" is the approve dialog's checkbox; afterwards a dialog shows the saved version, its
+  state, its rule in words, the siblings and "Reprocess them now". Mark as golden is in the actions of an approved
+  document. Not built: the `REVISION_OF` panel, Remember for supplier as an action of its own (it is the source-rule
+  proposal of the save), Re-send output, the Output preview and Data tabs.
+- **Suppliers sheet (item 3).** Tabs Details, Settings (the group, locale and date order, default currency, review
+  mode and minimum confidence, Layouts required: inherit / yes / no with the tenant default), Attributes (a form generated from
+  `SupplierAttributeSchema`, keys the schema does not name kept; one set per supplier, not per entity), Routing (the
+  source rules in words, add, switch on and off, delete, and the Test routing box) and Layouts (grouped by type, one
+  card per layout with its rule in words, versions with state, origin, stats and warm-up, the replay matrix, the
+  documents waiting for a Candidate, Replay, Activate (with its warm-up and "and reprocess N documents") and Retire for
+  a `MappingAuthor`). The Supplier groups list is a second tab of the Suppliers page. Not built: the visual layout
+  editor, the Outputs and Activity tabs.
+- **Settings.** Routing (item 5 for P4: typed forms for mailbox and watched-folder channels, beside the P0 Channels
+  tab, and the Test routing box), Receiving entities, Governance (item 6 without the audit log and approvals: golden
+  documents, sandbox and regression runs, bundle export, dry-run and import), and on General the layout settings (the
+  warm-up, the agreement threshold, layouts required by default, trusted forwarder domains, the supplier attribute
+  schema). The admin console's feature switches include `sourceRouting` and `supplierLayouts`; its tenant tabs for
+  layouts are not built.
+- **Inbox (item 7).** A "New layouts" filter (`?flag=NEW_LAYOUT`, also `?pendingLayoutVersionId=`) and a badge per
+  document; not grouped per supplier.
+
 ## 20. Changes to existing code, file by file
 
 | File | Change |
@@ -2763,6 +2841,14 @@ Every phase is demonstrated with `docker compose up`, using the GreenMail mailbo
     next web-shop invoice after activation going to review as warm-up 1 of 5, already filled correctly by the layout;
     it then sets the demo tenant's warm-up to 0 explicitly (a tenant setting a `TenantAdmin` can change) and shows the
     following web-shop invoice delivered to `mock-erp` without review.
+  - Correction (P4, part D), as run (docs/09 "Demo: routing and layouts"): "identified by 'Rechnung' and the VAT id"
+    needs the ERP layout first, and a layout posted for a supplier without approved documents cannot be activated
+    (§8.3, Correction (P4, part D)). The demo posts it as a Candidate; the first ERP invoice arrives with `NEW_LAYOUT`
+    naming it, the reviewer (a `MappingAuthor`) confirms against it, which activates it with warm-up 5, and the second
+    ERP invoice is identified (warm-up 1 of 5). The customer number is a custom field of the demo's `Invoice` fork
+    (`fixtures/demo/types/invoice-customer-number.field.json`); its pre-fill and the invoice number's come from the
+    type's labels (§9.3, Correction (P4, part D)). The second demo tenant gets a reviewer without the grant,
+    `tenant-b-reviewer`; its demo invoice is addressed to tenant A's restaurant, so it carries `CUSTOMER_MISMATCH`.
   - e-invoice extras with xml-path.
   - Golden documents, sandbox runs and config bundle export/import.
   - Supplier sheet tabs.
