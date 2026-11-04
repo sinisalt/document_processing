@@ -1585,6 +1585,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - done: `MailOptions.TrustedAuthServIds`' own documentation says what the code does (empty: no header believed);
       docs/09 step 7 and 12 quote the warm-up flag as the UI shows it, step 17 says the sandbox run needs a document id
       and what the dry run of the tenant's own export reports;
+    - done: a compose re-run (steps 1 to 7, 15 and 17 of docs/09 "Demo: routing and layouts", the setup by API, the
+      screens in Playwright; 15 checks, all passed): the ERP layout posted from the pretty-printed fixture, the second
+      ERP invoice's flag "Document 1 of the first 5 under layout nordwind-invoice-erp" on the review screen, the folder
+      drop read in the worker's container and moved to `processed/`, the sandbox run with a document id
+      ("identified"), and the dry run of the tenant's own export with every item a skip (7 types, the hand-posted
+      layout, the folder rule with its channel Scanner, the sender rule);
     - left for later: on a host other than Linux the folder watcher re-checks the path for links right before opening
       but cannot check the opened handle (a narrower window, not none); a move (`rename`) of a file whose folder is
       swapped for a link between its check and the rename is not bound to a handle; two channels without a source key
