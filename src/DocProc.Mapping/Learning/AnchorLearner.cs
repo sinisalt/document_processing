@@ -508,6 +508,20 @@ public static partial class AnchorLearner
             return false;
         }
 
+        // A table the review tool read from a box ends at the box; the layout reads every page to the end, so a
+        // specification without a stop line takes the first line under the confirmed rows (Nordwind's web shop: the
+        // "Fortsetzung umseitig" footer, which was read as a third row).
+        if (table.Specification is not null && rule["stopAt"] is null && rule["columns"] is JsonArray specColumns && specColumns.Count > 0)
+        {
+            var cells = table.Rows.SelectMany(r => r).Where(c => table.RowFields.ContainsKey(c.Field)).ToList();
+            var x0 = specColumns.OfType<JsonObject>().Min(c => c["x0"]?.GetValue<double>() ?? 0);
+            var x1 = specColumns.OfType<JsonObject>().Max(c => c["x1"]?.GetValue<double>() ?? 1000);
+            if (StopLineAfter(cells, request.Words, x0, x1) is { } stop)
+            {
+                rule["stopAt"] = new JsonArray(stop);
+            }
+        }
+
         var json = new JsonObject { ["fields"] = new JsonObject { [table.Path] = rule.DeepClone() } };
         if (LayoutMapping.TryParse(json.ToJsonString(), out var error) is not { } mapping)
         {
@@ -658,16 +672,30 @@ public static partial class AnchorLearner
         }
 
         // The first line under the last row that is no row of the table ends it (a "Summe netto" or "Zwischensumme").
-        if (words.Page(lastPage) is { } last)
+        if (StopLineAfter(cells, words, tableX0, tableX1) is { } stop)
         {
-            var bottom = cells.Where(c => c.Page == lastPage).Max(c => c.Box.Y1);
-            var after = PageGeometry.Lines(last.Words).FirstOrDefault(l => l.Box.Y0 >= bottom - 1 && l.Words.Any(w => w.Box.CenterX >= tableX0 && w.Box.CenterX <= tableX1) && l.Words[0].Text.Any(char.IsLetter));
-            if (after is not null)
-            {
-                rule["stopAt"] = new JsonArray("^" + Regex.Escape(after.Words[0].Text));
-            }
+            rule["stopAt"] = new JsonArray(stop);
         }
 
         return rule;
+    }
+
+    /// <summary>The <c>stopAt</c> pattern of the first line with a letter under the last confirmed row, inside the table's columns; null without one.</summary>
+    private static string? StopLineAfter(List<LearnTableCell> cells, DocumentWords words, double tableX0, double tableX1)
+    {
+        if (cells.Count == 0)
+        {
+            return null;
+        }
+
+        var lastPage = cells.Max(c => c.Page);
+        if (words.Page(lastPage) is not { } last)
+        {
+            return null;
+        }
+
+        var bottom = cells.Where(c => c.Page == lastPage).Max(c => c.Box.Y1);
+        var after = PageGeometry.Lines(last.Words).FirstOrDefault(l => l.Box.Y0 >= bottom - 1 && l.Words.Any(w => w.Box.CenterX >= tableX0 && w.Box.CenterX <= tableX1) && l.Words[0].Text.Any(char.IsLetter));
+        return after is null ? null : "^" + Regex.Escape(after.Words[0].Text);
     }
 }

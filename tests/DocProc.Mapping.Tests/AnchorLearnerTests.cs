@@ -187,6 +187,27 @@ public sealed class AnchorLearnerTests
         run.Tables["lines"].Rows.Count.ShouldBe(4);
     }
 
+    [Fact]
+    public void A_specification_without_a_stop_line_takes_the_line_under_the_confirmed_rows()
+    {
+        // The review tool read the rows inside its box (no stop line); the layout reads to the end of the page, where the
+        // web shop's footer "Fortsetzung umseitig" was read as a third row in the compose demo.
+        var words = Invoice(rows: 2);
+        var table = Table(words, 2);
+        var spec = JsonNode.Parse("""
+            { "page": 1, "bBox": { "x0": 50, "y0": 295, "x1": 800, "y1": 340 }, "path": "lines", "rowAnchor": "supplierSku",
+              "headerRow": { "y0": 298, "y1": 312 }, "pages": "page",
+              "columns": [ { "x0": 50, "x1": 150, "field": "supplierSku", "header": "Art.-Nr." }, { "x0": 150, "x1": 490, "field": "description", "header": "Bezeichnung" },
+                           { "x0": 490, "x1": 690, "field": "quantity", "header": "Menge" }, { "x0": 690, "x1": 800, "field": "lineNet", "header": "Betrag" } ] }
+            """)!.AsObject();
+
+        var result = AnchorLearner.Learn(new LearnRequest(words, [], [table with { Specification = spec }], ValueLocale.German));
+
+        var rule = result.Mapping["fields"]!["lines"]!.AsObject();
+        rule["stopAt"]![0]!.GetValue<string>().ShouldBe("^Summe");
+        result.Fields.Single(f => f.Path == "lines").Verified.ShouldBeTrue("the rule reads the two confirmed rows back, not the total line");
+    }
+
     [Theory]
     [InlineData(FieldKinds.String, "123 456789", "[0-9]{3}\\s?[0-9]{6}")]
     [InlineData(FieldKinds.Identifier, "WS-2026-000318", "[A-Z]{2}-[0-9]{4}-[0-9]{6}")]
