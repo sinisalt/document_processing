@@ -1619,6 +1619,14 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       `O_NONBLOCK`, so a named pipe no longer hangs the poller (moved to `failed/`);
     - done: docs/09 step 8 quotes the pre-fill as the panel shows it ("Pre-filled: 6 values", "other layout's label",
       VAT breakdown · Rate (%));
+    - done: a compose re-run (steps 1 to 8, 13 to 15 of docs/09 "Demo: routing and layouts", the setup by API, the
+      switches and the review screens in Playwright; 32 checks, all passed): the mailbox channel created without a
+      source key and claimed by the worker after its login; the second ERP invoice "Document 1 of the first 5" with
+      one warm-up place counted on SQL Server; the web-shop invoice's New layout panel reading "Pre-filled: 6 values"
+      with "other layout's label" and "type's label"; with warm-up 0, NW-RE-2026-1102 AutoApproved and in the mock ERP's
+      journal; and NW-RE-2026-1130 from the watched folder AutoApproved and moved to `processed/` while a named pipe
+      beside it was moved to `failed/` without stopping the worker. Steps 9 to 12 and 16 to 17 were not re-run (the
+      web-shop layout learned in review, tenant B, the remaining screens), as nothing they use changed;
     - left for later: a mailbox key claimed by an earlier build of this branch for a channel that is never polled
       (its tenant has `sourceRouting` off) is not cleared by a data step: it is given up when that channel is polled and
       its login is refused. GreenMail in compose accepts any password, so there the login proves nothing; a production
