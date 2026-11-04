@@ -72,12 +72,12 @@ internal sealed class ExtractHandler(
 
         var tenantRow = await LoadTenantAsync(document, cancellationToken).ConfigureAwait(false);
         var application = config.Type is { } layoutType && document.EmbeddedXmlBlob is null
-            ? await layouts.ApplyAsync(document, layoutType, typedRecord: document.Type.IsInvoiceFamily && !definitionDriven, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
+            ? await layouts.ApplyAsync(document, layoutType, typedRecord: document.Type.IsInvoiceFamily, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
             : null;
         // layout-prefill (docs/11 §9.3, §12.10 step 4): a NEW_LAYOUT document of a known supplier is pre-filled from the
         // pending Candidate, the supplier's other layouts' labels, its master data and known values, never by a layout.
         var prefill = application is null && config.Type is { } prefillType && document.EmbeddedXmlBlob is null
-            ? await prefiller.PrefillAsync(document, prefillType, typedRecord: document.Type.IsInvoiceFamily && !definitionDriven, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
+            ? await prefiller.PrefillAsync(document, prefillType, typedRecord: document.Type.IsInvoiceFamily, tenantRow.DefaultCurrency, tenantRow.CountryCode, cancellationToken).ConfigureAwait(false)
             : null;
         if (!document.Type.IsInvoiceFamily && definitionDriven)
         {

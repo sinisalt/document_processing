@@ -248,6 +248,59 @@ public sealed class LayoutLearningPipelineTests
     }
 
     [Fact]
+    public async Task With_the_demo_configuration_ERP_invoices_carry_the_customer_number_and_a_web_shop_invoice_arrives_with_it_prefilled()
+    {
+        // The compose demo (docs/09 "Demo: routing and layouts"): configurable types on, Invoice forked with the demo
+        // custom field supplierCustomerRef, the ERP layout of fixtures/demo/layouts posted, the replay LLM without an
+        // answer for these PDFs. ERP invoices are filled by the layout (customer number included) and auto-approved;
+        // the first web-shop invoice is held with NEW_LAYOUT and pre-filled with its invoice number (the type's label)
+        // and the customer number (the value every approved invoice of the supplier had), never by the ERP layout.
+        var (host, nordwind) = await StartAsync();
+        await using var _ = host;
+        await host.AddReplayProviderAsync();
+        for (var i = 0; i < 8; i++)
+        {
+            host.Llm.Enqueue(new DocProc.Llm.LlmException(DocProc.Llm.LlmErrorKind.InvalidRequest, "No recorded response for this request."));
+        }
+
+        await using (var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped())
+        {
+            var tenant = await db.Tenants.SingleAsync(t => t.Id == PipelineTestHost.TenantA, Ct);
+            tenant.Settings.Features!.ConfigurableTypes = true;
+            await db.SaveChangesAsync(Ct);
+            var catalogue = new DocProc.Infrastructure.Catalogue.DocumentTypeCatalogue(db, TimeProvider.System);
+            var copied = await catalogue.CopyAsync(PipelineTestHost.TenantA, "std.invoice", null, "tenant-a-admin", Ct);
+            copied.Status.ShouldBe(DocProc.Infrastructure.Catalogue.CatalogueStatus.Ok, copied.Detail);
+            var draft = copied.Value!.Versions.Single(v => v.State == DocumentTypeVersionState.Draft);
+            var definition = JsonNode.Parse(draft.DefinitionJson.ShouldNotBeNull())!.AsObject();
+            definition["fields"]!.AsArray().Add(JsonNode.Parse(await File.ReadAllTextAsync(DemoFixtureTests.CustomFieldPath(), Ct)));
+            (await catalogue.SaveDraftAsync(PipelineTestHost.TenantA, "Invoice", draft.Version, definition.ToJsonString(), draft.Revision, "tenant-a-admin", Ct)).Status.ShouldBe(DocProc.Infrastructure.Catalogue.CatalogueStatus.Ok);
+            (await catalogue.PublishAsync(PipelineTestHost.TenantA, "Invoice", draft.Version, null, "Customer number at supplier", "tenant-a-admin", Ct)).Status.ShouldBe(DocProc.Infrastructure.Catalogue.CatalogueStatus.Ok);
+        }
+
+        var body = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(DemoFixtureTests.RepositoryRoot(), "fixtures", "demo", "layouts", "nordwind-invoice-erp.json"), Ct))!;
+        await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, body["identification"]!.ToJsonString(), body["mapping"]!.ToJsonString());
+
+        foreach (var invoice in DemoNordwindInvoices.Erp.Take(2))
+        {
+            var erp = await ProcessAsync(host, invoice);
+            erp.Status.ShouldBe(DocumentStatus.AutoApproved, invoice.Number + " " + erp.FailureReason + " " + string.Join(" | ", erp.Flags.Where(f => f.ResolvedAt == null).Select(f => f.Code + ":" + f.Message)));
+            var erpTree = JsonNode.Parse(erp.CanonicalJson!)!.AsObject();
+            erpTree.ToJsonString().ShouldContain("40 1187", customMessage: "the layout's Kunden-Nr. rule fills the custom field");
+        }
+
+        var first = await ProcessAsync(host, DemoNordwindInvoices.WebShop[0]);
+        first.Status.ShouldBe(DocumentStatus.NeedsReview, first.FailureReason);
+        first.Flags.ShouldContain(f => f.Code == FlagCodes.NewLayout && f.ResolvedAt == null);
+        var sources = JsonNode.Parse(first.AppliedConfigJson!)!["prefill"]!["sources"]!.AsObject();
+        sources["invoiceNumber"]!.GetValue<string>().ShouldBe(PrefillSources.DefinitionLabel, sources.ToJsonString());
+        sources.ContainsKey("supplierCustomerRef").ShouldBeTrue(sources.ToJsonString());
+        var tree = JsonNode.Parse(first.CanonicalJson!)!.ToJsonString();
+        tree.ShouldContain(DemoNordwindInvoices.WebShop[0].Number);
+        tree.ShouldContain("401187");
+    }
+
+    [Fact]
     public async Task The_prefill_reads_the_number_by_the_types_labels_and_an_LLM_that_cannot_answer_leaves_the_prefill_for_review()
     {
         // The demo stacks' LLM is a replay store without an answer for this PDF (a miss is InvalidRequest, never retried):
