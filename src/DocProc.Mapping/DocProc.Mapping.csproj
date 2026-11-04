@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
     <ProjectReference Include="../DocProc.Definitions/DocProc.Definitions.csproj" />
+    <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DocProc.Mapping.Tests" />
