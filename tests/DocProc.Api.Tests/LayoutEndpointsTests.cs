@@ -316,17 +316,38 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
         overlap.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await overlap.Content.ReadAsStringAsync(Ct)).ShouldContain(approved.ToString());
 
-        // Once that document is the ERP layout's no more (here: retired), the version activates with the tenant's warm-up.
+        // Once that document is the ERP layout's no more, it is the version's replay set (its rule holds on it) and the
+        // field replay runs over it: the mapping's pattern is printed nowhere on it, so the field agreement fails.
         _factory.Run(db => db.Documents.Single(d => d.Id == approved).SupplierLayoutVersionId = null);
-        var activated = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct);
+        var replayFailed = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct);
+        replayFailed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var refusal = (await replayFailed.Content.ReadFromJsonAsync<ProblemDetails>(Ct))!;
+        refusal.Extensions["code"]!.ToString().ShouldBe("LAYOUT_REPLAY_FAILED");
+        refusal.Detail!.ShouldContain("invoiceNumber");
+
+        // A reviewer without the MappingAuthor grant may not activate; with it, a reviewer may.
+        using (var reviewer = Reviewer())
+        {
+            (await reviewer.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        }
+
+        // A new version whose mapping reads the document activates with the tenant's warm-up, and the old one is retired.
+        var fixedMapping = JsonDocument.Parse("""{ "fields": { "currency": { "rules": [ { "strategy": "constant", "value": "EUR" } ] } } }""").RootElement;
+        var added = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions", new CreateLayoutVersionRequest(webRule, fixedMapping), Ct);
+        added.StatusCode.ShouldBe(HttpStatusCode.Created, await added.Content.ReadAsStringAsync(Ct));
+        using var author = _factory.ClientFor(new TokenSpec("tenant-a-author", [Roles.Reviewer, Roles.MappingAuthor], ApiFactory.TenantA.ToString()));
+        var activated = await author.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/2:activate", new ActivateLayoutRequest(), Ct);
         activated.StatusCode.ShouldBe(HttpStatusCode.OK, await activated.Content.ReadAsStringAsync(Ct));
-        var active = (await activated.Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
-        active.ActiveVersion.ShouldBe(1);
-        var version = active.Versions.ShouldHaveSingleItem();
+        var outcome = (await activated.Content.ReadFromJsonAsync<ActivateLayoutResponse>(ApiFactory.Json, Ct))!;
+        outcome.Replay.Passed.ShouldBeTrue();
+        outcome.Replay.Documents.ShouldHaveSingleItem().DocumentId.ShouldBe(approved);
+        var active = outcome.Layout;
+        active.ActiveVersion.ShouldBe(2);
+        var version = active.Versions.First(v => v.Version == 2);
         version.Status.ShouldBe("Active");
         version.ReviewWarmup.ShouldBe(TenantSettings.DefaultLayoutReviewWarmup);
-        version.ApprovedBy.ShouldBe("tenant-admin");
-        (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "already Active");
+        version.ApprovedBy.ShouldBe("tenant-a-author");
+        (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/2:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "already Active");
 
         var retired = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{erpLayout}:retire", new { }, Ct);
         (await retired.Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!.Status.ShouldBe("Retired");
@@ -337,6 +358,8 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
     {
         var name = $"Warmup {Guid.NewGuid():N}";
         var (supplier, _, _) = SeedLayout(name);
+        // The replay set: an approved credit note of the supplier on which the rule holds.
+        await _factory.SeedDocumentAsync(new DocumentSeed { SupplierName = name, TextLayerJson = Layer((200, "Gutschrift")), Type = Domain.Documents.DocumentTypeKey.CreditNote, Status = Domain.Documents.DocumentStatus.Approved });
         _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA).Settings.LayoutReviewWarmup = 0);
         try
         {
@@ -344,11 +367,11 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
             var rule = JsonDocument.Parse("""{ "all": [ { "text": "Gutschrift" } ] }""").RootElement;
             var mapping = JsonDocument.Parse("""{ "fields": {} }""").RootElement;
             var first = (await (await admin.PostAsJsonAsync($"/api/v1/suppliers/{supplier}/layouts", new CreateLayoutRequest("credit-a", "A", "CreditNote", rule, mapping), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
-            var tenantDefault = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{first.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            var tenantDefault = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{first.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).Content.ReadFromJsonAsync<ActivateLayoutResponse>(ApiFactory.Json, Ct))!.Layout;
             tenantDefault.Versions[0].ReviewWarmup.ShouldBe(0, "the demo tenant's warm-up 0 (docs/11 §23 P4)");
 
             var second = (await (await admin.PostAsJsonAsync($"/api/v1/suppliers/{supplier}/layouts", new CreateLayoutRequest("credit-b", "B", "CreditNote", rule, mapping), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
-            var explicitly = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{second.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 3), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            var explicitly = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{second.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 3), Ct)).Content.ReadFromJsonAsync<ActivateLayoutResponse>(ApiFactory.Json, Ct))!.Layout;
             explicitly.Versions[0].ReviewWarmup.ShouldBe(3);
         }
         finally

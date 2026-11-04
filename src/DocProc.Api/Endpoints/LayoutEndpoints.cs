@@ -83,8 +83,15 @@ public sealed record CreateLayoutRequest(
     IReadOnlyList<string>? ItemKinds = null,
     Guid? ReceivingEntityId = null);
 
-/// <summary>The body of <c>:activate</c>: the version's review warm-up, the tenant's (<c>layoutReviewWarmup</c>, 5 by default) when left out.</summary>
-public sealed record ActivateLayoutRequest(int? ReviewWarmup = null);
+/// <summary>
+/// The body of <c>:activate</c>: the version's review warm-up, the tenant's (<c>layoutReviewWarmup</c>, 5 by default) when
+/// left out, and whether the documents waiting for the version (its pending siblings) are reprocessed from Classify at once
+/// ("Activate and reprocess N documents", docs/11 §19).
+/// </summary>
+public sealed record ActivateLayoutRequest(int? ReviewWarmup = null, bool? ReprocessWaiting = null);
+
+/// <summary>What <c>:activate</c> did: the layout, the replay that allowed it, the documents waiting for the version and the ones reprocessed.</summary>
+public sealed record ActivateLayoutResponse(SupplierLayoutResponse Layout, DocProc.Pipeline.Layouts.ReplayReport Replay, IReadOnlyList<Guid> Waiting, IReadOnlyList<Guid> Reprocessed);
 
 /// <summary>Why an identifier held (docs/11 §8.5 evidence): which one, what it is, the page, the box and the words matched.</summary>
 public sealed record IdentificationEvidenceDto(string Path, string Kind, string Description, bool Positive, int? Page, IReadOnlyList<double>? BBox, string? Text)
@@ -187,9 +194,9 @@ public static partial class LayoutEndpoints
         group.MapPost("/suppliers/{supplierId:guid}/layouts", CreateAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("CreateSupplierLayout")
             .WithMetadata(new RequestSizeLimitAttribute(256 * 1024))
             .WithSummary("Adds a layout written by hand or imported: version 1 with its identification rule and field mapping, saved as a Candidate (docs/11 §8.3).");
-        group.MapPost("/supplier-layouts/{layoutId:guid}/versions/{version:int}:activate", ActivateAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("ActivateSupplierLayoutVersion")
-            .WithSummary("Activates a version after the identification test (its rule holds on no approved document of the supplier's other layouts), with the tenant's review warm-up; the previous Active version is retired.");
-        group.MapPost("/supplier-layouts/{layoutId:guid}:retire", RetireAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("RetireSupplierLayout")
+        group.MapPost("/supplier-layouts/{layoutId:guid}/versions/{version:int}:activate", ActivateAsync).RequireAuthorization(Policies.MappingAuthor).WithTags("Layouts").WithName("ActivateSupplierLayoutVersion")
+            .WithSummary("Activates a version under the condition of docs/11 §8.3 (the identification test passes and the field replay agrees on a non-empty replay set), with the tenant's review warm-up; the previous Active version is retired, and the documents waiting for it can be reprocessed.");
+        group.MapPost("/supplier-layouts/{layoutId:guid}:retire", RetireAsync).RequireAuthorization(Policies.MappingAuthor).WithTags("Layouts").WithName("RetireSupplierLayout")
             .WithSummary("Retires a layout: it identifies no document from then on; documents it identified keep their version.");
         group.MapPost("/identification-rules:test", TestAsync).RequireAuthorization(Policies.Read).WithTags("Layouts").WithName("TestIdentificationRule")
             .WithMetadata(new RequestSizeLimitAttribute(64 * 1024))
@@ -202,7 +209,7 @@ public static partial class LayoutEndpoints
         title: "Feature not enabled",
         detail: "The 'supplierLayouts' feature is off for this tenant; a tenant admin switches it on in the settings (features.supplierLayouts). Layouts, identification rules and the layout warm-up need it.");
 
-    private static async Task<ProblemHttpResult?> GuardAsync(ITenantContext tenant, ITenantFeatures features, string what, CancellationToken ct)
+    internal static async Task<ProblemHttpResult?> GuardAsync(ITenantContext tenant, ITenantFeatures features, string what, CancellationToken ct)
     {
         if (RequireTenant(tenant, what) is { } problem)
         {
@@ -637,7 +644,7 @@ public static partial class LayoutEndpoints
         return TypedResults.Created($"/api/v1/supplier-layouts/{layout.Id}", Response(layout));
     }
 
-    private static async Task<Results<Ok<SupplierLayoutResponse>, ProblemHttpResult>> ActivateAsync(
+    private static async Task<Results<Ok<ActivateLayoutResponse>, ProblemHttpResult>> ActivateAsync(
         Guid layoutId,
         int version,
         ActivateLayoutRequest? request,
@@ -646,6 +653,8 @@ public static partial class LayoutEndpoints
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
         [FromServices] IContainerBlobStore blobs,
+        [FromServices] IEffectiveConfigResolver configs,
+        Application.Pipeline.IPipelineQueue queue,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -671,56 +680,44 @@ public static partial class LayoutEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid warm-up", detail: $"reviewWarmup is 0 to {TenantSettings.MaxLayoutReviewWarmup} documents.");
         }
 
-        // The identification test of docs/11 §8.3: the rule must not hold on an approved document another layout of the
-        // supplier (or its group) identified. The field replay over the replay set is not run here.
-        var rule = IdentificationRule.Parse(target.IdentificationJson);
-        var ownerSupplier = layout.SupplierId;
-        var others = await db.SupplierLayoutVersions.AsNoTracking()
-            .Where(v => v.LayoutId != layout.Id && v.Layout!.OwnerId == layout.OwnerId)
-            .Select(v => v.Id)
-            .ToListAsync(ct);
-        var approved = await db.Documents.AsNoTracking().Include(d => d.IngestionItem).ThenInclude(i => i!.Ingestion)
-            .Where(d => d.SupplierLayoutVersionId != null && others.Contains(d.SupplierLayoutVersionId.Value)
-                        && (d.Status == DocumentStatus.Approved || d.Status == DocumentStatus.AutoApproved))
-            .Take(200)
-            .ToListAsync(ct);
-        var values = ownerSupplier is { } sid ? (await LayoutSettings.LoadAsync(db, tenant.TenantId!.Value, sid, ct))?.Values ?? SupplierValues.None : SupplierValues.None;
-        var overlapping = new List<Guid>();
-        foreach (var document in approved)
+        // The activation condition of docs/11 §8.3: the identification test (the rule holds on its own documents and on no
+        // approved document of the owner's other layouts nor a pending one of another Candidate) and the field replay.
+        var learning = new DocProc.Pipeline.Layouts.LayoutLearning(db, blobs, configs, clock);
+        var actor = DocumentQueries.ActorName(user);
+        var outcome = await learning.ActivateAsync(layout, target, actor, request?.ReviewWarmup, ct);
+        if (!outcome.Activated)
         {
-            var words = await WordsAsync(blobs, document, ct);
-            if (IdentificationRuleEvaluator.Evaluate(rule, new IdentificationContext(words, values, LayoutSettings.SourceOf(document))).Holds)
+            await db.SaveChangesAsync(ct);
+            var overlap = outcome.Replay.Overlaps.Count > 0;
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: overlap ? "Identification test failed" : "Replay failed",
+                detail: overlap
+                    ? $"The rule of {layout.LayoutKey} version {version} also holds on {outcome.Replay.Overlaps.Count} document(s) of the supplier's other layouts or a pending Candidate; add an identifier that tells them apart."
+                    : outcome.Refusal,
+                extensions: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["code"] = overlap ? "LAYOUT_OVERLAP" : "LAYOUT_REPLAY_FAILED",
+                    ["documentIds"] = overlap ? outcome.Replay.Overlaps.Select(o => o.DocumentId).ToList() : outcome.Replay.SourceNotMatched,
+                    ["fields"] = outcome.Replay.Fields.Where(f => f.Agreement < outcome.Replay.Threshold).Select(f => f.Path).ToList(),
+                });
+        }
+
+        await db.SaveChangesAsync(ct);
+        var reprocessed = new List<Guid>();
+        if (request?.ReprocessWaiting == true)
+        {
+            foreach (var waiting in await db.Documents.AsNoTracking().Where(d => outcome.Waiting.Contains(d.Id)).ToListAsync(ct))
             {
-                overlapping.Add(document.Id);
+                if (await DocumentEndpoints.ReprocessCoreAsync(db, queue, waiting, Application.Pipeline.PipelineStage.Classify, unpin: true, actor, clock.GetUtcNow(), ReprocessConfigModes.Current, ct) is null)
+                {
+                    reprocessed.Add(waiting.Id);
+                }
             }
         }
 
-        if (overlapping.Count > 0)
-        {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Identification test failed",
-                detail: $"The rule of {layout.LayoutKey} version {version} also holds on {overlapping.Count} approved document(s) of the supplier's other layouts; add an identifier that tells them apart.",
-                extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "LAYOUT_OVERLAP", ["documentIds"] = overlapping });
-        }
-
-        var tenantRow = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == tenant.TenantId!.Value, ct);
-        var now = clock.GetUtcNow();
-        foreach (var previous in layout.Versions.Where(v => v.Id != target.Id && v.Status is SupplierLayoutVersionStatus.Active or SupplierLayoutVersionStatus.Degraded))
-        {
-            previous.Status = SupplierLayoutVersionStatus.Retired;
-        }
-
-        target.Status = SupplierLayoutVersionStatus.Active;
-        target.ReviewWarmup = request?.ReviewWarmup ?? tenantRow.Settings.EffectiveLayoutReviewWarmup();
-        target.WarmupSeen = 0;
-        target.ConsecutiveFailures = 0;
-        target.ApprovedBy = DocumentQueries.ActorName(user);
-        target.ApprovedAt = now;
-        layout.ActiveVersion = target.Version;
-        layout.UpdatedAt = now;
-        await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(Response(layout));
+        var fresh = await db.SupplierLayouts.AsNoTracking().Include(l => l.Versions).SingleAsync(l => l.Id == layoutId, ct);
+        return TypedResults.Ok(new ActivateLayoutResponse(Response(fresh), outcome.Replay, outcome.Waiting, reprocessed));
     }
 
     private static async Task<Results<Ok<SupplierLayoutResponse>, ProblemHttpResult>> RetireAsync(Guid layoutId, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, TimeProvider clock, CancellationToken ct)
@@ -738,6 +735,11 @@ public static partial class LayoutEndpoints
 
         layout.Status = SupplierLayoutStatus.Retired;
         layout.UpdatedAt = clock.GetUtcNow();
+        foreach (var candidate in layout.Versions)
+        {
+            await DocProc.Pipeline.Layouts.LayoutNotifications.ResolveAsync(db, candidate.Id, "retired", layout.UpdatedAt, ct);
+        }
+
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(Response(layout));
     }
@@ -754,7 +756,7 @@ public static partial class LayoutEndpoints
             .Select(s => new LayoutSuggestionDto(s.LayoutId, s.LayoutKey, s.VersionId, s.DocumentTypeKey, s.Similarity, s.Differences)),
     ];
 
-    private static async Task<DocumentWords> WordsAsync(IContainerBlobStore blobs, Document document, CancellationToken ct)
+    internal static async Task<DocumentWords> WordsAsync(IContainerBlobStore blobs, Document document, CancellationToken ct)
     {
         try
         {
@@ -780,7 +782,7 @@ public static partial class LayoutEndpoints
         [.. e.Result.Evidence.Select(IdentificationEvidenceDto.From)],
         e.Result.Failed);
 
-    private static SupplierLayoutResponse Response(SupplierLayout layout) => new(
+    internal static SupplierLayoutResponse Response(SupplierLayout layout) => new(
         layout.Id,
         layout.Scope.ToString(),
         layout.SupplierId,
@@ -818,7 +820,7 @@ public static partial class LayoutEndpoints
         v.ApprovedBy,
         v.ApprovedAt);
 
-    private static JsonElement? Element(string? json)
+    internal static JsonElement? Element(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {

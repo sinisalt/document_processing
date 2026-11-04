@@ -136,6 +136,7 @@ public static class DocumentQueries
             JoinedIntoDocumentId = d.JoinedIntoDocumentId,
             TypeSource = d.TypeSource,
             SupplierLayoutVersionId = d.SupplierLayoutVersionId,
+            PendingLayoutVersionId = d.PendingLayoutVersionId,
         };
     }
 

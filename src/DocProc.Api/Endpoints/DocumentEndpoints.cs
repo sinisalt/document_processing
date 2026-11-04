@@ -137,6 +137,7 @@ public static partial class DocumentEndpoints
         string? cursor,
         int? limit,
         string? fields,
+        Guid? pendingLayoutVersionId,
         HttpContext http,
         [FromServices] DocProcDbContext db,
         CancellationToken ct)
@@ -183,6 +184,12 @@ public static partial class DocumentEndpoints
         if (supplierId is { } supplier)
         {
             query = query.Where(d => d.SupplierId == supplier);
+        }
+
+        // ?pendingLayoutVersionId= (docs/11 §12.10 step 1): the documents waiting for a Candidate layout.
+        if (pendingLayoutVersionId is { } pending)
+        {
+            query = query.Where(d => d.PendingLayoutVersionId == pending);
         }
 
         if (!string.IsNullOrWhiteSpace(flag))
@@ -490,6 +497,7 @@ public static partial class DocumentEndpoints
         Guid id,
         ApproveDocumentRequest? request,
         [FromServices] DocProcDbContext db,
+        [FromServices] IContainerBlobStore blobs,
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
@@ -519,8 +527,30 @@ public static partial class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Approved);
+        if (request?.LearnLayout is not null && !await features.IsEnabledAsync(document.TenantId, TenantFeature.SupplierLayouts, ct))
+        {
+            return LayoutEndpoints.FeatureOff();
+        }
+
+        ProblemHttpResult? learnRefusal = null;
         var claimed = await InTransactionAsync(db, async cancel =>
         {
+            // "Approve and save as layout" (docs/11 §12.10 step 6): the layout is saved in the approval's transaction, and
+            // NEW_LAYOUT is resolved as learned; approved without it, as approvedWithoutLayout (§11).
+            if (request?.LearnLayout is { } learn)
+            {
+                var learned = await LayoutLearningEndpoints.LearnAsync(db, blobs, configs, clock, id, learn, user, actor, cancel);
+                if (learned.Problem is { } problem)
+                {
+                    learnRefusal = problem;
+                    return false;
+                }
+            }
+            else
+            {
+                await LayoutLearningEndpoints.ResolveNewLayoutAsync(db, id, "approvedWithoutLayout", actor, now, cancel);
+            }
+
             var updated = await db.Documents
                 .Where(d => d.Id == id && d.Status == change.From)
                 .ExecuteUpdateAsync(
@@ -544,6 +574,11 @@ public static partial class DocumentEndpoints
             await db.SaveChangesAsync(cancel);
             return true;
         }, ct);
+        if (learnRefusal is not null)
+        {
+            return learnRefusal;
+        }
+
         if (!claimed)
         {
             return ConcurrentChange(id);
@@ -659,6 +694,22 @@ public static partial class DocumentEndpoints
         }
 
         var document = row.Document;
+        if (await ReprocessCoreAsync(db, queue, document, stage, unpin, DocumentQueries.ActorName(user), clock.GetUtcNow(), configMode, ct) is { } refused)
+        {
+            return refused;
+        }
+
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+    }
+
+    /// <summary>
+    /// Sends a document back through the pipeline from <paramref name="stage"/> (docs/03, docs/11 §15.5): the state check,
+    /// the stage-reached check, the claim, the closed review tasks, the event and the queued message. Null when it was
+    /// queued; the refusal otherwise. Shared by <c>:reprocess</c>, <c>documents:bulk-reprocess</c> and <c>:match-layout</c>.
+    /// </summary>
+    internal static async Task<ProblemHttpResult?> ReprocessCoreAsync(DocProcDbContext db, IPipelineQueue queue, Document document, PipelineStage stage, bool unpin, string actor, DateTimeOffset now, string configMode, CancellationToken ct)
+    {
+        var id = document.Id;
         var target = ReprocessStart[stage];
         if (!DocumentStateMachine.CanReprocess(document.Status, target))
         {
@@ -681,8 +732,6 @@ public static partial class DocumentEndpoints
                 detail: $"Document {document.Id} never got past {reached}, so it cannot rerun from {stage} (which needs the output of the stages before it). The latest stage it can rerun from is {latest}.");
         }
 
-        var now = clock.GetUtcNow();
-        var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, target);
         var claimed = await InTransactionAsync(db, async cancel =>
         {
@@ -721,8 +770,11 @@ public static partial class DocumentEndpoints
         }
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, stage), ct);
-        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+        return null;
     }
+
+    /// <summary>The stages a document can be sent back to (docs/03): the stages <c>:reprocess</c> takes.</summary>
+    internal static IReadOnlyCollection<PipelineStage> ReprocessStages => [.. ReprocessStart.Keys];
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> CorrectFieldsAsync(
         Guid id,

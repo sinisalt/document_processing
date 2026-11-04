@@ -339,14 +339,14 @@ public static partial class DocumentEndpoints
     }
 
     /// <summary>What <see cref="RememberAsync"/> made: the rule (added, not saved; an existing rule of the same supplier is reused), or why not.</summary>
-    private sealed record RememberedRule(SupplierSourceRule? Rule, ValidationProblem? Invalid, ProblemHttpResult? Problem);
+    internal sealed record RememberedRule(SupplierSourceRule? Rule, ValidationProblem? Invalid, ProblemHttpResult? Problem);
 
     /// <summary>
     /// The source rule an assignment remembers (docs/11 §12.1, §18 <c>remember</c>): the named facts of the document's
     /// ingestion as conditions, checked like <c>POST /suppliers/{id}/source-rules</c>. A reviewer without
     /// <c>ConfigAdmin</c> proposes it (saved disabled), as a reviewer's learned layout is a Candidate (decision 2).
     /// </summary>
-    private static async Task<RememberedRule> RememberAsync(DocProcDbContext db, Document document, Supplier supplier, AssignSupplierRemember remember, ClaimsPrincipal user, string actor, DateTimeOffset now, CancellationToken ct)
+    internal static async Task<RememberedRule> RememberAsync(DocProcDbContext db, Document document, Supplier supplier, AssignSupplierRemember remember, ClaimsPrincipal user, string actor, DateTimeOffset now, CancellationToken ct)
     {
         var ingestion = await db.IngestionItems.AsNoTracking().Where(i => i.Id == document.IngestionItemId).Select(i => i.Ingestion!).SingleAsync(ct);
         var conditions = (remember.Conditions ?? []).Select(c => c.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -778,7 +778,7 @@ public static partial class DocumentEndpoints
             extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = block.Code });
 
     /// <summary>A 409 unless a reviewer may act on the document now (NeedsReview, Validated or Failed).</summary>
-    private static ProblemHttpResult? NotInReview(Document document, string action) =>
+    internal static ProblemHttpResult? NotInReview(Document document, string action) =>
         Correctable.Contains(document.Status)
             ? null
             : TypedResults.Problem(
@@ -788,7 +788,7 @@ public static partial class DocumentEndpoints
                     ? $"Document {document.Id} is {document.Status}; reprocess it before you {action}."
                     : $"Document {document.Id} is {document.Status}: the pipeline is still writing it. You can {action} once it is NeedsReview, Validated or Failed.");
 
-    private static void ApplyType(Document document, DocumentTypeKey key, EffectiveType type, DateTimeOffset now)
+    internal static void ApplyType(Document document, DocumentTypeKey key, EffectiveType type, DateTimeOffset now)
     {
         document.Type = key;
         document.TypeSource = TypeSource.Human;
@@ -823,7 +823,7 @@ public static partial class DocumentEndpoints
         document.LineCount = null;
     }
 
-    private static void AddSetTypeCorrection(DocProcDbContext db, Document document, object previous, object next, string actor, DateTimeOffset now) =>
+    internal static void AddSetTypeCorrection(DocProcDbContext db, Document document, object previous, object next, string actor, DateTimeOffset now) =>
         db.Corrections.Add(new Correction
         {
             TenantId = document.TenantId,
@@ -929,7 +929,7 @@ public static partial class DocumentEndpoints
     }
 
     /// <summary>The detail as stored now, with the flag counts the action changed.</summary>
-    private static async Task<DocumentDetail> FreshDetailAsync(DocProcDbContext db, Guid id, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
+    internal static async Task<DocumentDetail> FreshDetailAsync(DocProcDbContext db, Guid id, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
     {
         db.ChangeTracker.Clear();
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct) ?? throw new InvalidOperationException($"Document {id} vanished after a review action.");

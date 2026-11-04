@@ -37,7 +37,10 @@ public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, boo
 /// removes it), <see cref="LayoutsRequiredByDefault"/> (the default of a supplier's <c>layouts.required: inherit</c>)
 /// and <see cref="TrustedForwarderDomains"/> (forwarders unwrapped for every mailbox of the tenant).
 /// <see cref="LayoutReviewWarmup"/> (docs/11 §8.3 <c>layoutActivation</c>, decision 2 of §24) is how many documents
-/// under a newly activated layout version go to review, 5 by default; changing it needs <c>supplierLayouts</c>.
+/// under a newly activated layout version go to review, 5 by default; changing it needs <c>supplierLayouts</c>, and the
+/// Active versions whose warm-up is the tenant's old one take the new one (the settled P4 demo sets 0).
+/// <see cref="LayoutAgreementPercent"/> is the field agreement a version needs on its replay set to be activated (docs/11
+/// §8.3, 90 % by default).
 /// </summary>
 public sealed record TenantSettingsDto(
     double AutoApproveConfidenceThreshold,
@@ -48,7 +51,8 @@ public sealed record TenantSettingsDto(
     JsonElement? SupplierAttributeSchema = null,
     bool? LayoutsRequiredByDefault = null,
     IReadOnlyList<string>? TrustedForwarderDomains = null,
-    int? LayoutReviewWarmup = null)
+    int? LayoutReviewWarmup = null,
+    int? LayoutAgreementPercent = null)
 {
     internal static TenantSettingsDto From(TenantSettings s) => new(
         s.AutoApproveConfidenceThreshold,
@@ -59,7 +63,8 @@ public sealed record TenantSettingsDto(
         SchemaOf(s.SupplierAttributeSchema),
         s.LayoutsRequiredByDefault,
         s.TrustedForwarderDomains ?? [],
-        s.EffectiveLayoutReviewWarmup());
+        s.EffectiveLayoutReviewWarmup(),
+        s.LayoutAgreementPercent ?? TenantSettings.DefaultLayoutAgreementPercent);
 
     private static JsonElement? SchemaOf(string? json)
     {
@@ -189,6 +194,11 @@ public static class TenantSettingsEndpoints
                 errors.Add("layoutReviewWarmup", $"layoutReviewWarmup is 0 to {TenantSettings.MaxLayoutReviewWarmup} documents.");
             }
 
+            if (request.LayoutAgreementPercent is { } agreement && agreement is < 50 or > 100)
+            {
+                errors.Add("layoutAgreementPercent", "layoutAgreementPercent is 50 to 100.");
+            }
+
             if (errors.ToProblem() is { } invalid)
             {
                 return invalid;
@@ -213,14 +223,22 @@ public static class TenantSettingsEndpoints
 
             // The layout warm-up of decision 2 (docs/11 §24): changing it needs supplierLayouts; sending back what GET gave does not.
             var warmupChanged = request.LayoutReviewWarmup is { } newWarmup && newWarmup != current.Settings.EffectiveLayoutReviewWarmup();
-            if (warmupChanged && !(request.Features?.SupplierLayouts ?? current.Settings.Features?.SupplierLayouts ?? false))
+            var agreementChanged = request.LayoutAgreementPercent is { } newAgreement && newAgreement != (current.Settings.LayoutAgreementPercent ?? TenantSettings.DefaultLayoutAgreementPercent);
+            if ((warmupChanged || agreementChanged) && !(request.Features?.SupplierLayouts ?? current.Settings.Features?.SupplierLayouts ?? false))
             {
                 return LayoutEndpoints.FeatureOff();
             }
 
             if (warmupChanged)
             {
+                // The Active versions that carry the tenant's old warm-up follow it (an author's raised warm-up stays).
+                await DocProc.Pipeline.Layouts.LayoutWarmups.ApplyTenantWarmupAsync(db, current.Id, current.Settings.EffectiveLayoutReviewWarmup(), request.LayoutReviewWarmup!.Value, ct);
                 current.Settings.LayoutReviewWarmup = request.LayoutReviewWarmup;
+            }
+
+            if (agreementChanged)
+            {
+                current.Settings.LayoutAgreementPercent = request.LayoutAgreementPercent;
             }
 
             if (schemaChanged)

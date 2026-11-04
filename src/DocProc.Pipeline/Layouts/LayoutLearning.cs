@@ -313,15 +313,42 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
             int? pageOf = src?.Page;
             BoundingBox? boxOf = src?.BBox;
             var printed = src?.RawText;
-            if ((pageOf is null || boxOf is null) && (printed ?? Text(value)) is { Length: > 0 } search && LayoutPrefill.Find(words, search) is { } found)
+            if (pageOf is { } srcPage && boxOf is { } srcBox && !PrintedThere(words, srcPage, srcBox, printed ?? Text(value)))
             {
-                (pageOf, boxOf, printed) = (found.Page, found.Box, found.Text);
+                // A place that does not hold the value's text (an estimate) is no place: the text is looked for instead.
+                (pageOf, boxOf) = (null, null);
+            }
+
+            if (pageOf is null || boxOf is null)
+            {
+                // A value without a place (an LLM's, or one typed in) is looked for by its printed text, then by its value.
+                foreach (var search in new[] { printed, Text(value) }.OfType<string>().Where(t => t.Length > 0).Distinct(StringComparer.Ordinal))
+                {
+                    if (LayoutPrefill.Find(words, search) is { } found)
+                    {
+                        (pageOf, boxOf, printed) = (found.Page, found.Box, found.Text);
+                        break;
+                    }
+                }
             }
 
             samples.Add(new LearnSample(root.Path, kind.Kind, printed, value, pageOf, boxOf, kind.Options, AllowConstant: kind.Kind is FieldKinds.Currency or FieldKinds.Enum or FieldKinds.Boolean));
         }
 
         return (samples, tables);
+    }
+
+    /// <summary>Whether the words at a stored place spell the value's text (compared without spacing and case); true when there is no text to compare.</summary>
+    private static bool PrintedThere(DocumentWords words, int page, BoundingBox box, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        var hit = words.Page(page) is { } wordPage ? Mapping.Text.PageGeometry.Hit(wordPage.Words, new BoundingBox(box.X0 - 2, box.Y0 - 2, box.X1 + 2, box.Y1 + 2)) : [];
+        static string Compact(string s) => string.Concat(s.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+        return hit.Count > 0 && Compact(string.Concat(hit.Select(w => w.Text))).Contains(Compact(text), StringComparison.Ordinal);
     }
 
     private static string? Text(JsonNode value) => value switch
@@ -563,6 +590,92 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// A version's identification rule and field mapping run on a document without writing anything (the sandbox and the
+    /// regression runs of docs/11 §15.3): whether the rule holds and why not, and the tree the mapping fills with its drift.
+    /// </summary>
+    public async Task<(IdentificationResult Identification, JsonObject? Tree, DriftReport? Drift)> DryRunAsync(Document document, string typeKey, IdentificationRule rule, LayoutMapping mapping, string layoutRef, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(rule);
+        ArgumentNullException.ThrowIfNull(mapping);
+        var words = await WordsAsync(document, cancellationToken).ConfigureAwait(false);
+        var setting = document.SupplierId is { } supplierId ? await LayoutSettings.LoadAsync(db, document.TenantId, supplierId, cancellationToken).ConfigureAwait(false) : null;
+        var identification = IdentificationRuleEvaluator.Evaluate(rule, new IdentificationContext(words, setting?.Values ?? SupplierValues.None, LayoutSettings.SourceOf(document)));
+        if (!identification.Holds)
+        {
+            return (identification, null, null);
+        }
+
+        var type = await TypeOfAsync(document, typeKey, cancellationToken).ConfigureAwait(false);
+        if (type?.Compiled is not { } compiled)
+        {
+            return (identification, null, null);
+        }
+
+        var descriptors = compiled.Descriptors;
+        var locale = setting is null ? ValueLocale.German : LocaleOf(setting.Supplier, mapping);
+        var required = descriptors.Roots.Where(f => f.Required).Select(f => f.Path).ToList();
+        var extraction = LayoutEngine.Run(mapping, words, layoutRef, p => LayoutTreeWriter.KindOf(descriptors, p), p => LayoutTreeWriter.RowFieldsOf(descriptors, p), locale, required, cancellationToken);
+        var typedRecord = document.Type.IsInvoiceFamily && document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion;
+        var (tree, _) = LayoutTreeWriter.Build(descriptors, extraction, mapping.Defaults, setting?.Attributes ?? new Dictionary<string, string>(), document.Currency, typedRecord, DocumentTypeKey.Parse(typeKey));
+        return (identification, tree, extraction.Drift);
+    }
+
+    /// <summary>
+    /// A tree's values as a golden document keeps them (docs/11 §6.9 <c>ExpectedValuesJson</c>) and a regression run
+    /// compares them: per field path the comparable value (<see cref="ValueComparison"/>), composite members by their
+    /// path, a repeating group by its row count and each row's values (at most 500 rows).
+    /// </summary>
+    public static JsonObject Snapshot(JsonObject tree, DescriptorIndex descriptors)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(descriptors);
+        var snapshot = new JsonObject();
+        foreach (var root in descriptors.Roots.Where(r => r.Key != "kind"))
+        {
+            if (root.Kind == FieldKinds.Array)
+            {
+                if (tree[root.Key] is JsonArray rows && LayoutTreeWriter.RowFieldsOf(descriptors, root.Path) is { } rowFields)
+                {
+                    snapshot[$"{root.Key}.count"] = rows.Count;
+                    for (var i = 0; i < Math.Min(rows.Count, 500); i++)
+                    {
+                        foreach (var field in rowFields.Keys)
+                        {
+                            if (rows[i] is JsonObject row && ValueComparison.Comparable(ValueAt(row, field)) is { } cell)
+                            {
+                                snapshot[$"{root.Key}[{i}].{field}"] = cell;
+                            }
+                        }
+                    }
+                }
+
+                continue;
+            }
+
+            if (FieldKinds.IsComposite(root.Kind) && root.Members.Count > 0)
+            {
+                foreach (var member in root.Members)
+                {
+                    if (ValueComparison.Comparable(ValueAt(tree, $"{root.Key}.{member.Key}")) is { } value)
+                    {
+                        snapshot[$"{root.Key}.{member.Key}"] = value;
+                    }
+                }
+
+                continue;
+            }
+
+            if (ValueComparison.Comparable(ValueAt(tree, root.Path)) is { } scalar)
+            {
+                snapshot[root.Path] = scalar;
+            }
+        }
+
+        return snapshot;
     }
 
     /// <summary>The documents a version was built from (<c>SourceDocumentIdsJson</c>).</summary>

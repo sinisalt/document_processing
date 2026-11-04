@@ -156,6 +156,9 @@ public sealed record DocumentDetail(
     /// </summary>
     public Guid? SupplierLayoutVersionId { get; init; }
 
+    /// <summary>The Candidate layout version the document waits for (docs/11 §12.10); never applied.</summary>
+    public Guid? PendingLayoutVersionId { get; init; }
+
     /// <summary>
     /// Why <c>:approve</c> would refuse the document now (docs/11 §11 "Approve is refused when a document has no definition
     /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
@@ -245,7 +248,33 @@ public sealed record DocumentEventDto(
     JsonElement? Details,
     DateTimeOffset At);
 
-public sealed record ApproveDocumentRequest(string? Comment);
+/// <summary>
+/// <c>:approve</c> (docs/05): an optional comment and, for a document of a known supplier, <see cref="LearnLayout"/>
+/// ("Approve and save as layout", docs/11 §12.10 step 6): the approval and the saved layout commit together. Without it a
+/// <c>NEW_LAYOUT</c> document is approved alone and the flag is resolved as <c>approvedWithoutLayout</c>.
+/// </summary>
+public sealed record ApproveDocumentRequest(string? Comment, LearnLayoutRequest? LearnLayout = null);
+
+/// <summary>
+/// <c>POST /documents/{id}:learn-layout</c> (docs/11 §12.6, §18): <see cref="SaveAs"/> <c>newLayout</c> (default) or
+/// <c>newVersion</c> of <see cref="TargetLayoutId"/>; <see cref="LayoutKey"/> and <see cref="Name"/> for a new layout
+/// (a free key is derived otherwise); <see cref="Identification"/>, the rule the reviewer marked (else one is proposed,
+/// or the target's for a new version); <see cref="Fields"/>, the paths to learn (every value by default);
+/// <see cref="ConfirmNotRecognised"/>, the confirmation that the target's current design will no longer be recognised;
+/// <see cref="PendingLayoutVersionId"/>, "confirm against pending layout" instead of a new one; <see cref="SourceRules"/>,
+/// the source rule to save with it (as <c>:assign-supplier</c>'s <c>remember</c>).
+/// </summary>
+public sealed record LearnLayoutRequest(
+    string? SaveAs = null,
+    Guid? TargetLayoutId = null,
+    string? LayoutKey = null,
+    string? Name = null,
+    System.Text.Json.JsonElement? Identification = null,
+    IReadOnlyList<string>? Fields = null,
+    bool? ConfirmNotRecognised = null,
+    Guid? PendingLayoutVersionId = null,
+    int? Priority = null,
+    AssignSupplierRemember? SourceRules = null);
 
 public sealed record RejectDocumentRequest(string Reason);
 

@@ -76,7 +76,7 @@ public sealed class TenantSettingsEndpointsTests(ApiFactory factory) : IClassFix
         var ok = await admin.PutAsJsonAsync(SettingsUri, new TenantSettingsDto(0.95, [supplier.Id, supplier.Id], 8, false), Ct);
         ok.StatusCode.ShouldBe(HttpStatusCode.OK);
         var saved = (await ok.Content.ReadFromJsonAsync<TenantSettingsResponse>(Ct))!;
-        saved.Settings.ShouldMatch(new TenantSettingsDto(0.95, [supplier.Id], 8, false, new TenantFeaturesDto(false, false, false, false, false, false), null, false, [], DocProc.Infrastructure.Persistence.Entities.TenantSettings.DefaultLayoutReviewWarmup));
+        saved.Settings.ShouldMatch(new TenantSettingsDto(0.95, [supplier.Id], 8, false, new TenantFeaturesDto(false, false, false, false, false, false), null, false, [], DocProc.Infrastructure.Persistence.Entities.TenantSettings.DefaultLayoutReviewWarmup, DocProc.Infrastructure.Persistence.Entities.TenantSettings.DefaultLayoutAgreementPercent));
 
         var stored = factory.Query(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA));
         stored.Settings.AutoApproveConfidenceThreshold.ShouldBe(0.95);

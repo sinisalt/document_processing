@@ -96,6 +96,8 @@ v1.MapSuppliers();
 v1.MapSupplierGroups();
 v1.MapSourceRules();
 v1.MapLayouts();
+v1.MapLayoutLearning();
+v1.MapGovernance();
 v1.MapChannels();
 v1.MapMembers();
 v1.MapTenantSettings();

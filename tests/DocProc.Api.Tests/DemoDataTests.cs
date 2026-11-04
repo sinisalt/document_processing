@@ -81,7 +81,7 @@ public sealed class DemoDataTests
         var members = DemoData.Members.OrderBy(m => m.Username, StringComparer.Ordinal).ToList();
 
         members.Select(m => (m.Username, m.Email, m.DisplayName, m.TenantId, m.UserId, Role: m.Role.ToString()))
-            .ShouldBe(customers.Select(u => (u.Username, u.Email, u.DisplayName, u.TenantId!.Value, UserId: u.Subject, Role: u.Roles.Single())));
+            .ShouldBe(customers.Select(u => (u.Username, u.Email, u.DisplayName, u.TenantId!.Value, UserId: u.Subject, Role: u.Roles.Except(DocProc.Api.Auth.Roles.Grants).Single())));
     }
 
     [Fact]
