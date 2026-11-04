@@ -92,6 +92,20 @@ internal static class LayoutTreeWriter
             }
         }
 
+        // A tax row of which only the rate was found (a constant rate of the layout, or of another layout in the pre-fill)
+        // is no tax row: it would only raise "the taxable amounts sum to 0.00". It is left out.
+        foreach (var taxRows in descriptors.Roots.Where(f => f.Kind == FieldKinds.TaxRow && f.IsList && !f.Provenance))
+        {
+            if (root[taxRows.Key] is JsonArray rows && rows.Count > 0 && rows.All(r => r is JsonObject row && row["taxableAmount"] is null && row["taxAmount"] is null))
+            {
+                root[taxRows.Key] = new JsonArray();
+                foreach (var key in written.Keys.Where(k => k.StartsWith($"{taxRows.Key}.", StringComparison.Ordinal)).ToList())
+                {
+                    written.Remove(key);
+                }
+            }
+        }
+
         if (currency is not null && Locate(root, descriptors, "currency") is { Kind: FieldKinds.Currency } slot && DefinitionTree.ValueOf(slot.Current) is null && !written.ContainsKey("currency"))
         {
             root["currency"] = Envelope(JsonValue.Create(currency), new FieldSource(SourceMethod.Profile), 1.0, inferred: true);

@@ -298,6 +298,9 @@ public sealed class LayoutLearningPipelineTests
         var tree = JsonNode.Parse(first.CanonicalJson!)!.ToJsonString();
         tree.ShouldContain(DemoNordwindInvoices.WebShop[0].Number);
         tree.ShouldContain("401187");
+        // The ERP layout's constant tax rate alone makes no tax row (it raised TAX_MISMATCH and INVALID_VALUE in the compose demo).
+        (JsonNode.Parse(first.CanonicalJson!)!["taxBreakdown"] as JsonArray ?? []).ShouldBeEmpty();
+        first.Flags.ShouldNotContain(f => f.Code == FlagCodes.TaxMismatch || f.Code == FlagCodes.InvalidValue);
 
         // Saved by a MappingAuthor: the replay reads the lines as the stored record has them (units by name), so the
         // forked invoice's own rows agree and the version is Active (the compose demo got 0 % on lines before).
