@@ -64,7 +64,11 @@
     "DELIVERY_FAILED": "Delivery failed",
     "SUPPLIER_SOURCE_UNVERIFIED": "Sender not authenticated",
     "SUPPLIER_AMBIGUOUS": "Supplier ambiguous",
-    "SUPPLIER_CONFLICT": "Supplier conflict"
+    "SUPPLIER_CONFLICT": "Supplier conflict",
+    "NEW_LAYOUT": "New layout",
+    "LAYOUT_AMBIGUOUS": "Layout ambiguous",
+    "MAPPING_DRIFT": "Layout drift",
+    "LAYOUT_WARMUP": "Layout warm-up"
   },
   "stages": {
     "Normalize": "Normalize",

@@ -64,7 +64,11 @@
     "DELIVERY_FAILED": "Zustellung fehlgeschlagen",
     "SUPPLIER_SOURCE_UNVERIFIED": "Absender nicht authentifiziert",
     "SUPPLIER_AMBIGUOUS": "Lieferant mehrdeutig",
-    "SUPPLIER_CONFLICT": "Lieferantenkonflikt"
+    "SUPPLIER_CONFLICT": "Lieferantenkonflikt",
+    "NEW_LAYOUT": "Neues Layout",
+    "LAYOUT_AMBIGUOUS": "Layout mehrdeutig",
+    "MAPPING_DRIFT": "Layout-Abweichung",
+    "LAYOUT_WARMUP": "Layout-Anlaufphase"
   },
   "stages": {
     "Normalize": "Normalisieren",

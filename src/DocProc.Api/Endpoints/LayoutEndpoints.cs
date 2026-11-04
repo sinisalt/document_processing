@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DocProc.Api.Auth;
+using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Domain.Documents;
@@ -67,6 +68,23 @@ public sealed record SupplierLayoutVersionResponse(
     IReadOnlyList<string> Coverage,
     JsonElement? Replay,
     JsonElement? SimilarityProfile);
+
+/// <summary>
+/// The body of <c>POST /suppliers/{id}/layouts</c> (docs/11 §18): a layout written by hand or imported, version 1 with its
+/// identification rule (<c>schemas/identification-rule.v1.json</c>) and field mapping (§8.1), saved as a Candidate.
+/// </summary>
+public sealed record CreateLayoutRequest(
+    string LayoutKey,
+    string Name,
+    string DocumentTypeKey,
+    JsonElement Identification,
+    JsonElement Mapping,
+    int? Priority = null,
+    IReadOnlyList<string>? ItemKinds = null,
+    Guid? ReceivingEntityId = null);
+
+/// <summary>The body of <c>:activate</c>: the version's review warm-up, the tenant's (<c>layoutReviewWarmup</c>, 5 by default) when left out.</summary>
+public sealed record ActivateLayoutRequest(int? ReviewWarmup = null);
 
 /// <summary>Why an identifier held (docs/11 §8.5 evidence): which one, what it is, the page, the box and the words matched.</summary>
 public sealed record IdentificationEvidenceDto(string Path, string Kind, string Description, bool Positive, int? Page, IReadOnlyList<double>? BBox, string? Text)
@@ -142,10 +160,11 @@ public sealed record LayoutResolveResponse(
 /// <summary>
 /// Supplier layouts and identification rules (docs/11 §6.6, §8, §18), behind the <c>supplierLayouts</c> switch: the
 /// supplier's and a group's layouts with their versions, one version in full, a dry run of the resolver on a document,
-/// the layout suggestions for a document, and the identification rule test. All reads; layouts are learned and
-/// activated from review (part C of P4).
+/// the layout suggestions for a document, the identification rule test, and for a <c>ConfigAdmin</c> a layout written
+/// by hand or imported (saved as a Candidate), its activation after the identification test and its retirement.
+/// Learning layouts from review is part C of P4.
 /// </summary>
-public static class LayoutEndpoints
+public static partial class LayoutEndpoints
 {
     public const int DefaultLastN = 50;
     public const int MaxLastN = 200;
@@ -165,6 +184,13 @@ public static class LayoutEndpoints
             .WithSummary("Dry-runs the layout resolver for a document (?documentId=) against the supplier's layouts and explains every candidate; changes nothing.");
         group.MapGet("/documents/{id:guid}/layout-suggestions", SuggestionsAsync).RequireAuthorization(Policies.Read).WithTags("Layouts").WithName("GetLayoutSuggestions")
             .WithSummary("The supplier's layouts ranked by similarity to the document (docs/11 §8.4 step 5); informational, never applied.");
+        group.MapPost("/suppliers/{supplierId:guid}/layouts", CreateAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("CreateSupplierLayout")
+            .WithMetadata(new RequestSizeLimitAttribute(256 * 1024))
+            .WithSummary("Adds a layout written by hand or imported: version 1 with its identification rule and field mapping, saved as a Candidate (docs/11 §8.3).");
+        group.MapPost("/supplier-layouts/{layoutId:guid}/versions/{version:int}:activate", ActivateAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("ActivateSupplierLayoutVersion")
+            .WithSummary("Activates a version after the identification test (its rule holds on no approved document of the supplier's other layouts), with the tenant's review warm-up; the previous Active version is retired.");
+        group.MapPost("/supplier-layouts/{layoutId:guid}:retire", RetireAsync).RequireAuthorization(Policies.ConfigAdmin).WithTags("Layouts").WithName("RetireSupplierLayout")
+            .WithSummary("Retires a layout: it identifies no document from then on; documents it identified keep their version.");
         group.MapPost("/identification-rules:test", TestAsync).RequireAuthorization(Policies.Read).WithTags("Layouts").WithName("TestIdentificationRule")
             .WithMetadata(new RequestSizeLimitAttribute(64 * 1024))
             .WithSummary("Checks an identification rule and evaluates it on documents of a supplier, a group or the tenant: per document whether it holds, with evidence, and the overlaps with other layouts (docs/11 §8.3, §12.9).");
@@ -484,6 +510,240 @@ public static class LayoutEndpoints
             .ToList();
         return TypedResults.Ok(new IdentificationTestResponse(rule!.Describe(), rule.Hash, rule.PositiveCount, results.Count, results.Count(r => r.Matched), results, overlaps));
     }
+
+    private static async Task<Results<Created<SupplierLayoutResponse>, ValidationProblem, ProblemHttpResult>> CreateAsync(
+        Guid supplierId,
+        CreateLayoutRequest request,
+        ITenantContext tenant,
+        System.Security.Claims.ClaimsPrincipal user,
+        [FromServices] DocProcDbContext db,
+        [FromServices] ITenantFeatures features,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (await GuardAsync(tenant, features, "Layouts", ct) is { } problem)
+        {
+            return problem;
+        }
+
+        if (!await db.Suppliers.AsNoTracking().AnyAsync(s => s.Id == supplierId, ct))
+        {
+            return SupplierGroupEndpoints.NotFound("Supplier", supplierId);
+        }
+
+        var errors = new Errors()
+            .Require("name", request.Name, SupplierLayout.MaxNameLength);
+        var key = request.LayoutKey?.Trim() ?? string.Empty;
+        if (!LayoutKeyPattern().IsMatch(key))
+        {
+            errors.Add("layoutKey", $"A layout key is lowercase letters, digits and dashes, at most {SupplierLayout.MaxKeyLength} characters (nordwind-invoice-webshop).");
+        }
+
+        if (!DocumentTypeKey.TryParse(request.DocumentTypeKey, out var type) || type.IsUnknown)
+        {
+            errors.Add("documentTypeKey", $"'{request.DocumentTypeKey}' is not a type key.");
+        }
+
+        if (request.Priority is { } priority && priority is < 0 or > 10_000)
+        {
+            errors.Add("priority", "priority is 0 to 10000.");
+        }
+
+        if (request.ItemKinds is { } kinds && (kinds.Count > 6 || kinds.Any(k => k is not ("pdf" or "image" or "einvoice-xml" or "tabular" or "xml" or "json"))))
+        {
+            errors.Add("itemKinds", "itemKinds lists pdf, image, einvoice-xml, tabular, xml or json.");
+        }
+
+        if (request.ReceivingEntityId is { } entity && !await db.ReceivingEntities.AsNoTracking().AnyAsync(e => e.Id == entity, ct))
+        {
+            errors.Add("receivingEntityId", $"No receiving entity {entity} in this tenant.");
+        }
+
+        IdentificationRule? rule = null;
+        if (request.Identification.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add("identification", "identification is an identification rule object (all, any, none).");
+        }
+        else
+        {
+            rule = IdentificationRuleChecks.Check(request.Identification.GetRawText(), IdentificationScope.Layout, out var problems);
+            foreach (var group in problems.GroupBy(p => p.Path))
+            {
+                errors.Add($"identification.{group.Key}", string.Join(" ", group.Select(p => p.Message).Distinct()));
+            }
+        }
+
+        LayoutMapping? mapping = null;
+        if (request.Mapping.ValueKind != JsonValueKind.Object)
+        {
+            errors.Add("mapping", "mapping is a field mapping object (fields, defaults, requiredFields).");
+        }
+        else if (LayoutMapping.TryParse(request.Mapping.GetRawText(), out var mappingError) is { } parsed)
+        {
+            mapping = parsed;
+        }
+        else
+        {
+            errors.Add("mapping", mappingError!);
+        }
+
+        if (errors.ToProblem() is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (await db.SupplierLayouts.AnyAsync(l => l.Scope == SupplierLayoutScope.Supplier && l.OwnerId == supplierId && l.DocumentTypeKey == type.Value && l.LayoutKey == key, ct))
+        {
+            return Conflict("Layout exists", $"The supplier already has a {type} layout '{key}'; add a version to it instead.");
+        }
+
+        var now = clock.GetUtcNow();
+        var actor = DocumentQueries.ActorName(user);
+        var layout = new SupplierLayout
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = tenant.TenantId!.Value,
+            Scope = SupplierLayoutScope.Supplier,
+            SupplierId = supplierId,
+            OwnerId = supplierId,
+            DocumentTypeKey = type.Value,
+            LayoutKey = key,
+            Name = request.Name.Trim(),
+            Priority = request.Priority ?? SupplierLayout.DefaultPriority,
+            ItemKinds = [.. request.ItemKinds ?? []],
+            ReceivingEntityId = request.ReceivingEntityId,
+            CreatedBy = actor,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        var version = new SupplierLayoutVersion
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = layout.TenantId,
+            LayoutId = layout.Id,
+            Version = 1,
+            Status = SupplierLayoutVersionStatus.Candidate,
+            Origin = SupplierLayoutOrigin.Human,
+            IdentificationJson = rule!.ToJson(),
+            IdentificationHash = rule.Hash,
+            MappingJson = request.Mapping.GetRawText(),
+            CoverageJson = JsonSerializer.Serialize(mapping!.Coverage),
+            CreatedBy = actor,
+            CreatedAt = now,
+        };
+        layout.Versions.Add(version);
+        db.SupplierLayouts.Add(layout);
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Created($"/api/v1/supplier-layouts/{layout.Id}", Response(layout));
+    }
+
+    private static async Task<Results<Ok<SupplierLayoutResponse>, ProblemHttpResult>> ActivateAsync(
+        Guid layoutId,
+        int version,
+        ActivateLayoutRequest? request,
+        ITenantContext tenant,
+        System.Security.Claims.ClaimsPrincipal user,
+        [FromServices] DocProcDbContext db,
+        [FromServices] ITenantFeatures features,
+        [FromServices] IContainerBlobStore blobs,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (await GuardAsync(tenant, features, "Layouts", ct) is { } problem)
+        {
+            return problem;
+        }
+
+        var layout = await db.SupplierLayouts.Include(l => l.Versions).SingleOrDefaultAsync(l => l.Id == layoutId, ct);
+        var target = layout?.Versions.FirstOrDefault(v => v.Version == version);
+        if (layout is null || target is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: $"Layout {layoutId} has no version {version}.");
+        }
+
+        if (target.Status is SupplierLayoutVersionStatus.Active or SupplierLayoutVersionStatus.Retired || layout.Status == SupplierLayoutStatus.Retired)
+        {
+            return Conflict("Not activatable", $"Version {version} is {target.Status} and layout {layout.LayoutKey} is {layout.Status}; only a Draft, Candidate, Shadow or Degraded version of an Active layout is activated.");
+        }
+
+        if (request?.ReviewWarmup is { } asked && asked is < 0 or > TenantSettings.MaxLayoutReviewWarmup)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid warm-up", detail: $"reviewWarmup is 0 to {TenantSettings.MaxLayoutReviewWarmup} documents.");
+        }
+
+        // The identification test of docs/11 §8.3: the rule must not hold on an approved document another layout of the
+        // supplier (or its group) identified. The field replay over the replay set is not run here.
+        var rule = IdentificationRule.Parse(target.IdentificationJson);
+        var ownerSupplier = layout.SupplierId;
+        var others = await db.SupplierLayoutVersions.AsNoTracking()
+            .Where(v => v.LayoutId != layout.Id && v.Layout!.OwnerId == layout.OwnerId)
+            .Select(v => v.Id)
+            .ToListAsync(ct);
+        var approved = await db.Documents.AsNoTracking().Include(d => d.IngestionItem).ThenInclude(i => i!.Ingestion)
+            .Where(d => d.SupplierLayoutVersionId != null && others.Contains(d.SupplierLayoutVersionId.Value)
+                        && (d.Status == DocumentStatus.Approved || d.Status == DocumentStatus.AutoApproved))
+            .Take(200)
+            .ToListAsync(ct);
+        var values = ownerSupplier is { } sid ? (await LayoutSettings.LoadAsync(db, tenant.TenantId!.Value, sid, ct))?.Values ?? SupplierValues.None : SupplierValues.None;
+        var overlapping = new List<Guid>();
+        foreach (var document in approved)
+        {
+            var words = await WordsAsync(blobs, document, ct);
+            if (IdentificationRuleEvaluator.Evaluate(rule, new IdentificationContext(words, values, LayoutSettings.SourceOf(document))).Holds)
+            {
+                overlapping.Add(document.Id);
+            }
+        }
+
+        if (overlapping.Count > 0)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Identification test failed",
+                detail: $"The rule of {layout.LayoutKey} version {version} also holds on {overlapping.Count} approved document(s) of the supplier's other layouts; add an identifier that tells them apart.",
+                extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "LAYOUT_OVERLAP", ["documentIds"] = overlapping });
+        }
+
+        var tenantRow = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == tenant.TenantId!.Value, ct);
+        var now = clock.GetUtcNow();
+        foreach (var previous in layout.Versions.Where(v => v.Id != target.Id && v.Status is SupplierLayoutVersionStatus.Active or SupplierLayoutVersionStatus.Degraded))
+        {
+            previous.Status = SupplierLayoutVersionStatus.Retired;
+        }
+
+        target.Status = SupplierLayoutVersionStatus.Active;
+        target.ReviewWarmup = request?.ReviewWarmup ?? tenantRow.Settings.EffectiveLayoutReviewWarmup();
+        target.WarmupSeen = 0;
+        target.ConsecutiveFailures = 0;
+        target.ApprovedBy = DocumentQueries.ActorName(user);
+        target.ApprovedAt = now;
+        layout.ActiveVersion = target.Version;
+        layout.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(Response(layout));
+    }
+
+    private static async Task<Results<Ok<SupplierLayoutResponse>, ProblemHttpResult>> RetireAsync(Guid layoutId, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, TimeProvider clock, CancellationToken ct)
+    {
+        if (await GuardAsync(tenant, features, "Layouts", ct) is { } problem)
+        {
+            return problem;
+        }
+
+        var layout = await db.SupplierLayouts.Include(l => l.Versions).SingleOrDefaultAsync(l => l.Id == layoutId, ct);
+        if (layout is null)
+        {
+            return SupplierGroupEndpoints.NotFound("Layout", layoutId);
+        }
+
+        layout.Status = SupplierLayoutStatus.Retired;
+        layout.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(Response(layout));
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex LayoutKeyPattern();
 
     private static List<LayoutSuggestionDto> Suggest(DocumentWords words, Document document, LayoutResolverResult result, LayoutSetting setting) =>
     [

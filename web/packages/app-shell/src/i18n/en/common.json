@@ -269,6 +269,18 @@
     },
     "SUPPLIER_CONFLICT": {
       "default": "The document's content ({{evidence}}) names {{contentSupplierName}}, but its source names {{sourceSupplierName}}; the source supplier is kept until a reviewer decides."
+    },
+    "NEW_LAYOUT": {
+      "default": "The supplier {{supplierName}} sent a design none of its layouts recognises; the document is held for review and was not processed with another layout."
+    },
+    "LAYOUT_AMBIGUOUS": {
+      "default": "Several layouts of the supplier recognise the document equally ({{layouts}}); none was applied."
+    },
+    "MAPPING_DRIFT": {
+      "default": "The layout {{layoutKey}} recognised the document, but its field rules found {{found}} of {{covered}} fields; the supplier may have moved them."
+    },
+    "LAYOUT_WARMUP": {
+      "default": "Document {{ordinal}} of the first {{warmup}} under layout {{layoutKey}} (version {{version}}): it goes to review, already filled by the layout."
     }
   },
   "apiErrors": {

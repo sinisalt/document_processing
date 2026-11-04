@@ -284,6 +284,80 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_config_admin_adds_a_layout_as_a_Candidate_and_activates_it_with_the_tenants_warm_up_after_the_identification_test()
+    {
+        var name = $"Nordwind {Guid.NewGuid():N}";
+        var (supplier, erpLayout, erpVersion) = SeedLayout(name);
+        var approved = await SeedDocumentAsync(name, WebShopPage, identifiedBy: erpVersion);
+        _factory.Run(db => db.Documents.Single(d => d.Id == approved).Status = Domain.Documents.DocumentStatus.Approved);
+        using var admin = Admin();
+        var webRule = JsonDocument.Parse("""{ "all": [ { "text": "RECHNUNG / INVOICE", "page": 1, "region": "header" } ] }""").RootElement;
+        var mapping = JsonDocument.Parse("""{ "fields": { "invoiceNumber": { "rules": [ { "strategy": "regex-anywhere", "pattern": "WS-\\d+" } ] } } }""").RootElement;
+        var url = $"/api/v1/suppliers/{supplier}/layouts";
+
+        using (var reviewer = Reviewer())
+        {
+            (await reviewer.PostAsJsonAsync(url, new CreateLayoutRequest("nordwind-invoice-webshop", "Web shop", "Invoice", webRule, mapping), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        }
+
+        var invalid = await admin.PostAsJsonAsync(url, new CreateLayoutRequest("Not A Key", "x", "Invoice", JsonDocument.Parse("""{ "none": [ { "text": "x" } ] }""").RootElement, JsonDocument.Parse("""{ "fields": { "a": { "rules": [ { "strategy": "guess" } ] } } }""").RootElement), Ct);
+        invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await invalid.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors.Keys.ShouldBe(["layoutKey", "identification.(root)", "mapping"], ignoreOrder: true);
+
+        var created = await admin.PostAsJsonAsync(url, new CreateLayoutRequest("nordwind-invoice-webshop", "Web shop", "Invoice", webRule, mapping, Priority: 120, ItemKinds: ["pdf"]), Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var layout = (await created.Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+        layout.ActiveVersion.ShouldBeNull();
+        layout.Versions.ShouldHaveSingleItem().Status.ShouldBe("Candidate");
+        (await admin.PostAsJsonAsync(url, new CreateLayoutRequest("nordwind-invoice-webshop", "Again", "Invoice", webRule, mapping), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // Its rule holds on an approved document the ERP layout identified: the identification test blocks activation.
+        var overlap = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct);
+        overlap.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await overlap.Content.ReadAsStringAsync(Ct)).ShouldContain(approved.ToString());
+
+        // Once that document is the ERP layout's no more (here: retired), the version activates with the tenant's warm-up.
+        _factory.Run(db => db.Documents.Single(d => d.Id == approved).SupplierLayoutVersionId = null);
+        var activated = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct);
+        activated.StatusCode.ShouldBe(HttpStatusCode.OK, await activated.Content.ReadAsStringAsync(Ct));
+        var active = (await activated.Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+        active.ActiveVersion.ShouldBe(1);
+        var version = active.Versions.ShouldHaveSingleItem();
+        version.Status.ShouldBe("Active");
+        version.ReviewWarmup.ShouldBe(TenantSettings.DefaultLayoutReviewWarmup);
+        version.ApprovedBy.ShouldBe("tenant-admin");
+        (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "already Active");
+
+        var retired = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{erpLayout}:retire", new { }, Ct);
+        (await retired.Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!.Status.ShouldBe("Retired");
+    }
+
+    [Fact]
+    public async Task Activation_takes_an_explicit_warm_up_and_otherwise_the_tenants()
+    {
+        var name = $"Warmup {Guid.NewGuid():N}";
+        var (supplier, _, _) = SeedLayout(name);
+        _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA).Settings.LayoutReviewWarmup = 0);
+        try
+        {
+            using var admin = Admin();
+            var rule = JsonDocument.Parse("""{ "all": [ { "text": "Gutschrift" } ] }""").RootElement;
+            var mapping = JsonDocument.Parse("""{ "fields": {} }""").RootElement;
+            var first = (await (await admin.PostAsJsonAsync($"/api/v1/suppliers/{supplier}/layouts", new CreateLayoutRequest("credit-a", "A", "CreditNote", rule, mapping), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            var tenantDefault = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{first.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            tenantDefault.Versions[0].ReviewWarmup.ShouldBe(0, "the demo tenant's warm-up 0 (docs/11 §23 P4)");
+
+            var second = (await (await admin.PostAsJsonAsync($"/api/v1/suppliers/{supplier}/layouts", new CreateLayoutRequest("credit-b", "B", "CreditNote", rule, mapping), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            var explicitly = (await (await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{second.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 3), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+            explicitly.Versions[0].ReviewWarmup.ShouldBe(3);
+        }
+        finally
+        {
+            _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantA).Settings.LayoutReviewWarmup = null);
+        }
+    }
+
+    [Fact]
     public async Task The_document_detail_names_the_layout_version_and_the_type_source()
     {
         var name = $"Nordwind {Guid.NewGuid():N}";

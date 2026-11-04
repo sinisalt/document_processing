@@ -269,6 +269,18 @@
     },
     "SUPPLIER_CONFLICT": {
       "default": "Der Inhalt des Dokuments ({{evidence}}) nennt {{contentSupplierName}}, die Quelle aber {{sourceSupplierName}}; der Lieferant der Quelle bleibt, bis die Prüfung entscheidet."
+    },
+    "NEW_LAYOUT": {
+      "default": "Der Lieferant {{supplierName}} hat ein Layout geschickt, das keines seiner Layouts erkennt; das Dokument wartet auf die Prüfung und wurde nicht mit einem anderen Layout verarbeitet."
+    },
+    "LAYOUT_AMBIGUOUS": {
+      "default": "Mehrere Layouts des Lieferanten erkennen das Dokument gleich gut ({{layouts}}); keines wurde angewendet."
+    },
+    "MAPPING_DRIFT": {
+      "default": "Das Layout {{layoutKey}} hat das Dokument erkannt, seine Feldregeln fanden aber nur {{found}} von {{covered}} Feldern; der Lieferant hat sie womöglich verschoben."
+    },
+    "LAYOUT_WARMUP": {
+      "default": "Dokument {{ordinal}} der ersten {{warmup}} unter Layout {{layoutKey}} (Version {{version}}): es geht in die Prüfung, bereits vom Layout ausgefüllt."
     }
   },
   "apiErrors": {
