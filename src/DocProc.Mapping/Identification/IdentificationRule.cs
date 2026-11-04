@@ -226,6 +226,32 @@ public sealed class IdentificationRule
 
     public string ToJson() => Json.ToJsonString(Compact);
 
+    /// <summary>
+    /// The rule as an English sentence for the layout views and the test (<c>all of: text "Rechnung" (page 1, title
+    /// area); the supplier's vatId (page 1) — and none of: text "Gutschrift" (page 1)</c>).
+    /// </summary>
+    public string Describe() => DescribeGroup(Root, IdentifierLocation.None);
+
+    private static string DescribeGroup(IdentifierGroup group, IdentifierLocation inherited)
+    {
+        var location = group.Location.Over(inherited);
+        var parts = new List<string>();
+        foreach (var (name, members) in new[] { ("all of", group.All), ("any of", group.Any), ("none of", group.None) })
+        {
+            if (members is { Count: > 0 })
+            {
+                parts.Add($"{name}: {string.Join("; ", members.Select(m => m switch
+                {
+                    Identifier identifier => identifier.Describe(identifier.Location.Over(location)),
+                    IdentifierGroup nested => $"({DescribeGroup(nested, location)})",
+                    _ => string.Empty,
+                }))}");
+            }
+        }
+
+        return string.Join(" — and ", parts);
+    }
+
     public JsonObject ToJsonObject() => (JsonObject)Json.DeepClone();
 
     /// <summary>Reads a rule from its JSON. Throws <see cref="IdentificationRuleException"/> naming the place that does not read.</summary>

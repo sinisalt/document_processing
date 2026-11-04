@@ -95,6 +95,7 @@ v1.MapTenants();
 v1.MapSuppliers();
 v1.MapSupplierGroups();
 v1.MapSourceRules();
+v1.MapLayouts();
 v1.MapChannels();
 v1.MapMembers();
 v1.MapTenantSettings();

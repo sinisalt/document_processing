@@ -36,6 +36,8 @@ public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, boo
 /// <c>sourceRouting</c>: <see cref="SupplierAttributeSchema"/> (a JSON Schema object of the typed subset; <c>{}</c>
 /// removes it), <see cref="LayoutsRequiredByDefault"/> (the default of a supplier's <c>layouts.required: inherit</c>)
 /// and <see cref="TrustedForwarderDomains"/> (forwarders unwrapped for every mailbox of the tenant).
+/// <see cref="LayoutReviewWarmup"/> (docs/11 §8.3 <c>layoutActivation</c>, decision 2 of §24) is how many documents
+/// under a newly activated layout version go to review, 5 by default; changing it needs <c>supplierLayouts</c>.
 /// </summary>
 public sealed record TenantSettingsDto(
     double AutoApproveConfidenceThreshold,
@@ -45,7 +47,8 @@ public sealed record TenantSettingsDto(
     TenantFeaturesDto? Features = null,
     JsonElement? SupplierAttributeSchema = null,
     bool? LayoutsRequiredByDefault = null,
-    IReadOnlyList<string>? TrustedForwarderDomains = null)
+    IReadOnlyList<string>? TrustedForwarderDomains = null,
+    int? LayoutReviewWarmup = null)
 {
     internal static TenantSettingsDto From(TenantSettings s) => new(
         s.AutoApproveConfidenceThreshold,
@@ -55,7 +58,8 @@ public sealed record TenantSettingsDto(
         TenantFeaturesDto.From(s.Features),
         SchemaOf(s.SupplierAttributeSchema),
         s.LayoutsRequiredByDefault,
-        s.TrustedForwarderDomains ?? []);
+        s.TrustedForwarderDomains ?? [],
+        s.EffectiveLayoutReviewWarmup());
 
     private static JsonElement? SchemaOf(string? json)
     {
@@ -180,6 +184,11 @@ public static class TenantSettingsEndpoints
                 }
             }
 
+            if (request.LayoutReviewWarmup is { } warmup && warmup is < 0 or > TenantSettings.MaxLayoutReviewWarmup)
+            {
+                errors.Add("layoutReviewWarmup", $"layoutReviewWarmup is 0 to {TenantSettings.MaxLayoutReviewWarmup} documents.");
+            }
+
             if (errors.ToProblem() is { } invalid)
             {
                 return invalid;
@@ -200,6 +209,18 @@ public static class TenantSettingsEndpoints
             if ((schemaChanged || layoutsChanged || forwardersChanged) && !routingOn)
             {
                 return SupplierConfigSupport.FeatureOff();
+            }
+
+            // The layout warm-up of decision 2 (docs/11 §24): changing it needs supplierLayouts; sending back what GET gave does not.
+            var warmupChanged = request.LayoutReviewWarmup is { } newWarmup && newWarmup != current.Settings.EffectiveLayoutReviewWarmup();
+            if (warmupChanged && !(request.Features?.SupplierLayouts ?? current.Settings.Features?.SupplierLayouts ?? false))
+            {
+                return LayoutEndpoints.FeatureOff();
+            }
+
+            if (warmupChanged)
+            {
+                current.Settings.LayoutReviewWarmup = request.LayoutReviewWarmup;
             }
 
             if (schemaChanged)

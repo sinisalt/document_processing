@@ -134,6 +134,8 @@ public static class DocumentQueries
             SupplierSourceRuleId = d.SupplierSourceRuleId,
             ReceivingEntityId = d.ReceivingEntityId,
             JoinedIntoDocumentId = d.JoinedIntoDocumentId,
+            TypeSource = d.TypeSource,
+            SupplierLayoutVersionId = d.SupplierLayoutVersionId,
         };
     }
 

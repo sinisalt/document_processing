@@ -145,6 +145,18 @@ public sealed record DocumentDetail(
     public Guid? JoinedIntoDocumentId { get; init; }
 
     /// <summary>
+    /// How the type was decided (docs/11 §6.2 <c>TypeSource</c>): <c>Identification</c> when a supplier layout's rule
+    /// identified it, <c>Proposed</c> for a type only proposed for a <c>NEW_LAYOUT</c> review, which never counts as decided.
+    /// </summary>
+    public TypeSource? TypeSource { get; init; }
+
+    /// <summary>
+    /// The supplier layout version whose identification rule identified the document (docs/11 §8.4); its layout, the
+    /// evidence and the rule that filled each field are in <c>appliedConfig.layout</c>.
+    /// </summary>
+    public Guid? SupplierLayoutVersionId { get; init; }
+
+    /// <summary>
     /// Why <c>:approve</c> would refuse the document now (docs/11 §11 "Approve is refused when a document has no definition
     /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
     /// </summary>

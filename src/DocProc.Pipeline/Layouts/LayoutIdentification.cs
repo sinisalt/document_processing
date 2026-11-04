@@ -29,7 +29,7 @@ public static class LayoutEventTypes
 }
 
 /// <summary>Everything the resolver was asked with, for the handlers and the test endpoint.</summary>
-internal sealed record LayoutSetting(
+public sealed record LayoutSetting(
     Supplier Supplier,
     IReadOnlyList<SupplierLayout> Layouts,
     IReadOnlyList<LayoutCandidate> Candidates,
@@ -39,24 +39,13 @@ internal sealed record LayoutSetting(
     IReadOnlyDictionary<Guid, SimilarityProfile?> Profiles);
 
 /// <summary>
-/// The <c>classify.identification</c> and <c>match.layout</c> steps (docs/11 §8.4, §9.4): load the supplier's and its
-/// group's layouts, run <see cref="LayoutResolver"/> over the document's words, source facts and the supplier's master
-/// data, and record the outcome: the identified layout version on the document with a timeline event and its counters,
-/// or <c>NEW_LAYOUT</c> (with the proposed type, the suggestions of <see cref="LayoutSuggester"/> and a pending Candidate)
-/// or <c>LAYOUT_AMBIGUOUS</c>, each instance owned by the step that raised it (<c>stepId</c> in its parameters). It runs
-/// only for tenants with <c>supplierLayouts</c> on and for documents whose supplier is known.
+/// What the layout steps and the layout endpoints read about a supplier and a document: its layouts as resolver
+/// candidates (the Active or Degraded version of each layout, Shadow and Candidate versions), its master data for
+/// <c>supplierValue</c> identifiers (VAT id, tax id, IBANs, the group's attributes under its own), whether
+/// <c>layouts.required</c> resolves to true, and a document's item kind and source facts.
 /// </summary>
-internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures features, PipelineBlobs blobs, DocumentFlagWriter flags, DocumentTimeline timeline)
+public static class LayoutSettings
 {
-    public const string ClassifyStep = "classify.identification";
-    public const string MatchStep = "match.layout";
-
-    /// <summary>The flag codes the two steps raise; each step owns its own instances.</summary>
-    public static readonly string[] Codes = [FlagCodes.NewLayout, FlagCodes.LayoutAmbiguous];
-
-    public Task<bool> EnabledAsync(Guid tenantId, CancellationToken cancellationToken) =>
-        features.IsEnabledAsync(tenantId, TenantFeature.SupplierLayouts, cancellationToken);
-
     /// <summary>The item kind as layouts name it: <c>einvoice-xml</c> for an e-invoice (its XML carries the type), else the item's kind.</summary>
     public static string ItemKindOf(Document document)
     {
@@ -85,7 +74,7 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
     }
 
     /// <summary>The supplier's layouts and master data, or null when the supplier does not exist.</summary>
-    public async Task<LayoutSetting?> LoadAsync(Guid tenantId, Guid supplierId, CancellationToken cancellationToken)
+    public static async Task<LayoutSetting?> LoadAsync(DocProcDbContext db, Guid tenantId, Guid supplierId, CancellationToken cancellationToken)
     {
         var supplier = await db.Suppliers.AsNoTracking().SingleOrDefaultAsync(s => s.Id == supplierId, cancellationToken).ConfigureAwait(false);
         if (supplier is null)
@@ -181,6 +170,37 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
 
         return result;
     }
+
+}
+
+/// <summary>
+/// The <c>classify.identification</c> and <c>match.layout</c> steps (docs/11 §8.4, §9.4): load the supplier's and its
+/// group's layouts, run <see cref="LayoutResolver"/> over the document's words, source facts and the supplier's master
+/// data, and record the outcome: the identified layout version on the document with a timeline event and its counters,
+/// or <c>NEW_LAYOUT</c> (with the proposed type, the suggestions of <see cref="LayoutSuggester"/> and a pending Candidate)
+/// or <c>LAYOUT_AMBIGUOUS</c>, each instance owned by the step that raised it (<c>stepId</c> in its parameters). It runs
+/// only for tenants with <c>supplierLayouts</c> on and for documents whose supplier is known.
+/// </summary>
+internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures features, PipelineBlobs blobs, DocumentFlagWriter flags, DocumentTimeline timeline)
+{
+    public const string ClassifyStep = "classify.identification";
+    public const string MatchStep = "match.layout";
+
+    /// <summary>The flag codes the two steps raise; each step owns its own instances.</summary>
+    public static readonly string[] Codes = [FlagCodes.NewLayout, FlagCodes.LayoutAmbiguous];
+
+    public Task<bool> EnabledAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        features.IsEnabledAsync(tenantId, TenantFeature.SupplierLayouts, cancellationToken);
+
+    /// <summary>The supplier's layouts and master data, or null when the supplier does not exist.</summary>
+    public Task<LayoutSetting?> LoadAsync(Guid tenantId, Guid supplierId, CancellationToken cancellationToken) =>
+        LayoutSettings.LoadAsync(db, tenantId, supplierId, cancellationToken);
+
+    /// <inheritdoc cref="LayoutSettings.ItemKindOf"/>
+    public static string ItemKindOf(Document document) => LayoutSettings.ItemKindOf(document);
+
+    /// <inheritdoc cref="LayoutSettings.SourceOf"/>
+    public static SourceFacts SourceOf(Document document) => LayoutSettings.SourceOf(document);
 
     /// <summary>Resolves the document's layout among its supplier's (docs/11 §8.4); null when the step does not run.</summary>
     public async Task<(LayoutResolverResult Result, LayoutSetting Setting, DocumentWords Words)?> ResolveAsync(Document document, string? fixedType, CancellationToken cancellationToken)
