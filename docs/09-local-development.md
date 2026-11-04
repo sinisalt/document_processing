@@ -448,9 +448,12 @@ P2, while the endpoints answer API clients of any tenant. A part joined into ano
 
 ### Outputs
 
-Output mappings, destinations, bindings and lookup tables (docs/11 §13, P3 part A) need the tenant's `outputs`
-switch and IntegrationAdmin (a tenant admin; lookup tables ConfigAdmin). Nothing is delivered yet (part B): the
-preview renders a mapping over a document's values view on the server. Renders run in renderer child processes
+Output mappings, destinations, bindings and lookup tables (docs/11 §13, P3) need the tenant's `outputs` switch
+(admin console: Tenants > tenant > Settings > Feature switches > Outputs) and IntegrationAdmin (a tenant admin;
+lookup tables ConfigAdmin). In the portal they live under Settings > Integrations (destinations, output mappings with
+the visual field map, code mode and the server-rendered preview, bindings, lookup tables, the delivery log), and a
+document's deliveries under its Deliveries tab; "Demo: outputs and delivery" below walks through them. The preview
+renders a mapping over a document's values view on the server. Renders run in renderer child processes
 (`DocProc.Outputs.Renderer.dll`, built next to each host; settings under "Outputs" below); the first render of a host
 starts one, which takes about half a second. The platform templates `std.event` and `generic-ap-json` are seeded on
 every start (and by the `OutputsAndLookups` migration).
@@ -780,6 +783,131 @@ split and join first, or on a fresh stack (`DemoFixtureTests` holds both). A val
 its label is dragged onto that field (or with the arrows button beside it, "Move value to"): one `move` correction.
 Region OCR (a box without words, on a scan) says "No OCR is configured on this server": no OCR provider ships yet
 (docs/07).
+
+### Demo: outputs and delivery
+
+The P3 demo of docs/11 §23, in the browser: the Nordwind price list of "Demo: manual mapping" is rendered by an
+`article-price-import` mapping built in the visual field map of Settings > Integrations (the mapping of docs/11
+§13.10), previewed on the server (412 rows, tier prices as scales), bound to price lists with a destination at the
+mock ERP's `POST /api/article-prices`, and delivered on approval; a forced 503 is retried and then succeeds, while
+invoices keep going to `erp-ap`. Run it on a fresh compose stack (`docker compose up --build`), portal on
+http://localhost:5173, admin console on http://localhost:5174, the mock ERP's journal on
+http://localhost:8086/__admin/requests.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types on, and Outputs on ("Feature switches saved."). Without Outputs the portal's
+   Settings > Integrations says "Outputs are off for this tenant", the review screen has no Deliveries tab, and
+   approving publishes exactly as before (nothing is rendered or sent).
+2. **The price list, mapped but not yet approved.** Steps 1 to 6 of "Demo: manual mapping" (adopt Price list, upload
+   `Nordwind_Preisliste_2027.pdf`, set the type, map Valid from, Price list no., Currency and the supplier's name,
+   create the supplier from the document, draw the table once: `412 rows, 0 rejected, 14 pages read`, write them).
+   Leave it in Needs review: an approval is delivered to the bindings that exist when it is published.
+3. **The supplier's ERP vendor number.** As `tenant-a-admin`: Suppliers > Nordwind Großhandel GmbH > Attributes:
+   `erpVendorId = V-10042` (one `key = value` per line; mappings read them as `supplier.attributes`) > Save. The
+   mapping below refuses to render without it ("Supplier has no ERP vendor id").
+4. **A lookup table.** Settings > Integrations > Lookup tables > New table `erp-uom` > entries `KAR → KAR`,
+   `ST → ST`, `PCK → PCK`, `Karton → KAR` > Save ("4 entries saved."). `$table("erp-uom", unit, "ST")` reads it; a
+   table that does not exist is a render error, not the default.
+5. **Destinations.** Integrations > Destinations > New destination: `erp-articles`, HTTP (JSON), POST,
+   URL `http://mock-erp:8080/api/article-prices`, response mapping `importId`, update URL
+   `http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}` (method default PUT) > Create; and `erp-ap`,
+   POST `http://mock-erp:8080/api/ap/invoices`, response mapping `erpId`. Plain http to `mock-erp` is allowed only by
+   the Development setting `Delivery:DevelopmentHosts` (compose sets it); anywhere else the URL must be https and public.
+6. **The invoice mapping.** Output mappings > Integration templates > Generic AP JSON > Copy, key `erp-ap-import` >
+   Copy; the editor opens on draft v1 in code mode (the template is written in code) > Publish ("Version 1
+   published.").
+7. **The article-price mapping, in the visual map.** Output mappings > New mapping: key `article-price-import`, name
+   "Article price import", document type `price-list` > Create. The editor has three panes: the values view of the
+   preview document (the Nordwind list is chosen; `doc`, `roles`, `supplier`, `entity`, `source`, `meta`, `links`, with
+   `doc.lines · 412 rows`), the visual map, and the server-rendered preview. Add field rows (Target field ← Source;
+   the gear opens the options: when empty use another field, lookup table and its default, format, constant when
+   empty, required with a message; a click on a field in the source tree fills the row being edited, relative to the
+   list it is in):
+
+   | Target | Kind | Source | Options |
+   |---|---|---|---|
+   | `header.vendorNo` | Field | `supplier.attributes.erpVendorId` | Required: `Supplier has no ERP vendor id` |
+   | `header.priceListId` | Expression | `roles.documentNumber ? roles.documentNumber : supplier.attributes.erpVendorId & "-" & roles.validFrom` | |
+   | `header.validFrom` | Field | `roles.validFrom` | Format Date `yyyyMMdd` |
+   | `header.validTo` | Field | `roles.validUntil` | Format Date `yyyyMMdd`, when empty a constant `99991231` |
+   | `header.currency` | Field | `roles.currency` | |
+   | `header.priceType` | Expression | `doc.priceBasis = "Gross" ? "B" : "N"` | |
+   | `header.mode` | Expression | `doc.listScope = "Changes" ? "UPSERT" : "REPLACE"` | |
+   | `header.dmsId`, `header.revision` | Field | `meta.documentId`, `meta.version` | |
+   | `prices` | List | `doc.lines`, only rows where `$not(status = "Discontinued")` | its rows below |
+   | `vendorArticleNo`, `ean`, `group`, `contentQty`, `price` | Field | `supplierSku`, `gtin`, `category`, `packSize`, `price.amount` | |
+   | `text` | Field | `description` | Format Shorten text, 40 |
+   | `orderUnit`, `contentUnit` | Field | `unit`, `packUnit` | Lookup `erp-uom`, else `ST` |
+   | `priceUnit` | Field | `priceQuantity` | When empty a constant, Number `1` |
+   | `validFrom` | Field | `lineValidFrom` | When empty use `$root.roles.validFrom`, Format Date `yyyyMMdd` |
+   | `scales` (in `prices`) | List | `tiers` | rows `fromQty ← minQuantity`, `price ← price.amount` |
+   | `delist` | List | `doc.lines`, only rows where `status = "Discontinued"` | one row with an empty target ← `supplierSku` (a list of plain values) |
+
+   The preview renders as you type (and at once with Render again): `Renders`, about 96 KB, `prices: 412 items`,
+   `prices[].scales: 378 items in 309 rows` (the "ab 10" and "ab 50" columns), `delist: 0 items`, and the JSON:
+   `"vendorNo": "V-10042", "priceListId": "PL-2027-01", "validFrom": "20270101", "validTo": "99991231", …` and per
+   article `"vendorArticleNo": "104007", "text": "Riesling trocken 2023", "group": "Weißweine", "orderUnit": "ST",
+   "priceUnit": 1, "price": 9.38, "scales": [{"fromQty": 10, "price": 8.91}, {"fromQty": 50, "price": 8.44}]`. The
+   table tool did not read GTINs, units or pack sizes from this list, so `ean` and `contentQty` are `null` and the
+   units take the lookup's default. Code (JSONata) shows what the map compiles to: the expression of docs/11 §13.10
+   (`fixtures/outputs/article-price-import.fieldmap.jsonata`), headed by the map as a comment; editing the code
+   detaches it from the map (the Visual map tab then offers to replace the code with the map). A target schema (Target
+   schema tab) is checked on every preview and delivery; its errors name the row (`prices[379].price`). Save draft
+   ("Draft v1 saved."), then Publish ("Version 1 published."); a published version is read-only, New version starts v2.
+8. **Bindings.** Integrations > Bindings > New binding: `article-prices`, when Approved, document type `price-list`,
+   output mapping Article price import, version Published, destination `erp-articles`, on re-approval Send as update
+   with the same mapping > Create; and `ap-invoices`, type `Invoice`, mapping `erp-ap-import`, destination `erp-ap`.
+9. **A 503, then approve.** Make the article-price stub fail once:
+   `curl -X POST http://localhost:8086/__control/article-prices/fail-next`. As `tenant-a-reviewer`, open the price list
+   and Approve. The Deliveries tab lists `erp-articles · article-prices · v1` as Retry pending (last answer 503); about
+   a second later (the stub's `Retry-After: 1`) it is Delivered after 2 attempts. Open the row: the idempotency key
+   (the same for both calls), the external id `AP-IMP-…` (Accepted, from the response mapping), the attempts
+   `503 Will be retried · status` and `202 Delivered` with the first 4 KB of each answer, Show payload, and for an
+   integration admin Redeliver (from the snapshot) and Render again and redeliver. The Timeline shows
+   `document.delivery_failed` then `document.delivery_succeeded`.
+10. **What the mock ERP received.** Two `POST /api/article-prices` with one idempotency key and
+    `X-DocProc-Revision`, a 503 and a 202, each body with 412 prices:
+
+    ```bash
+    curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/article-prices")
+      | {status: .responseDefinition.status, key: .request.headers["Idempotency-Key"],
+         prices: (.request.body | fromjson | .prices | length),
+         scales: (.request.body | fromjson | [.prices[].scales[]] | length)}]'
+    ```
+11. **Invoices still go to erp-ap.** Upload an e-invoice (a copy of `fixtures/demo/tenant-a/Getraenke-Hoffmann_RE-2026-55318.xml`
+    with another invoice number, so it is no duplicate) through Inbox > Upload or `POST /api/v1/ingestions`: it is
+    auto-approved and delivered by `ap-invoices` to `erp-ap` (`POST /api/ap/invoices`, 201); the price-list binding does
+    not match it, the invoice binding did not match the price list. Settings > Integrations > Delivery log lists both,
+    with filters by status and destination.
+
+The same through the API, with `$H` a tenant admin's token and `$DOC` the price list (the UI calls exactly these):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'
+curl -s -X POST $API/lookup-tables -H "$H" -H "$J" -d '{"key":"erp-uom"}' > /dev/null
+REV=$(curl -s -D - -o /dev/null $API/lookup-tables/erp-uom -H "$H" | tr -d '\r' | awk -F': ' 'tolower($1)=="etag"{print $2}')
+curl -s -X PUT $API/lookup-tables/erp-uom/entries -H "$H" -H "$J" -H "If-Match: $REV" \
+  -d '{"entries":[{"from":"KAR","to":"KAR"},{"from":"ST","to":"ST"},{"from":"PCK","to":"PCK"}]}' | jq .entryCount
+DEST=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"erp-articles","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/article-prices","responseMapping":"importId"}}' | jq -r .id)
+# The mapping: the compiled visual map (or any JSONata of your own) as draft v1, previewed, published.
+jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata '{key:"article-price-import",name:"Article price import",sourceTypeKey:"price-list",engine:"jsonata",expression:$e}' \
+  | curl -s -X POST $API/output-mappings -H "$H" -H "$J" -d @- | jq .key
+jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata --arg d "$DOC" '{expression:$e,documentId:$d}' \
+  | curl -s -X POST $API/output-mappings:preview -H "$H" -H "$J" -d @- | jq '{errors, n: (.output.prices | length), outputBytes}'
+curl -s -X POST $API/output-mappings/article-price-import/versions/1:publish -H "$H" -H "$J" -d '{}' | jq .publishedVersion
+curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"article-prices\",\"documentTypeKey\":\"price-list\",\"mappingKey\":\"article-price-import\",\"destinationId\":\"$DEST\"}" | jq .id
+curl -s -X POST http://localhost:8086/__control/article-prices/fail-next
+curl -s -X POST "$API/documents/$DOC:approve" -H "$H" -H "$J" -d '{}' | jq .status
+curl -s "$API/deliveries?documentId=$DOC" -H "$H" | jq '.items[] | {destinationName, status, attempts, lastStatusCode}'
+```
+
+The run behind this section (compose project `p3c`, 2026-11-03) used a Playwright script that clicks through steps 1
+to 11; its screenshots show the switch, the supplier attributes, the lookup table, the destination form, the editor
+with the source tree, the visual map with the preview (`prices: 412 items`, `prices[].scales: 378 items in 309
+rows`), the field options, the compiled code, the bindings, the Deliveries tab with the 503 waiting for its retry and
+then Delivered with both attempts, the payload, and the delivery log with the price list and the invoice. The mock
+ERP journal had the two article-price calls (503, 202; same `Idempotency-Key`, revision 11, 412 prices, 378 scales in
+309 rows each, header `vendorNo` V-10042, `priceListId` PL-2027-01) and one `POST /api/ap/invoices` (201).
 
 ## Settings reference
 

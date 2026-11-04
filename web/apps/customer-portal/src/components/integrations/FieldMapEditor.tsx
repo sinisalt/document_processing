@@ -45,7 +45,7 @@ export function FieldMapEditor({ map, onChange, activeRow, onActiveRowChange, pr
   const set = (rows: MapRow[]) => onChange({ ...map, rows });
   return (
     <div className="flex flex-col gap-2" data-testid="field-map">
-      <div className="hidden grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1.4fr)_auto] gap-2 px-1 text-xs font-medium text-muted-foreground md:grid">
+      <div className="hidden grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1.2fr)_auto] gap-2 px-1 text-xs font-medium text-muted-foreground md:grid">
         <span>{t("integrations.fieldMap.kind")}</span>
         <span>{t("integrations.fieldMap.target")}</span>
         <span>{t("integrations.fieldMap.source")}</span>
@@ -100,7 +100,7 @@ function RowEditor({ row, at, index, count, depth, all, set, activeRow, onActive
   const active = activeRow === at;
   return (
     <li className={cn("rounded-md border p-1.5", active && "border-primary", own.length > 0 && "border-destructive/60")} data-testid={`fm-row-${at}`} data-kind={row.kind} onFocusCapture={() => onActiveRowChange(at)}>
-      <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1.4fr)_auto]">
+      <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
         <Select value={row.kind} onValueChange={(kind) => update(rowOfKind(kind as (typeof kinds)[number], row.target))} disabled={readOnly}>
           <SelectTrigger className="h-8" data-testid={`fm-kind-${at}`} aria-label={t("integrations.fieldMap.kind")}>
             <SelectValue />

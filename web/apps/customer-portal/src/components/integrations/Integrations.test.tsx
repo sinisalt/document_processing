@@ -199,6 +199,9 @@ describe("the mapping editor", () => {
     fireEvent.change(screen.getByTestId("fm-target-3"), { target: { value: "header.currency" } });
     fireEvent.change(screen.getByTestId("fm-source-3"), { target: { value: "roles.currency" } });
     expect(screen.getByTestId("mapping-publish")).toBeDisabled();
+    // "Render again" right after an edit renders the edit, without waiting for the pause in typing.
+    fireEvent.click(screen.getByTestId("preview-refresh"));
+    await waitFor(() => expect(callsTo("POST /api/v1/output-mappings:preview").some((c) => (c.options.body as { expression: string }).expression.includes('"currency": roles.currency'))).toBe(true), { timeout: 400 });
     fireEvent.click(screen.getByTestId("mapping-save"));
     await waitFor(() => expect(callsTo("PUT /api/v1/output-mappings/{key}/versions/{version}")).toHaveLength(1));
     const put = callsTo("PUT /api/v1/output-mappings/{key}/versions/{version}")[0]!;

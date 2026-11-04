@@ -38,6 +38,9 @@ import { authNeedsSecret, authTypes, configOf, formFieldOfConfigPath, formOf, ht
 
 const helper = createDataTableColumnHelper<Destination>();
 
+/** The placeholders a URL or file-name template may use (docs/11 §13.3 as built), shown as written, not interpolated. */
+const URL_PLACEHOLDERS = "{{meta.documentId}}, {{meta.version}}, {{meta.event}}, {{meta.typeKey}}, {{meta.deliveryId}}, {{output.<path>}}";
+
 /** Where a destination sends: the URL of an http destination, the folder of a file drop, "pull feed" for a feed. */
 export function destinationTarget(destination: Destination): string {
   const config = (destination.config ?? {}) as Record<string, unknown>;
@@ -255,7 +258,7 @@ function DestinationDialog({ destination, open, onOpenChange, onSaved }: { desti
               <>
                 <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
                   <MethodField form={form} name="method" label={t("integrations.destinations.fields.method")} />
-                  <TextField form={form} name="urlTemplate" label={t("integrations.destinations.fields.urlTemplate")} placeholder="https://erp.example/api/article-prices" hint={t("integrations.destinations.hints.urlTemplate")} required mono />
+                  <TextField form={form} name="urlTemplate" label={t("integrations.destinations.fields.urlTemplate")} placeholder="https://erp.example/api/article-prices" hint={t("integrations.destinations.hints.urlTemplate", { placeholders: URL_PLACEHOLDERS })} required mono />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <TextField form={form} name="timeoutSeconds" label={t("integrations.destinations.fields.timeoutSeconds")} placeholder="30" />

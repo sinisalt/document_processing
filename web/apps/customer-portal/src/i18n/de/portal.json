@@ -898,7 +898,7 @@
         "secret": "Geheimnis"
       },
       "hints": {
-        "urlTemplate": "Platzhalter: {{meta.documentId}}, {{meta.version}}, {{meta.event}}, {{meta.typeKey}}, {{meta.deliveryId}} und {{output.<Pfad>}} (ein Wert der erzeugten Nutzlast).",
+        "urlTemplate": "Platzhalter: {{placeholders}}; output.<Pfad> ist ein Wert der erzeugten Nutzlast.",
         "headers": "Einer je Zeile, Name: Wert. Zugangsdaten gehören ins Geheimnis, nicht hierher.",
         "responseMapping": "Ein JSONata-Ausdruck über die Antwort des Empfängers, dessen Wert als externe ID des Dokuments gespeichert wird.",
         "updateUrlTemplate": "Für ein erneut freigegebenes Dokument, das als Aktualisierung gesendet wird (Verknüpfung: bei erneuter Freigabe Aktualisieren). Leer: die URL oben.",

@@ -822,6 +822,12 @@ New file `Outputs.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P3).
 
 **OutputMappingVersion**
 - `MappingId`, `Version`, `Engine`: `jsonata | fieldmap` (compiled to JSONata) | `liquid` (P6, for text formats) | `passthrough`.
+  - Correction (P3, part C): `fieldmap` needs no engine of its own. The Integrations UI compiles the visual field map
+    to JSONata in the browser and stores the version with engine `jsonata`, the map carried at the head of the
+    expression as a block comment (`/* docproc:fieldmap {...} */`, which JSONata ignores). Opening a version reads the
+    map back; when the expression is no longer what the map compiles to (edited in code mode) the editor stays in
+    code mode until the user replaces the code with the map. The server renders, scans and publishes the one
+    expression either way, so preview and delivery cannot drift; the API keeps refusing `fieldmap` as an engine.
 - `Expression`, `ContentType`, `FileNameTemplate?`.
 - `TargetSchemaJson?` (the receiver's JSON Schema) or `TargetXsd?` (P6).
 - `ReferencedPathsJson` (from a JSONata AST scan), `SampleDocumentIds`, `State`, `PublishedAt/By`.
@@ -1812,6 +1818,14 @@ Notes on the expression:
 - `$root` keeps the document root reachable inside the row block, for the list-level validity.
 - `[ tiers.{…} ]` yields `[]` for a row without tiers; a missing `gtin` drops the `ean` key, which this receiver accepts. A receiver that requires the key gets `"ean": gtin ? gtin : null`.
   - Correction (P3): the values view writes a Missing field as `null` (5.6), not as an absent key, and JSONata keeps a `null` value in an object constructor, so `"ean": gtin` gives `"ean": null` for a row without a GTIN (the rendered example below shows the key dropped). A receiver that must not see the key gets `"ean": gtin ? gtin : undefined`; the `article-price-import` golden test renders `null` (`ValuesViewTests`).
+- Correction (P3, part C, found by the P3 demo): the mapping renders only when what it reads exists. `$required`
+  stops it without `supplier.attributes.erpVendorId`, and `$table("erp-uom", …)` is a render error when the tenant
+  has no table `erp-uom` (the default is for a value the table lacks, not for a missing table). A supplier created
+  from review has no attributes, so the demo gives Nordwind its vendor number (the supplier sheet's Attributes, P3's
+  stand-in for the attribute form of P4) and creates the table first (docs/09 "Demo: outputs and delivery"). The
+  Nordwind list of the P2 demo has no GTINs, units, pack sizes or statuses (the table tool read article no.,
+  description, pack as printed, price, the tier prices and the category), so its rows render `"ean": null`,
+  `"orderUnit": "ST"`, `"contentQty": null`, `"priceUnit": 1` and `"delist": []`; 412 rows render to about 96 KB.
 - The same mapping serves `daily-specials` if a tenant binds it there, because it reads `roles.validFrom`, `roles.validUntil` and `doc.lines`, which both types share. Acme instead sends specials to its POS hub with `pos-promotions`.
 
 Rendered for a Nordwind price list (412 rows; three shown):
@@ -2059,6 +2073,11 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
 - `app-shell` `queryKeys` gains `documentTypes`, `supplierLayouts`, `identificationRules`, `outputs`, `deliveries` and `insights`.
 - Parameter forms (step and rule params, destination, channel and master-data config) use `@rjsf/core` with a small shadcn widget theme. The review form stays on react-hook-form plus FieldSpec, because it needs provenance badges, focus, highlighting and correction diffs.
 - Monaco (`@monaco-editor/react`) is used for the JSON and JSONata tabs. The `jsonata` npm package is used only for client-side syntax checks.
+  - Correction (P3, part C): as built, the mapping editor's code and target-schema tabs are monospaced text areas of
+    `@docproc/ui`, and syntax errors come from the server-rendered preview (its `errors` with their position), which
+    runs a moment after each edit; neither Monaco nor the `jsonata` package is a dependency (a second JSONata
+    implementation in the browser could disagree with the renderer's). The destination form is a typed
+    react-hook-form per transport, not `@rjsf/core`.
 
 **Customer portal**
 

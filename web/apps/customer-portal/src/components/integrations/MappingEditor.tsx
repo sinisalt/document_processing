@@ -37,14 +37,17 @@ import { SourceTree, type SourcePick } from "./SourceTree";
 
 const ANY_TYPE = "__any";
 
-/** A value that follows another one after it has stopped changing for `ms`. */
-export function useDebounced<T>(value: T, ms: number): T {
+/**
+ * A value that follows another one after it has stopped changing for `ms`, and a `flush` that makes it follow at once
+ * (the preview's "Render again" right after an edit renders the edit, not the expression before it).
+ */
+export function useDebounced<T>(value: T, ms: number): [T, () => void] {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(value), ms);
     return () => clearTimeout(timer);
   }, [value, ms]);
-  return debounced;
+  return [debounced, () => setDebounced(value)];
 }
 
 /** The target schema typed in the Schema tab: empty is none, otherwise it must be a JSON object. */
@@ -145,8 +148,10 @@ function VersionEditor({ mapping, version, canEdit, onBack, onVersionChange }: V
     staleTime: 60_000,
   });
 
-  const debouncedExpression = useDebounced(expression, 600);
-  const debouncedSchema = useDebounced(schema.invalid ? null : schema.schema, 600);
+  const [debouncedExpression, flushExpression] = useDebounced(expression, 600);
+  // The schema text is debounced, not the parsed object (a new object on every render would restart the timer for good).
+  const [debouncedSchemaText, flushSchema] = useDebounced(schemaText, 600);
+  const debouncedSchema = useMemo(() => parseSchema(debouncedSchemaText).schema, [debouncedSchemaText]);
   const preview = useQuery({
     queryKey: ["outputs", "preview", mapping.key, documentId, debouncedExpression, JSON.stringify(debouncedSchema)],
     enabled: documentId !== null && debouncedExpression.trim() !== "",
@@ -301,14 +306,14 @@ function VersionEditor({ mapping, version, canEdit, onBack, onVersionChange }: V
         </Alert>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[17rem_minmax(0,1.3fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[15rem_minmax(0,1.6fr)_minmax(0,1fr)]">
         <Card className="min-w-0">
           <CardHeader className="gap-2">
             <CardTitle className="text-sm">{t("integrations.editor.sourceTitle")}</CardTitle>
             <div className="grid gap-1">
               <Label className="text-xs">{t("integrations.editor.sourceType")}</Label>
               <Select value={mapping.sourceTypeKey ?? ANY_TYPE} onValueChange={(key) => setSourceType.mutate(key === ANY_TYPE ? "" : key)} disabled={!canEdit || mapping.origin === "Platform"}>
-                <SelectTrigger className="h-8" data-testid="mapping-source-type">
+                <SelectTrigger className="h-8 w-full" data-testid="mapping-source-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -324,7 +329,7 @@ function VersionEditor({ mapping, version, canEdit, onBack, onVersionChange }: V
             <div className="grid gap-1">
               <Label className="text-xs">{t("integrations.editor.sampleDocument")}</Label>
               <Select value={documentId ?? undefined} onValueChange={setDocumentId}>
-                <SelectTrigger className="h-8" data-testid="mapping-document">
+                <SelectTrigger className="h-8 w-full min-w-0" data-testid="mapping-document">
                   <SelectValue placeholder={t("integrations.editor.chooseDocument")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -409,13 +414,13 @@ function VersionEditor({ mapping, version, canEdit, onBack, onVersionChange }: V
           </CardContent>
         </Card>
 
-        <Card className="min-w-0">
+        <Card className="min-w-0 lg:col-span-2 2xl:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm">
               <Eye className="size-4" aria-hidden />
               {t("integrations.preview.title")}
             </CardTitle>
-            <Button size="xs" variant="ghost" onClick={() => void preview.refetch()} disabled={!documentId} data-testid="preview-refresh">
+            <Button size="xs" variant="ghost" onClick={() => (debouncedExpression === expression ? void preview.refetch() : (flushExpression(), flushSchema()))} disabled={!documentId} data-testid="preview-refresh">
               {t("integrations.preview.refresh")}
             </Button>
           </CardHeader>

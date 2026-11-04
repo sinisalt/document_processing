@@ -9,6 +9,7 @@ import { EMPTY_ARRAY } from "@/lib/queries";
 import { useDelivery, useDeliveryPayload, type Delivery } from "./api";
 
 const helper = createDataTableColumnHelper<Delivery>();
+const COMPACT_COLUMNS = { event: false, documentVersion: false };
 
 /** The badge of a delivery status: green delivered, amber waiting for its retry, red dead-lettered (docs/05 "Shared UI decisions"). */
 export function deliveryStatusVariant(status: string): ComponentProps<typeof Badge>["variant"] {
@@ -74,7 +75,7 @@ export function DeliveriesList({ deliveries, isLoading, query, canRedeliver, sho
                 header: t("integrations.deliveries.columns.document"),
                 cell: (info) => (
                   <Button variant="link" size="xs" className="px-0 font-mono" onClick={() => onOpenDocument?.(info.getValue())}>
-                    {info.getValue().slice(0, 8)}
+                    …{info.getValue().slice(-12)}
                   </Button>
                 ),
               }),
@@ -110,6 +111,9 @@ export function DeliveriesList({ deliveries, isLoading, query, canRedeliver, sho
       caption={t("integrations.deliveries.title")}
       emptyTitle={emptyTitle}
       emptyDescription={emptyDescription}
+      // In the document's tab (beside the page viewer) the event and revision columns start hidden; the column menu shows them.
+      initialColumnVisibility={showDocument ? undefined : COMPACT_COLUMNS}
+      enableColumnVisibility={!showDocument}
       renderSubRow={(row) => <DeliveryDetailPanel delivery={row} canRedeliver={canRedeliver} />}
       rowAttributes={(row) => ({ "data-delivery": row.id, "data-status": row.status, "data-destination": row.destinationName ?? undefined })}
     />

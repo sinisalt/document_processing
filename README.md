@@ -188,8 +188,11 @@ lost) and the P1 demo, types as data (switch the catalogue on, adopt the price l
 custom field, upload a credit note that carries it, review it in the generated form, find it in the inbox, and give
 the demo delivery note fields of its own) and the P2 demo, manual mapping (upload a 14-page price list the system
 does not recognise, give it its type in review, take its header values from the page in map mode, draw its table once
-on page 1 and apply it to all pages: 412 rows, none rejected, then approve), step by step in docs/09 "Demo data",
-"Demo: types as data" and "Demo: manual mapping".
+on page 1 and apply it to all pages: 412 rows, none rejected, then approve) and the P3 demo, outputs and delivery
+(switch outputs on, build the article-price-import mapping of that price list in Settings > Integrations with the
+visual field map, preview it on the server, bind it to price lists with a destination at the mock ERP, approve, watch a
+forced 503 retried and delivered in the document's Deliveries tab, while invoices keep going to erp-ap), step by step
+in docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping" and "Demo: outputs and delivery".
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
@@ -343,10 +346,10 @@ tests/
                               docker-compose.yml and the Service Bus emulator config held to the app model
   DocProc.Integration.Tests/  PDF, classifier and splitter fixtures; Testcontainers (SQL Server 2025, Azurite) for
                               migrations, RLS, temporal tables and the Azure blob store, skipped without Docker
-web/                          pnpm workspace: apps/customer-portal, apps/admin-console, packages/ui, app-shell,
+web/                          pnpm workspace: apps/customer-portal (with Settings > Integrations and the Deliveries tab, docs/11 §19), apps/admin-console, packages/ui, app-shell,
                               review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
-fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping")
+fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
                               template schemas (templates/)
 docs/                         plan and design

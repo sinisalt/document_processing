@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 in progress (parts A and B done)
+## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 done (parts A, B and C)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -945,10 +945,16 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       document page has none of the P2 actions;
     - the Identify mode, the New layout panel and "Remember for supplier" (P4).
 - **P3, track B: output mappings and delivery – part A done (data model, values view, renderer, templates, API),
-  part B done (fan-out, delivery, transports, retries, feeds); the Integrations UI, the Deliveries tab and the P3
-  demo are open.** Every new route needs the tenant's `outputs` switch; a tenant without it behaves exactly as before
+  part B done (fan-out, delivery, transports, retries, feeds), part C done (the Integrations UI with the visual
+  field map, the Deliveries tab, the P3 demo in the browser); what §19 lists beyond that is under "Left for
+  later".** Every new route needs the tenant's `outputs` switch; a tenant without it behaves exactly as before
   (approve, publish stage and outbox, publish sweeper unchanged: the fan-out does not run, nothing renders or
-  delivers; the mock-erp stubs of P0 answer as before, with new stubs beside them).
+  delivers; the mock-erp stubs of P0 answer as before, with new stubs beside them; the portal shows no Deliveries tab
+  and its Integrations tab says the switch is off).
+  - Decided (part C): the visual field map is stored in the expression as a comment, not as a `fieldmap` engine;
+    the code tab is a text area with the server's syntax errors, not Monaco with the `jsonata` package (docs/11 §6.7
+    and §19 corrections); recipes, batches, Fluid text formats and acknowledgements stay in the later phases as §23
+    and decision 4 of §24 say.
   - Done (part A):
     - the spike of docs/11 §13.1 (result recorded there as "Correction (P3, the spike)"): Jsonata.Net.Native 3.0.0 has
       the functions, depth and tail-recursion caps and no I/O, but cannot stop a running evaluation (an exponential
@@ -1048,13 +1054,63 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       NETSDK1152, the renderer's `runtimeconfig.json` and `deps.json` built twice, with and without the RID); the
       renderer project is RID-agnostic now (`IsRidAgnostic`), so it is built once and runs as `dotnet` plus its dll
       next to the host in the images as well.
+  - Done (part C, the UI and the demo, docs/11 §19 and §23):
+    - Settings > Integrations in the portal (`web/apps/customer-portal/src/components/integrations`), behind the
+      switch: Destinations (a typed form per transport: http with method, URL template, timeout, success codes, every
+      auth variant, headers, `responseMapping`, update method and URL, multipart with the original; file drop; pull
+      feed; the write-only secret and its rotation; enable, disable, delete), Output mappings (the tenant's mappings,
+      the integration templates to copy, a new mapping of the tenant's own; the editor with the values view of a chosen
+      document as a tree, the visual field map or the JSONata code, the server-rendered preview with list sizes,
+      render errors and target-schema errors, versions, `If-Match` drafts, publish with the renderer's errors, new
+      version, target schema), Bindings (events, type, supplier and channel scope, condition, pinned version,
+      exclusive group, priority, re-approval mode), Lookup tables with their entries (left for later by part A as a
+      UI), and the delivery log with filters;
+    - the visual field map (`fieldMap.ts`): field rows with a fallback field, a lookup with its default, a date,
+      number or shorten formatter, a constant when empty and a required check; constants; expressions; lists with a
+      filter, nested lists and lists of plain values; it compiles to JSONata in the browser and travels in the
+      expression as a leading comment, so no `fieldmap` engine is stored (docs/11 §6.7 correction); an expression
+      edited in code mode keeps its code until the user replaces it with the map;
+    - the document's Deliveries tab (status, destination, binding, attempts, last answer, next retry; per delivery
+      the attempts with their answers, the external id, the payload, redelivery from the snapshot or rendered again),
+      shown when `DocumentDetail.outputs` (new) says the tenant has the switch, polled while a delivery is on its way;
+    - the admin console's Outputs feature switch; the supplier sheet's Attributes (`key = value` lines) as a stand-in
+      for P4's attribute form, which the mappings need for `supplier.attributes.erpVendorId`;
+    - the `article-price-import` mapping of docs/11 §13.10 built as a tenant mapping in the visual map
+      (`articlePriceImportMap`); it compiles to `fixtures/outputs/article-price-import.fieldmap.jsonata`, which
+      `ValuesViewTests` renders to exactly what the hand-written expression renders (and the web test checks the map
+      still compiles to that file); `JsonataRendererTests` pins that a block comment is ignored;
+    - the P3 demo of docs/11 §23 in a fresh compose stack (project `p3c`) with Playwright, in the browser where the UI
+      exists (docs/09 "Demo: outputs and delivery"): outputs and configurable types switched on, `std.price-list`
+      adopted, the Nordwind list mapped with the P2 flow (412 rows, 0 rejected), the vendor number given, `erp-uom`
+      created, the destinations `erp-articles` and `erp-ap`, `erp-ap-import` copied from `generic-ap-json`,
+      `article-price-import` built in the visual map and previewed (412 prices, the tier prices as 378 scales in 309
+      rows), the bindings by type; a forced 503 on the article-price stub, the approval, the Deliveries tab with the
+      503 waiting for its retry and then Delivered after two attempts (external id `AP-IMP-…`); the mock ERP journal
+      held two `POST /api/article-prices` (503, 202) with one idempotency key and 412 prices each; an e-invoice
+      uploaded afterwards was auto-approved and delivered to `erp-ap` only;
+    - fixes the demo exposed: "Render again" right after an edit rendered the expression before it (the debounce is
+      flushed now); the schema text, not its parsed object, is debounced (a new object each render restarted the
+      timer for good); the destination hint wrote URL placeholders through i18next, which interpolated them away;
+      layout of the three panes and the kind column; the document's Deliveries tab hides the event and revision
+      columns at first (the column menu shows them);
+    - tests: the field map (compile, comment round trip, problems, row edits, picks relative to the lists, list
+      sizes), the destination form (every transport and auth variant, round trip, errors placed on fields), the
+      Integrations tab against a routed fake client (switch off, destinations with the API's error on its field, the
+      binding bodies, the editor's map, preview, "Render again", save with `If-Match`, picks from the source tree,
+      code mode for a template, read-only for a reviewer), the Deliveries tab (attempts, external id, redelivery, none
+      for a reviewer), the review screen's tab gate, the outputs switch in the admin console, supplier attributes,
+      query keys; API `DocumentDetail.outputs` on and off.
   - Left for later:
-    - the Integrations UI (destinations with `:test`, mappings editor, bindings, delivery log) and the document's
-      Deliveries tab (docs/11 §19), `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads
-      `GET /deliveries?documentId=`), the API key UI for `deliveries:read`, and the P3 demo of docs/11 §23 (the
-      price list rendered by `article-price-import` in the Integrations UI and delivered to mock-erp; part B's compose
-      run above went through the API with an e-invoice, not through the UI with the price list);
-    - `:test` of a destination; the pull destination's `retentionDays` (stored, not enforced); masking of a type's
+    - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
+      (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
+      sources and conflicts (P5); a binding scoped to a supplier group or receiving entity (P4); the review screen's
+      Output preview and Data tabs and the Re-send output action (the Deliveries tab redelivers); the suppliers
+      sheet's Outputs tab (supplier-scoped bindings are made in Bindings); the admin console's Integrations tab of a
+      tenant and the Output templates editor (P6); the editor's lint for the singleton-array case (§13.2); a code
+      editor with highlighting (the code tab is a text area, see the docs/11 §19 correction);
+    - `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads `GET /deliveries?documentId=`), the API key
+      UI for `deliveries:read` (keys with that scope are made through the API);
+    - the pull destination's `retentionDays` (stored, not enforced); masking of a type's
       `sensitive` fields in response excerpts (§16; only the destination's secret and token are masked);
     - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
       them later; `RecipeJson` stays unused;
@@ -1065,7 +1121,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - in the Production topology the API runs no runner, so a redelivery's nudge is not read; the worker's delivery
       sweeper sends it after `Delivery:SweepGrace` (as with the publish nudge, docs/11 §13.5);
     - `OutputBatch` and `OutboxDelivery.BatchId` (batches, P6), recipes (`RecipeJson` is a column, the API takes none),
-      `fieldmap` and `liquid` engines, callbacks (`CallbackConfigJson` is a column), `sftp` and `email` transports;
+      the `liquid` engine (a `fieldmap` engine is not needed, the visual map compiles to JSONata), callbacks
+      (`CallbackConfigJson` is a column), `sftp` and `email` transports;
     - lookup tables: CSV upload, `Source` Import and Sync, aliases per entry (an alias is another entry), the platform
       code lists as rows (`uom` stays in code, `CodeLists.Platform`); `lookupExists` and `enumMember` still read the code
       lists in code, not the tenant's tables;
