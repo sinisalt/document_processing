@@ -523,6 +523,23 @@ export interface paths {
         patch: operations["CorrectDocumentFields"];
         trace?: never;
     };
+    "/api/v1/documents/{id}/layout-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's layouts ranked by similarity to the document (docs/11 §8.4 step 5); informational, never applied. */
+        get: operations["GetLayoutSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/original": {
         parameters: {
             query?: never;
@@ -687,6 +704,23 @@ export interface paths {
         put?: never;
         /** Acknowledges feed entries, which marks their deliveries delivered. */
         post: operations["AcknowledgeFeed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks an identification rule and evaluates it on documents of a supplier, a group or the tenant: per document whether it holds, with evidence, and the overlaps with other layouts (docs/11 §8.3, §12.9). */
+        post: operations["TestIdentificationRule"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1308,6 +1342,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/supplier-groups/{groupId}/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The layouts of a supplier group, used by members without layouts of their own. */
+        get: operations["ListGroupLayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/supplier-groups/{id}": {
         parameters: {
             query?: never;
@@ -1325,6 +1376,74 @@ export interface paths {
         head?: never;
         /** Renames a supplier group or replaces its attributes or settings. */
         patch: operations["UpdateSupplierGroup"];
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One layout with its versions. */
+        get: operations["GetSupplierLayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}:retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retires a layout: it identifies no document from then on; documents it identified keep their version. */
+        post: operations["RetireSupplierLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One layout version in full: identification rule, field mapping, coverage, replay report and similarity profile. */
+        get: operations["GetSupplierLayoutVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}:activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activates a version after the identification test (its rule holds on no approved document of the supplier's other layouts), with the tenant's review warm-up; the previous Active version is retired. */
+        post: operations["ActivateSupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/suppliers": {
@@ -1411,6 +1530,41 @@ export interface paths {
         post?: never;
         /** Removes the supplier's attributes in one receiving entity. */
         delete: operations["DeleteSupplierEntityAttributes"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's layouts (docs/11 §6.6), optionally of one type (?type=), each with its versions. */
+        get: operations["ListSupplierLayouts"];
+        put?: never;
+        /** Adds a layout written by hand or imported: version 1 with its identification rule and field mapping, saved as a Candidate (docs/11 §8.3). */
+        post: operations["CreateSupplierLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/layouts:resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dry-runs the layout resolver for a document (?documentId=) against the supplier's layouts and explains every candidate; changes nothing. */
+        get: operations["ResolveSupplierLayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1544,6 +1698,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when left out. */
+        ActivateLayoutRequest: {
+            /** Format: int32 */
+            reviewWarmup?: null | number | string;
+        };
         AddMemberRequest: {
             displayName: null | string;
             email: null | string;
@@ -1717,6 +1876,22 @@ export interface components {
             definition: null | components["schemas"]["JsonElement"];
             from: null | components["schemas"]["DocumentTypeSource"];
             key: null | string;
+        };
+        /**
+         * @description The body of `POST /suppliers/{id}/layouts` (docs/11 §18): a layout written by hand or imported, version 1 with its
+         *     identification rule (`schemas/identification-rule.v1.json`) and field mapping (§8.1), saved as a Candidate.
+         */
+        CreateLayoutRequest: {
+            documentTypeKey: string;
+            identification: components["schemas"]["JsonElement"];
+            itemKinds?: null | string[];
+            layoutKey: string;
+            mapping: components["schemas"]["JsonElement"];
+            name: string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            /** Format: uuid */
+            receivingEntityId?: null | string;
         };
         /** @description string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL. */
         CreateLlmProviderRequest: {
@@ -2011,6 +2186,12 @@ export interface components {
             /** Format: uuid */
             supplierId: null | string;
             /**
+             * Format: uuid
+             * @description The supplier layout version whose identification rule identified the document (docs/11 §8.4); its layout, the
+             *     evidence and the rule that filled each field are in `appliedConfig.layout`.
+             */
+            supplierLayoutVersionId?: null | string;
+            /**
              * Format: double
              * @description How sure the supplier match is (docs/11 §7.2: 0.99 for an Exclusive source rule, 0.7 for a default; 1.0 when a reviewer assigned it).
              */
@@ -2031,6 +2212,7 @@ export interface components {
             /** Format: double */
             typeConfidence: null | number | string;
             typeName: null | string;
+            typeSource?: null | components["schemas"]["TypeSource"];
             /** Format: int32 */
             typeVersion: null | number | string;
             /** Format: date-time */
@@ -2361,6 +2543,75 @@ export interface components {
             title?: null | string;
             type?: null | string;
         };
+        /** @description Why an identifier held (docs/11 §8.5 evidence): which one, what it is, the page, the box and the words matched. */
+        IdentificationEvidenceDto: {
+            bBox: null | (number | string)[];
+            description: string;
+            kind: string;
+            /** Format: int32 */
+            page: null | number | string;
+            path: string;
+            positive: boolean;
+            text: null | string;
+        };
+        /** @description Documents another layout identified on which the rule under test holds too: an overlap that blocks activation (docs/11 §8.3). */
+        IdentificationOverlap: {
+            documentIds: string[];
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+        };
+        /** @description One document of a rule test: whether the rule holds on it, with evidence, and the layout that identified it so far. */
+        IdentificationTestDocument: {
+            /** Format: uuid */
+            documentId: string;
+            evidence: components["schemas"]["IdentificationEvidenceDto"][];
+            failed: string[];
+            fileName: null | string;
+            /** Format: uuid */
+            layoutId: null | string;
+            layoutKey: null | string;
+            matched: boolean;
+            status: string;
+            /** Format: uuid */
+            supplierId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description The body of `POST /identification-rules:test` (docs/11 §12.9 step 4, §18): the rule, the scope, and either the
+         *     documents to test (at most 100) or the last `lastN` of the scope (50 by default, at most 200), optionally of one type.
+         */
+        IdentificationTestRequest: {
+            documentIds?: null | string[];
+            /** Format: int32 */
+            lastN?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+            scope?: null | components["schemas"]["IdentificationTestScope"];
+            typeKey?: null | string;
+        };
+        /** @description The answer of `POST /identification-rules:test`. */
+        IdentificationTestResponse: {
+            describe: string;
+            documents: components["schemas"]["IdentificationTestDocument"][];
+            hash: string;
+            /** Format: int32 */
+            matched: number | string;
+            overlaps: components["schemas"]["IdentificationOverlap"][];
+            /** Format: int32 */
+            positiveIdentifiers: number | string;
+            /** Format: int32 */
+            tested: number | string;
+        };
+        /** @description Where a rule under test is run (docs/11 §18): a supplier's documents, a group's members' documents, or the tenant's. */
+        IdentificationTestScope: {
+            /** Format: uuid */
+            groupId?: null | string;
+            /** Format: uuid */
+            supplierId?: null | string;
+            tenant?: null | boolean;
+        };
         /**
          * @description A field of a type that `DocumentFieldIndex` holds (docs/11 §6.2): its definition path, which is the key of the
          *     document list's `?field.&lt;path&gt;=value` filter and of its `fields` columns, its kind and its label by locale.
@@ -2463,6 +2714,57 @@ export interface components {
         JsonElement: unknown;
         /** @enum {unknown} */
         KeyOwner: "Platform" | "Tenant" | null;
+        /** @description One layout version as the resolver evaluated it for a document (`layouts:resolve`). */
+        LayoutEvaluationDto: {
+            documentTypeKey: string;
+            evidence: components["schemas"]["IdentificationEvidenceDto"][];
+            failed: string[];
+            holds: boolean;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: int32 */
+            positiveIdentifiers: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            scope: string;
+            state: string;
+            /** Format: int32 */
+            version: number | string;
+            /** Format: uuid */
+            versionId: string;
+        };
+        /**
+         * @description The answer of `GET /suppliers/{id}/layouts:resolve?documentId=` (docs/11 §18): what `ILayoutResolver`
+         *     decides for the document now (`Identified`, `Ambiguous`, `NewLayout`, `NotManaged`,
+         *     `Exempt`), the layout it selects, the tied ones, a pending Candidate, every candidate's result and the
+         *     suggestions. It changes nothing.
+         */
+        LayoutResolveResponse: {
+            /** Format: uuid */
+            documentId: string;
+            evaluated: components["schemas"]["LayoutEvaluationDto"][];
+            layoutManaged: boolean;
+            pending: null | components["schemas"]["LayoutEvaluationDto"];
+            resolution: string;
+            selected: null | components["schemas"]["LayoutEvaluationDto"];
+            suggestions: components["schemas"]["LayoutSuggestionDto"][];
+            /** Format: uuid */
+            supplierId: string;
+            tied: components["schemas"]["LayoutEvaluationDto"][];
+        };
+        /** @description A layout a reviewer may look at for a document no layout identified (docs/11 §8.4 step 5): shown, never applied. */
+        LayoutSuggestionDto: {
+            differences: string[];
+            documentTypeKey: string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: double */
+            similarity: number | string;
+            /** Format: uuid */
+            versionId: string;
+        };
         LlmPolicyResponse: {
             allowPlatformKeyAtAll: boolean;
             /** Format: uuid */
@@ -3287,6 +3589,79 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description A supplier or group layout (docs/11 §6.6 `SupplierLayout`) with its versions, newest first. */
+        SupplierLayoutResponse: {
+            /** Format: int32 */
+            activeVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            documentTypeKey: string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: uuid */
+            id: string;
+            itemKinds: string[];
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            layoutKey: string;
+            name: string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            scope: string;
+            /** Format: int32 */
+            shadowVersion: null | number | string;
+            status: string;
+            /** Format: uuid */
+            supplierId: null | string;
+            versions: components["schemas"]["SupplierLayoutVersionSummary"][];
+        };
+        /** @description One layout version in full: its identification rule, field mapping, coverage, replay report and similarity profile as stored. */
+        SupplierLayoutVersionResponse: {
+            coverage: string[];
+            identification: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            mapping: components["schemas"]["JsonElement"];
+            replay: null | components["schemas"]["JsonElement"];
+            similarityProfile: null | components["schemas"]["JsonElement"];
+            summary: components["schemas"]["SupplierLayoutVersionSummary"];
+        };
+        /** @description A version of a layout in a list: its lifecycle, origin, rule hash and sentence, warm-up and counters (docs/11 §6.6). */
+        SupplierLayoutVersionSummary: {
+            /** Format: int32 */
+            agreed: number | string;
+            /** Format: int32 */
+            applied: number | string;
+            /** Format: date-time */
+            approvedAt: null | string;
+            approvedBy: null | string;
+            /** Format: int32 */
+            consecutiveFailures: number | string;
+            /** Format: int32 */
+            corrected: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            describe: string;
+            /** Format: uuid */
+            id: string;
+            identificationHash: string;
+            /** Format: int32 */
+            identified: number | string;
+            origin: string;
+            /** Format: int32 */
+            reviewWarmup: number | string;
+            status: string;
+            /** Format: int32 */
+            version: number | string;
+            /** Format: int32 */
+            warmupSeen: number | string;
+        };
         /** @enum {unknown} */
         SupplierMatchMethod: "Vat" | "Iban" | "Domain" | "Name" | "Human" | "SourceRule" | "ChannelDefault" | "Hint" | null;
         SupplierResponse: {
@@ -3520,12 +3895,16 @@ export interface components {
          *     `sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`
          *     removes it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)
          *     and IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).
+         *     int? TenantSettingsDto.LayoutReviewWarmup (docs/11 §8.3 `layoutActivation`, decision 2 of §24) is how many documents
+         *     under a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`.
          */
         TenantSettingsDto: {
             alwaysReviewSupplierIds: string[];
             /** Format: double */
             autoApproveConfidenceThreshold: number | string;
             features?: null | components["schemas"]["TenantFeaturesDto"];
+            /** Format: int32 */
+            layoutReviewWarmup?: null | number | string;
             layoutsRequiredByDefault?: null | boolean;
             /** Format: int32 */
             retentionYears: number | string;
@@ -3537,6 +3916,8 @@ export interface components {
             settings: components["schemas"]["TenantSettingsDto"];
             tenant: components["schemas"]["TenantIdentity"];
         };
+        /** @enum {unknown} */
+        TypeSource: "Rule" | "Llm" | "Human" | "Structured" | "Supplier" | "Identification" | "Proposed" | null;
         /** @description A reading of the selected text as a field kind (docs/11 §12.3: "28.10.2026 → 2026-10-28"), in the shape a correction takes. */
         ValueCandidateDto: {
             kind: string;
@@ -3549,6 +3930,7 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type SchemaActivateLayoutRequest = components['schemas']['ActivateLayoutRequest'];
 export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
@@ -3565,6 +3947,7 @@ export type SchemaCreateChannelRequest = components['schemas']['CreateChannelReq
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
 export type SchemaCreateDestinationRequest = components['schemas']['CreateDestinationRequest'];
 export type SchemaCreateDocumentTypeRequest = components['schemas']['CreateDocumentTypeRequest'];
+export type SchemaCreateLayoutRequest = components['schemas']['CreateLayoutRequest'];
 export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
 export type SchemaCreateLookupTableRequest = components['schemas']['CreateLookupTableRequest'];
 export type SchemaCreateOutputBindingRequest = components['schemas']['CreateOutputBindingRequest'];
@@ -3606,6 +3989,12 @@ export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
 export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
 export type SchemaHttpValidationProblemDetails = components['schemas']['HttpValidationProblemDetails'];
+export type SchemaIdentificationEvidenceDto = components['schemas']['IdentificationEvidenceDto'];
+export type SchemaIdentificationOverlap = components['schemas']['IdentificationOverlap'];
+export type SchemaIdentificationTestDocument = components['schemas']['IdentificationTestDocument'];
+export type SchemaIdentificationTestRequest = components['schemas']['IdentificationTestRequest'];
+export type SchemaIdentificationTestResponse = components['schemas']['IdentificationTestResponse'];
+export type SchemaIdentificationTestScope = components['schemas']['IdentificationTestScope'];
 export type SchemaIndexedFieldDto = components['schemas']['IndexedFieldDto'];
 export type SchemaIngestionCreated = components['schemas']['IngestionCreated'];
 export type SchemaIngestionDetail = components['schemas']['IngestionDetail'];
@@ -3620,6 +4009,9 @@ export type SchemaItemKind = components['schemas']['ItemKind'];
 export type SchemaJoinDocumentsRequest = components['schemas']['JoinDocumentsRequest'];
 export type SchemaJsonElement = components['schemas']['JsonElement'];
 export type SchemaKeyOwner = components['schemas']['KeyOwner'];
+export type SchemaLayoutEvaluationDto = components['schemas']['LayoutEvaluationDto'];
+export type SchemaLayoutResolveResponse = components['schemas']['LayoutResolveResponse'];
+export type SchemaLayoutSuggestionDto = components['schemas']['LayoutSuggestionDto'];
 export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
 export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
 export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
@@ -3688,6 +4080,9 @@ export type SchemaSupplierEntityAttributesRequest = components['schemas']['Suppl
 export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
 export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
 export type SchemaSupplierGroupResponse = components['schemas']['SupplierGroupResponse'];
+export type SchemaSupplierLayoutResponse = components['schemas']['SupplierLayoutResponse'];
+export type SchemaSupplierLayoutVersionResponse = components['schemas']['SupplierLayoutVersionResponse'];
+export type SchemaSupplierLayoutVersionSummary = components['schemas']['SupplierLayoutVersionSummary'];
 export type SchemaSupplierMatchMethod = components['schemas']['SupplierMatchMethod'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
 export type SchemaTableBandDto = components['schemas']['TableBandDto'];
@@ -3710,6 +4105,7 @@ export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
 export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
 export type SchemaTenantSettingsResponse = components['schemas']['TenantSettingsResponse'];
+export type SchemaTypeSource = components['schemas']['TypeSource'];
 export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
 export interface operations {
@@ -4882,6 +5278,28 @@ export interface operations {
             };
         };
     };
+    GetLayoutSuggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutSuggestionDto"][];
+                };
+            };
+        };
+    };
     GetDocumentOriginal: {
         parameters: {
             query?: never;
@@ -5148,6 +5566,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedAckResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    TestIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentificationTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentificationTestResponse"];
                 };
             };
             /** @description Bad Request */
@@ -6696,6 +7147,28 @@ export interface operations {
             };
         };
     };
+    ListGroupLayouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                groupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"][];
+                };
+            };
+        };
+    };
     GetSupplierGroup: {
         parameters: {
             query?: never;
@@ -6769,6 +7242,100 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+        };
+    };
+    RetireSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+        };
+    };
+    GetSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutVersionResponse"];
+                };
+            };
+        };
+    };
+    ActivateSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ActivateLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
                 };
             };
         };
@@ -7042,6 +7609,98 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ListSupplierLayouts: {
+        parameters: {
+            query?: {
+                type?: string;
+            };
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"][];
+                };
+            };
+        };
+    };
+    CreateSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ResolveSupplierLayout: {
+        parameters: {
+            query?: {
+                documentId?: string;
+            };
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutResolveResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };

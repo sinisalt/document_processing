@@ -527,6 +527,11 @@ How this type behaves differently from an invoice:
   2. Otherwise the **split prefilter** evaluates identification rules on the whole item, before any cut: the layouts of the supplier resolved at ingest, or, when the supplier is unknown or has no layouts and they are not required, the tenant fallback rules. If exactly one layout (or rules of exactly one type) holds, that type's `split.mode` applies. The prefilter decides nothing else: it writes no layout and no type, and Classify evaluates again on the resulting document.
   3. Otherwise the tenant default (`auto`) applies, and the heuristic splitter runs.
 
+  Correction (P4, part B): the prefilter runs for a supplier known from the source or a reviewer (a source rule, the
+  channel default, a hint, `:assign-supplier`), with `supplierLayouts` on, over that supplier's layouts only; the
+  tenant fallback rules arrive in P5. Only `never` changes anything: an `auto` type, or `perPage` and `llm` (not
+  built), leave the heuristic splitter in charge.
+
   A price list in a design nobody has recognised yet, from a source without a pinned type, can therefore still be cut by the heuristic splitter; the reviewer then joins the parts back into one document in review (`:join`, 12.7). For folders and mailboxes that only carry price lists, the reliable setting is a source rule with `PinTypeKey: price-list` (7.5).
 
 **`std.daily-specials` v2** differs from `std.price-list` v2 in the `key`, `name`, `rules`, `processing`, `classification` and `llm` blocks, shown below. Each block shown **replaces** the parent's block as a whole; nothing is merged, and the stored template is fully materialised, so nothing is inherited at run time. `fields`, `roles` (including `duplicateKey`) and `ui` are identical copies of `std.price-list` v2. Of the price-list rules, the validity order, row count, unique article numbers, positive prices, pack size, unit and tier-order rules apply to specials too and are repeated here; `r_from` is replaced by `r_not_expired`, and `r_delta` is dropped (specials are compared with the printed old price, not with the last list).
@@ -839,6 +844,16 @@ A supplier can send the same document type in several designs: invoices from its
 
 A tenant rule decides only the type, never a field mapping, and is evaluated only for documents whose supplier is unknown, or is known but has no layouts of its own or of its group and does not have `layouts.required` (for such a supplier the tenant rules only propose a type for the `NEW_LAYOUT` review).
 
+Correction (P4, part B), as built (`Entities/Layouts.cs`, migration `SupplierLayoutsAndIdentification`, policy `PolicyV9`):
+- `SupplierLayoutVersion` is not temporal: its rule and mapping never change once out of Draft, and a history of its
+  counters would add nothing; documents pin the version id.
+- The layout key is unique on `(TenantId, Scope, OwnerId, DocumentTypeKey, LayoutKey)`, where `OwnerId` is the
+  supplier's or the group's id (SQL Server and SQLite treat nulls in a unique index differently).
+- The warm-up is counted on the version (`WarmupSeen`, taken with an atomic increment while below `ReviewWarmup`) and on
+  the document (a `document.layout_warmup` event), so a document validated again keeps its place.
+- `TenantSettings.LayoutActivation` is stored flat as `TenantSettings.LayoutReviewWarmup` (nullable, null for the
+  default 5 of decision 2), as `LayoutsRequiredByDefault` is.
+
 Reading the earlier draft's terms: a "mapping variant" is now a layout, `SupplierMapping` is `SupplierLayout`, and the "mapping" is the layout's field mapping, executed by the step kind `supplier-mapping` (the step name is unchanged).
 
 `ExtractorProfiles` is left untouched: no code writes it today (`MatchHandler.cs:44` always nulls the reference). It is dropped in P6 after a zero-row check.
@@ -1095,6 +1110,23 @@ Transforms: `trim`, `removeWhitespace`, `regex` (capture or replace), `replace`,
 - **Drift check.** The identification rule held, but the field rules found less than the layout's usual coverage (by default, a required field covered by the layout found by none of its rules, or below 70 % of covered fields found). Then `MAPPING_DRIFT` (warning) is raised and the LLM fills the gaps. Consecutive drifts move the version to `Degraded`, and the LLM fills everything. Drift usually means the supplier changed positions but kept its title; the reviewer fixes the fields and saves a new version of the same layout.
 - `requiredFields` and `ruleOverrides` are added to validation (section 11).
 
+Correction (P4, part B), as built (`LayoutEngine`, `LayoutExtractor`, `LayoutTreeWriter`):
+- `SourceMethod` has no `Rule`; a layout's values carry `SourceMethod.Profile` (the document `ExtractionMethod.Profile`),
+  and the rule reference is not in `FieldSource` (which would change every stored envelope) but in
+  `AppliedConfigJson.layout.hits` (`{path: "nordwind-invoice-erp@1#invoiceNumber[0]"}`), with the identification
+  evidence and the drift report.
+- The strategies run are `label-right`, `label-below`, `region`, `regex-anywhere`, `constant` and `column-table`; the
+  transforms `trim`, `removeWhitespace`, `uppercase`, `regex` and `replace` (numbers, amounts and dates are read by the
+  field's kind in the mapping's or the supplier's locale). The structured strategies and `source`, `label-row` and
+  `key-value-block` are refused at save as "not run yet". Confidences: 0.97 label with pattern, 0.92 label alone, 0.9
+  pattern anywhere, 0.85 region (0.9 with a pattern), 0.99 for a constant (Inferred).
+- A member of a composite is mapped with a dot (`supplier.vatId`, `customer.name`); a list of composites without
+  envelopes (the invoice record's `taxBreakdown`) takes the members into its first row (`taxBreakdown.rate`).
+- Drift is a covered field the rules did not find (or a required one), below 70 % of the coverage; three drifting
+  documents in a row make the version Degraded (it still identifies, its mapping is not used). The LLM fills what the
+  layout left Missing only when a provider is configured; without one the layout's values stand and review fills the
+  rest.
+
 ### 8.3 Lifecycle
 
 - A new version is **Draft**. Saving it from review or from the editor makes it **Candidate**.
@@ -1133,6 +1165,14 @@ E-invoices (`TypeSource=Structured`) carry their type in the XML and their std f
 Where it runs: `classify.identification` in Classify when the supplier is known from the source (most documents in a routed setup), and `match.layout` in Match when the supplier is found only by content, or replaced by content evidence (7.4). If the layout found in Match has a different type than the one keywords or the LLM gave in Classify, Match corrects the type before Extract runs (`TypeSource=Identification`, timeline `type_corrected_by_layout`). It never overrides a type fixed by a human, a hint, a source rule of the matched supplier or the e-invoice XML; in that case the layout is only searched among that type's layouts. Both steps raise `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS`, and each owns the instances it raised, keyed by step id (9.4); when Match replaces the supplier, `match.layout` also clears the instances `classify.identification` raised for the old supplier.
 
 A layout can be restricted to a `ReceivingEntityId`. Group-scoped layouts apply only when the supplier has no layout of its own; when it has, a group layout is ignored even if its rule would hold, so a supplier's own rules always win.
+
+Correction (P4, part B), as built: "the supplier is known from the source" is the supplier's match method at Classify:
+a source rule, the channel default, a hint or a reviewer (`SupplierMatchMethod` `SourceRule`, `ChannelDefault`, `Hint`,
+`Human`). A supplier an earlier run of Match found by content (a reprocess from Classify) is not one: `match.layout`
+resolves its layouts again in Match. "Group layouts only without a layout of its own" means without an Active layout of
+its own. A document with an e-invoice XML (embedded or bare) is the `einvoice-xml` item kind for the resolver. The
+review gate reads the reasons `LAYOUT_NOT_IDENTIFIED` (a layout-managed supplier, no layout version) and
+`LAYOUT_NOT_ACTIVE` besides the flags.
 
 ### 8.5 Identification rules
 
@@ -1213,6 +1253,18 @@ In Classify the order is: supplier layout rules, group layout rules, tenant fall
 - is tested against the last 500 approved documents of the tenant, excluding suppliers in `ExcludedSupplierIds` and suppliers that have layouts. The editor shows how many documents of each type it would have matched and stores the report in `TestJson`; a rule that would have matched documents of another type shows them and cannot be activated without confirming.
 - Each edit is a new Draft version; activating it retires the previous version, and documents keep the version they were typed by.
 
+Correction (P4, part B), as built (`IdentificationRule`, `IdentificationRuleEvaluator`, `IdentificationRuleChecks`,
+`schemas/identification-rule.v1.json`):
+- A `source` identifier takes its pattern in `regex` (or a value in `equals`); a `regex` key next to `source` is that
+  pattern, not a second identifier. Source patterns ignore case.
+- "Whole words": a word is compared without the punctuation around it (`Rechnung:` is `Rechnung`; a word that is only
+  punctuation, such as `/`, is compared as it is).
+- `supplierValue` holds when the fewest consecutive words of one line contain the compacted value; the evidence names
+  those words, not a label printed before them.
+- `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
+- The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
+  (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.
+
 ### 8.6 Large tables: price lists over many pages
 
 A price list (section 5.8) is mostly one table of hundreds of rows over many pages. The layout's field mapping maps each column **once**; the `column-table` strategy applies it to every row on every page:
@@ -1241,6 +1293,11 @@ A price list (section 5.8) is mostly one table of hundreds of rows over many pag
 - **Tier prices.** `tierColumns` turns columns whose header matches `ab 10`, `ab 50` into `tiers` entries, with `minQuantity` taken from the header and `price` from the cell; empty cells produce no tier.
   - Correction (P2): the example's `ab\s+(\d+)` reads `ab 1.000` (a common German tier header) as 1, and a column chosen by its header alone becomes a tier even when the reviewer leaves it out in the table tool (§12.4 step 3). As built: the header pattern proposes a column's minimum quantity (the default `^(?:ab|from|von)\s*(\d(?:[\d.,\s]*\d)?)` captures the whole number, read in the request's locale), and a column of the mapping is a tier only when it names that quantity (`tierMinQuantity`); one without a field or a quantity is left out.
 - **Table report.** The strategy records per page: rows parsed, rows rejected (a row band that failed a column's parse or pattern), and whether the header was found. The report is stored as the `DocumentTableReport` of the path `lines` (section 6.2), next to the tree rather than inside the `FieldValue` envelope, and read by the `tableComplete` rule (section 11), which raises `TABLE_ROWS_REJECTED {page, rows}` (blocking) and `TABLE_PAGE_NO_ROWS {page}` (blocking when the rule sets `everyPageInRange`, as `std.price-list` does; a warning otherwise).
+- Correction (P4, part B): a layout's `column-table` is the table tool's specification (§12.4: the columns as drawn
+  on the document it was learned from, with their header texts). On another document of the design the header row is
+  the line, on the first page that has one, where most column headers are printed as runs of whole words: a sentence
+  such as "Staffelpreise ab 10 und ab 50 Gebinden" holds "ab 10" and "ab 50" but is no header. From there the table
+  is read to the foot of the page (or `pageMargins.bottom`) and on every later page, by the same engine.
 - **Cost and size.** The strategy is linear in the number of words; a 40-page list with 2,000 rows runs in well under a second. Rows are written as one array value; per-row provenance stays in each row's FieldValues.
 - **Spreadsheets.** Price lists often come as XLSX or CSV. Once the tabular layer exists (P6, section 12.5), the same `columns` map binds to sheet headers by name, header repetition does not arise, and the identification rule uses `cell` identifiers.
 
@@ -1421,6 +1478,10 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 - `NEW_LAYOUT {supplierId, proposedType, suggestions, pendingLayoutVersionId?}` (blocking; the same params as in 8.4): the supplier is known and layout-managed, but none of its Active layouts' identification rules holds. `pendingLayoutVersionId` is set when a Candidate layout's rule holds. It replaces the earlier draft's `MAPPING_NO_VARIANT` (info). Raised by `classify.identification` or `match.layout` (9.4). It is resolved by approval in review, either with "save as layout" (`learnLayout`), or with it unchecked, in which case the resolution is recorded as `approvedWithoutLayout`, nothing is learned, and the next document in that design gets `NEW_LAYOUT` again; or by a reprocess after a matching layout was activated.
 - `LAYOUT_AMBIGUOUS {layouts}` (blocking): two Active layouts of the supplier hold with equal `Priority` and the same number of positive identifiers (8.4).
 - `MAPPING_DRIFT` (warning), `ROUTE_DIFFERS`, `CONFIG_CHANGED`
+- Correction (P4, part B): `LAYOUT_WARMUP {layoutKey, version, ordinal, warmup}` (info, owned by Validate) says that
+  the document is inside its layout version's review warm-up ("document 1 of the first 5"); the gate holds it by its
+  layout condition, the flag only says why. `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS` carry `stepId` (the step that owns
+  them) and `NEW_LAYOUT` also `supplierName` and `pendingLayoutKey`; `suggestions` is a JSON array in a string.
 - `REVISION_OF {documentId, status}` (severity of the `duplicate` rule with `onMatch: "revision"`): an earlier document with the same duplicate key exists; resolved by `:resolve-revision`.
 - `TABLE_ROWS_REJECTED {page, rows}` (blocking), `TABLE_PAGE_NO_ROWS {page}` (blocking with `everyPageInRange`, otherwise a warning)
 - `EXTERNAL_REJECTED`, `DELIVERY_FAILED`, `LLM_BUDGET_EXCEEDED`
@@ -2282,6 +2343,13 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
   - `POST /identification-rules:test {rule, scope: {supplierId?|groupId?|tenant: true}, documentIds?|lastN, typeKey?}`, returning per document `{matched, layoutId?, typeKey, evidence[]}` and the overlaps with other layouts
   - `GET|POST /document-types/{key}/identification-rules` (tenant fallback), `PATCH /identification-rules/{id} {name, priority}`, `GET|POST /identification-rules/{id}/versions`, `PUT /identification-rules/{id}/versions/{v}` (draft, If-Match; rejects `supplierValue`), `POST /identification-rules/{id}/versions/{v}:test` (the 500-document test), `:activate` (subject to `configApprovals.identificationRules`), and `POST /identification-rules/{id}:disable`
   - `GET /suppliers/{id}/layouts:resolve?documentId=`: dry-runs `ILayoutResolver` on a document and returns every candidate's result, for support
+  - Correction (P4, part B): built are the reads (`GET /suppliers/{id}/layouts?type=`, `GET /supplier-groups/{id}/layouts`,
+    `GET /supplier-layouts/{id}`, `GET /supplier-layouts/{id}/versions/{v}`), `layouts:resolve`,
+    `GET /documents/{id}/layout-suggestions`, `POST /identification-rules:test`, and for a `ConfigAdmin` (there is no
+    `MappingAuthor` role yet) `POST /suppliers/{id}/layouts` (version 1 as a Candidate), `POST …/versions/{v}:activate`
+    (the identification test against the approved documents of the supplier's other layouts; the field replay is not
+    built) and `POST /supplier-layouts/{id}:retire`. A 400 of the rule test names the place in the rule
+    (`rule.all[1]`, or the meta-schema's JSON pointer).
 - **Review**
   - `POST /documents/{id}:set-type {typeKey, version?, prefill: "none"|"auto"}`
   - `POST /documents/{id}:assign-supplier {supplierId, remember?:{conditions…, mode}}` (202; re-runs `classify.identification` for that supplier from Classify, 12.1)

@@ -218,6 +218,42 @@ A tenant without the switch sees the API as before: the new response members are
   for the same supplier reuse that rule, for another supplier answer `409 Rule exists`. The assignment also resolves
   `SUPPLIER_CONFLICT`, `SUPPLIER_AMBIGUOUS` and `SUPPLIER_SOURCE_UNVERIFIED`.
 
+### Layout endpoints as built (docs/11 §6.6, §8, P4 part B)
+
+Every route needs the tenant's `supplierLayouts` switch (403 without it; a tenant without it is never identified by a
+layout and its documents run as before). Reads and the rule test need `Read`, writes `ConfigAdmin` (there is no
+`MappingAuthor` role yet).
+
+- **Layouts.** `GET /suppliers/{id}/layouts?type=` and `GET /supplier-groups/{id}/layouts` list the layouts of a
+  supplier or a group with their versions (newest first): status, origin, the rule's hash and sentence (`describe`),
+  `reviewWarmup`, `warmupSeen` and the counters (`identified`, `applied`, `agreed`, `corrected`,
+  `consecutiveFailures`). `GET /supplier-layouts/{id}` is one layout, `GET /supplier-layouts/{id}/versions/{v}` one
+  version in full: `identification` (the rule, `schemas/identification-rule.v1.json`), `mapping` (the field mapping of
+  docs/11 §8.1), `coverage`, `replay` and `similarityProfile`.
+- **Writing a layout.** `POST /suppliers/{id}/layouts {layoutKey, name, documentTypeKey, identification, mapping,
+  priority?, itemKinds?, receivingEntityId?}` saves version 1 as a Candidate (the rule passes the checks at save, the
+  mapping reads; a key the supplier has for that type already is `409 Layout exists`).
+  `POST /supplier-layouts/{id}/versions/{v}:activate {reviewWarmup?}` runs the identification test (the rule must not
+  hold on an approved document another layout of the supplier identified: `409` with `code: LAYOUT_OVERLAP` and the
+  `documentIds`), makes the version Active with the given warm-up or the tenant's `layoutReviewWarmup` (5 by default),
+  and retires the version Active before. `POST /supplier-layouts/{id}:retire` retires a layout. The field replay over
+  the replay set and learning from review (`:learn-layout`) are not built.
+- **Testing.** `POST /identification-rules:test {rule, scope: {supplierId}|{groupId}|{tenant: true}, documentIds? (at
+  most 100) | lastN? (50, at most 200), typeKey?}` checks the rule (400 naming the place, `rule.all[1]`) and evaluates
+  it on the documents: per document `matched`, the `evidence` (identifier, page, `bBox`, words) and what `failed`, the
+  layout that identified it so far, and the `overlaps` with other layouts. Supplier values are the documents'
+  suppliers' master data; a tenant-scope rule may not name one.
+- **Resolving.** `GET /suppliers/{id}/layouts:resolve?documentId=` dry-runs the resolver: `resolution` (`Identified`,
+  `Ambiguous`, `NewLayout`, `NotManaged`, `Exempt`), `layoutManaged`, the selected, tied and pending candidates, every
+  candidate's result and, for a new design, the `suggestions`. `GET /documents/{id}/layout-suggestions` ranks the
+  supplier's layouts by similarity; both change nothing.
+- **Documents.** `DocumentDetail` carries `typeSource` (`Identification` for a type a layout decided, `Proposed` for a
+  `NEW_LAYOUT` proposal) and `supplierLayoutVersionId`; `appliedConfig.layout` holds the layout, version, evidence,
+  the rule that filled each field (`hits`) and the drift report. The flags `NEW_LAYOUT`, `LAYOUT_AMBIGUOUS`,
+  `MAPPING_DRIFT` and `LAYOUT_WARMUP` are in the catalogue.
+- **Settings.** `GET`/`PUT /settings` carry `layoutReviewWarmup` (0 to 100; `GET` gives the effective value, 5 by
+  default); changing it needs `supplierLayouts`. It is read when a version is activated.
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:

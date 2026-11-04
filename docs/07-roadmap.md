@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 part A done
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 parts A and B done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1234,8 +1234,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the time limit polls the child's processor time every 25 ms, so a render may run up to that much over; a render
       that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
 - **P4, routing, supplier configuration, layouts and identification – part A done (sources, routing, supplier
-  configuration); parts B and later (layouts, identification, the new-layout flow, golden documents, sandbox, config
-  bundles, the supplier sheet tabs) not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
+  configuration), part B done (the mapping engine with layouts, identification rules); the rest (learning layouts in
+  review, the new-layout flow, golden documents, sandbox, config bundles, the supplier sheet tabs) not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
   a tenant without it behaves exactly as before: its channels are not polled and keep their free config, ingest
   assigns no supplier and pins no type, Match, Classify and Split run as before, and the new API routes answer 403
   (docs/05 "Routing and supplier configuration endpoints as built").
@@ -1313,6 +1313,90 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the extras are read but not written into the canonical tree; binding them to fields is the layouts' (part B);
     - the compose demo of part A was not run in the browser; the GreenMail, folder, routing and API scenarios run as
       tests (`ImapPollerTests`, `FolderWatcherTests`, `SourceRoutingPipelineTests`, `SupplierRoutingEndpointsTests`).
+  - Part B (the mapping engine with layouts, identification) is behind the tenant's `supplierLayouts` switch; a tenant
+    without it is never identified by a layout, no layout fills its documents, its review gate is unchanged and the
+    layout routes answer 403 (docs/05 "Layout endpoints as built", docs/09 "Supplier layouts").
+  - Decided (part B, recorded as "Correction (P4, part B)" in docs/11 §5.8, §6.6, §8.2, §8.4, §8.5, §8.6, §11 and §18):
+    - `classify.identification` runs for a supplier known before Classify (a source rule, the channel default, a hint, a
+      reviewer); `match.layout` for one Match finds by content or that replaces a default source supplier, and that
+      replacement reverts what Classify's layout decided (its flags, its layout, an identified or proposed type);
+    - `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS` carry `stepId` and each step replaces only its own instances
+      (`DocumentFlagWriter.ReplaceForStep`); the review gate refuses them by name, a `Proposed` type, a layout-managed
+      supplier's document without a layout version or with one that is not Active, and a document inside the version's
+      warm-up (`LAYOUT_WARMUP`, info: "document 1 of the first 5");
+    - the warm-up is counted once per document (an atomic increment on the version while below its warm-up, and a
+      timeline event on the document); the default stays 5 (decision 2), stored flat as `TenantSettings.LayoutReviewWarmup`
+      (null for 5) and read at activation;
+    - values written by a layout carry `SourceMethod.Profile` (there is no `Rule`); the rule that filled a field is in
+      `AppliedConfigJson.layout.hits`, not in `FieldSource`;
+    - `SupplierLayoutVersions` is not temporal (rule and mapping never change out of Draft); the layout key is unique per
+      `OwnerId` (the supplier's or the group's id);
+    - three drifting documents in a row make a version Degraded; without an LLM provider a layout's values stand and
+      review fills the rest instead of the document waiting for a provider;
+    - a layout's `column-table` is the table tool's specification; on another document the header row is found by whole
+      word runs of the column headers (a sentence holding "ab 10" is no header).
+  - Done (part B):
+    - `DocProc.Mapping/Identification`: `IdentificationRule` (all, any, none, nesting to 3, inherited page, region and
+      box, at most 20 identifiers, an 8-character hash, a sentence), the meta-schema `schemas/identification-rule.v1.json`
+      (snapshot-tested), `IdentificationRuleEvaluator` (strict: whole words case-insensitive unless asked, phrases on one
+      line, regions and boxes by word centre, `regex` over the region's text with NonBacktracking and a timeout,
+      `supplierValue` compacted, `source` facts, `allowOcrErrors` only on OCR layers and words of six letters or more,
+      evidence per identifier), `IdentificationRuleChecks` (the checks at save), `ILayoutResolver`/`LayoutResolver`
+      (priority, then positive identifiers, ties ambiguous, Candidates only pending, Shadows only counted, group layouts
+      only without an Active own layout, item kinds, receiving entities, a fixed type, e-invoices exempt) and
+      `LayoutSuggester` with `SimilarityProfile` (suggestions only);
+    - `DocProc.Mapping/Layouts`: `LayoutMapping` (fields with rules and transforms, a `column-table` per repeating group,
+      defaults, required fields, locale, coverage) and `LayoutEngine` (`label-right`, `label-below`, `region`,
+      `regex-anywhere`, `constant`, the column table through the review tool's `ColumnTableEngine` across pages with its
+      table report, the drift check);
+    - the data model (migration `SupplierLayoutsAndIdentification`, policy `PolicyV9` with `SupplierLayouts` and
+      `SupplierLayoutVersions` strict; its Down maps `Identification` and `Proposed` back to `Rule` in `Documents` and
+      `DocumentsHistory` and runs on SQL Server with part B rows in place, `TypeCatalogueSqlTests`):
+      `Documents.SupplierLayoutVersionId`, `TypeSource.Identification` and `Proposed`, `TenantSettings.LayoutReviewWarmup`;
+    - the pipeline: `classify.identification` as the first step of Classify (and for a kept Human or pinned type, only the
+      layout), `match.layout`, the split prefilter (a layout whose type is never split keeps a routed item whole),
+      `supplier-mapping` in Extract (`LayoutExtractor`, `LayoutTreeWriter`: fields, composite members, the invoice's tax
+      row, lines with their own place, tier prices, defaults, the coded invoice record checked to read; the table report
+      stored with `Origin=Layout`; the LLM fills only what the layout left Missing; counters and degradation), and the
+      review gate's layout conditions (`LayoutReviewGate`);
+    - the API (docs/05 "Layout endpoints as built"): the layouts and versions of a supplier and a group, one version in
+      full, `layouts:resolve`, `layout-suggestions`, `identification-rules:test` with evidence and overlaps; for a
+      ConfigAdmin a layout written by hand (a Candidate), `:activate` after the identification test with the tenant's or
+      a given warm-up, `:retire`; `layoutReviewWarmup` in the settings; `DocumentDetail.typeSource` and
+      `supplierLayoutVersionId`;
+    - demo PDFs: three Nordwind invoices in the ERP design and three from the web shop (`fixtures/demo/uploads/tenant-a`,
+      drawn by `DemoNordwindInvoices`); the flag labels and messages of `NEW_LAYOUT`, `LAYOUT_AMBIGUOUS`, `MAPPING_DRIFT`
+      and `LAYOUT_WARMUP` in both apps (en, de);
+    - tests: the evaluator, the meta-schema and the checks at save, the resolver's ordering, ambiguity, Candidates,
+      groups, item kinds, entities and e-invoices, the suggester, the engine's strategies, transforms and drift, a column
+      table found again on another document across pages (`DocProc.Mapping.Tests`); the pipeline with the golden values
+      of all six Nordwind invoices, `NEW_LAYOUT` for the web shop with the ERP layout only (owned by Classify, and by Match
+      for a supplier found by content), `layouts.required`, the warm-up (2 to review, the third auto-approved), ambiguity
+      and priority, a pending Candidate, drift and degradation, a tenant without the switch, and the 14-page price list
+      kept whole by the split prefilter and read entirely by one `column-table` (412 rows, its table report,
+      `PriceListLayoutTests`); the API (`LayoutEndpointsTests`); RLS and the migrate down and up on SQL Server.
+  - Left for later (the rest of P4):
+    - learning layouts in review: `AnchorLearner`, `:learn-layout` (with the source rules it proposes), the replay over
+      the replay set and its field matrix (activation runs only the identification test), the `MappingAuthor` role and
+      the activation policy by role (a ConfigAdmin activates), the Candidate path's notifications and the sibling re-test
+      (`matching-documents`, `bulk-reprocess`);
+    - the Identify mode and `identifiers:propose`, the New layout panel, `:match-layout` and the `layout-prefill` step: a
+      `NEW_LAYOUT` document is extracted as before (the LLM for an invoice; without a provider it waits with
+      `LLM_PROVIDER_UNAVAILABLE`), never with the old layout;
+    - `:assign-supplier` still assigns inline (200) and does not re-run `classify.identification` through the reprocess
+      path; a reprocess from Classify does;
+    - the tenant fallback rules (`TypeIdentificationRule`, P5) and therefore their part of the split prefilter;
+    - the structured strategies (`xml-path`, `json-path`, `cell`, `source`), `label-row` and `key-value-block`, the
+      `parseNumber`, `parseDate`, `table` and `sign` transforms, `extFields`, `llmHints`, `ruleOverrides` and
+      `pipelineOverrides` of a mapping; the e-invoice extras are still not bound to fields; Shadow runs are counted, not
+      compared; the reduced LLM schema per layout version (`CoverageJson` is stored);
+    - layouts for a group written through the API (the resolver reads them; `POST` writes supplier layouts only),
+      `PATCH /supplier-layouts/{id}`, new versions of a layout (`POST …/versions`, `PUT` of a draft), `:replay`,
+      `:shadow`, and the `?flag=NEW_LAYOUT&supplierId=` and `?pendingLayoutVersionId=` filters of the inbox;
+    - no UI beyond the flag labels: the layouts of the supplier sheet, the warm-up in the settings page and the
+      Identification card are §19 work of the later items; the API is ready for the reads and the rule test;
+    - golden documents, sandbox runs, config bundles, the supplier sheet tabs, and the compose demo of P4 (it needs the
+      new-layout flow): no Playwright run was done for part B; its scenarios run as pipeline and API tests.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

@@ -324,7 +324,8 @@ src/
   DocProc.Llm.Anthropic/      Anthropic API and Claude on Foundry adapter
   DocProc.Llm.OpenAi/         OpenAI, Azure OpenAI and OpenAI-compatible adapter
   DocProc.Mapping/            mapping engine over the positioned text layer (docs/11 §8, §12.4): the table tool's
-                              column-table, value readers by kind and locale; supplier layouts from P4
+                              column-table, value readers by kind and locale; identification rules, the layout
+                              resolver and suggester, and the layouts' field mapping engine (P4)
   DocProc.Outputs.Renderer/   the sandboxed JSONata renderer of output mappings (docs/11 §13.1): a child process the
                               API and the worker start and kill (time, memory, output and depth limits, no I/O)
   DocProc.Extraction.EInvoice/ UBL 2.1 and CII (Factur-X / ZUGFeRD / XRechnung) parsers to the canonical model
@@ -338,7 +339,7 @@ tests/
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, both adapters, LLM stages
   DocProc.EInvoice.Tests/     UBL / CII / XRechnung mapping, detection, resource limits
   DocProc.Pipeline.Tests/     stage handlers, runner, retries, duplicate handling, demo data and its replay fixtures
-  DocProc.Mapping.Tests/      the table engine and value readers on synthetic word layouts
+  DocProc.Mapping.Tests/      the table engine, value readers, identification rules, resolver and layout engine on synthetic word layouts
   DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): endpoints, auth, roles, tenant
                               scope, API keys, dev mode; the documentation checks under Docs/
   DocProc.Worker.Tests/       the worker host as Program.cs composes it
@@ -349,7 +350,7 @@ tests/
 web/                          pnpm workspace: apps/customer-portal (with Settings > Integrations and the Deliveries tab, docs/11 §19), apps/admin-console, packages/ui, app-shell,
                               review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
-fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery"); dropzone/ the watched-folder channels' drop zone, one folder per tenant slug ("Source routing")
+fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"), the Nordwind invoices in two designs (docs/09 "Supplier layouts"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery"); dropzone/ the watched-folder channels' drop zone, one folder per tenant slug ("Source routing")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
                               template schemas (templates/)
 docs/                         plan and design

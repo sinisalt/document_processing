@@ -547,6 +547,36 @@ docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` swit
   and IBAN (`SUPPLIER_CONFLICT` for an `Exclusive` rule, the content's supplier for a default). Sender rules need DMARC
   (or SPF with an aligned DKIM signature) unless the rule says `requireSenderAuth: false`.
 
+### Supplier layouts (identification rules and field mappings)
+
+docs/11 §8 (P4 part B). Everything here needs the tenant's `supplierLayouts` switch (`PUT /api/v1/settings` with
+`features.supplierLayouts: true`); a tenant without it is never identified by a layout and its documents run as
+before. A layout is one design of one type of a supplier: an identification rule (which words prove the design) and a
+field mapping (where each value is printed).
+
+- **Demo invoices.** `fixtures/demo/uploads/tenant-a/` holds three Nordwind invoices in the design of its ERP
+  (`Nordwind_Rechnung_NW-RE-2026-*.pdf`: "Rechnung" in the title, the VAT id `DE312456789` in the letterhead) and three
+  from its web shop (`Nordwind_Webshop_Rechnung_WS-2026-*.pdf`: "RECHNUNG / INVOICE" top right, the VAT id on page 2).
+  They are drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoNordwindInvoices.cs` and redrawn only on request
+  (`REGENERATE_DEMO_PDFS=<file name>[,<file name>…]`, docs "Demo data"); the layouts the tests use for them are in
+  `tests/DocProc.Pipeline.Tests/Layouts/NordwindLayouts.cs`.
+- **A layout.** `POST /api/v1/suppliers/{id}/layouts` (ConfigAdmin) with `layoutKey`, `name`, `documentTypeKey`,
+  `identification` (for example `{"all":[{"text":"Rechnung","page":1,"region":"title"},{"supplierValue":"vatId","page":1}]}`)
+  and `mapping` (`{"fields":{"invoiceNumber":{"rules":[{"strategy":"label-right","labels":["Rechnungs-Nr."]}]}, ...}}`,
+  docs/11 §8.1) saves version 1 as a Candidate; `POST /api/v1/supplier-layouts/{id}/versions/1:activate` makes it
+  Active with the tenant's warm-up. `POST /api/v1/identification-rules:test` shows on which of the supplier's documents a
+  rule holds, with the words that made it hold; `GET /api/v1/suppliers/{id}/layouts:resolve?documentId=` explains what
+  the resolver decides for a document.
+- **What happens.** For a supplier known at ingest (a source rule, the channel default) the layout is resolved in
+  Classify, otherwise in Match once the VAT id or IBAN names the supplier. A layout whose rule holds sets the type
+  (`TypeSource Identification`), fills the fields and lines (`ExtractionMethod Profile`, no LLM call) and is named in
+  `appliedConfig.layout`. A supplier with an Active layout, or `layouts.required`, whose layouts all fail gets the
+  blocking `NEW_LAYOUT` (the old layout is never applied, the classifiers only propose a type) and goes to review.
+- **Warm-up.** The first `reviewWarmup` documents under a newly activated version go to review with `LAYOUT_WARMUP`
+  ("document 1 of the first 5"), already filled by the layout. The default is 5 (decision 2 of docs/11 §24); a tenant
+  admin sets another value for the versions activated from then on with `PUT /api/v1/settings {"layoutReviewWarmup": 0}`
+  (the demo tenant's warm-up of docs/11 §23 P4), or per activation with `{"reviewWarmup": n}`.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's

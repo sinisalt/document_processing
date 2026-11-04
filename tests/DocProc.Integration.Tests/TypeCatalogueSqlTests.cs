@@ -145,7 +145,6 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
             await platform.Database.MigrateAsync(ct);
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.SupplierLayoutVersions')").SingleAsync(ct)).ShouldBe(3);
             (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).SupplierLayoutVersionId.ShouldBeNull("up again, the column is new");
-            await migrator.MigrateAsync("20261104064837_SourceRoutingAndSupplierConfig", ct);
 
             // P4 part A next, with one of everything it writes: a supplier group, a receiving entity, the supplier's
             // settings, group and entity attributes, a source rule, a channel default and source key, the source facts
