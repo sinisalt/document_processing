@@ -33,7 +33,13 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
     }
 
     /// <summary>Synchronous core, also used by tests and by the splitter's header detection.</summary>
-    public ClassificationOutcome Classify(TextLayer? textLayer)
+    public ClassificationOutcome Classify(TextLayer? textLayer) => Classify(textLayer, candidates: null);
+
+    /// <summary>
+    /// The keyword rules restricted to <paramref name="candidates"/> (a supplier's allowed types, docs/11 §7.3): only
+    /// those types score, so the winner is one of them or <c>Unknown</c>. Null or empty: every type.
+    /// </summary>
+    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates)
     {
         if (textLayer is null || textLayer.WordCount == 0)
         {
@@ -71,7 +77,7 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
         }
 
         var language = LanguageDetector.Detect(pages, allHits);
-        var positive = scores.Where(s => s.Value > 0).ToList();
+        var positive = scores.Where(s => s.Value > 0 && (candidates is not { Count: > 0 } || candidates.Contains(s.Key.Value, StringComparer.Ordinal))).ToList();
         if (positive.Count == 0)
         {
             return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule, language);

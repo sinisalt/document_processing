@@ -121,7 +121,7 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         first.SourceSender.ShouldBe("rechnungsversand@nordwind.example");
         first.SourceMailbox.ShouldBe(mailbox);
         first.SourceRecipientsJson.ShouldNotBeNull().ShouldContain("nordwind@tenant-a.local");
-        first.SourceMessageId.ShouldNotBeNull().ShouldStartWith("imap:");
+        first.SourceMessageId.ShouldNotBeNull().ShouldStartWith("imap:mid:", Case.Sensitive);
         first.RawBlob.ContentType.ShouldBe("message/rfc822");
         first.Items.ShouldHaveSingleItem().FileName.ShouldBe("rechnung-1.pdf");
         SenderAuthentication.Parse(first.SenderAuthJson)!.Verified.ShouldBeTrue();
@@ -156,6 +156,54 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(0);
         (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().CountAsync(i => i.ChannelId == channel))).ShouldBe(1);
         (await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == channel))).Cursor.ShouldNotBeNull("the cursor moved on again");
+    }
+
+    [Fact]
+    public async Task A_folder_read_again_after_its_UIDVALIDITY_changed_ingests_nothing_twice()
+    {
+        SkipUnlessAvailable();
+        await using var host = await StartAsync();
+        var mailbox = $"val-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
+        var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
+        await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("a@nordwind.example", "eins", files: ("1.pdf", "application/pdf", MailMessageReaderTests.Pdf)));
+        await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("a@nordwind.example", "zwei"));
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(2);
+
+        // The server renumbered the folder (a new UIDVALIDITY): the cursor of the old one reads it from its start again.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.IngestionChannels.SingleAsync(c => c.Id == channel);
+            row.Cursor = "1:999";
+            await db.SaveChangesAsync();
+        });
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(0, "both messages are known by their Message-ID");
+        (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().CountAsync(i => i.ChannelId == channel))).ShouldBe(2, "no new ingestion, not even an empty one");
+        (await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == channel))).Cursor.ShouldNotBeNull().ShouldNotBe("1:999");
+    }
+
+    [Fact]
+    public async Task The_invoice_of_an_untrusted_forward_attached_as_a_message_becomes_a_document()
+    {
+        SkipUnlessAvailable();
+        await using var host = await StartAsync();
+        var mailbox = $"unt-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
+        var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
+        var original = MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung 79", files: ("rechnung-79.pdf", "application/pdf", "%PDF-1.4 seventy-nine"u8.ToArray()));
+        var forward = MailMessageReaderTests.Message("kollegin@private.example", "Fwd: Rechnung 79", "mx.tenant-a.local; dmarc=pass header.from=private.example");
+        var body = new BodyBuilder { TextBody = "bitte buchen" };
+        body.Attachments.Add(new MessagePart { Message = original });
+        forward.Body = body.ToMessageBody();
+        await mail.AppendAsync(mailbox, forward);
+
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(1);
+
+        var ingestion = await host.WithDbAsync(db => db.Ingestions.AsNoTracking().Include(i => i.Items).SingleAsync(i => i.ChannelId == channel));
+        ingestion.SourceSender.ShouldBe("kollegin@private.example", "not a trusted forwarder: the sender is not unwrapped");
+        ingestion.ForwardedBy.ShouldBeNull();
+        ingestion.Items.ShouldHaveSingleItem().FileName.ShouldBe("rechnung-79.pdf");
     }
 
     [Fact]
@@ -237,6 +285,7 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
             settings["Mail:ImapHost"] = mail.Host;
             settings["Mail:ImapPort"] = mail.Port.ToString(CultureInfo.InvariantCulture);
             settings["Mail:ImapSecurity"] = "None";
+            settings["Mail:TrustedAuthServIds:0"] = MailMessageReaderTests.Receiver;
             settings["Mail:Timeout"] = "00:00:10";
             configure?.Invoke(settings);
         });

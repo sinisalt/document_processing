@@ -1,5 +1,6 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
+using DocProc.Application.Suppliers;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
@@ -11,6 +12,7 @@ using DocProc.Llm.Extraction;
 using DocProc.Mapping.Identification;
 using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Support;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -110,7 +112,8 @@ internal sealed class ClassifyHandler(
 
         if (outcome is null)
         {
-            (outcome, usedLlm) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken).ConfigureAwait(false);
+            var allowed = KnownFromSource(document) ? await AllowedTypesAsync(Db, document.SupplierId, cancellationToken).ConfigureAwait(false) : null;
+            (outcome, usedLlm) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken, allowed).ConfigureAwait(false);
             if (identification?.Result.Resolution == LayoutResolution.NewLayout && outcome.Type != DocumentTypeKey.Unknown)
             {
                 // Under NEW_LAYOUT the classifiers only propose (§8.4 step 5): the type never counts as decided.
@@ -142,7 +145,9 @@ internal sealed class ClassifyHandler(
     /// The page path of classification (docs/03 "Classify"): the keyword rules over the text layer and, below
     /// <see cref="PipelineOptions.LlmClassificationThreshold"/> or for Unknown, the LLM classifier with the first page
     /// image. Shared with the Match stage, which classifies again when content evidence replaced a source supplier whose
-    /// configuration had pinned the type (docs/11 §7.4).
+    /// configuration had pinned the type (docs/11 §7.4). With <paramref name="allowedTypes"/> (the supplier's
+    /// <c>allowedTypeKeys</c>, docs/11 §7.3) the keyword rules choose among those types only, and an LLM answer outside
+    /// them is Unknown (the LLM's own enum restricted to the set comes with P5's classifier).
     /// </summary>
     internal static async Task<(ClassificationOutcome Outcome, bool UsedLlm)> ClassifyPagesAsync(
         Document document,
@@ -150,10 +155,11 @@ internal sealed class ClassifyHandler(
         KeywordDocumentClassifier keywords,
         IServiceProvider services,
         PipelineOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<string>? allowedTypes = null)
     {
         var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
-        var outcome = keywords.Classify(textLayer);
+        var outcome = keywords.Classify(textLayer, allowedTypes);
         var usedLlm = false;
         if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < options.LlmClassificationThreshold)
             && services.GetService<LlmDocumentClassifier>() is { } llm)
@@ -163,13 +169,36 @@ internal sealed class ClassifyHandler(
                 : (ReadOnlyMemory<byte>?)null;
             var fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
             usedLlm = true;
-            if (fromLlm.Type != DocumentTypeKey.Unknown)
+            if (fromLlm.Type != DocumentTypeKey.Unknown && (allowedTypes is not { Count: > 0 } || allowedTypes.Contains(fromLlm.Type.Value, StringComparer.Ordinal)))
             {
                 outcome = fromLlm with { Language = fromLlm.Language ?? outcome.Language };
             }
         }
 
         return (outcome, usedLlm);
+    }
+
+    /// <summary>
+    /// The supplier's allowed types (its <c>allowedTypeKeys</c> over its group's, docs/11 §7.3), or null when it names
+    /// none or there is no supplier: what the page classification is restricted to (plus <c>Unknown</c>).
+    /// </summary>
+    internal static async Task<IReadOnlyCollection<string>?> AllowedTypesAsync(DocProcDbContext db, Guid? supplierId, CancellationToken cancellationToken)
+    {
+        if (supplierId is not { } id)
+        {
+            return null;
+        }
+
+        var row = await db.Suppliers.AsNoTracking().Where(s => s.Id == id)
+            .Select(s => new { s.SettingsJson, GroupSettings = s.Group != null ? s.Group.SettingsJson : null })
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var allowed = SupplierSettings.Parse(row.SettingsJson).Over(SupplierSettings.Parse(row.GroupSettings)).AllowedTypeKeys;
+        return allowed is { Count: > 0 } ? [.. allowed.Select(k => DocumentTypeKey.TryParse(k, out var key) ? key.Value : k)] : null;
     }
 
     /// <summary>Gives the document the outcome's type; a different type drops the version pin and a definition tree of the old type.</summary>

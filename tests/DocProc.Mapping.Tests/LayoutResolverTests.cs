@@ -137,7 +137,7 @@ public sealed class LayoutResolverTests
         suggestions.Count.ShouldBe(1, "the price list shares no word with the document");
         suggestions[0].LayoutKey.ShouldBe("nordwind-invoice-erp");
         suggestions[0].Similarity.ShouldBeGreaterThan(0);
-        suggestions[0].Differences.ShouldContain(d => d.Contains("vatId", StringComparison.Ordinal), "the title still reads Rechnung; the VAT id is not on page 1");
+        suggestions[0].Differences.ShouldContain(d => d.Contains("VAT id", StringComparison.Ordinal), "the title still reads Rechnung; the VAT id is not on page 1");
     }
 
     [Fact]

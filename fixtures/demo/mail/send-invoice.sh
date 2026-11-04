@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mails a demo PDF to a GreenMail mailbox as Nordwind's mail server would send it, with the Authentication-Results
 # header the receiving server writes (GreenMail writes none), so the DMARC-checked sender rules of docs/11 §7 apply.
+# It names the receiver mx.<recipient domain>, which compose lists in Mail:TrustedAuthServIds (no other is believed).
 # docs/09 "Demo: routing and layouts".
 #
 #   fixtures/demo/mail/send-invoice.sh <pdf> <to> [subject] [dmarc]
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  sed -n '6,11p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '7,12p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 pdf=$1

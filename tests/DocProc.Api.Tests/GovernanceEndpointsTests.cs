@@ -191,4 +191,58 @@ public sealed class GovernanceEndpointsTests : IClassFixture<ApiFactory>
         tampered.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await tampered.Content.ReadFromJsonAsync<ProblemDetails>(Ct))!.Extensions["code"]!.ToString().ShouldBe("BUNDLE_SIGNATURE_INVALID");
     }
+    [Fact]
+    public async Task An_imported_layout_passes_the_checks_of_the_layout_endpoint_and_a_member_of_the_wrong_type_is_no_500()
+    {
+        var vat = $"DE{Random.Shared.Next(100_000_000, 999_999_999)}";
+        _factory.Run(db => db.Suppliers.Add(new Supplier { Id = Guid.CreateVersion7(), TenantId = ApiFactory.TenantB, Name = $"Import {vat}", NormalizedName = $"IMPORT {vat}", VatId = vat, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow }));
+        using var b = Admin(ApiFactory.TenantB);
+        JsonObject Layout(string key, string type, string? name = null) => new()
+        {
+            ["layoutKey"] = key,
+            ["documentTypeKey"] = type,
+            ["name"] = name ?? key,
+            ["supplier"] = new JsonObject { ["vatId"] = vat },
+            ["identification"] = JsonNode.Parse("""{ "all": [ { "text": "Rechnung" }, { "supplierValue": "vatId" } ] }"""),
+            ["mapping"] = JsonNode.Parse("""{ "fields": { "currency": { "rules": [ { "strategy": "constant", "value": "EUR" } ] } } }"""),
+        };
+        async Task<HttpResponseMessage> ImportAsync(JsonArray layouts, string mode = "dry-run")
+        {
+            var bundle = new JsonObject { ["format"] = GovernanceEndpoints.BundleFormat, ["version"] = GovernanceEndpoints.BundleVersion, ["layouts"] = layouts };
+            bundle["signature"] = GovernanceEndpoints.Sign(bundle, GovernanceEndpoints.DevelopmentSigningKey);
+            return await b.PostAsJsonAsync("/api/v1/config/bundle:import", new BundleImportRequest(JsonDocument.Parse(bundle.ToJsonString()).RootElement, mode), Ct);
+        }
+
+        var checkedItems = await ImportAsync([Layout("Not A Key!", "Invoice"), Layout("nordwind-x", "NoSuchType"), Layout("nordwind-y", "Invoice", new string('n', 500)), Layout("nordwind-ok", "Invoice")], "apply");
+        checkedItems.StatusCode.ShouldBe(HttpStatusCode.OK, await checkedItems.Content.ReadAsStringAsync(Ct));
+        var items = (await checkedItems.Content.ReadFromJsonAsync<BundleImportResponse>(ApiFactory.Json, Ct))!.Items;
+        items.Single(i => i.Key == "Not A Key!").Action.ShouldBe("error");
+        items.Single(i => i.Key == "Not A Key!").Detail!.ShouldContain("layout key");
+        items.Single(i => i.Key == "nordwind-x").Action.ShouldBe("error");
+        items.Single(i => i.Key == "nordwind-x").Detail!.ShouldContain("NoSuchType");
+        items.Single(i => i.Key == "nordwind-y").Detail!.ShouldContain("name is at most");
+        items.Single(i => i.Key == "nordwind-ok").Action.ShouldBe("create");
+        _factory.Run(db =>
+        {
+            var stored = db.SupplierLayouts.Where(l => l.TenantId == ApiFactory.TenantB && l.Supplier!.VatId == vat).Select(l => l.LayoutKey).ToList();
+            stored.ShouldBe(["nordwind-ok"], "only the layout that passes the checks is stored");
+        });
+
+        // A member of the wrong JSON type is an item error or a 400, never a 500.
+        var numberKey = Layout("ignored", "Invoice");
+        numberKey["layoutKey"] = 5;
+        var wrongKey = await ImportAsync([numberKey]);
+        wrongKey.StatusCode.ShouldBe(HttpStatusCode.OK, await wrongKey.Content.ReadAsStringAsync(Ct));
+        (await wrongKey.Content.ReadFromJsonAsync<BundleImportResponse>(ApiFactory.Json, Ct))!.Items.ShouldHaveSingleItem().Action.ShouldBe("error");
+
+        var objectSupplier = Layout("nordwind-z", "Invoice");
+        objectSupplier["supplier"] = "not an object";
+        objectSupplier["itemKinds"] = new JsonArray(1, 2);
+        var wrongShapes = await ImportAsync([objectSupplier]);
+        ((int)wrongShapes.StatusCode).ShouldBeLessThan(500, await wrongShapes.Content.ReadAsStringAsync(Ct));
+        var objectDestination = new JsonObject { ["format"] = GovernanceEndpoints.BundleFormat, ["version"] = GovernanceEndpoints.BundleVersion, ["bindings"] = new JsonArray(new JsonObject { ["name"] = "x", ["destination"] = "flat", ["mappingKey"] = 7 }) };
+        objectDestination["signature"] = GovernanceEndpoints.Sign(objectDestination, GovernanceEndpoints.DevelopmentSigningKey);
+        var wrongBinding = await b.PostAsJsonAsync("/api/v1/config/bundle:import", new BundleImportRequest(JsonDocument.Parse(objectDestination.ToJsonString()).RootElement), Ct);
+        ((int)wrongBinding.StatusCode).ShouldBeLessThan(500, await wrongBinding.Content.ReadAsStringAsync(Ct));
+    }
 }

@@ -107,6 +107,71 @@ public sealed class FolderWatcherTests
     }
 
     [Fact]
+    public async Task A_channel_folder_that_is_a_link_into_another_tenants_root_is_not_read()
+    {
+        var root = NewRoot();
+        await using var host = await StartAsync(root);
+        var secret = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "secret")).FullName;
+        var file = Path.Combine(secret, "b.pdf");
+        await File.WriteAllBytesAsync(file, TestPdfs.GermanInvoice(), Ct);
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(root, "tenant-a")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(tenantRoot, "scans"), secret);
+        var direct = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+
+        // A real folder of the tenant's whose way to it passes the link: ...tenant-a/via/inner, via being a link.
+        var outer = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "outer", "inner")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(outer, "c.pdf"), TestPdfs.GermanInvoice(), Ct);
+        Directory.CreateSymbolicLink(Path.Combine(tenantRoot, "via"), Path.Combine(root, "tenant-b", "outer"));
+        var nested = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"via/inner","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, direct, Ct)).ShouldBe(0);
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, nested, Ct)).ShouldBe(0);
+
+        File.Exists(file).ShouldBeTrue("tenant B's file stays where it is");
+        Directory.Exists(Path.Combine(secret, "processed")).ShouldBeFalse();
+        File.Exists(Path.Combine(outer, "c.pdf")).ShouldBeTrue();
+        (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().CountAsync(i => i.ChannelId == direct || i.ChannelId == nested))).ShouldBe(0);
+        var channels = await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().Where(c => c.Id == direct || c.Id == nested).ToListAsync());
+        channels.Single(c => c.Id == direct).LastError.ShouldNotBeNull().ShouldContain("scans is a link");
+        channels.Single(c => c.Id == nested).LastError.ShouldNotBeNull().ShouldContain("via is a link");
+    }
+
+    [Fact]
+    public async Task A_processed_folder_that_is_a_link_stops_the_channel_before_a_file_is_moved_through_it()
+    {
+        var root = NewRoot();
+        await using var host = await StartAsync(root);
+        var elsewhere = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "inbox")).FullName;
+        var scans = Directory.CreateDirectory(Path.Combine(root, "tenant-a", "scans")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(scans, "processed"), elsewhere);
+        var file = Path.Combine(scans, "rechnung.pdf");
+        await File.WriteAllBytesAsync(file, TestPdfs.GermanInvoice(), Ct);
+        var channel = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(0);
+
+        File.Exists(file).ShouldBeTrue();
+        Directory.EnumerateFileSystemEntries(elsewhere).ShouldBeEmpty();
+        (await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == channel))).LastError.ShouldNotBeNull().ShouldContain("processed is a link");
+    }
+
+    [Fact]
+    public void A_link_anywhere_on_the_way_is_found()
+    {
+        var root = NewRoot();
+        var real = Directory.CreateDirectory(Path.Combine(root, "a", "b")).FullName;
+        ChannelPollerHostedService.LinkOnPath(root, real).ShouldBeNull();
+        ChannelPollerHostedService.LinkOnPath(root, root).ShouldBeNull();
+        ChannelPollerHostedService.LinkOnPath(root, Path.Combine(root, "a", "missing", "deeper")).ShouldBeNull("a part that does not exist ends the walk");
+        Directory.CreateSymbolicLink(Path.Combine(root, "l"), real);
+        ChannelPollerHostedService.LinkOnPath(root, Path.Combine(root, "l", "x")).ShouldBe(Path.Combine(root, "l"));
+        Directory.CreateSymbolicLink(Path.Combine(root, "dangling"), Path.Combine(root, "nowhere"));
+        ChannelPollerHostedService.LinkOnPath(root, Path.Combine(root, "dangling")).ShouldBe(Path.Combine(root, "dangling"));
+    }
+
+    [Fact]
     public async Task A_missing_folder_or_an_invalid_config_is_the_channels_last_error()
     {
         var root = NewRoot();

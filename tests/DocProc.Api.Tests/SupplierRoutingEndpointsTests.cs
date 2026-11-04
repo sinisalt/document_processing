@@ -233,6 +233,9 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
         var current = (await admin.GetFromJsonAsync<TenantSettingsResponse>("/api/v1/settings", ApiFactory.Json, Ct))!.Settings;
         var schema = JsonDocument.Parse("""{"type":"object","properties":{"erpVendorId":{"type":"string","pattern":"^V-[0-9]+$"},"paymentBlock":{"type":"boolean"}}}""").RootElement;
         (await admin.PutAsJsonAsync("/api/v1/settings", current with { SupplierAttributeSchema = JsonDocument.Parse("""{"properties":{"a":{"type":"date"}}}""").RootElement }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var freeMail = await admin.PutAsJsonAsync("/api/v1/settings", current with { TrustedForwarderDomains = ["bureau.example", "GMAIL.com"] }, Ct);
+        freeMail.StatusCode.ShouldBe(HttpStatusCode.BadRequest, "a free-mail provider is no trusted forwarder");
+        (await freeMail.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["trustedForwarderDomains"].ShouldContain(e => e.Contains("free-mail", StringComparison.Ordinal));
         var saved = await admin.PutAsJsonAsync("/api/v1/settings", current with { SupplierAttributeSchema = schema, TrustedForwarderDomains = ["Bureau.Example"], LayoutsRequiredByDefault = true }, Ct);
         saved.StatusCode.ShouldBe(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
         var settings = (await saved.Content.ReadFromJsonAsync<TenantSettingsResponse>(ApiFactory.Json, Ct))!.Settings;
@@ -271,6 +274,9 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
         var address = $"{Unique("box")}@tenant-a.local";
         var invalid = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", JsonDocument.Parse("""{"address":"ap@acme.example","host":"10.0.0.5"}""").RootElement, null), Ct);
         invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var freeMailForwarder = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{address}}","trustedForwarderDomains":["web.de"]}""").RootElement, null), Ct);
+        freeMailForwarder.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await freeMailForwarder.Content.ReadAsStringAsync(Ct)).ShouldContain("free-mail");
 
         var created = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{address}}","trustedForwarderDomains":["bureau.example"]}""").RootElement, "secret") { DefaultSupplierId = supplier.Id, DefaultDocumentTypeKey = "invoice" }, Ct);
         created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));

@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using DocProc.Application.Abstractions;
 using DocProc.Infrastructure.Http;
 using MailKit;
@@ -17,9 +19,12 @@ public sealed record ImapEndpoint(string Host, int Port, SecureSocketOptions Sec
 /// <summary>
 /// <see cref="IMailSource"/> over IMAP with MailKit (docs/11 §7.1, docs/09 "the GreenMail mailbox"): the messages of one
 /// folder newer than the cursor, oldest first, at most <c>maxMessages</c> per call. The cursor is
-/// <c>{UIDVALIDITY}:{last UID}</c>; a folder whose UIDVALIDITY changed is read from its start again (the channel's unique
-/// message ids keep what was ingested from coming in twice). A message over <see cref="MailOptions.MaxMessageBytes"/>
-/// is yielded without its bytes and with <see cref="InboundMessage.SkippedReason"/>, so the cursor moves past it.
+/// <c>{UIDVALIDITY}:{last UID}</c>; a folder whose UIDVALIDITY changed is read from its start again. The message id
+/// (<see cref="InboundMessage.MessageId"/>, unique per channel in <c>Ingestions.SourceMessageId</c>) does not depend on
+/// the UIDVALIDITY: it is a hash of the RFC <c>Message-ID</c> header and the sender, or of the raw message when it has
+/// none, so the messages read again are found there and not ingested twice (<see cref="ContentMessageId"/>). A message
+/// over <see cref="MailOptions.MaxMessageBytes"/>, by the size the server reports or by the bytes it then sends, is
+/// yielded without its bytes and with <see cref="InboundMessage.SkippedReason"/>, so the cursor moves past it.
 /// <para>
 /// A tenant's own server is checked like a tenant endpoint (docs/11 §16): the name is resolved, every address must be
 /// public (or the host listed in <see cref="MailOptions.AllowedHosts"/>), the socket connects to an address that was
@@ -86,24 +91,33 @@ public sealed class MailKitImapMailSource(ImapEndpoint endpoint, MailOptions opt
                 var receivedAt = summary.InternalDate ?? DateTimeOffset.UtcNow;
                 var from = summary.Envelope?.From?.Mailboxes.FirstOrDefault()?.Address ?? string.Empty;
                 var to = summary.Envelope?.To?.Mailboxes.Select(m => m.Address).ToList() ?? [];
-                var id = MessageId(validity, summary.UniqueId.Id);
+                var skippedId = MessageId(validity, summary.UniqueId.Id);
                 if (summary.Size is { } size && size > options.MaxMessageBytes)
                 {
-                    yield return new InboundMessage(id, next, receivedAt, from, to, summary.Envelope?.Subject, ReadOnlyMemory<byte>.Empty, [])
+                    yield return new InboundMessage(skippedId, next, receivedAt, from, to, summary.Envelope?.Subject, ReadOnlyMemory<byte>.Empty, [])
                     {
                         SkippedReason = $"The message is {size.ToString(CultureInfo.InvariantCulture)} bytes, over the limit of {options.MaxMessageBytes.ToString(CultureInfo.InvariantCulture)}.",
                     };
                     continue;
                 }
 
-                byte[] raw;
+                // The size the server reported is a claim: the bytes it sends are counted too, and reading stops past the limit.
+                byte[]? raw;
                 using (var stream = await folder.GetStreamAsync(summary.UniqueId, cancellationToken).ConfigureAwait(false))
-                using (var buffer = new MemoryStream())
                 {
-                    await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-                    raw = buffer.ToArray();
+                    raw = await ReadBoundedAsync(stream, options.MaxMessageBytes, cancellationToken).ConfigureAwait(false);
                 }
 
+                if (raw is null)
+                {
+                    yield return new InboundMessage(skippedId, next, receivedAt, from, to, summary.Envelope?.Subject, ReadOnlyMemory<byte>.Empty, [])
+                    {
+                        SkippedReason = $"The message is over the limit of {options.MaxMessageBytes.ToString(CultureInfo.InvariantCulture)} bytes.",
+                    };
+                    continue;
+                }
+
+                var id = ContentMessageId(summary.Envelope?.MessageId, from, raw);
                 yield return new InboundMessage(id, next, receivedAt, from, to, summary.Envelope?.Subject, raw, []);
             }
         }
@@ -119,8 +133,47 @@ public sealed class MailKitImapMailSource(ImapEndpoint endpoint, MailOptions opt
     /// <summary>The cursor is stored by the poller with the ingestion; nothing is marked on the server (the folder is opened read-only).</summary>
     public Task AcknowledgeAsync(InboundMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <summary>The unique id of a message in its channel (<c>Ingestions.SourceMessageId</c>).</summary>
+    /// <summary>The id of a message that was skipped (never stored): its place in the folder.</summary>
     public static string MessageId(uint validity, uint uid) => $"imap:{validity.ToString(CultureInfo.InvariantCulture)}:{uid.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// The unique id of an ingested message in its channel (<c>Ingestions.SourceMessageId</c>), the same however the
+    /// folder numbers it: <c>imap:mid:{hash}</c> of the RFC <c>Message-ID</c> and the sender address, or
+    /// <c>imap:sha:{hash}</c> of the raw message when it has no <c>Message-ID</c>.
+    /// </summary>
+    public static string ContentMessageId(string? rfcMessageId, string? from, ReadOnlySpan<byte> raw)
+    {
+        var mid = rfcMessageId?.Trim().Trim('<', '>').Trim();
+        if (!string.IsNullOrEmpty(mid))
+        {
+            var key = $"{mid}\n{(from ?? string.Empty).Trim().ToLowerInvariant()}";
+            return "imap:mid:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        }
+
+        return "imap:sha:" + Convert.ToHexStringLower(SHA256.HashData(raw));
+    }
+
+    /// <summary>The whole stream, or null once more than <paramref name="limit"/> bytes were read.</summary>
+    public static async Task<byte[]?> ReadBoundedAsync(Stream stream, long limit, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var chunk = new byte[81920];
+        using var buffer = new MemoryStream();
+        long total = 0;
+        int read;
+        while ((read = await stream.ReadAsync(chunk.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            total += read;
+            if (total > limit)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
 
     public static string Cursor(uint validity, uint uid) => $"{validity.ToString(CultureInfo.InvariantCulture)}:{uid.ToString(CultureInfo.InvariantCulture)}";
 

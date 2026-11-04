@@ -220,7 +220,7 @@ public static class LayoutLearningEndpoints
             Resolve(document, "learned", actor, now, result.Layout!.LayoutKey);
         }
 
-        DocumentQueries.AddEvent(db, document, "document.layout_learned", null, actor, new
+        DocumentQueries.AddEvent(db, document, LayoutEventTypes.Learned, null, actor, new
         {
             layoutId = result.Layout!.Id,
             layoutKey = result.Layout.LayoutKey,
@@ -471,7 +471,7 @@ public static class LayoutLearningEndpoints
         var previous = new { typeKey = document.Type.Value, typeVersionId = document.DocumentTypeVersionId, typeSource = document.TypeSource };
         DocumentEndpoints.ApplyType(document, key, type, now);
         DocumentEndpoints.AddSetTypeCorrection(db, document, previous, new { typeKey = key.Value, typeVersionId = type.VersionId, typeVersion = type.Version, matchLayout = true }, actor, now);
-        DocumentQueries.AddEvent(db, document, "document.layout_matched", null, actor, new { typeKey = key.Value, request.BasedOnLayoutId, request.PendingLayoutVersionId, request.SaveAs, request.TargetLayoutId, rerun = typeChanged || basisChanged }, now);
+        DocumentQueries.AddEvent(db, document, LayoutEventTypes.Matched, null, actor, new { typeKey = key.Value, request.BasedOnLayoutId, request.PendingLayoutVersionId, request.SaveAs, request.TargetLayoutId, rerun = typeChanged || basisChanged }, now);
         await db.SaveChangesAsync(ct);
         if (typeChanged || basisChanged)
         {

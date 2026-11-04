@@ -1243,11 +1243,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
   - Decided (part A, recorded as "Correction (P4, part A)" in docs/11 §6.3 to §7.4, §9.3 and §12.1):
     - the pollers run only for tenants with `sourceRouting` on (a `Mailbox` channel from before is not read by surprise),
       next to the runner; compose and the AppHost poll in the worker only (`Intake:PollersEnabled: false` for the API);
-    - "each message once" rests on a message id unique per channel in the database (`imap:{UIDVALIDITY}:{UID}`, a hash of
-      a file's relative path, size and time), the cursor only saves work; two hosts or a lost cursor ingest nothing twice;
-    - the `Authentication-Results` header trusted is the topmost one or one of a configured `authserv-id`; a DMARC pass for
-      another domain than the From domain is not a pass; the original sender of a forward unwrapped from a trusted
-      forwarder counts as authenticated when the forwarder's own message is;
+    - "each message once" rests on a message id unique per channel in the database (a hash of the `Message-ID` and
+      the sender, corrected by the review fixes below from `imap:{UIDVALIDITY}:{UID}`; a hash of a file's relative path,
+      size and time), the cursor only saves work; two hosts or a lost cursor ingest nothing twice;
+    - the `Authentication-Results` header trusted is one of a configured `authserv-id` (the review fixes below dropped
+      the topmost-header default); a DMARC pass for another domain than the From domain is not a pass; the original
+      sender of a forward unwrapped from a trusted forwarder counts as authenticated when the forwarder's own message is;
     - a tenant IMAP host must be public and reached over TLS (`TenantEndpointGuard`, re-checked on the resolved
       addresses), unless the platform allows it (`Mail:AllowedHosts`);
     - the drop zone is per tenant (`Intake:FolderRoot/<slug>/`), so a tenant cannot watch another's folder;
@@ -1500,6 +1501,40 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the "new version of X" choice tests X's documents only when the approval is sent (the refusal and a
       confirmation), not when it is chosen;
     - Playwright specs in `web/e2e` for these screens (the demo run used a script outside the repository).
+  - Review fixes (after part D, recorded as "Correction (P4, review fixes)" in docs/11 §7.1, §7.3, §8.2 and §8.5):
+    - decided: no `Authentication-Results` header is believed unless its `authserv-id` is in `Mail:TrustedAuthServIds`
+      or the channel's `authServId` (a server that writes none leaves the sender's own header on top); with none, every
+      sender is unauthenticated, and a trusted server's header that does not parse fails closed. Compose and the AppHost
+      list `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers `send-invoice.sh` writes;
+    - decided: a mailbox message's id is a hash of its `Message-ID` and sender (`imap:mid:`), or of its bytes
+      (`imap:sha:`), so a folder renumbered by its server (a new UIDVALIDITY) ingests nothing twice;
+    - done: the review gate refuses auto-approval while `SUPPLIER_AMBIGUOUS` is open (docs/11 §11 layer 3);
+    - done: the files of an attached `message/rfc822` are items whoever sent the mail, for every attached message; only
+      the sender facts are unwrapped from a trusted forwarder;
+    - done: free-mail domains are refused as trusted forwarders (tenant settings, mailbox config) and ignored if stored;
+    - done: a watched-folder channel whose folder, or a folder on the way to it, or its `processed/` or `failed/`, is a
+      link is not read, and no file is moved through a link;
+    - done: the message body is read up to `Mail:MaxMessageBytes` whatever size the server reports, and copied once;
+    - done: a document counts once per layout version towards its statistics and drift (`document.layout_applied`),
+      so reprocessing one drifting document does not degrade its layout;
+    - done: `supplierValue` holds only for the whole value (edges at word boundaries, punctuation or a letter/digit
+      change); the rule in words names the keys by their labels ("VAT id", "IBAN", "attribute customerNo");
+    - done: `match.layout` runs only when VAT or IBAN named the supplier; a supplier found by its name or mail domain
+      gets no `NEW_LAYOUT`;
+    - done: with `allowedTypeKeys`, the keyword classification of a document whose supplier is known before Classify
+      (and Match's classification for a replacing supplier) chooses among those types or `Unknown`, and an LLM answer
+      outside them is `Unknown`;
+    - done: the `MappingAuthor` grant counts only together with a role that may review (`Policies.Satisfies`);
+    - done: `POST /config/bundle:import` checks an imported layout as `POST /suppliers/{id}/layouts` does (key, type
+      key the tenant has or the bundle brings, name length, priority, item kinds) and reads every member by its JSON
+      type, so a malformed bundle is an item error or a 400, never a 500;
+    - done: the `document.supplier_identified_by_source` event carries the channel, folder path, sender, mailbox and
+      the rule in words, and the Timeline shows them; every document event type has an en and de Timeline label
+      (`TimelineLabelTests` checks them against the backend's constants);
+    - left for later: the LLM classifier's own enum restricted to the allowed types (P5's classifier); forwards
+      unwrapped from the inline `From:` block still count for a trusted forwarder (only the attached form carries the
+      original headers); the UIDVALIDITY change is tested by resetting the cursor to another validity, not on a server
+      that renumbers its folder.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

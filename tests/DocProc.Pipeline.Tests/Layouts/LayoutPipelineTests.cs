@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DocProc.Application.Pipeline;
 using DocProc.Application.Routing;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -358,6 +359,71 @@ public sealed class LayoutPipelineTests
         next.SupplierLayoutVersionId.ShouldBe(version.Id);
         next.ExtractionMethod.ShouldNotBe(ExtractionMethod.Profile);
         next.Status.ShouldNotBe(DocumentStatus.AutoApproved);
+    }
+
+    [Fact]
+    public async Task A_drifting_document_counts_once_however_often_it_is_extracted_again()
+    {
+        var (host, nordwind) = await StartAsync();
+        await using var _ = host;
+        var (_, version) = await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, NordwindLayouts.ErpRule, NordwindLayouts.ErpMapping(numberLabel: "Belegnummer"));
+        var document = await ProcessAsync(host, DemoNordwindInvoices.Erp[0]);
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.MappingDrift);
+
+        // Sent back from Extract twice (a reprocess, a bulk reprocess, an activation's reprocessWaiting).
+        for (var run = 0; run < 2; run++)
+        {
+            await host.WithDbAsync(async db =>
+            {
+                var row = await db.Documents.SingleAsync(d => d.Id == document.Id);
+                row.Status = DocumentStatus.Matched;
+                await db.SaveChangesAsync();
+            });
+            await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, document.Id, PipelineStage.Extract), TestContext.Current.CancellationToken);
+            await host.RunUntilIdleAsync();
+        }
+
+        var counted = await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id));
+        counted.Status.ShouldBe(SupplierLayoutVersionStatus.Active, "one drifting document is not three in a row");
+        counted.ConsecutiveFailures.ShouldBe(1);
+        counted.Applied.ShouldBe(1);
+        (await host.EventsAsync(document.Id)).Count(e => e.EventType == LayoutEventTypes.Applied).ShouldBe(1);
+        (await host.DocumentAsync(document.Id)).Flags.ShouldContain(f => f.Code == FlagCodes.MappingDrift, "the flag is the document's on every run");
+    }
+
+    [Fact]
+    public async Task A_supplier_guessed_from_its_mail_domain_gets_no_layout_resolution_in_Match()
+    {
+        // match.layout runs once VAT or IBAN names the supplier (docs/11 §7.4): Nordwind without a VAT id in its master
+        // data, and without a source rule, is found by the sender's mail domain only (below 0.95), and gets no
+        // NEW_LAYOUT, although it is layout-managed.
+        var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:LlmClassificationThreshold"] = "0");
+        await using var _ = host;
+        await host.WithDbAsync(async db =>
+        {
+            var tenant = await db.Tenants.SingleAsync(t => t.Id == PipelineTestHost.TenantA);
+            tenant.Settings.Features!.SourceRouting = true;
+            tenant.Settings.Features!.SupplierLayouts = true;
+            await db.SaveChangesAsync();
+        });
+        var nordwind = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Nordwind (Altdaten)", emailDomains: ["nordwind.example"]);
+        await host.WithDbAsync(async db =>
+        {
+            var supplier = await db.Suppliers.SingleAsync(s => s.Id == nordwind.Id);
+            supplier.SettingsJson = """{"layouts":{"required":"true"}}""";
+            await db.SaveChangesAsync();
+        });
+        await ScriptExtractionAsync(host);
+
+        var document = await ProcessAsync(host, DemoNordwindInvoices.WebShop[2]);
+
+        document.SupplierId.ShouldBe(nordwind.Id);
+        document.SupplierMatchMethod.ShouldBe(SupplierMatchMethod.Domain);
+        document.SupplierMatchConfidence.ShouldNotBeNull().ShouldBeLessThan(0.95);
+        document.SupplierLayoutVersionId.ShouldBeNull();
+        document.Flags.ShouldNotContain(f => f.Code == FlagCodes.NewLayout);
+        document.TypeSource.ShouldNotBe(TypeSource.Proposed);
+        (await host.EventsAsync(document.Id)).ShouldNotContain(e => e.EventType == LayoutEventTypes.NotIdentified);
     }
 
     [Fact]

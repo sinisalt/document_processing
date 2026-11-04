@@ -541,25 +541,12 @@ public static partial class LayoutEndpoints
         var errors = new Errors()
             .Require("name", request.Name, SupplierLayout.MaxNameLength);
         var key = request.LayoutKey?.Trim() ?? string.Empty;
-        if (!LayoutKeyPattern().IsMatch(key))
+        foreach (var (field, message) in LayoutMemberProblems(key, request.DocumentTypeKey, request.Priority, request.ItemKinds))
         {
-            errors.Add("layoutKey", $"A layout key is lowercase letters, digits and dashes, at most {SupplierLayout.MaxKeyLength} characters (nordwind-invoice-webshop).");
+            errors.Add(field, message);
         }
 
-        if (!DocumentTypeKey.TryParse(request.DocumentTypeKey, out var type) || type.IsUnknown)
-        {
-            errors.Add("documentTypeKey", $"'{request.DocumentTypeKey}' is not a type key.");
-        }
-
-        if (request.Priority is { } priority && priority is < 0 or > 10_000)
-        {
-            errors.Add("priority", "priority is 0 to 10000.");
-        }
-
-        if (request.ItemKinds is { } kinds && (kinds.Count > 6 || kinds.Any(k => k is not ("pdf" or "image" or "einvoice-xml" or "tabular" or "xml" or "json"))))
-        {
-            errors.Add("itemKinds", "itemKinds lists pdf, image, einvoice-xml, tabular, xml or json.");
-        }
+        _ = DocumentTypeKey.TryParse(request.DocumentTypeKey, out var type);
 
         if (request.ReceivingEntityId is { } entity && !await db.ReceivingEntities.AsNoTracking().AnyAsync(e => e.Id == entity, ct))
         {
@@ -746,6 +733,33 @@ public static partial class LayoutEndpoints
 
     [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex LayoutKeyPattern();
+
+    /// <summary>
+    /// The checks of a layout's own members (its key, type key, priority and item kinds), as <c>POST
+    /// /suppliers/{id}/layouts</c> and the bundle import run them: the field and the message of each one that fails.
+    /// </summary>
+    internal static IEnumerable<(string Field, string Message)> LayoutMemberProblems(string key, string? documentTypeKey, int? priority, IReadOnlyCollection<string>? itemKinds)
+    {
+        if (!LayoutKeyPattern().IsMatch(key))
+        {
+            yield return ("layoutKey", $"A layout key is lowercase letters, digits and dashes, at most {SupplierLayout.MaxKeyLength} characters (nordwind-invoice-webshop).");
+        }
+
+        if (!DocumentTypeKey.TryParse(documentTypeKey, out var type) || type.IsUnknown)
+        {
+            yield return ("documentTypeKey", $"'{documentTypeKey}' is not a type key.");
+        }
+
+        if (priority is { } value && value is < 0 or > 10_000)
+        {
+            yield return ("priority", "priority is 0 to 10000.");
+        }
+
+        if (itemKinds is { } kinds && (kinds.Count > 6 || kinds.Any(k => k is not ("pdf" or "image" or "einvoice-xml" or "tabular" or "xml" or "json"))))
+        {
+            yield return ("itemKinds", "itemKinds lists pdf, image, einvoice-xml, tabular, xml or json.");
+        }
+    }
 
     private static List<LayoutSuggestionDto> Suggest(DocumentWords words, Document document, LayoutResolverResult result, LayoutSetting setting) =>
     [

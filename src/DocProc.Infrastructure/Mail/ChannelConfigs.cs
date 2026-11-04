@@ -131,6 +131,10 @@ public sealed record MailboxChannelConfig
             {
                 found.Add($"'{bad}' is not a domain name.");
             }
+            else if (domains.Select(SourceConditions.Domain).FirstOrDefault(d => d is not null && SourceConditions.FreeMailDomains.Contains(d)) is { } freeMail)
+            {
+                found.Add(SourceConditions.FreeMailForwarderMessage(freeMail));
+            }
         }
 
         return found.Count == 0 ? config : null;

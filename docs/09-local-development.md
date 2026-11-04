@@ -528,11 +528,15 @@ docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` swit
   (GreenMail accepts any password; a real server takes the channel's write-only `secret`). Send it a mail through
   GreenMail's SMTP port 3025, for example `curl smtp://localhost:3025 --mail-from rechnungsversand@nordwind.example
   --mail-rcpt invoices@tenant-a.local --upload-file rechnung.eml`. Each message is ingested once (the channel's cursor
-  is `{UIDVALIDITY}:{UID}`, and the message id is unique per channel); the .eml is the raw artefact, its attachments
-  the items. The ingestion records the sender, recipients, mailbox, subject and the `Authentication-Results` the
-  receiving server wrote (GreenMail writes none, so put one in the .eml to try the DMARC rules: `Authentication-Results:
-  mx.tenant-a.local; dmarc=pass header.from=nordwind.example`); a forward from a trusted forwarder domain is unwrapped
-  to its original sender. A poll that fails names the reason in the channel's `lastError`.
+  is `{UIDVALIDITY}:{UID}`, and the message id, a hash of the `Message-ID` header and the sender, is unique per
+  channel, so a folder renumbered by its server is not ingested twice); the .eml is the raw artefact, its attachments
+  (and those of a message attached to it) the items. The ingestion records the sender, recipients, mailbox, subject
+  and the `Authentication-Results` the receiving server wrote. Only a header whose `authserv-id` is listed in
+  `Mail:TrustedAuthServIds` (or the channel's `authServId`) is believed; with none listed no sender is authenticated.
+  GreenMail writes no header, so compose and the AppHost list `mx.tenant-a.local` and `mx.tenant-b.local`, and an .eml
+  carries the header itself to try the DMARC rules: `Authentication-Results: mx.tenant-a.local; dmarc=pass
+  header.from=nordwind.example`. A forward from a trusted forwarder domain (not a free-mail provider) is unwrapped to
+  its original sender. A poll that fails names the reason in the channel's `lastError`.
 - **Watched folders.** The worker scans `Intake:FolderRoot/<tenant slug>/<channel path>/` (in compose
   `./fixtures/dropzone/tenant-a/...`, mounted at `/data/dropzone`): `POST /api/v1/channels
   {"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}`, then copy a PDF to
@@ -1030,8 +1034,9 @@ review instead of failing), portal on http://localhost:5173, admin console on ht
 journal on http://localhost:8086/__admin/requests, GreenMail's SMTP on `localhost:3025`.
 
 The mails are sent with `fixtures/demo/mail/send-invoice.sh <pdf> <to> [subject] [dmarc]`: it attaches the PDF and
-writes the `Authentication-Results` header the receiving server would (`dmarc=pass` by default; GreenMail writes none),
-then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
+writes the `Authentication-Results` header the receiving server would (`dmarc=pass` by default, as
+`mx.<recipient domain>`; GreenMail writes none, and compose's worker believes only `mx.tenant-a.local` and
+`mx.tenant-b.local`, `Mail:TrustedAuthServIds`), then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
 
 1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
    switches: Configurable document types, Outputs, Source routing and Supplier layouts on ("Feature switches saved.").
@@ -1085,7 +1090,8 @@ then sends it with curl. The worker polls the mailboxes every 30 s, so a mail ta
    description, quantity, unit price, line total; leave the unit column), untick all pages > Preview > Write: two
    lines.
 10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed "text in the page-1 title area") > Add
-    identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id") > Add identifier.
+    identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id (last page)") > Add
+    identifier.
     The Identification tab tests the rule as it changes: "Holds for this document", "Matches 0 of the supplier's last
     2 documents" (the ERP invoices).
 11. **Approve and save as layout.** Fields: layout key `nordwind-invoice-webshop`, name "Nordwind invoice (web shop)" >
@@ -1103,7 +1109,9 @@ then sends it with curl. The worker polls the mailboxes every 30 s, so a mail ta
 15. **The watched folder.** Copy `Nordwind_Rechnung_NW-RE-2026-1130.pdf` to
     `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/` (on Linux `chmod a+rw` it). After two scans it is taken,
     routed by the folder rule, AutoApproved by nordwind-invoice-erp, and moved to
-    `fixtures/dropzone/tenant-a/scanner/processed/`; its Timeline names the channel and the rule.
+    `fixtures/dropzone/tenant-a/scanner/processed/`. On its Timeline, "Supplier identified by source" names the
+    channel, the folder and the rule: "Channel Scanner · folder lieferanten/nordwind/ · Rule: channel Scanner, folder
+    lieferanten/nordwind/ → Nordwind Großhandel GmbH, Exclusive, pins Invoice".
 16. **Tenant B: a Candidate.** As `superadmin`: Pizzeria Napoli d.o.o. > Feature switches: Configurable document
     types, Source routing, Supplier layouts. As `tenant-b-admin` (curl below): the supplier Nordwind with
     `layouts.required`, the mailbox `invoices@tenant-b.local` and the sender rule. Mail
@@ -1340,7 +1348,7 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Mail:ImapPort` | 143; `3143` in compose | Its port. |
 | `Mail:ImapSecurity` | `Auto`; `None` in compose and under the AppHost | `None`, `StartTls`, `SslOnConnect` or `Auto` for the platform server. A tenant's own server is always reached over TLS (`ssl` or `starttls` in its config). |
 | `Mail:AllowedHosts` | empty | IMAP hosts a tenant's mailbox may name past the public-host check (loopback, private and reserved addresses are refused otherwise, as for tenant endpoints). |
-| `Mail:TrustedAuthServIds` | empty | `authserv-id`s of the receiving servers whose `Authentication-Results` header is read; empty reads the topmost one (the receiving server's). A channel's `authServId` adds one. |
+| `Mail:TrustedAuthServIds` | empty (compose and the AppHost: `mx.tenant-a.local`, `mx.tenant-b.local`) | `authserv-id`s of the receiving servers whose `Authentication-Results` header is believed; a channel's `authServId` adds one. With none, no header is read and no sender counts as authenticated (a server that writes none would leave the sender's own header on top). |
 | `Mail:MaxMessageBytes` | 52428800 (50 MB) | The largest message ingested; a larger one is skipped (the cursor moves past it) and named in the channel's last error. |
 | `Mail:Timeout` | `00:00:30` | Connect, login and read timeout of one IMAP operation. |
 

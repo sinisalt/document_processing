@@ -153,6 +153,29 @@ public sealed class SourceRoutingPipelineTests
         var document = await host.SingleDocumentAsync(ingestion.Id);
         document.Flags.ShouldContain(f => f.Code == FlagCodes.SupplierAmbiguous);
         document.SupplierMatchMethod.ShouldNotBe(SupplierMatchMethod.SourceRule);
+        document.Status.ShouldBe(DocumentStatus.NeedsReview);
+    }
+
+    [Fact]
+    public async Task An_ambiguous_route_never_auto_approves_even_when_content_then_names_a_supplier()
+    {
+        // docs/11 §11 layer 3: no auto-approval while SUPPLIER_AMBIGUOUS is open, although the e-invoice and its VAT
+        // match would otherwise pass every other check.
+        await using var host = await StartAsync();
+        var content = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Fischhandel Müller GmbH", vatId: ContentVat);
+        var one = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Nordwind Großhandel GmbH");
+        var two = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Südhof Feinkost");
+        await AddRuleAsync(host, one.Id, r => r.Recipient = "a@tenant-a.local");
+        await AddRuleAsync(host, two.Id, r => r.Recipient = "b@tenant-a.local");
+
+        var ingestion = await IngestAsync(host, Xml(), new SourceMetadata(Sender: "x@else.example") { Recipients = ["a@tenant-a.local", "b@tenant-a.local"] });
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.SupplierId.ShouldBe(content.Id);
+        document.SupplierMatchMethod.ShouldBe(SupplierMatchMethod.Vat);
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.SupplierAmbiguous && f.ResolvedAt == null);
+        document.Status.ShouldBe(DocumentStatus.NeedsReview, "SUPPLIER_AMBIGUOUS never auto-approves");
     }
 
     [Fact]
@@ -175,6 +198,46 @@ public sealed class SourceRoutingPipelineTests
         document.SupplierId.ShouldBe(supplier.Id);
         document.Status.ShouldBe(DocumentStatus.NeedsReview);
         (await host.EventsAsync(document.Id)).Single(e => e.EventType == RoutingEventTypes.SupplierIdentifiedBySource).DetailsJson.ShouldNotBeNull().ShouldContain("supplierSettings");
+    }
+
+    [Theory]
+    [InlineData("[\"Invoice\",\"CreditNote\"]", true)]
+    [InlineData("[\"CreditNote\",\"Statement\"]", false)]
+    public async Task Several_allowed_types_restrict_the_classification_to_them_and_Unknown(string allowed, bool invoiceAllowed)
+    {
+        // Only Unknown asks the LLM classifier (threshold 0); its answer is scripted.
+        await using var host = await StartAsync(settings => settings["Pipeline:LlmClassificationThreshold"] = "0");
+        await host.AddReplayProviderAsync();
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Nordwind Großhandel GmbH");
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Suppliers.SingleAsync(s => s.Id == supplier.Id);
+            row.SettingsJson = $$"""{"allowedTypeKeys":{{allowed}}}""";
+            await db.SaveChangesAsync();
+        });
+        await AddRuleAsync(host, supplier.Id, r => r.Recipient = "nordwind@tenant-a.local");
+
+        var ingestion = await IngestAsync(host, [new IngestFile("rechnung.pdf", PdfMime, TestPdfs.GermanInvoice())], new SourceMetadata(Sender: "x@else.example") { Recipients = ["nordwind@tenant-a.local"] });
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.SupplierId.ShouldBe(supplier.Id);
+        var classified = (await host.EventsAsync(document.Id)).Single(e => e.ToStatus == DocumentStatus.Classified).DetailsJson.ShouldNotBeNull();
+        if (invoiceAllowed)
+        {
+            document.Type.ShouldBe(DocumentTypeKey.Invoice);
+            document.TypeSource.ShouldBe(TypeSource.Rule);
+            classified.ShouldContain("\"usedLlm\":false");
+        }
+        else
+        {
+            // The keyword rules choose among the allowed types only, and name none of them; the LLM, asked for an
+            // Unknown, answers Invoice, which is not allowed either.
+            document.Type.ShouldBe(DocumentTypeKey.Unknown);
+            classified.ShouldContain("\"usedLlm\":true");
+            document.Flags.ShouldContain(f => f.Code == FlagCodes.TypeUnknown && f.ResolvedAt == null);
+        }
     }
 
     [Fact]

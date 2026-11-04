@@ -97,7 +97,7 @@ What comes up (resource name → what the hosts read it as):
 | `messaging` | Azure Service Bus emulator | one queue per pipeline stage, topic `document-events` |
 | `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-reviewer`, `tenant-b-viewer`; password = username |
 | `vault` | Lowkey Vault (Key Vault emulator) on https://localhost:8443 | vault name `docproc`, for the BYOK secret flow |
-| `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled; the worker polls the `Mailbox` channels of tenants with `sourceRouting` on (docs/09 "Source routing") |
+| `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled; the worker polls the `Mailbox` channels of tenants with `sourceRouting` on and believes the `Authentication-Results` of `mx.tenant-a.local` and `mx.tenant-b.local` only (`Mail:TrustedAuthServIds`, docs/09 "Source routing") |
 | `mock-erp` | WireMock on http://localhost:8086 with the stubs in `docker/mock-erp` | the receiving ERP of the delivery demos (docs/11 §23): `POST /api/ap/invoices`, `POST /api/article-prices`, a 503 on demand; nothing sends to it before P3 (docs/09 "Mock ERP") |
 | `api`, `worker` | the two hosts | the worker waits for the API so migrations run once |
 

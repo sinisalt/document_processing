@@ -267,6 +267,10 @@ services:
       Mail__ImapHost: mail
       Mail__ImapPort: "3143"
       Mail__ImapSecurity: None
+      # GreenMail writes no Authentication-Results header; the demo's mail script writes the one a receiving server
+      # would, as mx.<recipient domain>. Only a header of a listed authserv-id is believed (docs/11 §7.1).
+      Mail__TrustedAuthServIds__0: mx.tenant-a.local
+      Mail__TrustedAuthServIds__1: mx.tenant-b.local
       # The drop zone of the watched-folder channels (docs/11 §7.1): ./fixtures/dropzone/{tenant slug}/{channel path}/.
       Intake__FolderRoot: /data/dropzone
     volumes:

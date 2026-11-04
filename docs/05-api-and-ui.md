@@ -26,7 +26,7 @@
 | TenantAdmin | one tenant | manage members, suppliers, channels of the tenant, review policy, API keys, webhooks |
 | Reviewer | one tenant | review/correct/approve documents |
 | Viewer | one tenant | read documents and exports |
-| MappingAuthor (grant) | one tenant, besides a role | activate and retire supplier layouts; a layout it saves from review is Active at once (docs/11 §16, decision 2) |
+| MappingAuthor (grant) | one tenant, besides a role that may review (Reviewer, TenantAdmin) | activate and retire supplier layouts; a layout it saves from review is Active at once (docs/11 §16, decision 2); alone, or with Viewer, it gives no access |
 
 Authentication: OpenID Connect against an external identity provider (Entra ID / Keycloak /
 Auth0, decision deferred to the roadmap). Machine clients use per-tenant API keys scoped to
@@ -201,10 +201,12 @@ A tenant without the switch sees the API as before: the new response members are
   `properties` of type `string`, `number`, `integer` or `boolean` with `title`, `description`, `enum`, `minLength`,
   `maxLength`, `pattern` (non-backtracking), `minimum`, `maximum`; `required`; `additionalProperties`, default true;
   `{}` removes it; anything else is refused), `layoutsRequiredByDefault` (the default of `layouts.required: inherit`)
-  and `trustedForwarderDomains` (at most 20). Each is optional on `PUT`; changing one needs `sourceRouting`, sending back
-  what `GET` gave does not.
+  and `trustedForwarderDomains` (at most 20, no free-mail provider such as `gmail.com`: 400). Each is optional on
+  `PUT`; changing one needs `sourceRouting`, sending back what `GET` gave does not.
 - **Channels.** With `sourceRouting` on, a `Mailbox` config is `{address, host?, port?, security? (ssl, starttls),
-  username?, folder? (INBOX), unwrapForwards? (true), trustedForwarderDomains?, authServId?}` (without `host` the
+  username?, folder? (INBOX), unwrapForwards? (true), trustedForwarderDomains? (no free-mail provider), authServId?}`
+  (the `authserv-id` of the mailbox's receiving server, whose `Authentication-Results` are then believed; without it
+  and without `Mail:TrustedAuthServIds` no sender counts as authenticated) (without `host` the
   platform's server, `Mail:ImapHost`, is read; a tenant `host` must be a public name or address and is reached over
   TLS; the password is the write-only `secret`), a `WatchedFolder` config `{path? (relative to the tenant's drop-zone
   root, no `..`), pattern? (*), stableSeconds?}`; unknown members are refused. Such a channel gets `sourceKey`, unique
@@ -224,8 +226,8 @@ A tenant without the switch sees the API as before: the new response members are
 
 Every route needs the tenant's `supplierLayouts` switch (403 without it; a tenant without it is never identified by a
 layout and its documents run as before). Reads and the rule test need `Read`, writing a layout by hand `ConfigAdmin`,
-activating and retiring the `MappingAuthor` policy (tenant admins, and members holding the `MappingAuthor` grant; P4
-part C).
+activating and retiring the `MappingAuthor` policy (tenant admins, and members holding the `MappingAuthor` grant
+together with a role that may review; the grant alone, or with Viewer, gives nothing; P4 part C).
 
 - **Layouts.** `GET /suppliers/{id}/layouts?type=` and `GET /supplier-groups/{id}/layouts` list the layouts of a
   supplier or a group with their versions (newest first): status, origin, the rule's hash and sentence (`describe`),

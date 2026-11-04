@@ -35,12 +35,14 @@ namespace DocProc.Pipeline.Intake;
 /// <item><b>WatchedFolder</b>: the files below <c>{Intake:FolderRoot}/{tenant slug}/{path}</c> whose size and time stayed
 /// unchanged for <c>stableSeconds</c> (seen unchanged by two scans that far apart), outside <c>processed/</c>,
 /// <c>failed/</c> and the folders of the tenant's other watched-folder channels; links and hidden files are skipped. A
-/// file taken is moved to <c>processed/</c> (one that cannot be read or is too large to <c>failed/</c>), keeping its
-/// relative path.</item>
+/// channel whose folder, or a folder on the way to it below the tenant's root, is a link is not read at all (it could
+/// lead into another tenant's root), and a file is not moved through a link. A file taken is moved to
+/// <c>processed/</c> (one that cannot be read or is too large to <c>failed/</c>), keeping its relative path.</item>
 /// </list>
-/// Each message or file is ingested once per channel: its id (<c>imap:{validity}:{uid}</c>, or a hash of the file's
-/// relative path, size and time) is unique per channel in the database, so a second host polling the same channel, or a
-/// retry after a crash before the cursor moved, finds it there and moves on.
+/// Each message or file is ingested once per channel: its id (a hash of the RFC <c>Message-ID</c> and sender, or of the
+/// raw message, see <see cref="MailKitImapMailSource.ContentMessageId"/>; a hash of the file's relative path, size and
+/// time) is unique per channel in the database, so a second host polling the same channel, a retry after a crash before
+/// the cursor moved, or a folder read again after its UIDVALIDITY changed finds it there and moves on.
 /// </summary>
 public sealed class ChannelPollerHostedService(
     IServiceProvider services,
@@ -171,6 +173,7 @@ public sealed class ChannelPollerHostedService(
         var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == channel.TenantId, cancellationToken).ConfigureAwait(false);
         var forwarders = config.ForwarderDomains
             .Concat((tenant.Settings.TrustedForwarderDomains ?? []).Select(SourceConditions.Domain).Where(d => d is not null).Select(d => d!))
+            .Where(d => !SourceConditions.FreeMailDomains.Contains(d)) // refused on save; never trusted from a row written before
             .ToHashSet(StringComparer.Ordinal);
         var authServIds = _mail.TrustedAuthServIds.Append(config.AuthServId)
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -194,8 +197,10 @@ public sealed class ChannelPollerHostedService(
                 continue;
             }
 
+            // One copy of the message for parsing and storing (the source's buffer is bounded by Mail:MaxMessageBytes).
+            var rawEml = message.RawEml.ToArray();
             MimeMessage mime;
-            using (var stream = new MemoryStream(message.RawEml.ToArray(), writable: false))
+            using (var stream = new MemoryStream(rawEml, writable: false))
             {
                 mime = await MimeMessage.LoadAsync(stream, cancellationToken).ConfigureAwait(false);
             }
@@ -205,7 +210,7 @@ public sealed class ChannelPollerHostedService(
                 .Select(a => new UploadFile(UploadIntake.FitFileName(a.FileName), a.ContentType, ItemKinds.Detect(a.ContentType, a.FileName), () => new MemoryStream(a.Content.ToArray(), writable: false)))
                 .ToList();
             var stored = await UploadIntake.StoreAsync(blobs, channel.TenantId, files, cancellationToken).ConfigureAwait(false);
-            var raw = (await UploadIntake.StoreAsync(blobs, channel.TenantId, [new UploadFile("message.eml", "message/rfc822", ItemKind.Other, () => new MemoryStream(message.RawEml.ToArray(), writable: false))], cancellationToken).ConfigureAwait(false))[0];
+            var raw = (await UploadIntake.StoreAsync(blobs, channel.TenantId, [new UploadFile("message.eml", "message/rfc822", ItemKind.Other, () => new MemoryStream(rawEml, writable: false))], cancellationToken).ConfigureAwait(false))[0];
             var metadata = new SourceMetadata(Sender: parsed.Sender, Subject: parsed.Subject)
             {
                 Recipients = parsed.Recipients,
@@ -251,6 +256,13 @@ public sealed class ChannelPollerHostedService(
         if (!Directory.Exists(channelRoot))
         {
             return await FailAsync(db, channel, $"The folder {config.RelativePath} does not exist in the tenant's drop zone.", cancellationToken).ConfigureAwait(false);
+        }
+
+        // GetFullPath does not resolve links: a folder on the way that is a link could lead out of the tenant's root,
+        // so the channel is not read until it is a real folder (and so are its processed/ and failed/ folders).
+        if ((LinkOnPath(tenantRoot, channelRoot) ?? LinkOnPath(channelRoot, Path.Combine(channelRoot, "processed")) ?? LinkOnPath(channelRoot, Path.Combine(channelRoot, "failed"))) is { } link)
+        {
+            return await FailAsync(db, channel, $"The folder {config.RelativePath} is not read: {Path.GetRelativePath(tenantRoot, link).Replace('\\', '/')} is a link, and links are not followed.", cancellationToken).ConfigureAwait(false);
         }
 
         // The folders of the tenant's other watched-folder channels below this one are theirs.
@@ -334,7 +346,7 @@ public sealed class ChannelPollerHostedService(
                 if (file.Length > _options.MaxFileBytes)
                 {
                     logger.LogWarning("Channel {ChannelId}: {File} is over the limit of {Limit} bytes; moved to failed/.", channel.Id, relative, _options.MaxFileBytes);
-                    Move(file.FullName, Path.Combine(channelRoot, "failed", relative));
+                    Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
                     continue;
                 }
 
@@ -358,12 +370,12 @@ public sealed class ChannelPollerHostedService(
                     await queue.EnqueueAsync(new ProcessIngestion(channel.TenantId, ingestion.Id), cancellationToken).ConfigureAwait(false);
                 }
 
-                Move(file.FullName, Path.Combine(channelRoot, "processed", relative));
+                Move(channelRoot, file.FullName, Path.Combine(channelRoot, "processed", relative));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 logger.LogWarning(exception, "Channel {ChannelId}: {File} could not be taken; moved to failed/.", channel.Id, relative);
-                Move(file.FullName, Path.Combine(channelRoot, "failed", relative));
+                Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
             }
         }
 
@@ -467,13 +479,60 @@ public sealed class ChannelPollerHostedService(
         || name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
         || name.EndsWith(".crdownload", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Moves a file (a name already taken gets a time stamp); a file another host moved first is left alone.</summary>
-    private void Move(string from, string to)
+    /// <summary>
+    /// The first folder or file from below <paramref name="root"/> down to <paramref name="path"/> that is a link
+    /// (symbolic link or junction), or null when there is none; a part that does not exist ends the walk.
+    /// </summary>
+    public static string? LinkOnPath(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        if (relative == ".")
+        {
+            return null;
+        }
+
+        var current = root;
+        foreach (var segment in relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            try
+            {
+                if (info.LinkTarget is not null || (info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+                {
+                    return current;
+                }
+            }
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return null;
+            }
+
+            if (!info.Exists)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Moves a file below the channel's root (a name already taken gets a time stamp); a file another host moved first
+    /// is left alone, and so is one whose target folder, or a folder on the way to it, is a link.
+    /// </summary>
+    private void Move(string channelRoot, string from, string to)
     {
         try
         {
             if (!File.Exists(from))
             {
+                return;
+            }
+
+            if (LinkOnPath(channelRoot, Path.GetDirectoryName(to)!) is { } link)
+            {
+                logger.LogWarning("{File} was not moved to {Target}: {Link} is a link.", from, to, link);
                 return;
             }
 

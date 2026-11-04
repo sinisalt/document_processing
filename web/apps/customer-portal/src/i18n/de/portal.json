@@ -97,7 +97,17 @@
       "delivery_succeeded": "Zugestellt",
       "delivery_failed": "Zustellung fehlgeschlagen",
       "delivery_skipped": "Zustellung übersprungen",
-      "redelivery_requested": "Erneute Zustellung angefordert"
+      "redelivery_requested": "Erneute Zustellung angefordert",
+      "supplier_identified_by_source": "Lieferant über die Quelle erkannt",
+      "supplier_replaced_by_content": "Lieferant durch Inhalt ersetzt",
+      "layout_identified": "Layout erkannt",
+      "layout_not_identified": "Kein Layout erkannt",
+      "type_corrected_by_layout": "Typ durch Layout korrigiert",
+      "layout_warmup": "Layout-Einlaufphase",
+      "layout_applied": "Vom Layout ausgefüllt",
+      "layout_degraded": "Layout herabgestuft",
+      "layout_learned": "Als Layout gespeichert",
+      "layout_matched": "Einem Layout zugeordnet"
     }
   },
   "inbox": {
@@ -338,6 +348,9 @@
       "title": "Verlauf",
       "empty": "Noch keine Ereignisse.",
       "details": "Details",
+      "sourceRule": "Regel: {{rule}}",
+      "sourceChannel": "Kanal {{channel}}",
+      "sourceFolder": "Ordner {{folder}}",
       "actors": {
         "pipeline": "Verarbeitung",
         "system": "System"

@@ -142,7 +142,7 @@ public sealed record Identifier(
         {
             IdentifierKind.Text => $"text \"{Value}\"",
             IdentifierKind.Regex => $"pattern /{Value}/",
-            IdentifierKind.SupplierValue => $"the supplier's {Value}",
+            IdentifierKind.SupplierValue => $"the supplier's {SupplierValueKeys.Label(Value)}",
             IdentifierKind.Source => Pattern is { } p ? $"source {Value} matching /{p}/" : $"source {Value} = \"{EqualsValue}\"",
             IdentifierKind.XmlPath => $"xml path {Value}",
             _ => $"cell {Value}",
@@ -228,7 +228,7 @@ public sealed class IdentificationRule
 
     /// <summary>
     /// The rule as an English sentence for the layout views and the test (<c>all of: text "Rechnung" (page 1, title
-    /// area); the supplier's vatId (page 1) — and none of: text "Gutschrift" (page 1)</c>).
+    /// area); the supplier's VAT id (page 1) — and none of: text "Gutschrift" (page 1)</c>).
     /// </summary>
     public string Describe() => DescribeGroup(Root, IdentifierLocation.None);
 

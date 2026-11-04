@@ -47,6 +47,21 @@ export function detailEntries(details: unknown, format: DetailFormat = { yes: "y
     .map(([key, value]): [string, string] => [key, Array.isArray(value) ? value.map((item) => scalar(key, item)).join(", ") : scalar(key, value)]);
 }
 
+/** The event type of a supplier routed at ingest (`RoutingEventTypes.SupplierIdentifiedBySource`). */
+export const SOURCE_EVENT = "document.supplier_identified_by_source";
+
+/**
+ * Where a document routed at ingest came from, for the line under the event's title: the channel's name, the folder
+ * path below the channel (a watched folder) and the rule in words, as the event's details carry them.
+ */
+export function sourceSummary(details: unknown): { channel?: string; folder?: string; rule?: string } | null {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const record = details as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined);
+  const summary = { channel: text(record.channel), folder: text(record.folderPath), rule: text(record.rule) };
+  return summary.channel || summary.folder || summary.rule ? summary : null;
+}
+
 /** The Timeline tab: `GET /documents/{id}/events`, oldest first, with each event's details collapsible. */
 export function Timeline({ documentId, enabled }: { documentId: string; enabled: boolean }) {
   const { t, i18n } = useTranslation();
@@ -73,6 +88,7 @@ export function Timeline({ documentId, enabled }: { documentId: string; enabled:
           percent: (ratio) => formatPercent(ratio, i18n.language),
         });
         const actor = event.actor && SYSTEM_ACTORS.has(event.actor.toLowerCase()) ? t(`review.timeline.actors.${event.actor.toLowerCase()}`) : event.actor;
+        const source = event.eventType === SOURCE_EVENT ? sourceSummary(event.details) : null;
         return (
           <li key={String(event.id)} className="relative text-sm">
             <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-background bg-primary" aria-hidden />
@@ -90,6 +106,17 @@ export function Timeline({ documentId, enabled }: { documentId: string; enabled:
               <time dateTime={event.at}>{formatDateTime(event.at, i18n.language, { dateStyle: "medium", timeStyle: "medium" })}</time>
               {actor && <> · {actor}</>}
             </div>
+            {source && (
+              <div className="text-xs" data-testid="timeline-source">
+                {[
+                  source.channel && t("review.timeline.sourceChannel", { channel: source.channel }),
+                  source.folder && t("review.timeline.sourceFolder", { folder: source.folder }),
+                  source.rule && t("review.timeline.sourceRule", { rule: source.rule }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            )}
             {details.length > 0 && (
               <details className="mt-1">
                 <summary className="cursor-pointer text-xs text-muted-foreground">{t("review.timeline.details")}</summary>

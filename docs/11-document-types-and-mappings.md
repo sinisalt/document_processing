@@ -982,6 +982,31 @@ Correction (P4, part A), as built:
   own root only; `BlobFolderSource` (a container prefix) is not built. Links, hidden and partial files are skipped, and
   the folders of the tenant's other watched-folder channels below a channel's root are theirs.
 
+Correction (P4, review fixes):
+- No `Authentication-Results` header is read by default. The topmost header is the receiving server's only when that
+  server writes one; GreenMail, a plain Postfix or Dovecot and many tenant-owned IMAP hosts write none, and the topmost
+  header is then the sender's own, so a forged `dmarc=pass` would satisfy a `requireSenderAuth` rule. A header counts
+  only when its `authserv-id` is in `Mail:TrustedAuthServIds` or the channel's `authServId`; with neither, every sender
+  is unauthenticated and a sender rule that requires it raises `SUPPLIER_SOURCE_UNVERIFIED`. A trusted server's header
+  that does not parse is not passed over for one further down (the reader fails closed). Compose and the AppHost list
+  `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers the demo's mail script writes.
+- The documents of an attached `message/rfc822` (an Outlook "forward as attachment") are items whoever sent the mail,
+  and those of every attached message, not only the first; only the sender, subject and authentication facts are
+  unwrapped, and only from a trusted forwarder.
+- A free-mail domain (the platform deny list of §6.5) is refused in `trustedForwarderDomains`, in the tenant settings
+  and in a mailbox channel's config, and ignored if one was stored before: any user of the provider could otherwise
+  forward a mail naming any supplier's sender.
+- A message's unique id in its channel does not depend on the folder's numbering: it is a hash of the RFC `Message-ID`
+  and the sender (`imap:mid:…`), or of the raw message when it has no `Message-ID` (`imap:sha:…`). A folder read again
+  after its UIDVALIDITY changed therefore ingests nothing twice. The message body is read up to `Mail:MaxMessageBytes`
+  whatever size the server reported.
+- A watched folder whose channel folder, or a folder on the way to it below the tenant's root, is a link is not read
+  (the channel's last error names the link), and neither is one whose `processed/` or `failed/` is a link; a file is
+  never moved through a link. `Path.GetFullPath` does not resolve links, so the prefix check alone let a link lead into
+  another tenant's root.
+- The `document.supplier_identified_by_source` event names the channel, the folder path and the rule in words; the
+  Timeline shows them under its title.
+
 ### 7.2 Resolution at ingest
 
 `ISupplierSourceResolver` (new, `SupplierSourceResolver.cs` in `src/DocProc.Pipeline/Routing`) is a pure function. It is called in `IngestHandler.CreateDocumentsAsync` (`IngestHandler.cs:219-230`) for each item, so documents are created with their supplier already set. Candidate rules come from indexed lookups on the normalised conditions; it does not load the whole supplier table the way `MatchHandler.cs:38` does.
@@ -1012,6 +1037,12 @@ the XML decides. Split parts inherit the route. Everything here runs only for te
 - **Defaults, attributes and locale.** They are applied by the `defaults` step and the parse transforms. `Supplier.DefaultCurrency`, which is never read today, takes effect at last.
 - **Review policy.** `review.mode`, `autoApproveMinConfidence`, and the layout version's warm-up.
 - **Outputs.** Supplier- and group-scoped bindings apply at publish.
+
+Correction (P4, review fixes): the restriction to the allowed types is built for the page classification of a document
+whose supplier is known before Classify (and for the classification Match runs again for a replacing supplier): the
+keyword rules score the allowed types only, so the type is one of them or `Unknown`, and an LLM answer outside them is
+`Unknown`. Restricting the LLM classifier's own enum to the set comes with P5's classifier. A single allowed type is
+still pinned as above.
 
 All of this is snapshotted in `AppliedConfigJson`. The review header shows: "Supplier: Nordwind Großhandel GmbH, via From rule rechnungsversand@nordwind.example (DMARC pass). Layout nordwind-credit-note-2025 v4, identified by 'Gutschrift' (page 1, title) and VAT DE811111111". Clicking the identification chip highlights the evidence words on the page.
 
@@ -1136,6 +1167,11 @@ Correction (P4, part B), as built (`LayoutEngine`, `LayoutExtractor`, `LayoutTre
   documents in a row make the version Degraded (it still identifies, its mapping is not used). The LLM fills what the
   layout left Missing only when a provider is configured; without one the layout's values stand and review fills the
   rest.
+
+Correction (P4, review fixes): a document counts towards a version's statistics (`Applied`, `ConsecutiveFailures`) once,
+on its first extraction under that version; the `document.layout_applied` event, keyed by the version id, records it,
+as the warm-up's event does. Reprocessing a document (`:reprocess`, `documents:bulk-reprocess`, an activation's
+`reprocessWaiting`) does not count it again, so one drifting document extracted three times does not degrade its layout.
 
 Correction (P4, part D), found by the P4 demo:
 - The LLM fill after a layout (and after the `layout-prefill` step, §9.3) tolerated only an unavailable provider. A
@@ -1313,6 +1349,12 @@ Correction (P4, part B), as built (`IdentificationRule`, `IdentificationRuleEval
   punctuation, such as `/`, is compared as it is).
 - `supplierValue` holds when the fewest consecutive words of one line contain the compacted value; the evidence names
   those words, not a label printed before them.
+
+Correction (P4, review fixes): `supplierValue` holds when the compacted value occurs on one line as a whole: it begins
+and ends at a word's edge, next to a character that is neither a letter nor a digit (the `:` of a label glued to it),
+or where letters turn into digits or back. A longer VAT id (`DE8111111119` for `DE811111111`) or a short attribute value
+inside a longer number (`12345` in the phone number `0401234567890`) does not hold. The rule in words names the keys by
+their labels ("the supplier's VAT id (last page)", "IBAN", "attribute customerNo").
 - `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
 - The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
   (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.

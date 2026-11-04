@@ -537,7 +537,7 @@ public static class GovernanceEndpoints
         }
 
         if (request.Bundle.ValueKind != JsonValueKind.Object || JsonNode.Parse(request.Bundle.GetRawText()) is not JsonObject bundle
-            || bundle["format"]?.GetValue<string>() != BundleFormat || bundle["version"] is not JsonValue v || !v.TryGetValue<int>(out var version))
+            || Str(bundle["format"]) != BundleFormat || bundle["version"] is not JsonValue v || !v.TryGetValue<int>(out var version))
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["bundle"] = [$"bundle is a {BundleFormat} document with a version."] });
         }
@@ -554,6 +554,27 @@ public static class GovernanceEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Signature invalid", detail: "The bundle's signature does not verify with this environment's ConfigBundles:SigningKey: it was changed after export, or exported where another key is set.", extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "BUNDLE_SIGNATURE_INVALID" });
         }
 
+        try
+        {
+            return await ImportItemsAsync(bundle, mode, signatureValid, version, tenant, user, db, clock, ct);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or FormatException or JsonException)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["bundle"] = ["The bundle has a member of the wrong JSON type (an object where a value is expected, or the reverse)."] });
+        }
+    }
+
+    private static async Task<Results<Ok<BundleImportResponse>, ValidationProblem, ProblemHttpResult>> ImportItemsAsync(
+        JsonObject bundle,
+        string mode,
+        bool signatureValid,
+        int version,
+        ITenantContext tenant,
+        ClaimsPrincipal user,
+        DocProcDbContext db,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
         var apply = mode == "apply";
         var tenantId = tenant.TenantId!.Value;
         var actor = DocumentQueries.ActorName(user);
@@ -562,17 +583,18 @@ public static class GovernanceEndpoints
         var suppliers = await db.Suppliers.ToListAsync(ct);
         Supplier? Match(JsonNode? reference)
         {
-            var vat = reference?["vatId"]?.GetValue<string>();
-            var name = reference?["name"]?.GetValue<string>();
+            var vat = Str((reference as JsonObject)?["vatId"]);
+            var name = Str((reference as JsonObject)?["name"]);
             return (vat is { Length: > 0 } ? suppliers.FirstOrDefault(x => string.Equals(x.VatId, vat, StringComparison.OrdinalIgnoreCase)) : null)
                    ?? (name is { Length: > 0 } ? suppliers.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)) : null);
         }
 
         // Types: a new key becomes a tenant type (through the catalogue's checks), an existing one gets a draft version.
         var catalogue = new DocumentTypeCatalogue(db, clock);
+        var bundleTypeKeys = (bundle["types"] as JsonArray ?? []).OfType<JsonObject>().Select(t => Str(t["key"])).OfType<string>().ToHashSet(StringComparer.Ordinal);
         foreach (var type in (bundle["types"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            var key = type["key"]?.GetValue<string>() ?? "?";
+            var key = Str(type["key"]) ?? "?";
             var definition = type["definition"]?.ToJsonString();
             if (definition is null)
             {
@@ -603,16 +625,43 @@ public static class GovernanceEndpoints
         // Layouts: matched to a supplier by VAT id, then name; a new layout or a new version, always a Candidate (Imported).
         foreach (var layout in (bundle["layouts"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            var key = layout["layoutKey"]?.GetValue<string>() ?? "?";
+            var key = Str(layout["layoutKey"])?.Trim() ?? "?";
             var supplier = Match(layout["supplier"]);
-            var typeKey = layout["documentTypeKey"]?.GetValue<string>() ?? "Invoice";
-            var ruleJson = layout["identification"]?.ToJsonString();
-            var mappingJson = layout["mapping"]?.ToJsonString();
+            var typeKey = Str(layout["documentTypeKey"]) ?? "Invoice";
+            var layoutName = Str(layout["name"])?.Trim() is { Length: > 0 } givenName ? givenName : key;
+            int? layoutPriority = layout["priority"] is JsonValue p && p.TryGetValue<int>(out var priority) ? priority : null;
+            var itemKinds = (layout["itemKinds"] as JsonArray ?? []).Select(k => Str(k)).ToList();
+            var ruleJson = layout["identification"] is JsonObject identification ? identification.ToJsonString() : null;
+            var mappingJson = layout["mapping"] is JsonObject mappingObject ? mappingObject.ToJsonString() : null;
             if (supplier is null)
             {
                 items.Add(new BundleImportItem("layout", key, "error", "No supplier of this tenant has the layout's supplier VAT id or name."));
                 continue;
             }
+
+            // The checks of POST /suppliers/{id}/layouts: key, type key (one this tenant has, or the bundle brings),
+            // name, priority and item kinds.
+            var memberProblems = LayoutEndpoints.LayoutMemberProblems(key, typeKey, layoutPriority, itemKinds.Any(k => k is null) ? ["?"] : [.. itemKinds.OfType<string>()])
+                .Select(x => x.Message)
+                .ToList();
+            if (layoutName.Length > SupplierLayout.MaxNameLength)
+            {
+                memberProblems.Add($"name is at most {SupplierLayout.MaxNameLength} characters.");
+            }
+
+            if (memberProblems.Count == 0 && DocumentTypeKey.TryParse(typeKey, out var parsedType)
+                && !parsedType.IsLegacy && !bundleTypeKeys.Contains(parsedType.Value) && await catalogue.FindAsync(tenantId, parsedType.Value, ct) is null)
+            {
+                memberProblems.Add($"The tenant has no document type '{typeKey}', and the bundle brings none.");
+            }
+
+            if (memberProblems.Count > 0)
+            {
+                items.Add(new BundleImportItem("layout", key.Length > SupplierLayout.MaxKeyLength ? key[..SupplierLayout.MaxKeyLength] : key, "error", string.Join(" ", memberProblems)));
+                continue;
+            }
+
+            typeKey = DocumentTypeKey.Parse(typeKey).Value;
 
             var rule = ruleJson is null ? null : IdentificationRuleChecks.Check(ruleJson, IdentificationScope.Layout, out var ruleProblems) is { } checkedRule && ruleProblems.Count == 0 ? checkedRule : null;
             var mapping = LayoutMapping.TryParse(mappingJson, out var mappingError);
@@ -644,9 +693,9 @@ public static class GovernanceEndpoints
                 OwnerId = supplier.Id,
                 DocumentTypeKey = typeKey,
                 LayoutKey = key,
-                Name = layout["name"]?.GetValue<string>() ?? key,
-                Priority = layout["priority"] is JsonValue p && p.TryGetValue<int>(out var priority) ? priority : SupplierLayout.DefaultPriority,
-                ItemKinds = [.. (layout["itemKinds"] as JsonArray ?? []).Select(k => k?.GetValue<string>()).OfType<string>()],
+                Name = layoutName,
+                Priority = layoutPriority ?? SupplierLayout.DefaultPriority,
+                ItemKinds = [.. itemKinds.OfType<string>()],
                 CreatedBy = actor,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -682,7 +731,7 @@ public static class GovernanceEndpoints
         foreach (var rule in (bundle["sourceRules"] as JsonArray ?? []).OfType<JsonObject>())
         {
             var supplier = Match(rule["supplier"]);
-            var describe = rule["sender"]?.GetValue<string>() ?? rule["senderDomain"]?.GetValue<string>() ?? rule["folderPrefix"]?.GetValue<string>() ?? rule["recipient"]?.GetValue<string>() ?? "rule";
+            var describe = Str(rule["sender"]) ?? Str(rule["senderDomain"]) ?? Str(rule["folderPrefix"]) ?? Str(rule["recipient"]) ?? "rule";
             if (supplier is null)
             {
                 items.Add(new BundleImportItem("sourceRule", describe, "error", "No supplier of this tenant has the rule's supplier VAT id or name."));
@@ -691,16 +740,16 @@ public static class GovernanceEndpoints
 
             var entity = new SupplierSourceRule { Id = Guid.CreateVersion7(), TenantId = tenantId, SupplierId = supplier.Id, ConditionHash = string.Empty, CreatedBy = actor, CreatedAt = now, UpdatedAt = now };
             var refusal = await SourceRuleEndpoints.ApplyAsync(db, entity, new SourceRuleRequest(
-                Recipient: rule["recipient"]?.GetValue<string>(),
-                Sender: rule["sender"]?.GetValue<string>(),
-                SenderDomain: rule["senderDomain"]?.GetValue<string>(),
-                FolderPrefix: rule["folderPrefix"]?.GetValue<string>(),
-                SubjectRegex: rule["subjectRegex"]?.GetValue<string>(),
-                FileNameRegex: rule["fileNameRegex"]?.GetValue<string>(),
-                Mode: rule["mode"]?.GetValue<string>(),
+                Recipient: Str(rule["recipient"]),
+                Sender: Str(rule["sender"]),
+                SenderDomain: Str(rule["senderDomain"]),
+                FolderPrefix: Str(rule["folderPrefix"]),
+                SubjectRegex: Str(rule["subjectRegex"]),
+                FileNameRegex: Str(rule["fileNameRegex"]),
+                Mode: Str(rule["mode"]),
                 RequireSenderAuth: rule["requireSenderAuth"] is JsonValue auth && auth.TryGetValue<bool>(out var a) ? a : null,
                 Priority: rule["priority"] is JsonValue pr && pr.TryGetValue<int>(out var rp) ? rp : null,
-                PinTypeKey: rule["pinTypeKey"]?.GetValue<string>(),
+                PinTypeKey: Str(rule["pinTypeKey"]),
                 Enabled: false), supplier, ct);
             if (refusal is not null)
             {
@@ -719,7 +768,7 @@ public static class GovernanceEndpoints
         var mappingIds = await db.OutputMappings.Where(m => m.TenantId == tenantId).ToDictionaryAsync(m => m.Key, m => m.Id, StringComparer.Ordinal, ct);
         foreach (var output in (bundle["outputs"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            var key = output["key"]?.GetValue<string>() ?? "?";
+            var key = Str(output["key"]) ?? "?";
             if (mappingIds.ContainsKey(key))
             {
                 items.Add(new BundleImportItem("output", key, "skip", "The tenant has an output mapping with this key; edit it there."));
@@ -732,17 +781,17 @@ public static class GovernanceEndpoints
                 continue;
             }
 
-            var mapping = new OutputMapping { Id = Guid.CreateVersion7(), TenantId = tenantId, Key = key, Name = output["name"]?.GetValue<string>() ?? key, SourceTypeKey = output["sourceTypeKey"]?.GetValue<string>(), Origin = OutputMappingOrigin.Custom, CreatedAt = now, CreatedBy = actor, UpdatedAt = now };
+            var mapping = new OutputMapping { Id = Guid.CreateVersion7(), TenantId = tenantId, Key = key, Name = Str(output["name"]) ?? key, SourceTypeKey = Str(output["sourceTypeKey"]), Origin = OutputMappingOrigin.Custom, CreatedAt = now, CreatedBy = actor, UpdatedAt = now };
             mapping.Versions.Add(new OutputMappingVersion
             {
                 Id = Guid.CreateVersion7(),
                 MappingId = mapping.Id,
                 TenantId = tenantId,
                 Version = 1,
-                Engine = output["engine"]?.GetValue<string>() ?? OutputEngines.Jsonata,
-                Expression = output["expression"]?.GetValue<string>() ?? string.Empty,
-                ContentType = output["contentType"]?.GetValue<string>() ?? "application/json",
-                FileNameTemplate = output["fileNameTemplate"]?.GetValue<string>(),
+                Engine = Str(output["engine"]) ?? OutputEngines.Jsonata,
+                Expression = Str(output["expression"]) ?? string.Empty,
+                ContentType = Str(output["contentType"]) ?? "application/json",
+                FileNameTemplate = Str(output["fileNameTemplate"]),
                 TargetSchemaJson = output["targetSchema"]?.ToJsonString(),
                 ChangeNote = "Imported from a configuration bundle.",
                 CreatedAt = now,
@@ -757,9 +806,9 @@ public static class GovernanceEndpoints
         var bindingNames = await db.OutputBindings.AsNoTracking().Select(b => b.Name).ToListAsync(ct);
         foreach (var binding in (bundle["bindings"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            var name = binding["name"]?.GetValue<string>() ?? "?";
-            var destinationName = binding["destination"]?["name"]?.GetValue<string>();
-            var mappingKey = binding["mappingKey"]?.GetValue<string>();
+            var name = Str(binding["name"]) ?? "?";
+            var destinationName = Str(binding["destination"]?["name"]);
+            var mappingKey = Str(binding["mappingKey"]);
             if (bindingNames.Contains(name, StringComparer.Ordinal))
             {
                 items.Add(new BundleImportItem("binding", name, "skip", "The tenant has a binding with this name."));
@@ -786,15 +835,15 @@ public static class GovernanceEndpoints
                     Id = Guid.CreateVersion7(),
                     TenantId = tenantId,
                     Name = name,
-                    Events = [.. (binding["events"] as JsonArray ?? []).Select(e => e?.GetValue<string>()).OfType<string>()],
-                    DocumentTypeKey = binding["documentTypeKey"]?.GetValue<string>(),
+                    Events = [.. (binding["events"] as JsonArray ?? []).Select(e => Str(e)).OfType<string>()],
+                    DocumentTypeKey = Str(binding["documentTypeKey"]),
                     SupplierId = binding["supplier"] is JsonObject sref ? Match(sref)?.Id : null,
-                    Condition = binding["condition"]?.GetValue<string>(),
+                    Condition = Str(binding["condition"]),
                     MappingId = mappingId,
                     DestinationId = destinationId,
                     Priority = binding["priority"] is JsonValue bp && bp.TryGetValue<int>(out var bpv) ? bpv : 0,
-                    ExclusiveGroup = binding["exclusiveGroup"]?.GetValue<string>(),
-                    OnReapproval = Enum.TryParse<OnReapproval>(binding["onReapproval"]?.GetValue<string>(), out var re) ? re : OnReapproval.Resend,
+                    ExclusiveGroup = Str(binding["exclusiveGroup"]),
+                    OnReapproval = Enum.TryParse<OnReapproval>(Str(binding["onReapproval"]), out var re) ? re : OnReapproval.Resend,
                     Enabled = false,
                     CreatedAt = now,
                     CreatedBy = actor,
@@ -810,6 +859,9 @@ public static class GovernanceEndpoints
 
         return TypedResults.Ok(new BundleImportResponse(mode, signatureValid, version, items));
     }
+
+    /// <summary>A string member of a bundle, or null when it is absent or not a JSON string.</summary>
+    private static string? Str(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
     private static GoldenDocumentDto ToDto(GoldenDocument g) =>
         new(g.Id, g.DocumentId, g.TypeKey, g.SupplierId, g.SupplierLayoutVersionId, LayoutEndpoints.Element(g.ExpectedValuesJson) ?? default, LayoutEndpoints.Element(g.ExpectedOutputsJson), g.Note, g.AddedBy, g.AddedAt);

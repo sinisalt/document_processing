@@ -91,7 +91,17 @@ internal sealed class MatchHandler(
         flags.Replace(document, OwnedFlags, match is null
             ? [FlagCodes.Create(FlagCodes.SupplierUnmatched, "No supplier of the tenant matched the document; a new supplier may be needed.")]
             : []);
-        var layout = await MatchLayoutAsync(document, cancellationToken).ConfigureAwait(false);
+        // match.layout runs once VAT or IBAN names the supplier (confidence 0.95 or more, docs/11 §7.4): a supplier
+        // guessed from its name or mail domain gets no NEW_LAYOUT, so no reviewer teaches it another supplier's design.
+        string? layout = null;
+        if (match is { Method: "vatId" or "iban" })
+        {
+            layout = await MatchLayoutAsync(document, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            ClearMatchLayout(document);
+        }
 
         Timeline.Transition(document, DocumentStatus.Matched, new
         {
@@ -195,7 +205,8 @@ internal sealed class MatchHandler(
         document.SupplierLayoutVersionId = null;
         if (document.TypeSource is TypeSource.Supplier or TypeSource.Identification or TypeSource.Proposed)
         {
-            var (outcome, _) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken).ConfigureAwait(false);
+            var allowed = await ClassifyHandler.AllowedTypesAsync(Db, evidence.Supplier.Id, cancellationToken).ConfigureAwait(false);
+            var (outcome, _) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed).ConfigureAwait(false);
             ClassifyHandler.SetType(document, outcome);
             flags.Replace(document, [FlagCodes.TypeUnknown], outcome.Type == DocumentTypeKey.Unknown
                 ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
@@ -219,7 +230,7 @@ internal sealed class MatchHandler(
     }
 
     /// <summary>
-    /// <c>match.layout</c> for a supplier found by content (docs/11 §8.4): resolves its layouts, corrects a classified type
+    /// <c>match.layout</c> for a supplier found by its VAT id or IBAN (docs/11 §7.4, §8.4): resolves its layouts, corrects a classified type
     /// to the identified layout's (<see cref="TypeSource.Identification"/>), turns it into a proposal under
     /// <c>NEW_LAYOUT</c>, and records the step's outcome. Without a supplier (or without <c>supplierLayouts</c>) it clears
     /// what an earlier run of the step decided. Returns the resolution for the timeline.
@@ -230,8 +241,7 @@ internal sealed class MatchHandler(
         var identification = await layouts.ResolveAsync(document, fixedType, cancellationToken).ConfigureAwait(false);
         if (identification is not { } found)
         {
-            document.SupplierLayoutVersionId = null;
-            layouts.Clear(document, LayoutIdentification.MatchStep);
+            ClearMatchLayout(document);
             return null;
         }
 
@@ -254,6 +264,13 @@ internal sealed class MatchHandler(
         var proposed = document.TypeSource == TypeSource.Proposed || fixedType is not null ? document.Type.Value : null;
         await layouts.RecordAsync(document, LayoutIdentification.MatchStep, found.Result, found.Setting, found.Words, proposed, cancellationToken).ConfigureAwait(false);
         return found.Result.Resolution.ToString();
+    }
+
+    /// <summary>Clears what an earlier run of <c>match.layout</c> decided (its layout version, flags and step record).</summary>
+    private void ClearMatchLayout(Document document)
+    {
+        document.SupplierLayoutVersionId = null;
+        layouts.Clear(document, LayoutIdentification.MatchStep);
     }
 
     private static string? MethodName(SupplierMatchMethod? method) => method switch

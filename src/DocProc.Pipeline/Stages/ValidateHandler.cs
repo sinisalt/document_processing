@@ -109,11 +109,13 @@ internal sealed class ValidateHandler(
                            || await SupplierReviewsAlwaysAsync(supplier, cancellationToken).ConfigureAwait(false);
 
         // SUPPLIER_SOURCE_UNVERIFIED is a warning that never auto-approves (docs/11 §7.2): a rule for another supplier
-        // would have routed the document had its sender been authenticated.
+        // would have routed the document had its sender been authenticated. SUPPLIER_AMBIGUOUS is a warning too, and
+        // also never auto-approves (docs/11 §11 layer 3): source rules of two suppliers tied, so the supplier content
+        // then names is a guess a person confirms.
         // NEW_LAYOUT and LAYOUT_AMBIGUOUS block by name (docs/11 §11), so a severity override cannot let them through.
         var eligible = result is { IsEligibleForAutoApproval: true }
                        && type is { AutoApprove: true }
-                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified or FlagCodes.NewLayout or FlagCodes.LayoutAmbiguous)
+                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified or FlagCodes.SupplierAmbiguous or FlagCodes.NewLayout or FlagCodes.LayoutAmbiguous)
                        && document.TypeSource != TypeSource.Proposed
                        && layout.Passes
                        && !alwaysReview;

@@ -121,6 +121,36 @@ public sealed class IdentificationRuleTests
     }
 
     [Fact]
+    public void A_supplier_value_holds_only_as_a_whole_not_inside_a_longer_value()
+    {
+        var supplier = new SupplierValues(VatId: NordwindVat, Attributes: new Dictionary<string, string>(StringComparer.Ordinal) { ["customerNo"] = "12345" });
+        static DocumentWords Line(string line) => Words(new PageBuilder(1).Text(60, 60, line));
+        const string Vat = """{ "all": [ { "supplierValue": "vatId" } ] }""";
+        const string Customer = """{ "all": [ { "supplierValue": "attributes.customerNo" } ] }""";
+
+        Eval(Vat, Line("USt-IdNr.: DE8111111119"), supplier).Holds.ShouldBeFalse("a longer, different VAT id");
+        Eval(Vat, Line("USt-IdNr.: XDE811111111"), supplier).Holds.ShouldBeFalse("a letter in front of it");
+        Eval(Customer, Line("Tel 0401234567890"), supplier).Holds.ShouldBeFalse("a short number inside a phone number");
+        Eval(Customer, Line("Konto 9912345 BLZ"), supplier).Holds.ShouldBeFalse("a short number inside a longer one");
+
+        Eval(Vat, Line("USt-IdNr.:DE811111111"), supplier).Holds.ShouldBeTrue("a label glued on with a colon");
+        Eval(Vat, Line("USt-IdNr. DE 811 111 111 Steuernr. 12/345"), supplier).Holds.ShouldBeTrue();
+        var customer = Eval(Customer, Line("Kunden-Nr. 12345 vom 03.11.2026"), supplier);
+        customer.Holds.ShouldBeTrue();
+        customer.Evidence[0].Text.ShouldBe("12345");
+        Eval(Customer, Line("KdNr12345"), supplier).Holds.ShouldBeTrue("letters turning into digits are an edge");
+    }
+
+    [Fact]
+    public void The_rule_in_words_names_supplier_values_by_their_labels()
+    {
+        IdentificationRule.Parse("""{ "all": [ { "text": "Rechnung", "page": 1, "region": "title" }, { "supplierValue": "vatId", "page": "last" }, { "supplierValue": "attributes.customerNo" }, { "supplierValue": "iban" } ] }""")
+            .Describe()
+            .ShouldBe("all of: text \"Rechnung\" (page 1, title area); the supplier's VAT id (last page); the supplier's attribute customerNo (anywhere); the supplier's IBAN (anywhere)");
+        Eval("""{ "all": [ { "supplierValue": "vatId", "page": 1 } ] }""", ErpInvoice()).Evidence[0].Description.ShouldBe("the supplier's VAT id (page 1)");
+    }
+
+    [Fact]
     public void Source_identifiers_read_the_ingestion_facts()
     {
         var source = new SourceFacts(ItemKind: "pdf", FileName: "PL_2027.pdf", FolderPath: "lieferanten/nordwind/");

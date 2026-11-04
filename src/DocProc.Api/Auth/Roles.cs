@@ -102,12 +102,21 @@ public static class Policies
 
     public static IEnumerable<string> All => RolesByPolicy.Keys;
 
-    /// <summary>The single evaluation rule: a listed role, or (for machine clients) the listed scope.</summary>
+    /// <summary>
+    /// The single evaluation rule: a listed role, or (for machine clients) the listed scope. A listed grant
+    /// (<see cref="Roles.Grants"/>) counts only together with a role that may review (<see cref="Review"/>): a token
+    /// holding the grant alone, or with Viewer, gets no access from it.
+    /// </summary>
     public static bool Satisfies(ClaimsPrincipal user, string policy)
     {
-        if (RolesByPolicy[policy].Any(user.IsInRole))
+        ArgumentNullException.ThrowIfNull(user);
+        foreach (var role in RolesByPolicy[policy].Where(user.IsInRole))
         {
-            return true;
+            if (!Roles.Grants.Contains(role, StringComparer.Ordinal)
+                || RolesByPolicy[Review].Any(r => !Roles.Grants.Contains(r, StringComparer.Ordinal) && user.IsInRole(r)))
+            {
+                return true;
+            }
         }
 
         return ScopeByPolicy.TryGetValue(policy, out var scope)

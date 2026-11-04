@@ -325,10 +325,18 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
         refusal.Extensions["code"]!.ToString().ShouldBe("LAYOUT_REPLAY_FAILED");
         refusal.Detail!.ShouldContain("invoiceNumber");
 
-        // A reviewer without the MappingAuthor grant may not activate; with it, a reviewer may.
+        // A reviewer without the MappingAuthor grant may not activate; with it, a reviewer may. The grant alone, or with
+        // Viewer, gives no access (it adds to a role that may review, docs/05 "Roles").
         using (var reviewer = Reviewer())
         {
             (await reviewer.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        }
+
+        foreach (var roles in new[] { new[] { Roles.MappingAuthor }, [Roles.Viewer, Roles.MappingAuthor] })
+        {
+            using var grantOnly = _factory.ClientFor(new TokenSpec("grant-only", roles, ApiFactory.TenantA.ToString()));
+            (await grantOnly.PostAsJsonAsync($"/api/v1/supplier-layouts/{layout.Id}/versions/1:activate", new ActivateLayoutRequest(), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden, string.Join("+", roles));
+            (await grantOnly.PostAsJsonAsync($"/api/v1/supplier-layouts/{Guid.NewGuid()}:retire", new { }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden, string.Join("+", roles));
         }
 
         // A new version whose mapping reads the document activates with the tenant's warm-up, and the old one is retired.

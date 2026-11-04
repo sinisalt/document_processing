@@ -530,48 +530,7 @@ public static class SourceRuleEndpoints
     internal static SourceRuleResponse Response(SupplierSourceRule r, string? supplierName, IReadOnlyDictionary<Guid, string> channels) =>
         new(r.Id, r.SupplierId, r.ChannelId, r.Recipient, r.Sender, r.SenderDomain, r.FolderPrefix, r.SubjectRegex, r.FileNameRegex, r.Mode.ToString(), r.RequireSenderAuth, r.Priority, r.PinTypeKey, r.ReceivingEntityId, r.Enabled, r.CreatedFromDocumentId, r.CreatedBy, r.CreatedAt, r.UpdatedAt, Describe(r, supplierName, channels));
 
-    /// <summary>The rule in words: "From rechnungsversand@nordwind.example (DMARC required) → Nordwind, Exclusive, pins Invoice".</summary>
-    internal static string Describe(SupplierSourceRule r, string? supplierName, IReadOnlyDictionary<Guid, string> channels)
-    {
-        var parts = new List<string>();
-        if (r.ChannelId is { } channel)
-        {
-            parts.Add($"channel {(channels.TryGetValue(channel, out var name) ? name : channel.ToString())}");
-        }
-
-        if (r.FolderPrefix is not null)
-        {
-            parts.Add($"folder {r.FolderPrefix}");
-        }
-
-        if (r.Recipient is not null)
-        {
-            parts.Add($"to {r.Recipient}");
-        }
-
-        if (r.Sender is not null)
-        {
-            parts.Add($"from {r.Sender}");
-        }
-
-        if (r.SenderDomain is not null)
-        {
-            parts.Add($"from @{r.SenderDomain}");
-        }
-
-        if (r.SubjectRegex is not null)
-        {
-            parts.Add($"subject /{r.SubjectRegex}/");
-        }
-
-        if (r.FileNameRegex is not null)
-        {
-            parts.Add($"file /{r.FileNameRegex}/");
-        }
-
-        var auth = r.RequireSenderAuth && (r.Sender is not null || r.SenderDomain is not null) ? " (DMARC required)" : string.Empty;
-        var pin = r.PinTypeKey is null ? string.Empty : $", pins {r.PinTypeKey}";
-        var off = r.Enabled ? string.Empty : " [disabled]";
-        return $"{string.Join(", ", parts)}{auth} → {supplierName ?? r.SupplierId.ToString()}, {r.Mode}{pin}{off}";
-    }
+    /// <summary>The rule in words (<see cref="DocProc.Pipeline.Routing.SourceRuleText.Describe"/>).</summary>
+    internal static string Describe(SupplierSourceRule r, string? supplierName, IReadOnlyDictionary<Guid, string> channels) =>
+        DocProc.Pipeline.Routing.SourceRuleText.Describe(r, supplierName, channels);
 }

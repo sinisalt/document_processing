@@ -97,7 +97,17 @@
       "delivery_succeeded": "Delivered",
       "delivery_failed": "Delivery failed",
       "delivery_skipped": "Delivery skipped",
-      "redelivery_requested": "Redelivery requested"
+      "redelivery_requested": "Redelivery requested",
+      "supplier_identified_by_source": "Supplier identified by source",
+      "supplier_replaced_by_content": "Supplier replaced by content",
+      "layout_identified": "Layout identified",
+      "layout_not_identified": "No layout identified",
+      "type_corrected_by_layout": "Type corrected by layout",
+      "layout_warmup": "Layout warm-up",
+      "layout_applied": "Filled by layout",
+      "layout_degraded": "Layout degraded",
+      "layout_learned": "Saved as layout",
+      "layout_matched": "Matched to a layout"
     }
   },
   "inbox": {
@@ -338,6 +348,9 @@
       "title": "Timeline",
       "empty": "No events recorded yet.",
       "details": "Details",
+      "sourceRule": "Rule: {{rule}}",
+      "sourceChannel": "Channel {{channel}}",
+      "sourceFolder": "folder {{folder}}",
       "actors": {
         "pipeline": "Processing",
         "system": "System"

@@ -42,6 +42,20 @@ public static class SupplierValueKeys
     public static bool IsValid(string key) =>
         Fixed.Contains(key, StringComparer.Ordinal)
         || (key.StartsWith(AttributesPrefix, StringComparison.Ordinal) && key.Length > AttributesPrefix.Length && key.Length <= 80);
+
+    /// <summary>A key in words, as the rule in words and the evidence name it: <c>VAT id</c>, <c>tax id</c>, <c>IBAN</c>, <c>attribute customerNo</c>.</summary>
+    public static string Label(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return key switch
+        {
+            "vatId" => "VAT id",
+            "taxId" => "tax id",
+            "iban" => "IBAN",
+            _ when key.StartsWith(AttributesPrefix, StringComparison.Ordinal) && key.Length > AttributesPrefix.Length => $"attribute {key[AttributesPrefix.Length..]}",
+            _ => key,
+        };
+    }
 }
 
 /// <summary>The source facts a <c>source</c> identifier reads (docs/11 §8.5): the item kind and the ingestion's file name, subject, mailbox and folder path.</summary>
@@ -470,8 +484,11 @@ public static class IdentificationRuleEvaluator
 
     /// <summary>
     /// A master-data value printed on one line, compared compacted (<see cref="Identifiers.NormalizeCompact"/>): the
-    /// fewest consecutive words whose compacted text contains it, so <c>DE 811 111 111</c> and <c>USt-IdNr.: DE811111111</c>
-    /// both hold for the VAT id <c>DE811111111</c>.
+    /// consecutive words whose compacted text holds the value as a whole, so <c>DE 811 111 111</c> and
+    /// <c>USt-IdNr.: DE811111111</c> both hold for the VAT id <c>DE811111111</c>. "As a whole" (docs/11 §8.5, nothing
+    /// nearly matched): the value begins and ends at a word's edge, at a character that is neither a letter nor a digit
+    /// (the <c>:</c> of a label glued to it), or where letters turn into digits or back; so the longer VAT id
+    /// <c>DE8111111119</c>, or a customer number <c>12345</c> inside the phone number <c>0401234567890</c>, does not hold.
     /// </summary>
     private static List<IndexedWord>? FindSupplierValue(string key, List<IndexedWord> words, SupplierValues supplier)
     {
@@ -483,36 +500,64 @@ public static class IdentificationRuleEvaluator
 
         foreach (var line in PageGeometry.Lines(words))
         {
-            var compact = line.Words.Select(w => Identifiers.NormalizeCompact(w.Text) ?? string.Empty).ToArray();
+            // The line's compacted text, and for each of its characters the word it came from.
+            var text = new StringBuilder();
+            var owner = new List<int>();
+            var wordStarts = new HashSet<int>();
+            var wordEnds = new HashSet<int>();
+            for (var w = 0; w < line.Words.Count; w++)
+            {
+                var compact = Identifiers.NormalizeCompact(line.Words[w].Text) ?? string.Empty;
+                if (compact.Length == 0)
+                {
+                    continue;
+                }
+
+                wordStarts.Add(text.Length);
+                text.Append(compact);
+                owner.AddRange(Enumerable.Repeat(w, compact.Length));
+                wordEnds.Add(text.Length);
+            }
+
+            var joined = text.ToString();
             foreach (var value in values)
             {
-                for (var start = 0; start < compact.Length; start++)
+                for (var at = joined.IndexOf(value, StringComparison.Ordinal); at >= 0; at = joined.IndexOf(value, at + 1, StringComparison.Ordinal))
                 {
-                    var joined = new StringBuilder();
-                    for (var end = start; end < compact.Length; end++)
+                    var after = at + value.Length;
+                    if (!Edge(joined, at, wordStarts, before: true) || !Edge(joined, after, wordEnds, before: false))
                     {
-                        joined.Append(compact[end]);
-                        if (joined.ToString().Contains(value, StringComparison.Ordinal))
-                        {
-                            // The fewest words: drop leading words (a label printed before the value) while the rest still holds it.
-                            var first = start;
-                            while (first < end && string.Concat(compact[(first + 1)..(end + 1)]).Contains(value, StringComparison.Ordinal))
-                            {
-                                first++;
-                            }
-
-                            return [.. line.Words.Skip(first).Take(end - first + 1)];
-                        }
-
-                        if (joined.Length > value.Length + 40)
-                        {
-                            break;
-                        }
+                        continue;
                     }
+
+                    var first = owner[at];
+                    var last = owner[after - 1];
+                    return [.. line.Words.Skip(first).Take(last - first + 1)];
                 }
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether a value may begin (<paramref name="before"/>) or end at <paramref name="index"/> of the compacted line:
+    /// at a word's edge, next to a character that is neither a letter nor a digit, or where letters and digits meet.
+    /// </summary>
+    private static bool Edge(string text, int index, HashSet<int> wordEdges, bool before)
+    {
+        if (index <= 0 || index >= text.Length || wordEdges.Contains(index))
+        {
+            return true;
+        }
+
+        var outside = before ? text[index - 1] : text[index];
+        var inside = before ? text[index] : text[index - 1];
+        if (!char.IsLetterOrDigit(outside) || !char.IsLetterOrDigit(inside))
+        {
+            return true;
+        }
+
+        return char.IsDigit(outside) != char.IsDigit(inside);
     }
 }

@@ -151,14 +151,32 @@ internal sealed class LayoutExtractor(DocProcDbContext db, PipelineBlobs blobs, 
     }
 
     /// <summary>
-    /// The version's counters after an application (docs/11 §6.6 stats): applied, and consecutive drifts, which make the
-    /// version Degraded after <see cref="DegradeAfter"/>. A version that degrades is recorded on the timeline.
+    /// The version's counters after an application (docs/11 §6.6 stats): applied, and consecutive drifting documents,
+    /// which make the version Degraded after <see cref="DegradeAfter"/>. A document counts once per version, on its
+    /// first extraction under it (a <c>document.layout_applied</c> event keyed by the version id, as the warm-up does):
+    /// reprocessing a document does not count it again, so one drifting document run three times does not degrade
+    /// its layout. A version that degrades is recorded on the timeline.
     /// </summary>
     public async Task CountAsync(Document document, LayoutApplication application, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(application);
         var id = application.Version.Id;
+
+        // DetailsJson is a json column, on which SQL Server refuses LIKE: the document's few events of the kind are
+        // read and the version is looked for here.
+        var marker = $"\"versionId\":\"{id}\"";
+        var counted = await db.DocumentEvents.AsNoTracking()
+            .Where(e => e.DocumentId == document.Id && e.EventType == LayoutEventTypes.Applied && e.DetailsJson != null)
+            .Select(e => e.DetailsJson)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (counted.Any(d => d!.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(marker, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        timeline.Record(document, LayoutEventTypes.Applied, null, null, new { versionId = id, layoutKey = application.Layout.LayoutKey, version = application.Version.Version, drift = application.Extraction.Drift.IsDrift });
         if (application.Extraction.Drift.IsDrift)
         {
             await db.SupplierLayoutVersions.Where(v => v.Id == id)
@@ -168,7 +186,7 @@ internal sealed class LayoutExtractor(DocProcDbContext db, PipelineBlobs blobs, 
                 .ExecuteUpdateAsync(s => s.SetProperty(v => v.Status, SupplierLayoutVersionStatus.Degraded), cancellationToken).ConfigureAwait(false);
             if (degraded > 0)
             {
-                timeline.Record(document, "document.layout_degraded", null, null, new { layoutKey = application.Layout.LayoutKey, version = application.Version.Version, after = DegradeAfter });
+                timeline.Record(document, LayoutEventTypes.Degraded, null, null, new { layoutKey = application.Layout.LayoutKey, version = application.Version.Version, after = DegradeAfter });
             }
         }
         else

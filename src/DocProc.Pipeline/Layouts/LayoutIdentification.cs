@@ -26,6 +26,18 @@ public static class LayoutEventTypes
 
     /// <summary>The document counted towards a new layout version's review warm-up.</summary>
     public const string Warmup = "document.layout_warmup";
+
+    /// <summary>A reviewer saved the reviewed document as a layout (approve with <c>learnLayout</c>, docs/11 §12.10).</summary>
+    public const string Learned = "document.layout_learned";
+
+    /// <summary>A reviewer matched the document to a type and a layout basis in review (<c>:match-layout</c>).</summary>
+    public const string Matched = "document.layout_matched";
+
+    /// <summary>A layout version's field mapping filled the document; it counted once towards the version's statistics (and its drift count).</summary>
+    public const string Applied = "document.layout_applied";
+
+    /// <summary>The layout version drifted on three documents in a row (<c>LayoutExtractor.DegradeAfter</c>) and is Degraded.</summary>
+    public const string Degraded = "document.layout_degraded";
 }
 
 /// <summary>Everything the resolver was asked with, for the handlers and the test endpoint.</summary>

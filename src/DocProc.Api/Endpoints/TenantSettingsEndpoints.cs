@@ -187,6 +187,10 @@ public static class TenantSettingsEndpoints
                 {
                     errors.Add("trustedForwarderDomains", $"'{bad}' is not a domain name.");
                 }
+                else if (forwarders.FirstOrDefault(SourceConditions.FreeMailDomains.Contains) is { } freeMail)
+                {
+                    errors.Add("trustedForwarderDomains", SourceConditions.FreeMailForwarderMessage(freeMail));
+                }
             }
 
             if (request.LayoutReviewWarmup is { } warmup && warmup is < 0 or > TenantSettings.MaxLayoutReviewWarmup)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detailEntries, humanizeKey } from "./Timeline";
+import { detailEntries, humanizeKey, sourceSummary } from "./Timeline";
 
 describe("timeline details", () => {
   it("lists an event's details as label and value instead of raw JSON", () => {
@@ -26,6 +26,17 @@ describe("timeline details", () => {
       ["confidence", "50%"],
       ["attempt", "2"],
     ]);
+  });
+
+  it("names the channel, the folder and the rule of a document routed at ingest", () => {
+    expect(sourceSummary({ supplierId: "s", channel: "Scanner", channelType: "WatchedFolder", folderPath: "lieferanten/nordwind/", rule: "channel Scanner, folder lieferanten/nordwind/ → Nordwind, Exclusive, pins Invoice" })).toEqual({
+      channel: "Scanner",
+      folder: "lieferanten/nordwind/",
+      rule: "channel Scanner, folder lieferanten/nordwind/ → Nordwind, Exclusive, pins Invoice",
+    });
+    expect(sourceSummary({ channel: "Rechnungen", folderPath: "", rule: null })).toEqual({ channel: "Rechnungen", folder: undefined, rule: undefined });
+    expect(sourceSummary({ supplierId: "s" })).toBeNull();
+    expect(sourceSummary(null)).toBeNull();
   });
 
   it("labels a key without a translation readably", () => {

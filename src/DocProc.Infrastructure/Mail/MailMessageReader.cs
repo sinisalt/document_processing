@@ -28,8 +28,9 @@ public sealed record ParsedMail(
 /// <param name="UnwrapForwards">Unwrap a forward from a trusted forwarder to its original sender.</param>
 /// <param name="TrustedForwarderDomains">The forwarder domains (the channel's and the tenant's), lower-cased.</param>
 /// <param name="TrustedAuthServIds">
-/// The <c>authserv-id</c>s whose <c>Authentication-Results</c> are believed (the receiving MTA's). Empty: the topmost
-/// header, which the last hop (the receiving server) adds, is read; a header further down was written by someone else.
+/// The <c>authserv-id</c>s whose <c>Authentication-Results</c> are believed (the receiving MTA's). Empty: no header is
+/// believed and every sender is unauthenticated. The topmost header is not read by default: a receiving server that
+/// writes none (GreenMail, a plain Postfix or Dovecot) leaves the sender's own header on top (docs/11 §7.1, Correction (P4)).
 /// </param>
 public sealed record MailReadOptions(bool UnwrapForwards, IReadOnlyCollection<string> TrustedForwarderDomains, IReadOnlyCollection<string> TrustedAuthServIds)
 {
@@ -40,12 +41,13 @@ public sealed record MailReadOptions(bool UnwrapForwards, IReadOnlyCollection<st
 
 /// <summary>
 /// Reads a received message with MimeKit (docs/11 §7.1): sender, recipients, subject, attachments (every leaf part
-/// with a file name or an attachment disposition; the text and HTML bodies are not documents), and the SPF, DKIM and
-/// DMARC results of the trusted <c>Authentication-Results</c> header. With <see cref="MailReadOptions.UnwrapForwards"/>
-/// and a sender whose domain is a trusted forwarder, a forward is unwrapped: an attached <c>message/rfc822</c> gives
-/// the original sender, subject and attachments (the forwarder's other attachments are kept); an inline forward (a
-/// "Forwarded message" or "Weitergeleitete Nachricht" block with a <c>From:</c> or <c>Von:</c> line) gives the
-/// original sender, the attachments being the forward's own. The forwarder goes to <see cref="ParsedMail.ForwardedBy"/>.
+/// with a file name or an attachment disposition, also those of every attached <c>message/rfc822</c>, whoever sent
+/// it; the text and HTML bodies are not documents), and the SPF, DKIM and DMARC results of the trusted
+/// <c>Authentication-Results</c> header. With <see cref="MailReadOptions.UnwrapForwards"/> and a sender whose domain is
+/// a trusted forwarder, a forward is unwrapped: an attached <c>message/rfc822</c> gives the original sender and
+/// subject; an inline forward (a "Forwarded message" or "Weitergeleitete Nachricht" block with a <c>From:</c> or
+/// <c>Von:</c> line) gives the original sender. Only the sender facts depend on that trust: the files are the same.
+/// The forwarder goes to <see cref="ParsedMail.ForwardedBy"/>.
 /// Pure: no I/O beyond the message given.
 /// </summary>
 public static partial class MailMessageReader
@@ -85,14 +87,15 @@ public static partial class MailMessageReader
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var auth = Authentication(message, fromDomain, options.TrustedAuthServIds);
-        var (attachments, attached) = Files(message.Body);
+        var (outer, inner, attached) = Files(message.Body);
+        // The files of attached messages come first (the forwarded documents), then the mail's own. They are items
+        // whoever sent the mail: only who counts as the sender depends on a trusted forwarder.
+        var attachments = inner.Concat(outer).Take(MailReadOptions.MaxAttachments).ToList();
 
         var trusted = options.UnwrapForwards && fromDomain is not null && options.TrustedForwarderDomains.Contains(fromDomain);
         if (trusted && attached.FirstOrDefault(m => m.From.Mailboxes.Any()) is { } original)
         {
             var sender = SourceConditions.Address(original.From.Mailboxes.First().Address);
-            var (inner, _) = Files(original.Body);
-            var outer = attachments;
             return new ParsedMail(
                 MessageId(message),
                 sender,
@@ -101,7 +104,7 @@ public static partial class MailMessageReader
                 original.Subject ?? StripForwardPrefix(message.Subject),
                 message.Date == DateTimeOffset.MinValue ? null : message.Date,
                 Forwarded(sender, auth),
-                [.. inner.Concat(outer).Take(MailReadOptions.MaxAttachments)],
+                attachments,
                 "attachedMessage");
         }
 
@@ -115,7 +118,7 @@ public static partial class MailMessageReader
                 StripForwardPrefix(message.Subject),
                 message.Date == DateTimeOffset.MinValue ? null : message.Date,
                 Forwarded(inlineSender, auth),
-                [.. attachments.Take(MailReadOptions.MaxAttachments)],
+                attachments,
                 "inline");
         }
 
@@ -127,7 +130,7 @@ public static partial class MailMessageReader
             message.Subject,
             message.Date == DateTimeOffset.MinValue ? null : message.Date,
             auth,
-            [.. attachments.Take(MailReadOptions.MaxAttachments)],
+            attachments,
             null);
     }
 
@@ -136,18 +139,26 @@ public static partial class MailMessageReader
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(trustedAuthServIds);
+        // Only a header of a configured receiving server is believed. Without one, the topmost header may be the
+        // sender's own (a server that writes none leaves it on top), so nobody is authenticated: this fails closed.
+        if (trustedAuthServIds.Count == 0)
+        {
+            return SenderAuthentication.None(fromDomain);
+        }
+
         AuthenticationResults? chosen = null;
         foreach (var header in message.Headers.Where(h => h.Id == HeaderId.AuthenticationResults))
         {
             if (!AuthenticationResults.TryParse(header.RawValue, out var results))
             {
-                continue;
-            }
+                // A trusted server's header that does not parse is not passed over for one further down, which someone
+                // else may have written; a header naming another server is skipped.
+                if (RawAuthServId(header.Value) is { } rawId && trustedAuthServIds.Contains(rawId))
+                {
+                    return SenderAuthentication.None(fromDomain);
+                }
 
-            if (trustedAuthServIds.Count == 0)
-            {
-                chosen = results; // the topmost header: the receiving server's
-                break;
+                continue;
             }
 
             if (results.AuthenticationServiceIdentifier is { } id && trustedAuthServIds.Contains(id.Trim().ToLowerInvariant()))
@@ -200,6 +211,33 @@ public static partial class MailMessageReader
             FromDomain = fromDomain,
             AuthServId = chosen.AuthenticationServiceIdentifier,
         };
+    }
+
+    /// <summary>The <c>authserv-id</c> a header begins with (up to its first <c>;</c>, comments left out), lower-cased; null when it has none.</summary>
+    internal static string? RawAuthServId(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = value;
+        var start = text.IndexOf('(', StringComparison.Ordinal);
+        while (start >= 0)
+        {
+            var end = text.IndexOf(')', start);
+            if (end < 0)
+            {
+                break;
+            }
+
+            text = text.Remove(start, end - start + 1);
+            start = text.IndexOf('(', StringComparison.Ordinal);
+        }
+
+        var head = text.Split(';', 2)[0].Trim();
+        var token = head.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrEmpty(token) ? null : token.ToLowerInvariant();
     }
 
     /// <summary>The sender of an inline forward block, or null when the body has none.</summary>
@@ -262,18 +300,23 @@ public static partial class MailMessageReader
         }
     }
 
-    /// <summary>The files of a body (leaf parts with a file name or an attachment disposition) and the messages attached to it.</summary>
-    private static (List<MailAttachment> Files, List<MimeMessage> Messages) Files(MimeEntity? body)
+    /// <summary>
+    /// The files of a body (leaf parts with a file name or an attachment disposition): the mail's own, those of every
+    /// attached message (and of messages attached to those), and the attached messages, in the order they appear. At
+    /// most <see cref="MailReadOptions.MaxAttachments"/> files are decoded in all.
+    /// </summary>
+    private static (List<MailAttachment> Own, List<MailAttachment> Attached, List<MimeMessage> Messages) Files(MimeEntity? body)
     {
-        var files = new List<MailAttachment>();
+        var own = new List<MailAttachment>();
+        var inner = new List<MailAttachment>();
         var messages = new List<MimeMessage>();
-        Walk(body, files, messages, depth: 0);
-        return (files, messages);
+        Walk(body, own, inner, messages, inside: false, depth: 0);
+        return (own, inner, messages);
     }
 
-    private static void Walk(MimeEntity? entity, List<MailAttachment> files, List<MimeMessage> messages, int depth)
+    private static void Walk(MimeEntity? entity, List<MailAttachment> own, List<MailAttachment> inner, List<MimeMessage> messages, bool inside, int depth)
     {
-        if (entity is null || depth > 10 || files.Count >= MailReadOptions.MaxAttachments)
+        if (entity is null || depth > 10 || own.Count + inner.Count >= MailReadOptions.MaxAttachments)
         {
             return;
         }
@@ -283,18 +326,20 @@ public static partial class MailMessageReader
             case Multipart multipart:
                 foreach (var child in multipart)
                 {
-                    Walk(child, files, messages, depth + 1);
+                    Walk(child, own, inner, messages, inside, depth + 1);
                 }
 
                 break;
             case MessagePart { Message: { } attached }:
                 messages.Add(attached);
+                Walk(attached.Body, own, inner, messages, inside: true, depth + 1);
                 break;
             case MimePart part when part.Content is not null && (part.IsAttachment || !string.IsNullOrWhiteSpace(part.FileName)):
                 using (var buffer = new MemoryStream())
                 {
                     part.Content.DecodeTo(buffer);
-                    var name = string.IsNullOrWhiteSpace(part.FileName) ? $"attachment-{files.Count + 1}" : Path.GetFileName(part.FileName.Replace('\\', '/'));
+                    var files = inside ? inner : own;
+                    var name = string.IsNullOrWhiteSpace(part.FileName) ? $"attachment-{own.Count + inner.Count + 1}" : Path.GetFileName(part.FileName.Replace('\\', '/'));
                     files.Add(new MailAttachment(name, part.ContentType.MimeType.ToLowerInvariant(), buffer.ToArray()));
                 }
 

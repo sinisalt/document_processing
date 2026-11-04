@@ -23,6 +23,13 @@ public static class SourceConditions
         ],
         StringComparer.Ordinal);
 
+    /// <summary>
+    /// Why a free-mail domain cannot be a trusted forwarder: every user of the provider could then forward a mail
+    /// naming any original sender, and it would count as that sender authenticated (docs/11 §6.5 and §7.1).
+    /// </summary>
+    public static string FreeMailForwarderMessage(string domain) =>
+        $"{domain} is a free-mail provider: trusting it as a forwarder would let every private sender there forward a mail in any supplier's name. Name the forwarding company's own domain.";
+
     /// <summary>An e-mail address in its compared form, or null for none. The display name and angle brackets are removed.</summary>
     public static string? Address(string? address)
     {

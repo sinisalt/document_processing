@@ -131,7 +131,39 @@ internal sealed class SourceRouting(DocProcDbContext db, DocumentTimeline timeli
         item.RouteJson = PipelineJson.Serialize(route);
         if (supplierId is not null || pin is not null || result.ReceivingEntityId is not null || raised.Count > 0)
         {
-            added.Add(timeline.Record(document, RoutingEventTypes.SupplierIdentifiedBySource, null, null, route));
+            // The timeline names where the document came from and the rule in words (docs/09 "Demo: routing and
+            // layouts" step 15), next to the route the item keeps.
+            string? ruleText = null;
+            if (result.Rule is { } rule)
+            {
+                var supplierName = await db.Suppliers.AsNoTracking().Where(s => s.Id == rule.SupplierId).Select(s => s.Name).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                var channels = channel is null ? new Dictionary<Guid, string>() : new Dictionary<Guid, string> { [channel.Id] = channel.Name };
+                ruleText = SourceRuleText.Describe(rule, supplierName, channels);
+            }
+
+            var details = new
+            {
+                route.supplierId,
+                route.method,
+                route.ruleId,
+                rule = ruleText,
+                channel = channel?.Name,
+                channelType = channel?.Type.ToString(),
+                folderPath = source.FolderPath,
+                mailbox = source.Mailbox,
+                sender = source.Sender,
+                route.mode,
+                route.confidence,
+                route.pinTypeKey,
+                route.pinTypeFrom,
+                route.receivingEntityId,
+                route.ambiguous,
+                route.ambiguousSupplierIds,
+                route.unverifiedRuleIds,
+                route.senderVerified,
+                route.candidates,
+            };
+            added.Add(timeline.Record(document, RoutingEventTypes.SupplierIdentifiedBySource, null, null, details));
         }
 
         return added;

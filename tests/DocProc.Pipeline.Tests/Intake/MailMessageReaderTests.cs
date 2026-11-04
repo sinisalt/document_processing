@@ -1,13 +1,18 @@
 using DocProc.Application.Routing;
 using DocProc.Infrastructure.Mail;
 using MimeKit;
+using MimeKit.Cryptography;
 
 namespace DocProc.Pipeline.Tests.Intake;
 
 /// <summary>Reading a received mail (docs/11 §7.1): attachments, Authentication-Results, forward unwrapping and the channel configs.</summary>
 public sealed class MailMessageReaderTests
 {
-    private static readonly MailReadOptions TrustBureau = new(true, ["bureau.example"], []);
+    /// <summary>The receiving server of the tests' mails: only its Authentication-Results are believed.</summary>
+    internal const string Receiver = "mx.tenant-a.local";
+
+    private static readonly MailReadOptions TrustReceiver = new(true, [], [Receiver]);
+    private static readonly MailReadOptions TrustBureau = new(true, ["bureau.example"], [Receiver]);
 
     internal static MimeMessage Message(string from, string subject, string? authResults = null, string? text = null, params (string Name, string Type, byte[] Bytes)[] files)
     {
@@ -43,7 +48,7 @@ public sealed class MailMessageReaderTests
             "mx.tenant-a.local; spf=pass smtp.mailfrom=nordwind.example; dkim=pass header.d=nordwind.example; dmarc=pass header.from=nordwind.example",
             files: ("rechnung.pdf", "application/pdf", Pdf));
 
-        var mail = MailMessageReader.Read(message, MailReadOptions.Default);
+        var mail = MailMessageReader.Read(message, TrustReceiver);
 
         mail.Sender.ShouldBe("rechnungsversand@nordwind.example");
         mail.ForwardedBy.ShouldBeNull();
@@ -61,17 +66,17 @@ public sealed class MailMessageReaderTests
     [Fact]
     public void A_DMARC_failure_or_a_missing_header_leaves_the_sender_unverified()
     {
-        var failed = MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung", "mx.tenant-a.local; spf=fail; dmarc=fail header.from=nordwind.example"), MailReadOptions.Default);
+        var failed = MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung", "mx.tenant-a.local; spf=fail; dmarc=fail header.from=nordwind.example"), TrustReceiver);
         failed.SenderAuth.Dmarc.ShouldBe("fail");
         failed.SenderAuth.Verified.ShouldBeFalse();
 
-        MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung"), MailReadOptions.Default).SenderAuth.Verified.ShouldBeFalse();
+        MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung"), TrustReceiver).SenderAuth.Verified.ShouldBeFalse();
     }
 
     [Fact]
     public void A_DMARC_pass_for_another_domain_does_not_count()
     {
-        var spoofed = MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung", "mx.tenant-a.local; dmarc=pass header.from=attacker.example"), MailReadOptions.Default);
+        var spoofed = MailMessageReader.Read(Message("rechnungsversand@nordwind.example", "Rechnung", "mx.tenant-a.local; dmarc=pass header.from=attacker.example"), TrustReceiver);
 
         spoofed.SenderAuth.Dmarc.ShouldBe("mismatch");
         spoofed.SenderAuth.Verified.ShouldBeFalse();
@@ -85,6 +90,117 @@ public sealed class MailMessageReaderTests
 
         MailMessageReader.Read(message, new MailReadOptions(true, [], ["mx.tenant-a.local"])).SenderAuth.Verified.ShouldBeFalse("the receiver's own header says fail");
         MailMessageReader.Read(message, new MailReadOptions(true, [], ["mx.other.example"])).SenderAuth.Dmarc.ShouldBeNull("no header of a trusted receiver");
+    }
+
+    [Fact]
+    public void Without_a_trusted_receiver_no_header_is_believed()
+    {
+        // GreenMail, a plain Postfix or Dovecot write no Authentication-Results: the topmost header is then the sender's
+        // own, and a forged dmarc=pass must not count (docs/11 §7.1, Correction (P4)).
+        var forged = Message("Rechnungsversand <rechnung@nordwind.example>", "Rechnung", "anything.example; dmarc=pass header.from=nordwind.example");
+
+        var mail = MailMessageReader.Read(forged, MailReadOptions.Default);
+
+        mail.Sender.ShouldBe("rechnung@nordwind.example");
+        mail.SenderAuth.Verified.ShouldBeFalse();
+        mail.SenderAuth.Dmarc.ShouldBeNull();
+        mail.SenderAuth.AuthServId.ShouldBeNull();
+        MailMessageReader.Read(forged, new MailReadOptions(true, [], ["anything.example"])).SenderAuth.Verified.ShouldBeTrue("listed, it is believed");
+    }
+
+    [Fact]
+    public void A_trusted_receivers_header_that_does_not_parse_is_not_passed_over_for_one_further_down()
+    {
+        const string malformed = "mx.tenant-a.local; spf=pass (unclosed comment";
+        AuthenticationResults.TryParse(System.Text.Encoding.ASCII.GetBytes(malformed), out _).ShouldBeFalse("the premise: MimeKit cannot read it");
+        var message = Message("rechnung@nordwind.example", "Rechnung");
+        message.Headers.Add("Authentication-Results", malformed);
+        message.Headers.Add("Authentication-Results", "mx.tenant-a.local; dmarc=pass header.from=nordwind.example");
+        message.Headers.Add("Authentication-Results", "attacker.example; dmarc=pass header.from=nordwind.example");
+
+        var auth = MailMessageReader.Read(message, TrustReceiver).SenderAuth;
+
+        auth.Verified.ShouldBeFalse("the receiver's own header is unreadable, and the ones below it were written by someone else");
+        auth.Dmarc.ShouldBeNull();
+
+        // An unreadable header naming another server is skipped, as any header of another server is.
+        var other = Message("rechnung@nordwind.example", "Rechnung");
+        other.Headers.Add("Authentication-Results", "relay.example; spf=pass (unclosed comment");
+        other.Headers.Add("Authentication-Results", "mx.tenant-a.local; dmarc=pass header.from=nordwind.example");
+        MailMessageReader.Read(other, TrustReceiver).SenderAuth.Verified.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void The_documents_of_a_forward_attached_as_a_message_are_items_whoever_forwarded_it()
+    {
+        var original = Message("Rechnungsversand <rechnungsversand@nordwind.example>", "Rechnung 4711", files: ("rechnung.pdf", "application/pdf", Pdf));
+        var forward = Message("someone@private.example", "Fwd: Rechnung 4711", "mx.tenant-a.local; dmarc=pass header.from=private.example");
+        var builder = new BodyBuilder { TextBody = "see attached" };
+        builder.Attachments.Add(new MessagePart { Message = original });
+        forward.Body = builder.ToMessageBody();
+
+        foreach (var options in new[] { TrustReceiver, TrustBureau, new MailReadOptions(false, ["private.example"], [Receiver]) })
+        {
+            var mail = MailMessageReader.Read(forward, options);
+            mail.Sender.ShouldBe("someone@private.example", "an untrusted forwarder, or unwrapping off: the sender stays the forwarder");
+            mail.Unwrapped.ShouldBeNull();
+            mail.Attachments.ShouldHaveSingleItem().FileName.ShouldBe("rechnung.pdf");
+        }
+    }
+
+    [Fact]
+    public void The_documents_of_every_attached_message_are_items_and_the_first_names_the_sender()
+    {
+        var first = Message("rechnungsversand@nordwind.example", "Rechnung 1", files: ("rechnung-1.pdf", "application/pdf", Pdf));
+        var second = Message("buchhaltung@suedhof.example", "Rechnung 2", files: [("rechnung-2.pdf", "application/pdf", Pdf), ("anlage-2.pdf", "application/pdf", Pdf)]);
+        var nested = Message("archiv@bureau.example", "Archiv");
+        var inner = new BodyBuilder { TextBody = "nested" };
+        inner.Attachments.Add("rechnung-3.pdf", Pdf, ContentType.Parse("application/pdf"));
+        inner.Attachments.Add(new MessagePart { Message = first });
+        nested.Body = inner.ToMessageBody();
+        var forward = Message("scans@bureau.example", "Fwd: Rechnungen", "mx.tenant-a.local; dmarc=pass header.from=bureau.example");
+        var builder = new BodyBuilder { TextBody = "see attached" };
+        builder.Attachments.Add(new MessagePart { Message = first });
+        builder.Attachments.Add(new MessagePart { Message = second });
+        builder.Attachments.Add(new MessagePart { Message = nested });
+        builder.Attachments.Add("deckblatt.pdf", Pdf, ContentType.Parse("application/pdf"));
+        forward.Body = builder.ToMessageBody();
+
+        var mail = MailMessageReader.Read(forward, TrustBureau);
+
+        mail.Sender.ShouldBe("rechnungsversand@nordwind.example");
+        mail.Unwrapped.ShouldBe("attachedMessage");
+        mail.Attachments.Select(a => a.FileName).ShouldBe(["rechnung-1.pdf", "rechnung-2.pdf", "anlage-2.pdf", "rechnung-3.pdf", "rechnung-1.pdf", "deckblatt.pdf"]);
+    }
+
+    [Fact]
+    public async Task A_message_body_is_read_up_to_the_limit_whatever_size_the_server_reported()
+    {
+        (await MailKitImapMailSource.ReadBoundedAsync(new MemoryStream(new byte[1000]), 1000, CancellationToken.None)).ShouldNotBeNull().Length.ShouldBe(1000);
+        (await MailKitImapMailSource.ReadBoundedAsync(new MemoryStream(new byte[1001]), 1000, CancellationToken.None)).ShouldBeNull();
+        (await MailKitImapMailSource.ReadBoundedAsync(new MemoryStream(new byte[200_000]), 100_000, CancellationToken.None)).ShouldBeNull("stops past the limit, across chunks");
+    }
+
+    [Fact]
+    public void A_messages_id_is_its_Message_ID_and_sender_or_its_bytes_not_its_place_in_the_folder()
+    {
+        var a = MailKitImapMailSource.ContentMessageId("<4711@nordwind.example>", "Rechnung@Nordwind.example", "x"u8);
+        a.ShouldStartWith("imap:mid:");
+        MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "rechnung@nordwind.example", "other bytes"u8).ShouldBe(a, "the same Message-ID and sender, whatever the bytes");
+        MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "someone@else.example", "x"u8).ShouldNotBe(a);
+        var raw = MailKitImapMailSource.ContentMessageId(null, "a@b.example", "raw"u8);
+        raw.ShouldStartWith("imap:sha:");
+        MailKitImapMailSource.ContentMessageId("  ", "a@b.example", "raw"u8).ShouldBe(raw);
+        MailKitImapMailSource.ContentMessageId(null, "a@b.example", "other"u8).ShouldNotBe(raw);
+        a.Length.ShouldBeLessThan(998, "fits Ingestions.SourceMessageId");
+    }
+
+    [Fact]
+    public void A_free_mail_domain_cannot_be_a_trusted_forwarder()
+    {
+        MailboxChannelConfig.TryParse("""{"address":"invoices@tenant-a.local","trustedForwarderDomains":["Gmail.com"]}""", [], out var errors).ShouldBeNull();
+        errors.ShouldContain(e => e.Contains("free-mail", StringComparison.Ordinal));
+        MailboxChannelConfig.TryParse("""{"address":"invoices@tenant-a.local","trustedForwarderDomains":["bureau.example"]}""", [], out _).ShouldNotBeNull();
     }
 
     [Fact]
@@ -141,8 +257,8 @@ public sealed class MailMessageReaderTests
         var forward = Message("someone@private.example", "Fwd: Rechnung", "mx; dmarc=pass header.from=private.example", text);
 
         MailMessageReader.Read(forward, TrustBureau).Sender.ShouldBe("someone@private.example");
-        MailMessageReader.Read(forward, new MailReadOptions(false, ["private.example"], [])).Sender.ShouldBe("someone@private.example");
-        MailMessageReader.Read(forward, new MailReadOptions(true, ["private.example"], [])).Sender.ShouldBe("rechnungsversand@nordwind.example");
+        MailMessageReader.Read(forward, new MailReadOptions(false, ["private.example"], [Receiver])).Sender.ShouldBe("someone@private.example");
+        MailMessageReader.Read(forward, new MailReadOptions(true, ["private.example"], [Receiver])).Sender.ShouldBe("rechnungsversand@nordwind.example");
     }
 
     [Fact]
@@ -154,7 +270,7 @@ public sealed class MailMessageReaderTests
         builder.Attachments.Add(part);
         message.Body = builder.ToMessageBody();
 
-        MailMessageReader.Read(message, MailReadOptions.Default).Attachments.ShouldHaveSingleItem().FileName.ShouldBe("attachment-1");
+        MailMessageReader.Read(message, TrustReceiver).Attachments.ShouldHaveSingleItem().FileName.ShouldBe("attachment-1");
     }
 
     [Fact]
