@@ -132,6 +132,15 @@ public sealed record DocumentDetail(
     /// <summary>How the supplier was found (docs/11 §6.2): <c>Human</c> when a reviewer assigned it; null without one or before it was recorded.</summary>
     public SupplierMatchMethod? SupplierMatchMethod { get; init; }
 
+    /// <summary>How sure the supplier match is (docs/11 §7.2: 0.99 for an Exclusive source rule, 0.7 for a default; 1.0 when a reviewer assigned it).</summary>
+    public double? SupplierMatchConfidence { get; init; }
+
+    /// <summary>The source rule that routed the document to its supplier (<c>SupplierMatchMethod</c> <c>SourceRule</c>, docs/11 §7.2).</summary>
+    public Guid? SupplierSourceRuleId { get; init; }
+
+    /// <summary>The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.</summary>
+    public Guid? ReceivingEntityId { get; init; }
+
     /// <summary>The document a reviewer joined this one into (<c>:join</c>, docs/11 §12.7); set on a <c>Cancelled</c> part.</summary>
     public Guid? JoinedIntoDocumentId { get; init; }
 
@@ -171,8 +180,23 @@ public sealed record ApprovalBlock(string Code, string Message);
 /// </summary>
 public sealed record SetDocumentTypeRequest(string TypeKey, int? Version = null, string? Prefill = null);
 
-/// <summary><c>POST /documents/{id}:assign-supplier</c> (docs/11 §12.1): a supplier of the document's tenant.</summary>
-public sealed record AssignSupplierRequest(Guid SupplierId);
+/// <summary>
+/// <c>POST /documents/{id}:assign-supplier</c> (docs/11 §12.1): a supplier of the document's tenant, and optionally
+/// <see cref="Remember"/>: a source rule made from the document's own source (docs/11 §18, needs <c>sourceRouting</c>).
+/// </summary>
+public sealed record AssignSupplierRequest(Guid SupplierId)
+{
+    public AssignSupplierRemember? Remember { get; init; }
+}
+
+/// <summary>
+/// Remember the assignment as a source rule (docs/11 §12.1): <see cref="Conditions"/> names the facts of the document's
+/// ingestion the rule matches on, any of <c>sender</c>, <c>senderDomain</c>, <c>recipient</c> (the mailbox, else the
+/// first recipient), <c>folder</c> (the folder path within its channel) and <c>channel</c>; <see cref="Mode"/> is
+/// <c>Exclusive</c> (the default) or <c>DefaultWhenNoContentMatch</c>; <see cref="PinType"/> also pins the document's type.
+/// A reviewer's rule is saved disabled, a proposal a config admin enables; a config admin's is enabled at once.
+/// </summary>
+public sealed record AssignSupplierRemember(IReadOnlyList<string> Conditions, string? Mode = null, bool? PinType = null, bool? RequireSenderAuth = null);
 
 /// <summary>What <c>POST /documents/{id}:create-supplier</c> answers: the new supplier and the document it was assigned to.</summary>
 public sealed record SupplierFromReviewResponse(Endpoints.SupplierResponse Supplier, DocumentDetail Document);

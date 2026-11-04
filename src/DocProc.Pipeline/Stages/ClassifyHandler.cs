@@ -53,6 +53,14 @@ internal sealed class ClassifyHandler(
             return await KeepAsync(document, cancellationToken).ConfigureAwait(false);
         }
 
+        if (document.TypeSource == TypeSource.Supplier && document.EmbeddedXmlBlob is null)
+        {
+            // docs/11 §7.3: a type the supplier configuration pinned at ingest (a source rule's pinTypeKey, the channel's
+            // default type, the supplier's single allowed type) is not classified again. An e-invoice still takes its
+            // type from the XML, which carries it (§8.4).
+            return await KeepAsync(document, cancellationToken).ConfigureAwait(false);
+        }
+
         ClassificationOutcome? outcome = null;
         var usedLlm = false;
         string? xmlIgnored = null;
@@ -76,23 +84,64 @@ internal sealed class ClassifyHandler(
 
         if (outcome is null)
         {
-            var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
-            outcome = keywords.Classify(textLayer);
-            if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < _options.LlmClassificationThreshold)
-                && services.GetService<LlmDocumentClassifier>() is { } llm)
+            (outcome, usedLlm) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken).ConfigureAwait(false);
+        }
+
+        SetType(document, outcome);
+        flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
+            ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
+            : []);
+
+        Timeline.Transition(document, DocumentStatus.Classified, new
+        {
+            type = outcome.Type,
+            confidence = outcome.Confidence,
+            source = outcome.Source,
+            language = outcome.Language,
+            usedLlm,
+            embeddedXmlIgnored = xmlIgnored,
+        });
+        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return StageOutcome.Advanced;
+    }
+
+    /// <summary>
+    /// The page path of classification (docs/03 "Classify"): the keyword rules over the text layer and, below
+    /// <see cref="PipelineOptions.LlmClassificationThreshold"/> or for Unknown, the LLM classifier with the first page
+    /// image. Shared with the Match stage, which classifies again when content evidence replaced a source supplier whose
+    /// configuration had pinned the type (docs/11 §7.4).
+    /// </summary>
+    internal static async Task<(ClassificationOutcome Outcome, bool UsedLlm)> ClassifyPagesAsync(
+        Document document,
+        PipelineBlobs blobs,
+        KeywordDocumentClassifier keywords,
+        IServiceProvider services,
+        PipelineOptions options,
+        CancellationToken cancellationToken)
+    {
+        var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
+        var outcome = keywords.Classify(textLayer);
+        var usedLlm = false;
+        if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < options.LlmClassificationThreshold)
+            && services.GetService<LlmDocumentClassifier>() is { } llm)
+        {
+            var firstPage = document.PageImageKeys.Count > 0
+                ? await blobs.ReadDerivedAsync(document.PageImageKeys[0], cancellationToken).ConfigureAwait(false)
+                : (ReadOnlyMemory<byte>?)null;
+            var fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
+            usedLlm = true;
+            if (fromLlm.Type != DocumentTypeKey.Unknown)
             {
-                var firstPage = document.PageImageKeys.Count > 0
-                    ? await blobs.ReadDerivedAsync(document.PageImageKeys[0], cancellationToken).ConfigureAwait(false)
-                    : (ReadOnlyMemory<byte>?)null;
-                var fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
-                usedLlm = true;
-                if (fromLlm.Type != DocumentTypeKey.Unknown)
-                {
-                    outcome = fromLlm with { Language = fromLlm.Language ?? outcome.Language };
-                }
+                outcome = fromLlm with { Language = fromLlm.Language ?? outcome.Language };
             }
         }
 
+        return (outcome, usedLlm);
+    }
+
+    /// <summary>Gives the document the outcome's type; a different type drops the version pin and a definition tree of the old type.</summary>
+    internal static void SetType(Document document, ClassificationOutcome outcome)
+    {
         if (document.Type != outcome.Type)
         {
             // A version of another type is no pin for this one; Extract pins the new type's version.
@@ -109,21 +158,6 @@ internal sealed class ClassifyHandler(
         document.Type = outcome.Type;
         document.TypeConfidence = outcome.Confidence;
         document.TypeSource = outcome.Source;
-        flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
-            ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
-            : []);
-
-        Timeline.Transition(document, DocumentStatus.Classified, new
-        {
-            type = outcome.Type,
-            confidence = outcome.Confidence,
-            source = outcome.Source,
-            language = outcome.Language,
-            usedLlm,
-            embeddedXmlIgnored = xmlIgnored,
-        });
-        await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return StageOutcome.Advanced;
     }
 
     private async Task<StageOutcome> KeepAsync(Document document, CancellationToken cancellationToken)

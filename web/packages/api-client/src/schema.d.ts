@@ -1167,6 +1167,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receiving-entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's receiving entities (its own companies and branches), by code. */
+        get: operations["ListReceivingEntities"];
+        put?: never;
+        /** Creates a receiving entity: a code unique in the tenant, a name, VAT ids, addresses and attributes (docs/11 §6.4). */
+        post: operations["CreateReceivingEntity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receiving-entities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One receiving entity. */
+        get: operations["GetReceivingEntity"];
+        put?: never;
+        post?: never;
+        /** Deletes a receiving entity no document, source rule, channel or supplier attribute names (409 otherwise). */
+        delete: operations["DeleteReceivingEntity"];
+        options?: never;
+        head?: never;
+        /** Changes a receiving entity. */
+        patch: operations["UpdateReceivingEntity"];
+        trace?: never;
+    };
     "/api/v1/review-tasks": {
         parameters: {
             query?: never;
@@ -1218,6 +1255,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/routing:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-runs the tenant's source rules against a source (channel, sender, recipients, mailbox, folder, subject, file name, sender authentication) and explains the result: winner, runners-up, conflicts and the type (docs/11 §18). */
+        post: operations["TestRouting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings": {
         parameters: {
             query?: never;
@@ -1234,6 +1288,43 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's supplier groups, by name, with their member count. */
+        get: operations["ListSupplierGroups"];
+        put?: never;
+        /** Creates a supplier group whose attributes and settings its members inherit (docs/11 §6.4). */
+        post: operations["CreateSupplierGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One supplier group. */
+        get: operations["GetSupplierGroup"];
+        put?: never;
+        post?: never;
+        /** Deletes a supplier group without members (409 otherwise). */
+        delete: operations["DeleteSupplierGroup"];
+        options?: never;
+        head?: never;
+        /** Renames a supplier group or replaces its attributes or settings. */
+        patch: operations["UpdateSupplierGroup"];
         trace?: never;
     };
     "/api/v1/suppliers": {
@@ -1265,7 +1356,7 @@ export interface paths {
         get: operations["GetSupplier"];
         put?: never;
         post?: never;
-        /** Deletes a supplier no document, extractor profile or output binding references; otherwise 409. */
+        /** Deletes a supplier no document, extractor profile, output binding or channel default references, with its source rules and entity attributes; otherwise 409. */
         delete: operations["DeleteSupplier"];
         options?: never;
         head?: never;
@@ -1285,6 +1376,78 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/entity-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's attributes per receiving entity. */
+        get: operations["ListSupplierEntityAttributes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/entity-attributes/{entityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets the supplier's attributes in one receiving entity (the vendor number in company 1000); the values view merges them over the supplier's. */
+        put: operations["PutSupplierEntityAttributes"];
+        post?: never;
+        /** Removes the supplier's attributes in one receiving entity. */
+        delete: operations["DeleteSupplierEntityAttributes"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/source-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's source rules (docs/11 §6.5), by priority, then oldest first. */
+        get: operations["ListSourceRules"];
+        put?: never;
+        /** Adds a source rule: conditions on the channel, recipient, sender, sender domain, folder, subject and file name that route a document to the supplier, with its mode, sender authentication, priority, pinned type and receiving entity. */
+        post: operations["CreateSourceRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/source-rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One source rule of the supplier. */
+        get: operations["GetSourceRule"];
+        /** Replaces a source rule (the body of POST); it routes new ingestions from then on. */
+        put: operations["ReplaceSourceRule"];
+        post?: never;
+        /** Deletes a source rule; the documents it routed keep their supplier and name it in their timeline. */
+        delete: operations["DeleteSourceRule"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1422,8 +1585,25 @@ export interface components {
         ApproveDocumentRequest: {
             comment: null | string;
         };
-        /** @description `POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant. */
+        /**
+         * @description Remember the assignment as a source rule (docs/11 §12.1): IReadOnlyList&lt;string&gt; AssignSupplierRemember.Conditions names the facts of the document's
+         *     ingestion the rule matches on, any of `sender`, `senderDomain`, `recipient` (the mailbox, else the
+         *     first recipient), `folder` (the folder path within its channel) and `channel`; string? AssignSupplierRemember.Mode is
+         *     `Exclusive` (the default) or `DefaultWhenNoContentMatch`; bool? AssignSupplierRemember.PinType also pins the document's type.
+         *     A reviewer's rule is saved disabled, a proposal a config admin enables; a config admin's is enabled at once.
+         */
+        AssignSupplierRemember: {
+            conditions: string[];
+            mode?: null | string;
+            pinType?: null | boolean;
+            requireSenderAuth?: null | boolean;
+        };
+        /**
+         * @description `POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant, and optionally
+         *     AssignSupplierRemember? AssignSupplierRequest.Remember: a source rule made from the document's own source (docs/11 §18, needs `sourceRouting`).
+         */
         AssignSupplierRequest: {
+            remember?: null | components["schemas"]["AssignSupplierRemember"];
             /** Format: uuid */
             supplierId: string;
         };
@@ -1435,6 +1615,18 @@ export interface components {
             config: components["schemas"]["JsonElement"];
             /** Format: date-time */
             createdAt: string;
+            /** @description The type of a document no source rule pins (`TypeSource=Supplier`). */
+            defaultDocumentTypeKey?: null | string;
+            /**
+             * Format: uuid
+             * @description The receiving entity of a document no source rule names.
+             */
+            defaultReceivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The supplier of a document no source rule claims (docs/11 §7.2 step 4).
+             */
+            defaultSupplierId?: null | string;
             hasSecret: boolean;
             /** Format: uuid */
             id: string;
@@ -1442,6 +1634,8 @@ export interface components {
             /** Format: date-time */
             lastPolledAt: null | string;
             name: string;
+            /** @description What a polling channel reads, normalised (`imap:platform/invoices@tenant-a.local/inbox`); null for upload channels and invalid configs. */
+            sourceKey?: null | string;
             status: string;
             type: string;
         };
@@ -1479,6 +1673,18 @@ export interface components {
          */
         CreateChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
+            /** @description The channel's default type (needs `sourceRouting`). */
+            defaultDocumentTypeKey?: null | string;
+            /**
+             * Format: uuid
+             * @description The channel's default receiving entity (needs `sourceRouting`).
+             */
+            defaultReceivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The channel's default supplier (docs/11 §7.2; needs `sourceRouting`).
+             */
+            defaultSupplierId?: null | string;
             name: string;
             secret: null | string;
             type: string;
@@ -1575,15 +1781,35 @@ export interface components {
             sourceTypeKey: null | string;
             targetSchema: null | components["schemas"]["JsonElement"];
         };
+        /** @description The body of `POST /receiving-entities`. */
+        CreateReceivingEntityRequest: {
+            addresses?: unknown;
+            attributes?: null | Record<string, never>;
+            code: string;
+            name: string;
+            vatIds?: null | string[];
+        };
+        /** @description The body of `POST /supplier-groups`. */
+        CreateSupplierGroupRequest: {
+            attributes?: null | Record<string, never>;
+            name: string;
+            settings?: unknown;
+        };
         CreateSupplierRequest: {
             aliases: null | string[];
             alwaysReview: null | boolean;
-            /** @description The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null. */
+            /** @description The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null; checked against the tenant's attribute schema when it has one. */
             attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
+            /**
+             * Format: uuid
+             * @description The supplier group (docs/11 §6.4; needs `sourceRouting`).
+             */
+            groupId?: null | string;
             ibans: null | string[];
             name: string;
+            settings?: null | components["schemas"]["JsonElement"];
             taxId: null | string;
             vatId: null | string;
         };
@@ -1776,11 +2002,26 @@ export interface components {
             /** Format: int32 */
             pageCount: number | string;
             pageImageUrls: string[];
+            /**
+             * Format: uuid
+             * @description The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.
+             */
+            receivingEntityId?: null | string;
             status: components["schemas"]["DocumentStatus"];
             /** Format: uuid */
             supplierId: null | string;
+            /**
+             * Format: double
+             * @description How sure the supplier match is (docs/11 §7.2: 0.99 for an Exclusive source rule, 0.7 for a default; 1.0 when a reviewer assigned it).
+             */
+            supplierMatchConfidence?: null | number | string;
             supplierMatchMethod?: null | components["schemas"]["SupplierMatchMethod"];
             supplierName: null | string;
+            /**
+             * Format: uuid
+             * @description The source rule that routed the document to its supplier (`SupplierMatchMethod` `SourceRule`, docs/11 §7.2).
+             */
+            supplierSourceRuleId?: null | string;
             /** Format: uuid */
             tenantId: string;
             tenantName: null | string;
@@ -2546,9 +2787,18 @@ export interface components {
             text: null | string;
             words: components["schemas"]["PageWordDto"][];
         };
-        /** @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it. */
+        /**
+         * @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential,
+         *     set to an empty string removes it. The defaults (needs `sourceRouting`) are cleared with the empty id or an empty
+         *     type key.
+         */
         PatchChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
+            defaultDocumentTypeKey?: null | string;
+            /** Format: uuid */
+            defaultReceivingEntityId?: null | string;
+            /** Format: uuid */
+            defaultSupplierId?: null | string;
             name: null | string;
             secret: null | string;
             status: null | string;
@@ -2606,6 +2856,20 @@ export interface components {
             sourceTypeKey: null | string;
             status: null | string;
         };
+        /** @description The body of `PATCH /receiving-entities/{id}`: every member optional; lists and attributes replace the stored ones. */
+        PatchReceivingEntityRequest: {
+            addresses?: unknown;
+            attributes?: null | Record<string, never>;
+            code?: null | string;
+            name?: null | string;
+            vatIds?: null | string[];
+        };
+        /** @description The body of `PATCH /supplier-groups/{id}`: every member optional; attributes and settings replace the stored ones. */
+        PatchSupplierGroupRequest: {
+            attributes?: null | Record<string, never>;
+            name?: null | string;
+            settings?: unknown;
+        };
         /** @description Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list. */
         PatchSupplierRequest: {
             aliases: null | string[];
@@ -2614,8 +2878,14 @@ export interface components {
             attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
+            /**
+             * Format: uuid
+             * @description The supplier group; the empty id (`00000000-0000-0000-0000-000000000000`) takes the supplier out of its group (needs `sourceRouting`).
+             */
+            groupId?: null | string;
             ibans: null | string[];
             name: null | string;
+            settings?: null | components["schemas"]["JsonElement"];
             taxId: null | string;
             vatId: null | string;
         };
@@ -2720,6 +2990,20 @@ export interface components {
             rowsTruncated: boolean;
             written: boolean;
         };
+        /** @description A receiving entity (docs/11 §6.4): one of the tenant's own companies or branches. */
+        ReceivingEntityResponse: {
+            addresses: null | components["schemas"]["JsonElement"];
+            attributes: Record<string, never>;
+            code: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date-time */
+            updatedAt: string;
+            vatIds: string[];
+        };
         /**
          * @description `POST /deliveries/{id}:redeliver` (docs/11 §13.6): `snapshot` (the default) sends the stored payload
          *     again; `rerender` renders the document again, with int? RedeliverRequest.MappingVersion of the binding's mapping or the
@@ -2776,6 +3060,71 @@ export interface components {
         };
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @description How one rule fared in a routing test. */
+        RoutingTestCandidate: {
+            describe: string;
+            failed: string[];
+            held: string[];
+            matched: boolean;
+            mode: string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            ruleId: string;
+            /** Format: int32 */
+            specificity: number | string;
+            /** Format: uuid */
+            supplierId: string;
+            supplierName: null | string;
+            unverified: boolean;
+        };
+        /** @description The source facts of `POST /routing:test` (docs/11 §18): what an ingestion would carry. */
+        RoutingTestRequest: {
+            /** Format: uuid */
+            channelId?: null | string;
+            fileName?: null | string;
+            folderPath?: null | string;
+            mailbox?: null | string;
+            recipients?: null | string[];
+            sender?: null | string;
+            senderAuth?: null | components["schemas"]["RoutingTestSenderAuth"];
+            subject?: null | string;
+        };
+        /**
+         * @description The answer of `POST /routing:test`: the supplier and how it was found (`sourceRule`, `channelDefault`),
+         *     the winning rule, its mode and confidence, the type and entity the source decides, whether the top candidates tie
+         *     (`ambiguous`, no supplier), the rules skipped for an unauthenticated sender that would have won
+         *     (`SUPPLIER_SOURCE_UNVERIFIED`), every rule looked at with the conditions that held and failed, and a sentence.
+         */
+        RoutingTestResponse: {
+            ambiguous: boolean;
+            ambiguousSupplierIds: string[];
+            candidates: components["schemas"]["RoutingTestCandidate"][];
+            /** Format: double */
+            confidence: null | number | string;
+            explanation: string;
+            flags: string[];
+            method: null | string;
+            mode: null | string;
+            pinTypeFrom: null | string;
+            pinTypeKey: null | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            /** Format: uuid */
+            ruleId: null | string;
+            senderVerified: boolean;
+            /** Format: uuid */
+            supplierId: null | string;
+            supplierName: null | string;
+            unverifiedRuleIds: string[];
+        };
+        /** @description The sender authentication a routing test assumes: the SPF, DKIM and DMARC results and the DKIM signing domains. */
+        RoutingTestSenderAuth: {
+            dkim?: null | string;
+            dkimDomains?: null | string[];
+            dmarc?: null | string;
+            spf?: null | string;
+        };
         /** @description A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision). */
         SaveOutputMappingDraftRequest: {
             contentType: null | string;
@@ -2811,6 +3160,62 @@ export interface components {
             y0: number | string;
             /** Format: double */
             y1: number | string;
+        };
+        /**
+         * @description The body of `POST` and `PUT /suppliers/{id}/source-rules` (docs/11 §6.5): the conditions, all of which must
+         *     hold (at least one of `channelId`, `recipient`, `sender` and `senderDomain`; a
+         *     `folderPrefix` needs its `channelId`), and what the rule decides. `mode` is `Exclusive` (the
+         *     default) or `DefaultWhenNoContentMatch`; `requireSenderAuth` defaults to true for a sender rule (decision
+         *     1 of docs/11 §24), or to the supplier's `settings.requireSenderAuth`.
+         */
+        SourceRuleRequest: {
+            /** Format: uuid */
+            channelId?: null | string;
+            enabled?: null | boolean;
+            fileNameRegex?: null | string;
+            folderPrefix?: null | string;
+            mode?: null | string;
+            pinTypeKey?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            /** Format: uuid */
+            receivingEntityId?: null | string;
+            recipient?: null | string;
+            requireSenderAuth?: null | boolean;
+            sender?: null | string;
+            senderDomain?: null | string;
+            subjectRegex?: null | string;
+        };
+        /** @description A supplier source rule (docs/11 §6.5) with its conditions in their normalised form and a sentence describing it. */
+        SourceRuleResponse: {
+            /** Format: uuid */
+            channelId: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            describe: string;
+            enabled: boolean;
+            fileNameRegex: null | string;
+            folderPrefix: null | string;
+            /** Format: uuid */
+            id: string;
+            mode: string;
+            pinTypeKey: null | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            recipient: null | string;
+            requireSenderAuth: boolean;
+            sender: null | string;
+            senderDomain: null | string;
+            subjectRegex: null | string;
+            /** Format: uuid */
+            supplierId: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         /** @description The parts of a split, in page order; together they cover every page of the document exactly once. */
         SplitDocumentRequest: {
@@ -2850,13 +3255,40 @@ export interface components {
             totalGross: null | number | string;
             type: string;
         };
+        /** @description The body of `PUT /suppliers/{id}/entity-attributes/{entityId}`: the attributes, replacing the stored ones. */
+        SupplierEntityAttributesRequest: {
+            attributes: Record<string, never>;
+        };
+        /** @description A supplier's attributes in one receiving entity (`SupplierEntityAttributes`, docs/11 §6.4). */
+        SupplierEntityAttributesResponse: {
+            attributes: Record<string, never>;
+            receivingEntityCode: null | string;
+            /** Format: uuid */
+            receivingEntityId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @description What `POST /documents/{id}:create-supplier` answers: the new supplier and the document it was assigned to. */
         SupplierFromReviewResponse: {
             document: components["schemas"]["DocumentDetail"];
             supplier: components["schemas"]["SupplierResponse"];
         };
+        /** @description A supplier group (docs/11 §6.4) with the number of its members. */
+        SupplierGroupResponse: {
+            attributes: Record<string, never>;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            settings: components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            supplierCount: number | string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @enum {unknown} */
-        SupplierMatchMethod: "Vat" | "Iban" | "Domain" | "Name" | "Human" | null;
+        SupplierMatchMethod: "Vat" | "Iban" | "Domain" | "Name" | "Human" | "SourceRule" | "ChannelDefault" | "Hint" | null;
         SupplierResponse: {
             aliases: string[];
             alwaysReview: boolean;
@@ -2866,13 +3298,22 @@ export interface components {
             createdAt: string;
             defaultCurrency: null | string;
             emailDomains: string[];
+            /** @description The supplier's attributes per receiving entity (docs/11 §6.4); only on `GET /suppliers/{id}` and the writes of one supplier, empty in the list. */
+            entityAttributes?: components["schemas"]["SupplierEntityAttributesResponse"][];
             /** Format: uuid */
             globalSupplierId: null | string;
+            /**
+             * Format: uuid
+             * @description The supplier group whose attributes and settings the supplier inherits (docs/11 §6.4); null for none.
+             */
+            groupId?: null | string;
             ibans: string[];
             /** Format: uuid */
             id: string;
             name: string;
             normalizedName: string;
+            /** @description The supplier's own settings (docs/11 §6.4): an object of the members set, every other one inherited. */
+            settings?: components["schemas"]["JsonElement"];
             taxId: null | string;
             /** Format: date-time */
             updatedAt: string;
@@ -3075,15 +3516,22 @@ export interface components {
         /**
          * @description Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
          *     and the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.
+         *     The supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs
+         *     `sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`
+         *     removes it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)
+         *     and IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).
          */
         TenantSettingsDto: {
             alwaysReviewSupplierIds: string[];
             /** Format: double */
             autoApproveConfidenceThreshold: number | string;
             features?: null | components["schemas"]["TenantFeaturesDto"];
+            layoutsRequiredByDefault?: null | boolean;
             /** Format: int32 */
             retentionYears: number | string;
             shareExtractorProfiles: boolean;
+            supplierAttributeSchema?: unknown;
+            trustedForwarderDomains?: null | string[];
         };
         TenantSettingsResponse: {
             settings: components["schemas"]["TenantSettingsDto"];
@@ -3106,6 +3554,7 @@ export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['Anonym
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
 export type SchemaApprovalBlock = components['schemas']['ApprovalBlock'];
 export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
+export type SchemaAssignSupplierRemember = components['schemas']['AssignSupplierRemember'];
 export type SchemaAssignSupplierRequest = components['schemas']['AssignSupplierRequest'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
@@ -3120,6 +3569,8 @@ export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmPro
 export type SchemaCreateLookupTableRequest = components['schemas']['CreateLookupTableRequest'];
 export type SchemaCreateOutputBindingRequest = components['schemas']['CreateOutputBindingRequest'];
 export type SchemaCreateOutputMappingRequest = components['schemas']['CreateOutputMappingRequest'];
+export type SchemaCreateReceivingEntityRequest = components['schemas']['CreateReceivingEntityRequest'];
+export type SchemaCreateSupplierGroupRequest = components['schemas']['CreateSupplierGroupRequest'];
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
 export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
@@ -3200,6 +3651,8 @@ export type SchemaPatchDestinationRequest = components['schemas']['PatchDestinat
 export type SchemaPatchLookupTableRequest = components['schemas']['PatchLookupTableRequest'];
 export type SchemaPatchOutputBindingRequest = components['schemas']['PatchOutputBindingRequest'];
 export type SchemaPatchOutputMappingRequest = components['schemas']['PatchOutputMappingRequest'];
+export type SchemaPatchReceivingEntityRequest = components['schemas']['PatchReceivingEntityRequest'];
+export type SchemaPatchSupplierGroupRequest = components['schemas']['PatchSupplierGroupRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
 export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
@@ -3208,6 +3661,7 @@ export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntr
 export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
 export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
 export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
+export type SchemaReceivingEntityResponse = components['schemas']['ReceivingEntityResponse'];
 export type SchemaRedeliverRequest = components['schemas']['RedeliverRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaRenderErrorDto = components['schemas']['RenderErrorDto'];
@@ -3215,16 +3669,25 @@ export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDoc
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaRoutingTestCandidate = components['schemas']['RoutingTestCandidate'];
+export type SchemaRoutingTestRequest = components['schemas']['RoutingTestRequest'];
+export type SchemaRoutingTestResponse = components['schemas']['RoutingTestResponse'];
+export type SchemaRoutingTestSenderAuth = components['schemas']['RoutingTestSenderAuth'];
 export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
 export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
 export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
+export type SchemaSourceRuleRequest = components['schemas']['SourceRuleRequest'];
+export type SchemaSourceRuleResponse = components['schemas']['SourceRuleResponse'];
 export type SchemaSplitDocumentRequest = components['schemas']['SplitDocumentRequest'];
 export type SchemaSplitDocumentResponse = components['schemas']['SplitDocumentResponse'];
 export type SchemaSplitPartRequest = components['schemas']['SplitPartRequest'];
 export type SchemaSplitPartResult = components['schemas']['SplitPartResult'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
+export type SchemaSupplierEntityAttributesRequest = components['schemas']['SupplierEntityAttributesRequest'];
+export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
 export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
+export type SchemaSupplierGroupResponse = components['schemas']['SupplierGroupResponse'];
 export type SchemaSupplierMatchMethod = components['schemas']['SupplierMatchMethod'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
 export type SchemaTableBandDto = components['schemas']['TableBandDto'];
@@ -5886,6 +6349,136 @@ export interface operations {
             };
         };
     };
+    ListReceivingEntities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"][];
+                };
+            };
+        };
+    };
+    CreateReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReceivingEntityRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+        };
+    };
+    DeleteReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchReceivingEntityRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     ListReviewTasks: {
         parameters: {
             query?: {
@@ -5964,6 +6557,39 @@ export interface operations {
             };
         };
     };
+    TestRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetTenantSettings: {
         parameters: {
             query?: never;
@@ -6004,6 +6630,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSettingsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListSupplierGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"][];
+                };
+            };
+        };
+    };
+    CreateSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSupplierGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
+                };
+            };
+        };
+    };
+    DeleteSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchSupplierGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
                 };
             };
             /** @description Bad Request */
@@ -6203,6 +6959,222 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierEntityAttributesResponse"][];
+                };
+            };
+        };
+    };
+    PutSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entityId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierEntityAttributesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierEntityAttributesResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entityId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListSourceRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"][];
+                };
+            };
+        };
+    };
+    CreateSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+        };
+    };
+    ReplaceSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

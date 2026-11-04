@@ -62,22 +62,17 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
             // Only the id: the old schema lacks columns the current model maps (Ingestions.SubmittedBy and later ones).
             var ingestionId = await asA.Ingestions.Select(i => i.Id).SingleAsync(ct);
             var sha = new string('a', 64);
-            var item = new IngestionItem
-            {
-                Id = Guid.CreateVersion7(),
-                TenantId = TenantA,
-                IngestionId = ingestionId,
-                FileName = "invoice.pdf",
-                MimeType = "application/pdf",
-                SizeBytes = 1,
-                Sha256 = sha,
-                Blob = new BlobReference { Container = "raw", Key = $"{TenantA}/{sha}", Sha256 = sha, SizeBytes = 1, ContentType = "application/pdf" },
-                Kind = ItemKind.Pdf,
-                Disposition = ItemDisposition.Candidate,
-                CreatedAt = DateTimeOffset.UtcNow,
-            };
-            asA.IngestionItems.Add(item);
-            await asA.SaveChangesAsync(ct);
+            var item = new { Id = Guid.CreateVersion7() };
+
+            // The item in SQL as well: the old schema lacks IngestionItems.RouteJson (P4) the current model maps.
+            await asA.Database.ExecuteSqlAsync(
+                $"""
+                INSERT INTO [IngestionItems] ([Id], [TenantId], [IngestionId], [FileName], [MimeType], [SizeBytes], [Sha256], [Kind], [Disposition], [CreatedAt],
+                                              [Blob_Container], [Blob_ContentType], [Blob_Key], [Blob_Sha256], [Blob_SizeBytes])
+                VALUES ({item.Id}, {TenantA}, {ingestionId}, N'invoice.pdf', N'application/pdf', 1, {sha}, N'Pdf', N'Candidate', {DateTimeOffset.UtcNow},
+                        N'raw', N'application/pdf', {TenantA + "/" + sha}, {sha}, 1);
+                """,
+                ct);
             // The document in SQL: the old Documents table lacks columns the current model maps (DocumentTypeVersionId).
             var now = DateTimeOffset.UtcNow;
             await asA.Database.ExecuteSqlAsync(
@@ -111,8 +106,15 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         var channel = new IngestionChannel { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "api", Type = ChannelType.ApiUpload, CreatedAt = now };
         var blob = new BlobReference { Container = "raw", Key = $"{TenantA}/raw", Sha256 = new string('0', 64), SizeBytes = 1, ContentType = "application/pdf" };
         context.Tenants.Add(new Tenant { Id = TenantA, Name = "tenant-a", Slug = "tenant-a", LegalName = "tenant-a", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
-        context.IngestionChannels.Add(channel);
         await context.SaveChangesAsync(ct);
+
+        // The channel in SQL: the older schema lacks the channel columns of P4 (SourceKey, the defaults).
+        await context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [IngestionChannels] ([Id], [TenantId], [Name], [Type], [ConfigJson], [Status], [CreatedAt])
+            VALUES ({channel.Id}, {TenantA}, {channel.Name}, N'ApiUpload', {"{}"}, N'Active', {now});
+            """,
+            ct);
 
         // In SQL: the current model maps Ingestions columns this older schema does not have yet.
         await context.Database.ExecuteSqlAsync(

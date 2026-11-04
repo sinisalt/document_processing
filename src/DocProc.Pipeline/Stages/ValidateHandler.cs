@@ -93,10 +93,15 @@ internal sealed class ValidateHandler(
         }
 
         var open = DocumentFlagWriter.Unresolved(document);
-        var alwaysReview = supplier?.AlwaysReview == true || (document.SupplierId is { } sid && tenant.Settings.AlwaysReviewSupplierIds.Contains(sid));
+        var alwaysReview = supplier?.AlwaysReview == true
+                           || (document.SupplierId is { } sid && tenant.Settings.AlwaysReviewSupplierIds.Contains(sid))
+                           || await SupplierReviewsAlwaysAsync(supplier, cancellationToken).ConfigureAwait(false);
+
+        // SUPPLIER_SOURCE_UNVERIFIED is a warning that never auto-approves (docs/11 §7.2): a rule for another supplier
+        // would have routed the document had its sender been authenticated.
         var eligible = result is { IsEligibleForAutoApproval: true }
                        && type is { AutoApprove: true }
-                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code == FlagCodes.LowConfidence)
+                       && !open.Any(f => f.Severity == FlagSeverity.Blocking || f.Code is FlagCodes.LowConfidence or FlagCodes.SupplierSourceUnverified)
                        && !alwaysReview;
 
         Timeline.Transition(document, DocumentStatus.Validated, new
@@ -177,6 +182,24 @@ internal sealed class ValidateHandler(
         document.CanonicalJson = tree.ToJsonString(Domain.Documents.CanonicalJson.Options);
         DocumentRoleColumns.Refresh(document, type.Roles);
         await DocumentFieldIndexWriter.RefreshAsync(Db, document, type.IndexedFields, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The supplier's <c>review.mode: always</c> (docs/11 §6.4), its own or its group's.</summary>
+    private async Task<bool> SupplierReviewsAlwaysAsync(Supplier? supplier, CancellationToken cancellationToken)
+    {
+        if (supplier is null)
+        {
+            return false;
+        }
+
+        var settings = DocProc.Application.Suppliers.SupplierSettings.Parse(supplier.SettingsJson);
+        if (supplier.GroupId is { } groupId)
+        {
+            var group = await Db.SupplierGroups.AsNoTracking().Where(g => g.Id == groupId).Select(g => g.SettingsJson).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            settings = settings.Over(DocProc.Application.Suppliers.SupplierSettings.Parse(group));
+        }
+
+        return settings.AlwaysReview;
     }
 
     /// <summary>Today in the tenant's time zone, so an invoice dated tomorrow in Berlin is not "in the future" at 23:30 UTC.</summary>

@@ -49,8 +49,11 @@ internal sealed class SplitHandler(
     {
         // A part of an earlier split (a reprocess from Normalize) keeps its range: splitting it again would create
         // its siblings a second time.
+        // A type the source pinned (docs/11 §7.5: a price list dropped in its folder) keeps the file whole: the heuristic
+        // splitter would cut a 30-page list at its page breaks.
         var skipReason = document.EmbeddedXmlBlob is not null ? "e-invoice"
             : document.PageCount <= 1 ? "single page"
+            : document.TypeSource == TypeSource.Supplier ? "type pinned by the supplier configuration"
             : await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false) ? "already split"
             : null;
         if (skipReason is not null)
@@ -109,6 +112,10 @@ internal sealed class SplitHandler(
             .Where(f => f.Code == FlagCodes.UnreadablePages && f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null)
             .Select(f => f.ToDomain())
             .ToList();
+        var routed = document.Flags
+            .Where(f => Routing.RoutingFlags.IngestOwned.Contains(f.Code) && f.CreatedBy == FlagOrigin.Pipeline && f.ResolvedAt is null)
+            .Select(f => f.ToDomain())
+            .ToList();
 
         foreach (var range in ranges.Skip(1))
         {
@@ -123,6 +130,12 @@ internal sealed class SplitHandler(
                 // The original file holds every range; a part is read from its own page images and text only.
                 NormalizedBlob = null,
                 PageImageKeys = Slice(imageKeys, range),
+                // A part inherits its item's route (docs/11 §6.3); Match re-checks it against the part's content.
+                SupplierId = document.SupplierId,
+                SupplierMatchMethod = document.SupplierMatchMethod,
+                SupplierMatchConfidence = document.SupplierMatchConfidence,
+                SupplierSourceRuleId = document.SupplierSourceRuleId,
+                ReceivingEntityId = document.ReceivingEntityId,
                 Status = DocumentStatus.Received,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -133,7 +146,7 @@ internal sealed class SplitHandler(
             Timeline.Record(child, DocumentEventTypes.Received, null, DocumentStatus.Received, new { splitFrom = document.Id, pageStart = child.PageStart, pageEnd = child.PageEnd });
             Timeline.Transition(child, DocumentStatus.Normalized, new { inheritedFrom = document.Id });
             Timeline.Transition(child, DocumentStatus.Split, details);
-            flags.Replace(child, OwnedFlagsWhenSplit, [splitFlag, .. PartFlags(childText, inherited)]);
+            flags.Replace(child, OwnedFlagsWhenSplit, [splitFlag, .. PartFlags(childText, inherited), .. routed]);
             siblings.Add(new ProcessDocument(document.TenantId, child.Id, PipelineStage.Classify));
         }
 

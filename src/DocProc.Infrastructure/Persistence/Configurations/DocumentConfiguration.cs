@@ -38,6 +38,9 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
 
         b.HasOne(d => d.IngestionItem).WithMany(i => i.Documents).HasForeignKey(d => d.IngestionItemId);
         b.HasOne(d => d.Supplier).WithMany().HasForeignKey(d => d.SupplierId).OnDelete(DeleteBehavior.NoAction);
+        // The rule is a trace, not a reference: deleting a rule keeps the documents it routed (their timeline names it).
+        b.HasIndex(d => d.SupplierSourceRuleId);
+        b.HasOne<ReceivingEntity>().WithMany().HasForeignKey(d => d.ReceivingEntityId).OnDelete(DeleteBehavior.NoAction);
         b.HasOne(d => d.ExtractorProfile).WithMany().HasForeignKey(d => d.ExtractorProfileId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(d => d.DocumentTypeVersion).WithMany().HasForeignKey(d => d.DocumentTypeVersionId).OnDelete(DeleteBehavior.NoAction);
     }

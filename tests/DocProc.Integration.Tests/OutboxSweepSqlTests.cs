@@ -1,6 +1,5 @@
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
-using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -145,22 +144,18 @@ public sealed class OutboxSweepSqlTests : IAsyncLifetime
     private static async Task<Guid> AddDocumentAsync(DocProcDbContext platform, Guid tenantId, DocumentStatus status, DateTimeOffset at, CancellationToken ct)
     {
         var sha = Convert.ToHexStringLower(Guid.NewGuid().ToByteArray()) + Convert.ToHexStringLower(Guid.NewGuid().ToByteArray());
-        var item = new IngestionItem
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenantId,
-            IngestionId = IngestionOf(tenantId),
-            FileName = "invoice.pdf",
-            MimeType = "application/pdf",
-            SizeBytes = 1,
-            Sha256 = sha,
-            Blob = new BlobReference { Container = "raw", Key = sha, Sha256 = sha, SizeBytes = 1, ContentType = "application/pdf" },
-            Kind = ItemKind.Pdf,
-            Disposition = ItemDisposition.Accepted,
-            CreatedAt = at,
-        };
-        platform.IngestionItems.Add(item);
-        await platform.SaveChangesAsync(ct);
+        var itemId = Guid.CreateVersion7();
+
+        // The item in SQL too: the older schema lacks columns the current model maps (IngestionItems.RouteJson, P4).
+        await platform.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [IngestionItems] ([Id], [TenantId], [IngestionId], [FileName], [MimeType], [SizeBytes], [Sha256], [Kind], [Disposition], [CreatedAt],
+                                          [Blob_Container], [Blob_ContentType], [Blob_Key], [Blob_Sha256], [Blob_SizeBytes])
+            VALUES ({itemId}, {tenantId}, {IngestionOf(tenantId)}, N'invoice.pdf', N'application/pdf', 1, {sha}, N'Pdf', N'Accepted', {at},
+                    N'raw', N'application/pdf', {sha}, {sha}, 1);
+            """,
+            ct);
+        var item = new { Id = itemId };
 
         // The document in SQL: before the migrations ran, the Documents table lacks columns the current model maps
         // (DocumentTypeVersionId), so the model cannot write it.

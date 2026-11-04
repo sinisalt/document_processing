@@ -36,5 +36,21 @@ public sealed class IngestionChannel : ITenantScoped
     public string? LastError { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>
+    /// The normalised source a polling channel reads (docs/11 §6.3 <c>SourceKey</c>): <c>imap:{host}:{port}/{user}/{folder}</c>
+    /// for a mailbox, <c>folder:{tenant}/{path}</c> for a watched folder; unique per channel type across tenants, so
+    /// two tenants cannot poll the same mailbox. Null for upload channels and for channels without a valid config.
+    /// </summary>
+    public string? SourceKey { get; set; }
+
+    /// <summary>The supplier of a document no source rule claims (docs/11 §7.2 step 4), as <c>DefaultWhenNoContentMatch</c>.</summary>
+    public Guid? DefaultSupplierId { get; set; }
+
+    /// <summary>The type of a document no rule pins, when the channel delivers one type only.</summary>
+    public string? DefaultDocumentTypeKey { get; set; }
+
+    /// <summary>The receiving entity of a document no rule names (one mailbox per company, docs/11 §6.4).</summary>
+    public Guid? DefaultReceivingEntityId { get; set; }
+
     public Tenant? Tenant { get; set; }
 }

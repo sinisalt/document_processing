@@ -51,6 +51,8 @@ public class IngestOwnershipTests
                 host.Services.GetRequiredService<PipelineBlobs>(),
                 enqueued,
                 new DocumentTimeline(db, host.Clock),
+                new DocProc.Pipeline.Routing.SourceRouting(db, new DocumentTimeline(db, host.Clock), new DocumentFlagWriter(db, host.Clock)),
+                new DocProc.Infrastructure.Configuration.EfTenantFeatures(db),
                 host.Services.GetRequiredService<IOptions<PipelineOptions>>(),
                 host.Services.GetRequiredService<ILogger<IngestHandler>>());
             await handler.HandleAsync(new ProcessIngestion(PipelineTestHost.TenantA, ingestion.Id), TestContext.Current.CancellationToken);

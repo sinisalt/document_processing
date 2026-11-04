@@ -43,6 +43,7 @@ public static partial class DocumentEndpoints
     {
         [PipelineStage.Normalize] = DocumentStatus.Received,
         [PipelineStage.Classify] = DocumentStatus.Split,
+        [PipelineStage.Match] = DocumentStatus.Classified,
         [PipelineStage.Extract] = DocumentStatus.Matched,
         [PipelineStage.Validate] = DocumentStatus.Extracted,
     };

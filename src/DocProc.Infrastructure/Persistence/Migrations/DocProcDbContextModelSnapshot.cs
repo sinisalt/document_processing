@@ -264,6 +264,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("PeriodStart");
 
+                    b.Property<Guid?>("ReceivingEntityId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -278,6 +281,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<string>("SupplierMatchMethod")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("SupplierSourceRuleId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -400,7 +406,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("IngestionItemId");
 
+                    b.HasIndex("ReceivingEntityId");
+
                     b.HasIndex("SupplierId");
+
+                    b.HasIndex("SupplierSourceRuleId");
 
                     b.HasIndex("TenantId");
 
@@ -1030,6 +1040,14 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("DocumentTypeHint")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ForwardedBy")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
@@ -1037,17 +1055,31 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("SenderAuthJson")
+                        .HasColumnType("json");
+
                     b.Property<string>("SourceFileName")
                         .HasMaxLength(260)
                         .HasColumnType("nvarchar(260)");
 
+                    b.Property<string>("SourceFolderPath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
                     b.Property<string>("SourceFrom")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("SourceMailbox")
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
 
                     b.Property<string>("SourceMessageId")
                         .HasMaxLength(998)
                         .HasColumnType("nvarchar(998)");
+
+                    b.Property<string>("SourceRecipientsJson")
+                        .HasColumnType("json");
 
                     b.Property<string>("SourceSender")
                         .HasMaxLength(320)
@@ -1065,6 +1097,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<string>("SubmittedBy")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("SupplierIdHint")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -1107,9 +1142,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChannelId");
-
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("ChannelId", "SourceMessageId")
+                        .IsUnique()
+                        .HasFilter("[SourceMessageId] IS NOT NULL");
 
                     b.HasIndex("TenantId", "ReceivedAt")
                         .IsDescending(false, true);
@@ -1136,6 +1173,16 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<string>("DefaultDocumentTypeKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("DefaultReceivingEntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("DefaultSupplierId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
@@ -1152,6 +1199,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("SourceKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -1167,7 +1218,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DefaultReceivingEntityId");
+
+                    b.HasIndex("DefaultSupplierId");
+
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("Type", "SourceKey")
+                        .IsUnique()
+                        .HasFilter("[SourceKey] IS NOT NULL");
 
                     b.ToTable("IngestionChannels", (string)null);
                 });
@@ -1213,6 +1272,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("ParentItemId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RouteJson")
+                        .HasColumnType("json");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
@@ -2066,6 +2128,51 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("OutputMappingVersions", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AddressesJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("AttributesJson")
+                        .HasColumnType("json");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.PrimitiveCollection<string>("VatIds")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("ReceivingEntities", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReviewTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2155,6 +2262,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("GlobalSupplierId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.PrimitiveCollection<string>("Ibans")
                         .IsRequired()
                         .HasColumnType("json");
@@ -2168,6 +2278,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("SettingsJson")
+                        .HasColumnType("json");
 
                     b.Property<string>("TaxId")
                         .HasMaxLength(32)
@@ -2187,6 +2300,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GlobalSupplierId");
 
+                    b.HasIndex("GroupId");
+
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "NormalizedName");
@@ -2194,6 +2309,173 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "VatId");
 
                     b.ToTable("Suppliers", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierEntityAttributes", b =>
+                {
+                    b.Property<Guid>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ReceivingEntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AttributesJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("SupplierId", "ReceivingEntityId");
+
+                    b.HasIndex("ReceivingEntityId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("SupplierEntityAttributes", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AttributesJson")
+                        .HasColumnType("json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SettingsJson")
+                        .HasColumnType("json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("SupplierGroups", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierSourceRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ChannelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ConditionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("CreatedFromDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("FileNameRegex")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("FolderPrefix")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PinTypeKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ReceivingEntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Recipient")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<bool>("RequireSenderAuth")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Sender")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("SenderDomain")
+                        .HasMaxLength(253)
+                        .HasColumnType("nvarchar(253)");
+
+                    b.Property<string>("SubjectRegex")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<Guid>("SupplierId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId");
+
+                    b.HasIndex("ReceivingEntityId");
+
+                    b.HasIndex("SupplierId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ConditionHash")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Recipient");
+
+                    b.HasIndex("TenantId", "Sender");
+
+                    b.HasIndex("TenantId", "SenderDomain");
+
+                    b.HasIndex("TenantId", "ChannelId", "FolderPrefix");
+
+                    b.ToTable("SupplierSourceRules", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Tenant", b =>
@@ -2374,6 +2656,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ReceivingEntityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
@@ -2550,6 +2837,16 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.IngestionChannel", b =>
                 {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultReceivingEntityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultSupplierId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", "Tenant")
                         .WithMany("Channels")
                         .HasForeignKey("TenantId")
@@ -2719,6 +3016,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Mapping");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReviewTask", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", "Document")
@@ -2737,6 +3043,11 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasForeignKey("GlobalSupplierId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.SupplierGroup", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
@@ -2745,7 +3056,70 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                     b.Navigation("GlobalSupplier");
 
+                    b.Navigation("Group");
+
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierEntityAttributes", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", "ReceivingEntity")
+                        .WithMany()
+                        .HasForeignKey("ReceivingEntityId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("ReceivingEntity");
+
+                    b.Navigation("Supplier");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierGroup", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.SupplierSourceRule", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.IngestionChannel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ReceivingEntityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Tenant", b =>
@@ -2759,9 +3133,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
 
                             b1.Property<double>("AutoApproveConfidenceThreshold");
 
+                            b1.Property<bool>("LayoutsRequiredByDefault");
+
                             b1.Property<int>("RetentionYears");
 
                             b1.Property<bool>("ShareExtractorProfiles");
+
+                            b1.Property<string>("SupplierAttributeSchema");
+
+                            b1.PrimitiveCollection<string>("TrustedForwarderDomains");
 
                             b1.HasKey("TenantId");
 

@@ -32,6 +32,33 @@ public sealed class Ingestion : ITenantScoped, IVersioned
     public string? SourceSubject { get; set; }
     public string? SourceFileName { get; set; }
 
+    /// <summary>The To and Cc addresses of a mailbox ingestion, lower-cased, as a JSON array (docs/11 §6.3); null otherwise.</summary>
+    public string? SourceRecipientsJson { get; set; }
+
+    /// <summary>The mailbox the message was read from (the channel's address), lower-cased; null for folders and uploads.</summary>
+    public string? SourceMailbox { get; set; }
+
+    /// <summary>
+    /// The folder of a watched-folder ingestion relative to the channel root, with <c>/</c> separators and a trailing
+    /// <c>/</c> (<c>lieferanten/nordwind/</c>, the empty string for the root itself); null for mail and uploads.
+    /// </summary>
+    public string? SourceFolderPath { get; set; }
+
+    /// <summary>
+    /// Sender authentication (docs/11 §6.3 <c>SenderAuthJson</c>): SPF, DKIM and DMARC as read from the trusted
+    /// <c>Authentication-Results</c> header, plus how a forward was unwrapped; a JSON object, null for non-mail.
+    /// </summary>
+    public string? SenderAuthJson { get; set; }
+
+    /// <summary>The trusted forwarder whose message carried the original (docs/11 §7.1), lower-cased; null when nothing was unwrapped.</summary>
+    public string? ForwardedBy { get; set; }
+
+    /// <summary>A supplier the uploader named (an authorised hint, docs/11 §7.2 step 1); null otherwise.</summary>
+    public Guid? SupplierIdHint { get; set; }
+
+    /// <summary>A type key the uploader named (an authorised hint); null otherwise.</summary>
+    public string? DocumentTypeHint { get; set; }
+
     /// <summary>The original .eml or file, immutable.</summary>
     public required BlobReference RawBlob { get; set; }
 
@@ -105,6 +132,13 @@ public sealed class IngestionItem : ITenantScoped
     public Guid? DuplicateOfItemId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>
+    /// The routing result of this item (docs/11 §6.3 <c>RouteJson</c>): the supplier, rule, method, pinned type and
+    /// entity the source rules decided at ingest, with the rules that were skipped or tied, as a JSON object; null when
+    /// routing did not run (the tenant has <c>sourceRouting</c> off, or the item is not a document).
+    /// </summary>
+    public string? RouteJson { get; set; }
 
     public Ingestion? Ingestion { get; set; }
     public ICollection<Document> Documents { get; } = [];

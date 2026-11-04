@@ -517,6 +517,36 @@ A `blob` destination (`{"path":"ap","fileNameTemplate":"{{meta.documentId}}-{{me
 `deliveries:read` (optionally restricted to the destination): `GET /api/v1/feeds/<id>?after=<sequence>` and
 `POST /api/v1/feeds/<id>:ack {"upTo": <sequence>}` (docs/05).
 
+### Source routing (mailboxes, watched folders, source rules)
+
+docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` switch (Settings → features, or
+`PUT /api/v1/settings` with `features.sourceRouting: true`); a tenant without it is never polled and ingests as before.
+
+- **Mailbox channels.** The worker reads each active `Mailbox` channel every `Intake:PollInterval` (30 s). In compose and
+  under the AppHost the platform server is GreenMail (`Mail:ImapHost`), so a channel needs only its address:
+  `POST /api/v1/channels {"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local","trustedForwarderDomains":["bureau.example"]}}`
+  (GreenMail accepts any password; a real server takes the channel's write-only `secret`). Send it a mail through
+  GreenMail's SMTP port 3025, for example `curl smtp://localhost:3025 --mail-from rechnungsversand@nordwind.example
+  --mail-rcpt invoices@tenant-a.local --upload-file rechnung.eml`. Each message is ingested once (the channel's cursor
+  is `{UIDVALIDITY}:{UID}`, and the message id is unique per channel); the .eml is the raw artefact, its attachments
+  the items. The ingestion records the sender, recipients, mailbox, subject and the `Authentication-Results` the
+  receiving server wrote (GreenMail writes none, so put one in the .eml to try the DMARC rules: `Authentication-Results:
+  mx.tenant-a.local; dmarc=pass header.from=nordwind.example`); a forward from a trusted forwarder domain is unwrapped
+  to its original sender. A poll that fails names the reason in the channel's `lastError`.
+- **Watched folders.** The worker scans `Intake:FolderRoot/<tenant slug>/<channel path>/` (in compose
+  `./fixtures/dropzone/tenant-a/...`, mounted at `/data/dropzone`): `POST /api/v1/channels
+  {"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}`, then copy a PDF to
+  `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/`. A file is taken once its size and time stayed the same
+  for `stableSeconds` (two scans at least), recorded with its folder path relative to the channel root
+  (`lieferanten/nordwind/`, the values view's `source.folderPath`) and moved to `processed/` (or `failed/`) below the
+  channel root. Hidden files, `.part`/`.tmp` files and links are skipped. The container's user must be able to write
+  the folder (`chmod -R a+rwX fixtures/dropzone` on Linux).
+- **Source rules.** `POST /api/v1/suppliers/{id}/source-rules` with a sender, sender domain, recipient, channel and
+  folder prefix, subject or file-name expression; `POST /api/v1/routing:test` shows what a source would get and why.
+  Documents are created with the supplier (and a pinned type) at ingest; the Match stage corroborates it with the VAT id
+  and IBAN (`SUPPLIER_CONFLICT` for an `Exclusive` rule, the content's supplier for a default). Sender rules need DMARC
+  (or SPF with an aligned DKIM signature) unless the rule says `requireSenderAuth: false`.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
@@ -1076,6 +1106,30 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Delivery:SendLease` | `00:02:00` | How long an attempt holds its delivery on top of the transport's timeout; a process that died mid-send leaves it to the sweeper after that. |
 | `Delivery:DropRoot` | `data/outbound` (content root); `/data/outbound` in compose | The root folder of `blob` destinations' file drop; each tenant writes below `<root>/<tenantId>`. |
 | `Delivery:DevelopmentHosts` | empty; `mock-erp:8080` in compose, `localhost:8086` under the AppHost | `host` or `host:port` entries http destinations may reach over plain http at any address, past `TenantEndpointGuard`. Honoured in the Development environment only. |
+
+**Mailboxes** (`MailOptions`; both hosts: the worker's pollers read mail, the API checks a mailbox channel's host)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Mail:ImapHost` | unset; `mail` in compose, the GreenMail container under the AppHost | The platform's IMAP server, which a mailbox channel without a `host` of its own reads (docs/11 §7.1). Unset: such a channel's last error says the platform runs none. |
+| `Mail:ImapPort` | 143; `3143` in compose | Its port. |
+| `Mail:ImapSecurity` | `Auto`; `None` in compose and under the AppHost | `None`, `StartTls`, `SslOnConnect` or `Auto` for the platform server. A tenant's own server is always reached over TLS (`ssl` or `starttls` in its config). |
+| `Mail:AllowedHosts` | empty | IMAP hosts a tenant's mailbox may name past the public-host check (loopback, private and reserved addresses are refused otherwise, as for tenant endpoints). |
+| `Mail:TrustedAuthServIds` | empty | `authserv-id`s of the receiving servers whose `Authentication-Results` header is read; empty reads the topmost one (the receiving server's). A channel's `authServId` adds one. |
+| `Mail:MaxMessageBytes` | 52428800 (50 MB) | The largest message ingested; a larger one is skipped (the cursor moves past it) and named in the channel's last error. |
+| `Mail:Timeout` | `00:00:30` | Connect, login and read timeout of one IMAP operation. |
+
+**Channel pollers** (`IntakeOptions`; the host that runs the pipeline)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Intake:PollersEnabled` | true; false for the API in compose and under the AppHost | Whether this host reads the `Mailbox` and `WatchedFolder` channels of tenants with `sourceRouting` on (docs/11 §7.1). Two hosts polling one channel ingest each message and file once (unique per channel), so one host is enough. |
+| `Intake:PollInterval` | `00:00:30` | How often every polling channel is read; zero turns the pollers off. The first poll runs one interval after start. |
+| `Intake:MaxMessagesPerPoll` | 25 | The most messages one mailbox poll ingests; the rest wait for the next poll. |
+| `Intake:FolderRoot` | `data/dropzone` (content root); `/data/dropzone` in compose (`./fixtures/dropzone` mounted), `fixtures/dropzone` under the AppHost | The drop zone. A tenant's folders are below `<root>/<tenant slug>/`; a channel's `path` is relative to that. |
+| `Intake:FolderStableFor` | `00:00:05` | How long a file's size and time must stay unchanged before it is taken (a channel's `stableSeconds` overrides it). |
+| `Intake:MaxFilesPerScan` | 50 | The most files one folder scan takes. |
+| `Intake:MaxFileBytes` | 52428800 (50 MB) | The largest file taken; a larger one is moved to `failed/`. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

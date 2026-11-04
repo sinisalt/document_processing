@@ -41,8 +41,9 @@ public sealed record DocumentDataSupplier(Guid Id, string Name, string? VatId)
 }
 
 /// <summary>
-/// The receiving legal entity as the values view shows it (<c>entity</c>). Until receiving entities exist (P4,
-/// docs/11 §6.4) it is the tenant itself: no id or code, the tenant's legal name and VAT id.
+/// The receiving legal entity as the values view shows it (<c>entity</c>, docs/11 §6.4): the document's receiving entity
+/// with its code, name, first VAT id and attributes, or, for a document without one, the tenant itself (no id or code,
+/// the tenant's legal name and VAT id).
 /// </summary>
 public sealed record DocumentDataEntity(Guid? Id, string? Code, string Name, string? VatId)
 {

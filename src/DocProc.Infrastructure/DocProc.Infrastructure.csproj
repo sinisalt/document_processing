@@ -26,6 +26,7 @@
     <PackageReference Include="PdfPig" />
     <PackageReference Include="PDFtoImage" />
     <PackageReference Include="MimeKit" />
+    <PackageReference Include="MailKit" />
     <PackageReference Include="SharpZipLib" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

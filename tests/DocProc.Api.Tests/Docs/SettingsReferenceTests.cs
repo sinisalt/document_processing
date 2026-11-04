@@ -34,6 +34,8 @@ public sealed class SettingsReferenceTests
         { OutputOptions.SectionName, typeof(OutputOptions) },
         { JsonataRendererOptions.SectionName, typeof(JsonataRendererOptions) },
         { DocProc.Infrastructure.Outputs.Delivery.DeliveryOptions.SectionName, typeof(DocProc.Infrastructure.Outputs.Delivery.DeliveryOptions) },
+        { DocProc.Infrastructure.Mail.MailOptions.SectionName, typeof(DocProc.Infrastructure.Mail.MailOptions) },
+        { DocProc.Pipeline.Intake.IntakeOptions.SectionName, typeof(DocProc.Pipeline.Intake.IntakeOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Replay", typeof(LlmReplayOptions) },
         { $"{LlmServiceCollectionExtensions.SectionName}:Extraction", typeof(LlmExtractionOptions) },
     };

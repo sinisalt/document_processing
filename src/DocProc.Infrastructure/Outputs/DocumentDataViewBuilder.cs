@@ -21,8 +21,9 @@ public sealed class OutputOptions
 /// <see cref="IDocumentDataViewBuilder"/> over the database: the document (in the current tenant scope), its type
 /// version through <see cref="IEffectiveConfigResolver"/> (pinned, else published; the same resolution the validate
 /// stage uses, so a coded invoice reads through its adopted standard template), the matched supplier with
-/// <c>Suppliers.AttributesJson</c>, the tenant as the receiving entity (until receiving entities, P4), the ingestion's
-/// source facts and its channel, and today in the tenant's time zone.
+/// its attributes (the group's, the supplier's over them, and the supplier's in the document's receiving entity over
+/// those, docs/11 §6.4), the receiving entity (the tenant itself when the document has none), the ingestion's source
+/// facts (mailbox and folder path included) and its channel, and today in the tenant's time zone.
 /// <para>
 /// Not cached: every build reads the document, because a supplier's attributes can change without the document's
 /// version changing. A fan-out renders several bindings from one build (P3 part B).
@@ -43,6 +44,7 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
                 d.Type,
                 d.Status,
                 d.SupplierId,
+                d.ReceivingEntityId,
                 d.DocumentTypeVersionId,
                 d.CanonicalJson,
                 d.ApprovedAt,
@@ -61,15 +63,33 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
             .SingleAsync(cancellationToken).ConfigureAwait(false);
         var today = TenantClock.Today(tenant.TimeZone, clock.GetUtcNow());
 
+        // The receiving entity (docs/11 §6.4): the one the source or the review named; the tenant itself without one.
+        DocProc.Infrastructure.Persistence.Entities.ReceivingEntity? entity = null;
+        if (document.ReceivingEntityId is { } entityId)
+        {
+            entity = await db.ReceivingEntities.AsNoTracking().SingleOrDefaultAsync(e => e.Id == entityId, cancellationToken).ConfigureAwait(false);
+        }
+
         DocumentDataSupplier? supplier = null;
         if (document.SupplierId is { } supplierId)
         {
             var row = await db.Suppliers.AsNoTracking().Where(s => s.Id == supplierId)
-                .Select(s => new { s.Id, s.Name, s.VatId, s.TaxId, s.AttributesJson })
+                .Select(s => new { s.Id, s.Name, s.VatId, s.TaxId, s.AttributesJson, Group = s.Group != null ? s.Group.Name : null, GroupAttributes = s.Group != null ? s.Group.AttributesJson : null })
                 .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             if (row is not null)
             {
-                supplier = new DocumentDataSupplier(row.Id, row.Name, row.VatId) { TaxId = row.TaxId, Attributes = ParseObject(row.AttributesJson) };
+                // The group's attributes, the supplier's over them, and the supplier's in the receiving entity over those.
+                string? entityAttributes = null;
+                if (entity is not null)
+                {
+                    entityAttributes = await db.SupplierEntityAttributes.AsNoTracking()
+                        .Where(a => a.SupplierId == supplierId && a.ReceivingEntityId == entity.Id)
+                        .Select(a => a.AttributesJson)
+                        .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                var attributes = Merge(ParseObject(row.GroupAttributes), ParseObject(row.AttributesJson), ParseObject(entityAttributes));
+                supplier = new DocumentDataSupplier(row.Id, row.Name, row.VatId) { TaxId = row.TaxId, Group = row.Group, Attributes = attributes };
             }
         }
 
@@ -82,6 +102,8 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
                 i.Ingestion.SubmittedBy,
                 i.Ingestion.SourceSubject,
                 i.Ingestion.SourceFileName,
+                i.Ingestion.SourceMailbox,
+                i.Ingestion.SourceFolderPath,
                 Channel = i.Ingestion.Channel!.Name,
                 Connector = i.Ingestion.Channel.Type,
             })
@@ -105,14 +127,16 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
         })
         {
             Supplier = supplier,
-            Entity = new DocumentDataEntity(null, null, tenant.LegalName, tenant.VatId),
+            Entity = entity is null
+                ? new DocumentDataEntity(null, null, tenant.LegalName, tenant.VatId)
+                : new DocumentDataEntity(entity.Id, entity.Code, entity.Name, entity.VatIds.FirstOrDefault()) { Attributes = ParseObject(entity.AttributesJson) },
             Source = source is null ? null : new DocumentDataSource(
                 source.Channel,
                 source.Connector.ToString(),
-                Mailbox: null,
+                source.SourceMailbox,
                 source.SourceSender,
                 source.SubmittedBy,
-                FolderPath: null,
+                source.SourceFolderPath,
                 source.SourceFileName ?? source.FileName,
                 source.SourceSubject,
                 source.ReceivedAt,
@@ -131,6 +155,27 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
         var root = options.Value.PublicBaseUrl?.TrimEnd('/') ?? string.Empty;
         var api = $"{root}/api/v1/documents/{documentId}";
         return new DocumentDataLinks($"{api}/original", api);
+    }
+
+    /// <summary>The members of every layer, later layers over earlier ones; null when none has any.</summary>
+    private static JsonObject? Merge(params JsonObject?[] layers)
+    {
+        JsonObject? merged = null;
+        foreach (var layer in layers)
+        {
+            if (layer is null)
+            {
+                continue;
+            }
+
+            merged ??= [];
+            foreach (var (key, value) in layer)
+            {
+                merged[key] = value?.DeepClone();
+            }
+        }
+
+        return merged;
     }
 
     private static JsonObject? ParseObject(string? json)

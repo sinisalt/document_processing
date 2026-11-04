@@ -70,6 +70,17 @@ public static class FlagCodes
     /// <summary>A delivery of the document was dead-lettered (docs/11 §13.6): retries ran out or the failure is permanent.</summary>
     public const string DeliveryFailed = "DELIVERY_FAILED";
 
+    // Source routing and supplier corroboration (docs/11 §7.2, §7.4, P4).
+
+    /// <summary>A sender rule would have matched but the sender is not authenticated (DMARC); the document never auto-approves.</summary>
+    public const string SupplierSourceUnverified = "SUPPLIER_SOURCE_UNVERIFIED";
+
+    /// <summary>Source rules (or VAT and IBAN) of several suppliers match equally; no supplier was assigned.</summary>
+    public const string SupplierAmbiguous = "SUPPLIER_AMBIGUOUS";
+
+    /// <summary>The content names another supplier than an authoritative source rule; the source supplier is kept and review decides.</summary>
+    public const string SupplierConflict = "SUPPLIER_CONFLICT";
+
     /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
     public static readonly string DefinitionScopedPrefix = "X_";
 
@@ -100,6 +111,9 @@ public static class FlagCodes
         new(RuleFailed, FlagSeverity.Warning, "A rule of the document type's definition failed; the message is the rule's."),
         new(RevisionOf, FlagSeverity.Warning, "An earlier document with the same duplicate key exists; this one may replace it."),
         new(ChecksSkipped, FlagSeverity.Blocking, "Checks were skipped because the document reached a per-document limit (pattern evaluations); a reviewer checks the values."),
+        new(SupplierSourceUnverified, FlagSeverity.Warning, "A source rule for another supplier would have matched, but the sender is not authenticated (DMARC); the document is never auto-approved."),
+        new(SupplierAmbiguous, FlagSeverity.Warning, "Several suppliers match the source rules (or the VAT id and IBAN) equally; review assigns the supplier."),
+        new(SupplierConflict, FlagSeverity.Blocking, "The document's content names another supplier than its authoritative source rule; the source supplier is kept until review decides."),
         new(DeliveryFailed, FlagSeverity.Warning, "A delivery to a destination failed for good (retries ran out or the receiver refused it); an integration admin redelivers it."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 

@@ -224,6 +224,8 @@ services:
       Persistence__SeedDevData: "true"
       Persistence__SeedDemoDocuments: ${DOCPROC_DEMO_DOCUMENTS:-true}
       Pipeline__RunInProcess: "true"
+      # The worker polls the mailboxes and watched folders (docs/11 §7.1); one host is enough.
+      Intake__PollersEnabled: "false"
       # The AppHost and Bicep own the containers elsewhere; here the API creates raw, derived and exports.
       Blobs__CreateContainersOnStartup: "true"
       # Tokens carry the issuer the browser saw; the API reads the realm's metadata and keys over the compose network.
@@ -264,9 +266,13 @@ services:
       DOTNET_ENVIRONMENT: Development
       Mail__ImapHost: mail
       Mail__ImapPort: "3143"
+      Mail__ImapSecurity: None
+      # The drop zone of the watched-folder channels (docs/11 §7.1): ./fixtures/dropzone/{tenant slug}/{channel path}/.
+      Intake__FolderRoot: /data/dropzone
     volumes:
       - secrets:/data/secrets
       - outbound:/data/outbound
+      - ./fixtures/dropzone:/data/dropzone
     depends_on:
       api:
         condition: service_healthy

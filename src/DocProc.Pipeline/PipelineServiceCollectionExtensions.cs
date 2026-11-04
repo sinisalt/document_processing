@@ -62,6 +62,11 @@ public static class PipelineServiceCollectionExtensions
         // Next to the runner: the publish messages it queues go to the queue this host's runner reads.
         services.TryAddSingleton<PublishSweeperHostedService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PublishSweeperHostedService>(sp => sp.GetRequiredService<PublishSweeperHostedService>()));
+        // The channel pollers (docs/11 §7.1): mailboxes and watched folders of the tenants with sourceRouting on, read next
+        // to the runner that processes what they queue.
+        services.AddOptions<Intake.IntakeOptions>().Configure(o => configuration.GetSection(Intake.IntakeOptions.SectionName).Bind(o));
+        services.TryAddSingleton<Intake.ChannelPollerHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Intake.ChannelPollerHostedService>(sp => sp.GetRequiredService<Intake.ChannelPollerHostedService>()));
         // And the delivery sweeper (docs/11 §13.6), for deliveries whose message was lost.
         services.TryAddSingleton<DeliverySweeperHostedService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DeliverySweeperHostedService>(sp => sp.GetRequiredService<DeliverySweeperHostedService>()));
@@ -73,6 +78,7 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddScoped<DocumentTimeline>();
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
+        services.TryAddScoped<Routing.SourceRouting>();
 
         services.TryAddScoped<IIngestionHandler, IngestHandler>();
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, NormalizeHandler>());
@@ -121,6 +127,9 @@ public static class PipelineServiceCollectionExtensions
         {
             services.AddDocProcSecrets(configuration, builder.Environment);
         }
+
+        // The mailbox settings: the pollers read them, and the channel API checks a mailbox's host against them.
+        services.AddOptions<DocProc.Infrastructure.Mail.MailOptions>().Configure(o => configuration.GetSection(DocProc.Infrastructure.Mail.MailOptions.SectionName).Bind(o));
 
         var runInProcess = configuration.GetValue<bool?>(PipelineOptions.RunInProcessKey)
                            ?? runInProcessDefault

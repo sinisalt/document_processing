@@ -28,9 +28,18 @@ internal sealed class IngestionConfiguration : IEntityTypeConfiguration<Ingestio
         b.Property(i => i.SourceSubject).HasMaxLength(1000);
         b.Property(i => i.SourceFileName).HasMaxLength(260);
         b.Property(i => i.LastError).HasMaxLength(2000);
+        b.Property(i => i.SourceRecipientsJson).HasColumnType("json");
+        b.Property(i => i.SourceMailbox).HasMaxLength(320);
+        b.Property(i => i.SourceFolderPath).HasMaxLength(1024);
+        b.Property(i => i.SenderAuthJson).HasColumnType("json");
+        b.Property(i => i.ForwardedBy).HasMaxLength(320);
+        b.Property(i => i.DocumentTypeHint).HasMaxLength(64);
         b.ComplexProperty(i => i.RawBlob, BlobReferenceMapping.Configure);
         b.HasIndex(i => new { i.TenantId, i.ReceivedAt }).IsDescending(false, true);
         b.HasIndex(i => new { i.TenantId, i.SourceMessageId });
+        // A polled message or file is ingested once per channel (docs/11 §7.1): the IMAP and folder pollers write
+        // SourceMessageId, and two hosts polling the same channel race on this index, not on the cursor.
+        b.HasIndex(i => new { i.ChannelId, i.SourceMessageId }).IsUnique().HasFilter("[SourceMessageId] IS NOT NULL");
         b.HasOne(i => i.Tenant).WithMany().HasForeignKey(i => i.TenantId);
         b.HasOne(i => i.Channel).WithMany().HasForeignKey(i => i.ChannelId).OnDelete(DeleteBehavior.NoAction);
     }
@@ -45,6 +54,7 @@ internal sealed class IngestionItemConfiguration : IEntityTypeConfiguration<Inge
         b.Property(i => i.MimeType).HasMaxLength(127);
         b.Property(i => i.Sha256).HasMaxLength(64).IsFixedLength();
         b.Property(i => i.DispositionReason).HasMaxLength(500);
+        b.Property(i => i.RouteJson).HasColumnType("json");
         b.ComplexProperty(i => i.Blob, BlobReferenceMapping.Configure);
         // Exact duplicates: same tenant, same bytes (docs/03 stage 1). The filtered unique index that makes one owner
         // per hash a database rule is provider-specific and added by DocProcDbContext (IngestionItemOwnership).

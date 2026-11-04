@@ -52,6 +52,10 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<DocumentExternalRef> DocumentExternalRefs => Set<DocumentExternalRef>();
     public DbSet<LookupTable> LookupTables => Set<LookupTable>();
     public DbSet<LookupEntry> LookupEntries => Set<LookupEntry>();
+    public DbSet<SupplierGroup> SupplierGroups => Set<SupplierGroup>();
+    public DbSet<ReceivingEntity> ReceivingEntities => Set<ReceivingEntity>();
+    public DbSet<SupplierEntityAttributes> SupplierEntityAttributes => Set<SupplierEntityAttributes>();
+    public DbSet<SupplierSourceRule> SupplierSourceRules => Set<SupplierSourceRule>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -144,6 +148,10 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<OutboxDelivery>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<DeliveryAttempt>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<DocumentExternalRef>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierGroup>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<ReceivingEntity>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierEntityAttributes>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierSourceRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);

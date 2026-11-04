@@ -193,8 +193,28 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV7 = new(OutputsProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>SourceRoutingAndSupplierConfig</c> migration (P4): <see cref="OutputsProtectedTables"/>
+    /// plus the supplier groups, receiving entities, per-entity supplier attributes and supplier source rules of docs/11
+    /// §6.4 and §6.5. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> RoutingProtectedTables =
+    [
+        .. OutputsProtectedTables,
+        ("SupplierGroups", "TenantId"),
+        ("ReceivingEntities", "TenantId"),
+        ("SupplierEntityAttributes", "TenantId"),
+        ("SupplierSourceRules", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>SourceRoutingAndSupplierConfig</c> migration (P4): <see cref="PolicyV7"/> with the routing and
+    /// supplier configuration tables among the strict tables. None of them is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV8 = new(RoutingProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV7;
+    public static PolicyDefinition CurrentPolicy => PolicyV8;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

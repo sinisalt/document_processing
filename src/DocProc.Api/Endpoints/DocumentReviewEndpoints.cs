@@ -6,6 +6,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Application.Documents;
 using DocProc.Application.Pipeline;
+using DocProc.Application.Routing;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Fields;
 using DocProc.Domain.Flags;
@@ -16,6 +17,7 @@ using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using DocProc.Pipeline.Review;
+using DocProc.Pipeline.Routing;
 using DocProc.Pipeline.Support;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -304,7 +306,29 @@ public static partial class DocumentEndpoints
 
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
-        Assign(db, document, supplier, created: false, actor, now);
+        SupplierSourceRule? remembered = null;
+        if (request.Remember is { } remember)
+        {
+            if (!await features.IsEnabledAsync(tenantId, TenantFeature.SourceRouting, ct))
+            {
+                return SupplierConfigSupport.FeatureOff();
+            }
+
+            var made = await RememberAsync(db, document, supplier, remember, user, actor, now, ct);
+            if (made.Invalid is { } invalid)
+            {
+                return invalid;
+            }
+
+            if (made.Problem is { } refused)
+            {
+                return refused;
+            }
+
+            remembered = made.Rule;
+        }
+
+        Assign(db, document, supplier, created: false, actor, now, remembered);
         if (!await TrySaveAsync(db, ct))
         {
             return ConcurrentChange(id);
@@ -312,6 +336,80 @@ public static partial class DocumentEndpoints
 
         await RecheckAsync(db, document, configs, validator, now, ct);
         return TypedResults.Ok(await FreshDetailAsync(db, id, configs, features, ct));
+    }
+
+    /// <summary>What <see cref="RememberAsync"/> made: the rule (added, not saved; an existing rule of the same supplier is reused), or why not.</summary>
+    private sealed record RememberedRule(SupplierSourceRule? Rule, ValidationProblem? Invalid, ProblemHttpResult? Problem);
+
+    /// <summary>
+    /// The source rule an assignment remembers (docs/11 §12.1, §18 <c>remember</c>): the named facts of the document's
+    /// ingestion as conditions, checked like <c>POST /suppliers/{id}/source-rules</c>. A reviewer without
+    /// <c>ConfigAdmin</c> proposes it (saved disabled), as a reviewer's learned layout is a Candidate (decision 2).
+    /// </summary>
+    private static async Task<RememberedRule> RememberAsync(DocProcDbContext db, Document document, Supplier supplier, AssignSupplierRemember remember, ClaimsPrincipal user, string actor, DateTimeOffset now, CancellationToken ct)
+    {
+        var ingestion = await db.IngestionItems.AsNoTracking().Where(i => i.Id == document.IngestionItemId).Select(i => i.Ingestion!).SingleAsync(ct);
+        var conditions = (remember.Conditions ?? []).Select(c => c.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        string? Fact(string condition, string? value, string missing)
+        {
+            if (value is null)
+            {
+                errors[$"remember.conditions.{condition}"] = [missing];
+            }
+
+            return value;
+        }
+
+        var unknown = conditions.Where(c => c is not ("sender" or "senderDomain" or "recipient" or "folder" or "channel")).ToList();
+        if (conditions.Count == 0 || unknown.Count > 0)
+        {
+            errors["remember.conditions"] = [$"conditions are some of sender, senderDomain, recipient, folder and channel{(unknown.Count > 0 ? $"; not {string.Join(", ", unknown)}" : string.Empty)}."];
+        }
+
+        var recipients = SourceRuleCandidates.ContextOf(ingestion, null);
+        var request = new SourceRuleRequest(
+            ChannelId: conditions.Contains("channel") || conditions.Contains("folder") ? ingestion.ChannelId : null,
+            Recipient: conditions.Contains("recipient") ? Fact("recipient", recipients.Mailbox ?? (recipients.Recipients.Count > 0 ? recipients.Recipients[0] : null), "The document's ingestion has no mailbox or recipient.") : null,
+            Sender: conditions.Contains("sender") ? Fact("sender", ingestion.SourceSender, "The document's ingestion has no sender.") : null,
+            SenderDomain: conditions.Contains("senderDomain") ? Fact("senderDomain", SourceConditions.DomainOf(ingestion.SourceSender), "The document's ingestion has no sender.") : null,
+            FolderPrefix: conditions.Contains("folder") ? Fact("folder", string.IsNullOrEmpty(ingestion.SourceFolderPath) ? null : ingestion.SourceFolderPath, "The document did not come from a folder below its channel's root.") : null,
+            Mode: remember.Mode,
+            RequireSenderAuth: remember.RequireSenderAuth,
+            PinTypeKey: remember.PinType == true ? (document.Type == DocumentTypeKey.Unknown ? Fact("pinType", null, "The document's type is Unknown; set it first.") : document.Type.Value) : null,
+            Enabled: Policies.Satisfies(user, Policies.ConfigAdmin));
+        if (errors.Count > 0)
+        {
+            return new RememberedRule(null, TypedResults.ValidationProblem(errors), null);
+        }
+
+        var rule = new SupplierSourceRule
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = document.TenantId,
+            SupplierId = supplier.Id,
+            ConditionHash = string.Empty,
+            CreatedFromDocumentId = document.Id,
+            CreatedBy = actor,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        var refusal = await SourceRuleEndpoints.ApplyAsync(db, rule, request, supplier, ct);
+        if (refusal?.Invalid is { } invalid)
+        {
+            return new RememberedRule(null, invalid, null);
+        }
+
+        if (refusal is not null)
+        {
+            // The same conditions remembered again for the same supplier are the rule that exists; for another supplier, a conflict.
+            var hash = SourceConditions.Hash(request.ChannelId, SourceConditions.Address(request.Recipient), SourceConditions.Address(request.Sender), SourceConditions.Domain(request.SenderDomain), request.FolderPrefix is null ? null : SourceConditions.Folder(request.FolderPrefix), null, null);
+            var existing = await db.SupplierSourceRules.SingleOrDefaultAsync(r => r.ConditionHash == hash, ct);
+            return existing?.SupplierId == supplier.Id ? new RememberedRule(existing, null, null) : new RememberedRule(null, null, refusal.Problem);
+        }
+
+        db.SupplierSourceRules.Add(rule);
+        return new RememberedRule(rule, null, null);
     }
 
     private static async Task<Results<Created<SupplierFromReviewResponse>, ValidationProblem, ProblemHttpResult>> CreateSupplierAsync(
@@ -355,7 +453,7 @@ public static partial class DocumentEndpoints
         }
 
         var now = clock.GetUtcNow();
-        var creation = await SupplierEndpoints.AddAsync(db, document.TenantId, request, now, ct);
+        var creation = await SupplierEndpoints.AddAsync(db, features, document.TenantId, request, now, ct);
         if (creation.Invalid is { } invalid)
         {
             return invalid;
@@ -396,6 +494,16 @@ public static partial class DocumentEndpoints
         if (request.AlwaysReview is not null)
         {
             fields.Add("alwaysReview");
+        }
+
+        if (request.GroupId is not null)
+        {
+            fields.Add("groupId");
+        }
+
+        if (request.Settings is not null)
+        {
+            fields.Add("settings");
         }
 
         // Attributes (the ERP vendor number) decide where outputs go and under which account (docs/11 §6.4).
@@ -734,15 +842,25 @@ public static partial class DocumentEndpoints
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
-    private static void Assign(DocProcDbContext db, Document document, Supplier supplier, bool created, string actor, DateTimeOffset now)
+    private static void Assign(DocProcDbContext db, Document document, Supplier supplier, bool created, string actor, DateTimeOffset now, SupplierSourceRule? remembered = null)
     {
         var previous = document.SupplierId;
         document.SupplierId = supplier.Id;
         document.SupplierMatchConfidence = 1.0;
         document.SupplierMatchMethod = SupplierMatchMethod.Human;
+        document.SupplierSourceRuleId = null;
         document.UpdatedAt = now;
-        ResolveOpenFlags(document, [FlagCodes.SupplierUnmatched], actor, now);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.SupplierAssigned, null, actor, new { from = previous, to = supplier.Id, supplierName = supplier.Name, created }, now);
+        // The reviewer decided the supplier: what routing and Match said about it is answered (docs/11 §7.2, §7.4).
+        ResolveOpenFlags(document, [FlagCodes.SupplierUnmatched, FlagCodes.SupplierConflict, FlagCodes.SupplierAmbiguous, FlagCodes.SupplierSourceUnverified], actor, now);
+        DocumentQueries.AddEvent(db, document, DocumentEventTypes.SupplierAssigned, null, actor, new
+        {
+            from = previous,
+            to = supplier.Id,
+            supplierName = supplier.Name,
+            created,
+            rememberedRuleId = remembered?.Id,
+            rememberedRuleEnabled = remembered?.Enabled,
+        }, now);
     }
 
     /// <summary>Marks the document's open flags of <paramref name="codes"/> resolved by the reviewer whose action answered them.</summary>

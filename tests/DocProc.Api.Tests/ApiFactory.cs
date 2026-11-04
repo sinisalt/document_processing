@@ -79,6 +79,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         // The publish sweeper's own loop is off: it would wake whenever a test moves the fake clock and queue publish
         // messages for seeded settled documents. Tests that need a sweep run one (PublishSweeperHostedService.SweepOnceAsync).
         builder.UseSetting("Pipeline:PublishSweepInterval", "00:00:00");
+        // The channel pollers likewise (docs/11 §7.1): a test that moves the clock must not have them read its channels.
+        builder.UseSetting("Intake:PollersEnabled", "false");
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>

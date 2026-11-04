@@ -260,6 +260,15 @@
     },
     "DELIVERY_FAILED": {
       "default": "The delivery to {{destination}} failed for good: {{error}}. An integration admin can send it again."
+    },
+    "SUPPLIER_SOURCE_UNVERIFIED": {
+      "default": "A source rule for another supplier would have matched, but the sender {{sender}} is not authenticated (DMARC); the rule was skipped."
+    },
+    "SUPPLIER_AMBIGUOUS": {
+      "default": "Source rules of several suppliers match this document equally; no supplier was assigned."
+    },
+    "SUPPLIER_CONFLICT": {
+      "default": "The document's content ({{evidence}}) names {{contentSupplierName}}, but its source names {{sourceSupplierName}}; the source supplier is kept until a reviewer decides."
     }
   },
   "apiErrors": {

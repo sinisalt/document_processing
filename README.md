@@ -97,7 +97,7 @@ What comes up (resource name → what the hosts read it as):
 | `messaging` | Azure Service Bus emulator | one queue per pipeline stage, topic `document-events` |
 | `keycloak` | Keycloak with realm `docproc` imported from `src/DocProc.AppHost/realms` | users `superadmin`, `operator`, `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-viewer`; password = username |
 | `vault` | Lowkey Vault (Key Vault emulator) on https://localhost:8443 | vault name `docproc`, for the BYOK secret flow |
-| `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled |
+| `mail` | GreenMail SMTP 3025 / IMAP 3143 | mailboxes `invoices@tenant-a.local`, `invoices@tenant-b.local`, auth disabled; the worker polls the `Mailbox` channels of tenants with `sourceRouting` on (docs/09 "Source routing") |
 | `mock-erp` | WireMock on http://localhost:8086 with the stubs in `docker/mock-erp` | the receiving ERP of the delivery demos (docs/11 §23): `POST /api/ap/invoices`, `POST /api/article-prices`, a 503 on demand; nothing sends to it before P3 (docs/09 "Mock ERP") |
 | `api`, `worker` | the two hosts | the worker waits for the API so migrations run once |
 
@@ -349,7 +349,7 @@ tests/
 web/                          pnpm workspace: apps/customer-portal (with Settings > Integrations and the Deliveries tab, docs/11 §19), apps/admin-console, packages/ui, app-shell,
                               review (the generated review form and the document type editor, docs/11 §12.2, §19),
                               api-client (generated from the OpenAPI document), e2e (Playwright)
-fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery")
+fixtures/                     demo documents, the demo custom fields and uploads, and their LLM replay fixtures (docs/09 "Demo data", "Demo: types as data", "Demo: manual mapping"); outputs/ the compiled visual map of the article-price-import mapping ("Demo: outputs and delivery"); dropzone/ the watched-folder channels' drop zone, one folder per tenant slug ("Source routing")
 schemas/                      committed JSON schemas sent to providers, the definition meta-schema and the compiled
                               template schemas (templates/)
 docs/                         plan and design

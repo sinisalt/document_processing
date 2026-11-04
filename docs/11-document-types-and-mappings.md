@@ -715,6 +715,21 @@ The single **RoleProjector** (`src/DocProc.Application/Documents/RoleProjector.c
 
 **SHA-256 de-duplication** (`IngestionItemOwnership`) is unchanged. When a file arrives again through a different route, the second ingestion links to the first document as today. If the route resolves to a different supplier, an info flag `ROUTE_DIFFERS {firstRuleId, secondRuleId}` is added to the first document while it is not yet settled. That makes the case visible instead of silent.
 
+Correction (P4, part A), as built (migration `SourceRoutingAndSupplierConfig`):
+- `IngestionChannel.Type` stays the enum; `ConnectorKey` and `GET /connectors` are not built. `SourceKey` is unique on
+  `(Type, SourceKey)` across tenants (`imap:{host or platform}/{login}/{folder}` for a mailbox, `folder:{tenant
+  slug}/{path}` for a watched folder), set when a tenant with `sourceRouting` writes a channel. The per-connector configs
+  are typed records checked by the API (unknown members refused), not JSON Schemas; channels of tenants without the
+  switch keep their free config.
+- `Ingestions.SourceRecipients` is `SourceRecipientsJson` (an array), and a polled message or file has a
+  `SourceMessageId` unique per channel (`IX_Ingestions_ChannelId_SourceMessageId`): that, not the cursor, makes "each
+  message once" hold when two hosts poll one channel or a crash loses the cursor.
+- `IngestionItem.Role` and the `bodyAsDocument` option are not built (e-mail bodies are P6 normalizers); a mail without
+  attachments is recorded as an ingestion without items. `IngestionItem.RouteJson` holds the route of the item.
+- `SupplierIdHint` and `DocumentTypeHint` exist and the resolver honours them, but `POST /ingestions` does not take the
+  hints yet (the `ingest:hint` scope and the `RequestHash` change are left for later).
+- `ROUTE_DIFFERS` is not built.
+
 ### 6.4 Suppliers, groups, receiving entities and attributes
 
 **Supplier** (`Entities/Suppliers.cs`) gains:
@@ -749,6 +764,20 @@ The single **RoleProjector** (`src/DocProc.Application/Documents/RoleProjector.c
 - It is resolved from a source rule (for example, one mailbox per company), from the channel default, or from the customer party's VAT. `CustomerMatchRule` generalises from the tenant VAT to entity VATs.
 - **SupplierEntityAttributes**: `(SupplierId, ReceivingEntityId, AttributesJson)`. The vendor number in company 1000 can differ from company 2000. The values view merges entity-specific attributes over the defaults.
 
+Correction (P4, part A), as built:
+- `TenantSettings.Layouts.RequiredByDefault` is stored flat as `TenantSettings.LayoutsRequiredByDefault` (a nested owned
+  object in the settings JSON cannot be added to stored rows without a back-fill, see `TenantSettings.Features`).
+- `SupplierAttributeSchema` is a JSON Schema object of a typed subset (`properties` of type string, number, integer or
+  boolean with title, description, enum, min/max length, pattern, minimum, maximum; `required`; `additionalProperties`,
+  default true), checked in the API process with a non-backtracking `pattern`, not a general JSON Schema: a tenant's
+  backtracking pattern is what P3 confined to the renderer process. `required` applies to a supplier's own attributes;
+  group and entity attributes are partial.
+- The values view's `supplier.attributes` are the group's, the supplier's over them, and the supplier's in the document's
+  receiving entity over those; `supplier.group` is the group's name; `entity` is the receiving entity (code, name, first
+  VAT id, attributes), the tenant itself without one.
+- `:clone-config`, `POST /suppliers:import`, the customer-VAT resolution of the receiving entity and the generalised
+  `CustomerMatchRule` are not built.
+
 ### 6.5 SupplierSourceRule
 
 A rule is a set of conditions that must all hold. This covers the plain cases (one folder or one address) as well as shared intake services, such as a scanning bureau that sends every supplier from one address with the supplier in the subject.
@@ -769,6 +798,11 @@ A rule is a set of conditions that must all hold. This covers the plain cases (o
 
 - Indexed lookup columns hold the normalised condition values: `(TenantId, Recipient)`, `(TenantId, Sender)`, `(TenantId, SenderDomain)` and `(TenantId, ChannelId, FolderPrefix)`.
 - Uniqueness is on the full condition hash per tenant, so two suppliers cannot claim identical conditions.
+
+Correction (P4, part A): every rule has at least one of `ChannelId`, `Recipient`, `Sender` and `SenderDomain` (a rule of
+only subject or file-name conditions would never be found by the indexed lookups), and a `FolderPrefix` needs its
+`ChannelId` (the path is relative to that channel's root). `RequireSenderAuth` applies to sender-domain conditions as
+well as sender conditions; its default comes from the supplier's `settings.requireSenderAuth`, else true.
 
 ### 6.6 Supplier layouts and identification rules
 
@@ -907,6 +941,22 @@ New in P0:
 - **Folders.** `LocalFolderSource` (a mounted path) and `BlobFolderSource` (a container prefix) are run by `FolderWatcherHostedService`. They use a stable-size check, move files to `processed/` or `failed/`, and record the relative path.
 - **API and portal.** `POST /ingestions` accepts `supplierId` and `documentTypeKey`. A hint is honoured only from a portal user with Review rights or from an API key with the `ingest:hint` scope, and it is included in `RequestHash` (`IngestionEndpoints.cs:509-519`). The portal `UploadDialog` sends the PortalUpload channel (today it sends none: `UploadDialog.tsx:29-33`) and offers optional supplier and type pickers.
 
+Correction (P4, part A), as built:
+- The pollers are `ChannelPollerHostedService` (`src/DocProc.Pipeline/Intake`), next to the runner; only tenants with
+  `sourceRouting` on are polled, so no tenant that has a `Mailbox` channel from before starts ingesting by surprise.
+  Compose and the AppHost turn them off in the API (`Intake:PollersEnabled`), the worker polls.
+- The `Authentication-Results` header read is the topmost one (the receiving server's), or the first one whose
+  `authserv-id` is in `Mail:TrustedAuthServIds` or the channel's `authServId`; a DMARC pass stated for another domain
+  than the From domain does not count. A forward unwrapped from a trusted forwarder counts as authenticated when the
+  forwarder's own message is (the original's signatures do not survive a forward, and listing the forwarder's domain is
+  the trust); `SenderAuthJson` then records `via: trustedForwarder` with the forwarder's results.
+- A tenant's own IMAP host must be a public name or address (`TenantEndpointGuard`, checked again on the resolved
+  addresses at connect) reached over TLS, unless the platform lists it in `Mail:AllowedHosts`; a mailbox without a host
+  reads the platform's server (`Mail:ImapHost`, GreenMail locally).
+- The folder watcher reads a local folder below `Intake:FolderRoot/<tenant slug>/`, so a tenant names paths inside its
+  own root only; `BlobFolderSource` (a container prefix) is not built. Links, hidden and partial files are skipped, and
+  the folders of the tenant's other watched-folder channels below a channel's root are theirs.
+
 ### 7.2 Resolution at ingest
 
 `ISupplierSourceResolver` (new, `SupplierSourceResolver.cs` in `src/DocProc.Pipeline/Routing`) is a pure function. It is called in `IngestHandler.CreateDocumentsAsync` (`IngestHandler.cs:219-230`) for each item, so documents are created with their supplier already set. Candidate rules come from indexed lookups on the normalised conditions; it does not load the whole supplier table the way `MatchHandler.cs:38` does.
@@ -918,6 +968,15 @@ New in P0:
 5. If the top two candidates name different suppliers with equal score, nothing is assigned and `SUPPLIER_AMBIGUOUS` is raised.
 
 The result is written as `SupplierId`, `SupplierMatchMethod=SourceRule`, `SupplierSourceRuleId` and `SupplierMatchConfidence` (0.99 for Exclusive, 0.7 for DefaultWhenNoContentMatch), together with `ReceivingEntityId` and a timeline event `supplier_identified_by_source`.
+
+Correction (P4, part A): "`FolderPrefix` 3 plus prefix length" is read as 3 plus the prefix's depth in segments, so a
+deeper folder rule wins over its parent's while a long folder name does not outweigh a sender rule.
+`SUPPLIER_SOURCE_UNVERIFIED` is raised when the skipped rule would have won (it ranks at or above the winner, for
+another supplier, or nothing else matched). The channel default is written with `SupplierMatchMethod=ChannelDefault`,
+a hint with `Hint`. A type is pinned (`TypeSource=Supplier`) by the winning rule's `pinTypeKey`, else the channel's
+`DefaultDocumentTypeKey`, else the supplier's single allowed type under `fixDocumentType` (section 7.3); Split leaves a
+document with a pinned type whole and Classify keeps the type, unless the document carries e-invoice XML, whose type
+the XML decides. Split parts inherit the route. Everything here runs only for tenants with `sourceRouting` on.
 
 ### 7.3 Auto-apply
 
@@ -948,6 +1007,15 @@ All of this is snapshotted in `AppliedConfigJson`. The review header shows: "Sup
   - Two suppliers that share a VAT or IBAN raise `SUPPLIER_AMBIGUOUS`.
   - E-invoice signals are read from the typed projection, `Invoice.Supplier` or `PaymentTerms.Iban` (`MatchHandler.cs:80-98`), unchanged.
 - `ReprocessStart` (`DocumentEndpoints.cs:31-37`) gains `Match`.
+
+Correction (P4, part A), as built: the content evidence against a source supplier is a VAT id or an IBAN match only
+(`SupplierMatcher`, unchanged); a name or sender-domain match never contradicts a rule. A hint is authoritative like an
+`Exclusive` rule. Until layouts exist (part B), the type a replaced default supplier's configuration had pinned is
+classified again by the Match stage itself (the keyword rules, then the LLM classifier, as in Classify), before Extract.
+The candidates are still loaded from the whole supplier table, as before; the indexed loading and `SUPPLIER_AMBIGUOUS`
+for two suppliers sharing a VAT id are left for later. `SUPPLIER_SOURCE_UNVERIFIED` never auto-approves, and a
+supplier's `review.mode: always` (its own or its group's) sends every document to review; `autoApproveMinConfidence`
+is stored but not applied yet.
 
 ### 7.5 Example: Nordwind Großhandel GmbH for tenant Acme
 
@@ -1035,6 +1103,10 @@ Transforms: `trim`, `removeWhitespace`, `regex` (capture or replace), `replace`,
   - The **field replay**: the field mapping runs only over the **replay set**, the approved documents (of the last N of the supplier and type, plus golden documents) on which this version's identification rule holds, and stores a per-field hit, mismatch and missing matrix. Documents of the supplier's other designs are not in the set, because the field rules were never meant for them. For version 1 of a layout with `Origin=NewLayoutReview` the replay set is the source document plus any siblings re-tested against it (12.10); one document is enough. For a new version of an existing layout the set also contains that layout's recent approved documents on which the new rule holds.
 - **Activate** has one condition, used everywhere in this document (8.4, 12.6, 12.10): the identification test passes, and field agreement on a non-empty replay set is at or above the tenant threshold (default 90 % per field). Who may activate, and with which warm-up, is the layout activation policy (decision 2 in section 24, `TenantSettings.LayoutActivation`); by default that is a `MappingAuthor`. Alternatively the version runs in **Shadow**: it is applied but its values are not written, and agreement with the active path is recorded.
 - The first `ReviewWarmup` documents under a new Active version always go to review. `ReviewWarmup` comes from the activation policy: by default 0 for version 1 of a layout saved from a `NEW_LAYOUT` review and activated by a `MappingAuthor` (the reviewer has just checked every value of the source document), and 5 for every other version (editor, LLM proposal, import, new version of an existing layout).
+  Correction (P4, warm-up): decision 2 of section 24 sets the warm-up to 5 for every new layout version, version 1 of a
+  layout saved from a `NEW_LAYOUT` review included; the default of `TenantSettings.LayoutActivation` is 5, not 0. A
+  tenant admin can lower it per tenant (the P4 demo sets the demo tenant's warm-up to 0 explicitly, section 23), and
+  an author can raise it per version.
 - Corrections on mapped fields count against `Stats`. Beyond the threshold the version becomes **Degraded**, and the LLM fallback applies.
 - Pinned documents keep their pinned version even if it is later Retired or Degraded, because versions are immutable rows. Only new documents and "reprocess with current config" re-resolve.
 
@@ -1200,6 +1272,10 @@ The contracts live in `src/DocProc.Application/Abstractions/IDocumentExtractor.c
    - New: an `EInvoiceExtras` capture of everything that is read and dropped today: `BuyerReference` (UBL `:41-43`, CII `:47-49`), `AccountingCost`, `ProjectReference`, `ContractDocumentReference`, `PartyIdentification`, which is not mapped today (`UblPartyMapper.cs:21-41`), and every `AdditionalItemProperty` name/value pair (`UblLineMapper.cs:25-27`, `ItemPropertyNames.cs`).
    - Supplier layouts bind these extras with `xml-path` rules.
    - `FieldSource.Path` records the element path (`XmlFields.cs:29-33`).
+   - Correction (P4, part A): `EInvoiceExtrasReader` reads the extras (each with its concrete element path) and
+     `XmlPath` is the restricted walker of the `xml-path` rules (local-name steps, a 1-based position or a child-text
+     filter, a final attribute; no `//`, no functions). The extras are not written into the canonical tree, and
+     `FieldSource` gains no `Path`: the layouts that bind them (part B) carry the path on their hits.
 2. **`supplier-mapping`**: runs the field mapping of the layout selected by `ILayoutResolver`; see section 8. It yields nothing when no layout was selected.
    - **`layout-prefill`** replaces it on documents flagged `NEW_LAYOUT`, against the proposed type (`TypeSource=Proposed`) before review, and again against the reviewer's type when `:match-layout` changes the type or the basis layout (section 12.10). It does not use positions. It searches the whole document with the labels, value patterns and column headers of the supplier's other layouts (same type first, then the supplier's other types, then the type's `extraction.labels`), locates master-data values (VAT, IBAN, the supplier party) and values that were identical on every approved document of the supplier (for example `supplierCustomerRef`), and writes them as `Inferred` with their found position, so the reviewer only confirms them and the learner gets their positions.
 3. **`llm`**.
@@ -1363,6 +1439,11 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
    - A document of a known, layout-managed supplier does not get this panel; it gets the **New layout** panel of section 12.10.
    - `POST /documents/{id}:assign-supplier {supplierId, remember?}` (the supplier picker) re-runs `classify.identification` for the assigned supplier through the reprocess path (from Classify, 202), exactly as if routing had found it: if one of its layouts holds, that layout is applied with its identification evidence (and a type the reviewer set, `TypeSource=Human`, restricts the search to that type's layouts); if the supplier is layout-managed and none holds, the document gets `NEW_LAYOUT` and the New layout panel replaces this one; otherwise this panel stays, with the tenant fallback rules re-evaluated. A document therefore takes the same identification path whether the supplier came from routing or from a reviewer.
    - Correction (P2): until identification exists (P4) there is nothing to re-run, and a reprocess from Classify would extract the document again (an invoice by the LLM). In P2 `:assign-supplier {supplierId}` therefore assigns the supplier at once (`SupplierMatchMethod=Human`, which the Match stage keeps on every later run), resolves `SUPPLIER_UNMATCHED`, re-runs the checks inline and answers 200; `remember` comes with source rules in P4, and so does the reprocess through `classify.identification`. "Create supplier from this document" is `POST /documents/{id}:create-supplier` (section 18), with the checks of `POST /suppliers`.
+   - Correction (P4, part A): `remember` is `{conditions: [sender, senderDomain, recipient, folder, channel], mode?,
+     pinType?, requireSenderAuth?}`: it names which facts of the document's own ingestion become the rule's conditions,
+     not their values. A reviewer's rule is saved disabled, a proposal a `ConfigAdmin` enables (as a reviewer's learned
+     layout is a Candidate, decision 2); a `ConfigAdmin`'s is enabled at once. The assignment still answers 200 inline;
+     the reprocess through `classify.identification` comes with the layouts (part B).
    - Correction (P2): the classifier offers no top three (one type and its confidence), and suppliers have no types before P4, so the type list is every type of the tenant with a published version. With an LLM classifier configured (the replay provider of the demo stacks, any real provider), a document of no type the classifier knows does not stay `Unknown`: the classifier's answer has no Unknown (`ClassifiedDocumentType`), and anything else is `Other`, whose type has no form. The panel is therefore shown for every document in review without a form or without data, `Other` and a failed extraction included, not only for `Unknown`; the classifier is unchanged.
    - Correction (P2, second review): the panel, like every review tool of P2 (the review actions' menu, map mode, the table tool), is new behaviour and is shown only to a tenant with `configurableTypes` (principle 6; `DocumentDetail.configurableTypes`). Any other tenant keeps the EmptyState at `ReviewScreen.tsx` ("This document type has no form to review yet"). The endpoints themselves are not gated: nothing before P2 called them, and an API client of any tenant may use them (an Unknown document typed as an invoice gets the coded record's empty record).
 3. `POST /documents/{id}:set-type {typeKey, version?, prefill: "none"|"auto"}` sets the type key, `DocumentTypeVersionId` and `TypeSource=Human`. It writes a `setType` Correction and creates an empty canonical from the definition, with every field Missing (`DefinitionPatcher.CreateEmpty`). With `auto` it re-enters Extract through the existing reprocess path (`DocumentEndpoints.cs:508`) and returns 202. The screen remounts on the new version, using the existing `id:updatedAt` key.
@@ -1520,8 +1601,13 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
    - The type's `defaults` and the supplier's `settings.defaults`.
 5. **Adjust.** The reviewer corrects values by selecting text on the page (12.3), maps or fixes the table (12.4), and marks the identifiers (12.9). The learner proposes an identification rule from the title words and the VAT position; the Identification card shows it already tested.
 6. **Approve.** "Approve and save as layout" is checked by default. Approval and `:learn-layout` run in one request: the document is approved, and the identifiers and field positions become version 1 of `nordwind-invoice-webshop` (`Origin=NewLayoutReview`). Its status follows the layout activation policy (decision 2 in section 24) under the one activation condition of section 8.3: the identification test passes (the rule holds here and matches no approved document of the supplier's other layouts) and the field replay over its replay set (this document, plus siblings already re-tested against it) agrees. With the recommended policy it is Active straight away when the reviewer is a `MappingAuthor`, with warm-up 0; otherwise it is a Candidate, and the tenant's `MappingAuthor`s are notified. Unchecking "save as layout" approves the document only; `NEW_LAYOUT` is resolved as `approvedWithoutLayout` (section 11).
+   Correction (P4, warm-up): with the decided policy (decision 2 of section 24) it is Active straight away when the
+   reviewer is a `MappingAuthor`, with the tenant's warm-up, 5 by default; otherwise it is a Candidate.
 7. **Siblings.** Other pending `NEW_LAYOUT` documents of the same supplier are re-tested against the new rule (`GET /supplier-layouts/{id}/versions/{v}/matching-documents?state=pending`). If the layout is Active, the panel asks "3 more documents in review match this layout: reprocess them now?", which calls `POST /documents:bulk-reprocess {filter: {documentIds}, fromStage: "Classify", configMode: "current"}`, so they are identified and filled by the new layout. If it is a Candidate, the siblings are attached to it instead (their flags get `pendingLayoutVersionId`), the Candidate's card on the Suppliers sheet lists them, and activation offers the same reprocess for all of them. Siblings are never reprocessed against a Candidate, which would only raise `NEW_LAYOUT` again.
 8. **The next document** in that design is identified by the rule, filled by the layout's field mapping and validated. It goes to review only when a validation fails, or while the layout version is inside its review warm-up (`ReviewWarmup`, set by the layout activation policy, decision 2 in section 24; 0 by default for a layout activated from this flow by a `MappingAuthor`, section 8.3). While the layout is still a Candidate, the next document gets `NEW_LAYOUT` with `pendingLayoutVersionId` and the "confirm against pending layout" option of step 2.
+   Correction (P4, warm-up): the default warm-up is 5 (decision 2 of section 24), so the next five documents in the
+   new design go to review already filled by the layout; only a tenant that set its warm-up to 0 gets the next one
+   delivered without review.
 
 ## 13. Output mappings and delivery (R4)
 
@@ -2404,6 +2490,8 @@ Each schema change comes with the phase of section 23 that first uses it (correc
 - **Layout resolution** (`LayoutResolverTests`): one layout holds; two layouts of different types (invoice and price list of one supplier); tie-break by `Priority`, then the number of positive identifiers; `LAYOUT_AMBIGUOUS`; no layout holds for a layout-managed supplier gives `NEW_LAYOUT {supplierId, proposedType, suggestions}` and never a layout, even when the similarity score of one layout is 0.99; a supplier with no layouts keeps today's path; `layouts.required=true` (on the supplier, and inherited from the tenant default) with zero layouts gives `NEW_LAYOUT`; group layouts ignored when the supplier has its own; another supplier's rule never evaluated; supplier replaced in Match drops the earlier layout; supplier A's layout rule sets the type, Match switches to B (no layouts), and the type is re-decided by the tenant rules, keywords and the LLM for B, not inherited from A; re-type in Match before Extract, but never over a Human, Hint, source-pinned or Structured type; e-invoices never raise `NEW_LAYOUT`; tenant fallback rules only for unknown or layout-less suppliers, and two conflicting tenant rules decide nothing; a Candidate version whose rule holds is never applied, the next document gets `NEW_LAYOUT` again with `pendingLayoutVersionId`; `NEW_LAYOUT` raised by `match.layout` for a content-found supplier, owned by that step, and cleared by a reprocess after the layout was activated, while a Classify instance for the replaced supplier is cleared by Match.
 - **Review gate**: `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS` block auto-approval even with a tenant severity override; `TypeSource=Proposed` never auto-approves; `requirePassedRules` with a skipped rule blocks; `lines.requireSource` and `requireLocated`; `blockOnWarnings`: a price list with a 40 % jump on one article goes to review, one with a uniform 3 % increase auto-approves; an e-invoice of a supplier that has PDF layouts auto-approves without a layout; a layout version inside its warm-up blocks, with the warm-up taken from the default tenant activation policy.
 - **New-layout flow** (API tests plus a Playwright spec): a `NEW_LAYOUT` document with a proposable type arrives pre-filled (`TypeSource=Proposed`, `layout-prefill` ran in Extract), and one without stays Unknown until `:match-layout`; `:match-layout` with the proposed type does not re-run Extract, with another type it does; pre-fill from master data, from another layout's labels, from a known constant custom-field value and (with the replay-fixture LLM) from the LLM, each with its provenance; approve with `learnLayout` creates version 1 of a new layout while the old layout stays Active; approve without it resolves the flag as `approvedWithoutLayout`; the activation policy (Candidate versus Active) per role; activation of a `NewLayoutReview` version 1 with a replay set of one document; the Candidate path (a second document in the same design while the layout is a Candidate gets `pendingLayoutVersionId`, "confirm against pending layout" creates no second layout, siblings are attached and reprocessed only on activation, `MappingAuthor`s notified); sibling re-test through `matching-documents` and `bulk-reprocess`; "new version of X" with a changed rule reports X's documents that would no longer match and needs `confirmNotRecognised`; the next fixture document in the new design is identified and auto-processed **with the default tenant settings** (no warm-up set by hand).
+  Correction (P4, warm-up): with the decided warm-up of 5 the next fixture document goes to review filled by the layout
+  (warm-up 1 of 5); the test then sets the tenant's warm-up to 0 and the following one is auto-processed.
 - **Supplier assignment in review**: `:assign-supplier` to a layout-managed supplier whose layout holds applies it with evidence; to one whose layouts all fail raises `NEW_LAYOUT`; to one without layouts keeps the Unknown panel and re-evaluates the tenant rules.
 - **Identification test**: an overlapping rule blocks activation and names the documents; the replay of a new layout covers only documents its own rule holds on.
 - **Identifier proposals** (`IdentifierProposerTests` and API tests of `identifiers:propose`): words in the title band give a `region: "title"` identifier; elsewhere a `bBox` with the default tolerance; text equal to the supplier's VAT id (spaced or compact) gives `supplierValue: "vatId"` in layout scope and a `text` identifier in tenant scope.
@@ -2416,6 +2504,8 @@ Each schema change comes with the phase of section 23 that first uses it (correc
 - **Outputs**: JSONata golden tests (singleton arrays, `$table` with ValidFrom, `$required`, `$today()` in the tenant time zone; `article-price-import` over a 412-row list, rows without `status`, tiers and empty tiers; `pos-promotions` over a specials fixture, rows without `previousPrice`, and `replaces` after a supersede); the `pos-specials` binding `Condition` produces no delivery for a list whose `validUntil` is yesterday; a 10,000-row list at `maxItems` with maximum-length rows renders under 5 MB and is delivered; sandbox limits (time, size, depth); target-schema failures; retry classification including Retry-After; ordering and Skipped; OnReapproval; recipe resume; batch rendering; callback mapping.
 - **Security**: RLS null-tenant read and write blocks (Testcontainers.MsSql); SSRF guard on destinations and http-lookup; secrets never echoed.
 - **End to end in compose**: e-mail into GreenMail, routing, mapping, validation, JSONata, then the WireMock ERP receiving the payload, a forced 503, retries and success. This scenario is added to `PipelineEndToEndTests` and to an AppHost test. Two more scenarios, both with the default tenant settings: a Nordwind invoice in an unseen design arrives, gets `NEW_LAYOUT`, is matched and saved in review by a `MappingAuthor`, and the second document in that design is delivered without review (the warm-up of 0 comes from the recommended activation policy, decision 2); and a multi-page price list dropped in `./fixtures/dropzone/lieferanten/nordwind/preislisten/` stays one document and is delivered to the mock ERP's article-price endpoint.
+  Correction (P4, warm-up): the second document in that design goes to review filled by the layout (warm-up 1 of 5,
+  decision 2); after the demo tenant's warm-up is set to 0 the third one is delivered without review.
 
 ## 23. Phased delivery plan
 
@@ -2499,6 +2589,10 @@ Every phase is demonstrated with `docker compose up`, using the GreenMail mailbo
   - AnchorLearner, `:learn-layout` (identification rule plus field mapping; proposes source rules too), replay over the replay set with the identification test, lifecycle with the warm-up from `TenantSettings.LayoutActivation` (decision 2), `MappingAuthor`, the Candidate path (`pendingLayoutVersionId`, notifications).
   - Identify mode and `identifiers:propose`; `identification-rules:test`; the New layout panel, `:match-layout` and the `layout-prefill` step (master data, other layouts' labels, known values, LLM when configured); sibling re-test.
   - Demo: Nordwind invoices arrive through the GreenMail mailbox and are identified by "Rechnung" in the title and Nordwind's VAT id. A Nordwind invoice from its new web shop then arrives in a different design, is held with `NEW_LAYOUT` (not processed with the old layout), matched to Invoice in review with its supplier data, invoice number and customer number already filled, and saved as `nordwind-invoice-webshop`. With the default tenant settings (the recommended activation policy of decision 2 gives warm-up 0 to a layout a `MappingAuthor` saved from this flow, section 8.3), the next web-shop invoice is identified, filled and delivered to `mock-erp` without review, and invoices in the old design still are too. In a second demo tenant, where the reviewer is not a `MappingAuthor`, the saved layout stays a Candidate and the next web-shop invoice arrives with "confirm against pending layout".
+  - Correction (P4, warm-up, settled when P4 was planned): the default stays warm-up 5 (decision 2). The demo shows the
+    next web-shop invoice after activation going to review as warm-up 1 of 5, already filled correctly by the layout;
+    it then sets the demo tenant's warm-up to 0 explicitly (a tenant setting a `TenantAdmin` can change) and shows the
+    following web-shop invoice delivered to `mock-erp` without review.
   - e-invoice extras with xml-path.
   - Golden documents, sandbox runs and config bundle export/import.
   - Supplier sheet tabs.
@@ -2510,7 +2604,9 @@ Every phase is demonstrated with `docker compose up`, using the GreenMail mailbo
   - Tenant keyword set and LLM classifier enum.
   - Tenant fallback identification rules (`TypeIdentificationRule`, the Identification tab of the type editor, "use for all suppliers without own layouts" in review).
   - Price lists end to end: rule kinds `tableComplete`, `unique`, `ordered`, `deltaToPrevious`, plus `compare` and `expression` from the list above; templates v2; review gate `requirePassedRules`, `blockOnWarnings` and `lines`; the `dueBy` review priority for daily specials; `REVISION_OF` and `:resolve-revision`; `generic-article-prices-json`; the `pos-promotions` example mapping; the optional `llm` `lines: perPage` mode.
-  - Demo, price lists: the folder rule `lieferanten/nordwind/preislisten/` (pin `price-list`, 7.5) is added. The first 14-page Nordwind price list (412 rows, repeated headers, tier prices "ab 10" and "ab 50") dropped there is routed to Nordwind and stays one document. Nordwind is layout-managed since P4 but has no price-list layout, so it arrives with `NEW_LAYOUT`, pre-filled against `price-list` from Nordwind's master data. The reviewer maps the table once with the table tool, marks "Preisliste" in the title and the "gültig ab" line as identifiers, and approves with "save as layout", which a `MappingAuthor` activates as `nordwind-price-list`. Next month's list, dropped in the same folder, is identified by that layout, read entirely by its `column-table`, checked against the printed row count and the previous list (12 rows changed, all within 25 %), auto-approved with no warm-up, and delivered to `mock-erp` `POST /api/article-prices` as the payload of 13.10. A copy of it with one article up 40 % goes to review with that row filtered.
+  - Demo, price lists: the folder rule `lieferanten/nordwind/preislisten/` (pin `price-list`, 7.5) is added. The first 14-page Nordwind price list (412 rows, repeated headers, tier prices "ab 10" and "ab 50") dropped there is routed to Nordwind and stays one document. Nordwind is layout-managed since P4 but has no price-list layout, so it arrives with `NEW_LAYOUT`, pre-filled against `price-list` from Nordwind's master data. The reviewer maps the table once with the table tool, marks "Preisliste" in the title and the "gültig ab" line as identifiers, and approves with "save as layout", which a `MappingAuthor` activates as `nordwind-price-list`. Next month's list, dropped in the same folder, is identified by that layout, read entirely by its `column-table`, checked against the printed row count and the previous list (12 rows changed, all within 25 %), auto-approved with no warm-up, and delivered to `mock-erp` `POST /api/article-prices` as the payload of 13.10.
+    Correction (P4, warm-up): "with no warm-up" holds only because the demo tenant's warm-up was set to 0 in the P4 demo;
+    under the default of 5 the first five lists under the new layout version go to review. A copy of it with one article up 40 % goes to review with that row filtered.
   - Demo, specials: a two-page "Tagesangebote" list from the same supplier sorts to the top of the queue as urgent, is approved, and goes to the `pos-promotions` WireMock stub as the payload of 13.10; a copy dated yesterday is blocked as expired, and a second list on the same day arrives with `REVISION_OF`.
   - Demo, tenant fallback rule: a document from Südhof Feinkost, a supplier without layouts, is opened in review; the reviewer marks "Preisliste" in the title and, as `ConfigAdmin`, chooses "use for all suppliers without own layouts". The save-time test shows "would have matched 37 price lists, 0 other documents". After activation the next Südhof list, and one from an unknown sender, are typed `price-list` by the rule (`TypeSource=Identification`, `IdentificationRuleVersionId` set), with keywords and the LLM not called, while Nordwind's documents are still decided by Nordwind's own layouts.
   - Processing UI.
@@ -2546,6 +2642,10 @@ Five decisions change the build. Each is listed with its options and a recommend
 | 5 | Non-PDF inputs | PDF and images in the first release; spreadsheets, custom XML/JSON and office formats in the later phases as planned. |
 
 Open consequence of decision 2 (found while delivering P0, not yet rewritten): sections 8.3, 12.10 (steps 6 and 8), 22 ("New-layout flow", "End to end in compose") and the P4 and P5 demos in 23 still describe the recommended Option A, where version 1 of a layout saved from a `NEW_LAYOUT` review has warm-up 0, and say that the next document in the new design is delivered without review "with the default tenant settings". Under the decided policy that default is a warm-up of 5, so the first five documents under the new version go to review. Those passages, and whether the demos run five documents or set the demo tenant's warm-up explicitly, are to be settled when P4 is planned in detail.
+
+Settled when P4 was planned (Correction (P4, warm-up)): the default stays 5. The passages of 8.3, 12.10, 22 and 23 carry
+a correction note; the P4 demo shows the next web-shop invoice going to review as warm-up 1 of 5, already filled by the
+layout, then sets the demo tenant's warm-up to 0 and shows the following one delivered without review.
 
 1. **Source versus content precedence, and sender authentication.** Options: the source always wins; content (VAT, IBAN) always wins; per rule. Recommendation: per rule, as designed in 7.2 and 7.4 (`Exclusive` keeps the source supplier and raises a blocking `SUPPLIER_CONFLICT` on contrary content evidence; `DefaultWhenNoContentMatch` yields to VAT and IBAN), with `RequireSenderAuth` on by default for sender rules.
 2. **Who activates learned layouts, and with which warm-up** (`TenantSettings.LayoutActivation`). This is the "activation policy" referred to in 8.3, 11, 12.6 and 12.10. A layout is always activated under the one condition of 8.3 (identification test passes, field agreement on its replay set); the decision is who may do it and how many documents then still go to review:

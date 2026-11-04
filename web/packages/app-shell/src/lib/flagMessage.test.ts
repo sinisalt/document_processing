@@ -151,6 +151,9 @@ describe("the flag message catalogue", () => {
       "FIELD_INVALID.default",
       "REVISION_OF.default",
       "DELIVERY_FAILED.default",
+      "SUPPLIER_SOURCE_UNVERIFIED.default",
+      "SUPPLIER_AMBIGUOUS.default",
+      "SUPPLIER_CONFLICT.default",
       // The summaries of the per-check flag cap (FlagCap) and the pattern budget (PatternBudget), plural by `count`.
       ...["LOW_CONFIDENCE.capped", "DATE_IMPLAUSIBLE.capped", "FIELD_REQUIRED.capped", "FIELD_INVALID.capped", "FIELD_INVALID.notChecked", "CHECKS_SKIPPED.patternBudget"].flatMap((key) => [`${key}_one`, `${key}_other`]),
     ];

@@ -10,6 +10,8 @@
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <!-- Test PDFs are generated at test time, as in the integration tests (no binary fixtures in the repository). -->
     <PackageReference Include="PDFsharp" />
+    <!-- The GreenMail mailbox of the IMAP poller tests (docs/11 §7.1). -->
+    <PackageReference Include="Testcontainers" />
   </ItemGroup>
   <ItemGroup>
     <!-- A small UBL fixture copied from tests/DocProc.EInvoice.Tests so the structured path runs end to end. -->

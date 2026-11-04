@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DocProc.Api.Auth;
+using DocProc.Application.Configuration;
 using DocProc.Domain.Common;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -31,12 +32,29 @@ public sealed record SupplierResponse(
     /// <summary>The tenant's attributes of the supplier (docs/11 §6.4, <c>{"erpVendorId": "V-10042"}</c>), what output mappings read as <c>supplier.attributes</c>.</summary>
     public IReadOnlyDictionary<string, JsonElement> Attributes { get; init; } = new Dictionary<string, JsonElement>();
 
+    /// <summary>The supplier group whose attributes and settings the supplier inherits (docs/11 §6.4); null for none.</summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>The supplier's own settings (docs/11 §6.4): an object of the members set, every other one inherited.</summary>
+    public JsonElement Settings { get; init; }
+
+    /// <summary>The supplier's attributes per receiving entity (docs/11 §6.4); only on <c>GET /suppliers/{id}</c> and the writes of one supplier, empty in the list.</summary>
+    public IReadOnlyList<SupplierEntityAttributesResponse> EntityAttributes { get; init; } = [];
+
     internal static SupplierResponse From(Supplier s) =>
         new(s.Id, s.Name, s.NormalizedName, s.VatId, s.TaxId, s.Ibans, s.EmailDomains, s.Aliases, s.DefaultCurrency, s.AlwaysReview, s.GlobalSupplierId, s.CreatedAt, s.UpdatedAt)
         {
             Attributes = SupplierEndpoints.AttributesOf(s.AttributesJson),
+            GroupId = s.GroupId,
+            Settings = SupplierConfigSupport.SettingsOf(s.SettingsJson),
         };
 }
+
+/// <summary>A supplier's attributes in one receiving entity (<c>SupplierEntityAttributes</c>, docs/11 §6.4).</summary>
+public sealed record SupplierEntityAttributesResponse(Guid ReceivingEntityId, string? ReceivingEntityCode, IReadOnlyDictionary<string, JsonElement> Attributes, DateTimeOffset UpdatedAt);
+
+/// <summary>The body of <c>PUT /suppliers/{id}/entity-attributes/{entityId}</c>: the attributes, replacing the stored ones.</summary>
+public sealed record SupplierEntityAttributesRequest(IReadOnlyDictionary<string, JsonElement> Attributes);
 
 public sealed record CreateSupplierRequest(
     string Name,
@@ -48,8 +66,14 @@ public sealed record CreateSupplierRequest(
     string? DefaultCurrency,
     bool? AlwaysReview)
 {
-    /// <summary>The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null.</summary>
+    /// <summary>The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null; checked against the tenant's attribute schema when it has one.</summary>
     public IReadOnlyDictionary<string, JsonElement>? Attributes { get; init; }
+
+    /// <summary>The supplier group (docs/11 §6.4; needs <c>sourceRouting</c>).</summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>The supplier's settings (docs/11 §6.4; needs <c>sourceRouting</c>).</summary>
+    public JsonElement? Settings { get; init; }
 }
 
 /// <summary>Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list.</summary>
@@ -65,6 +89,12 @@ public sealed record PatchSupplierRequest(
 {
     /// <summary>The supplier's attributes, replacing the stored ones (an empty object clears them).</summary>
     public IReadOnlyDictionary<string, JsonElement>? Attributes { get; init; }
+
+    /// <summary>The supplier group; the empty id (<c>00000000-0000-0000-0000-000000000000</c>) takes the supplier out of its group (needs <c>sourceRouting</c>).</summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>The supplier's settings, replacing the stored ones (an empty object clears them; needs <c>sourceRouting</c>).</summary>
+    public JsonElement? Settings { get; init; }
 }
 
 /// <summary>One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity").</summary>
@@ -155,14 +185,14 @@ public static partial class SupplierEndpoints
         .WithName("ListSuppliers")
         .WithSummary("Suppliers of the current tenant, by name; q matches the folded name or the exact VAT id.");
 
-        suppliers.MapPost("/", async Task<Results<Created<SupplierResponse>, ValidationProblem, ProblemHttpResult>> (CreateSupplierRequest request, [FromServices] DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        suppliers.MapPost("/", async Task<Results<Created<SupplierResponse>, ValidationProblem, ProblemHttpResult>> (CreateSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Suppliers") is { } problem)
             {
                 return problem;
             }
 
-            var creation = await AddAsync(db, tenant.TenantId!.Value, request, clock.GetUtcNow(), ct);
+            var creation = await AddAsync(db, features, tenant.TenantId!.Value, request, clock.GetUtcNow(), ct);
             if (creation.Invalid is { } invalid)
             {
                 return invalid;
@@ -190,13 +220,13 @@ public static partial class SupplierEndpoints
             }
 
             var supplier = await db.Suppliers.AsNoTracking().SingleOrDefaultAsync(s => s.Id == id, ct);
-            return supplier is null ? TypedResults.NotFound() : TypedResults.Ok(SupplierResponse.From(supplier));
+            return supplier is null ? TypedResults.NotFound() : TypedResults.Ok(await WithEntityAttributesAsync(db, supplier, ct));
         })
         .RequireAuthorization(Policies.Read)
         .WithName("GetSupplier")
         .WithSummary("One supplier of the current tenant.");
 
-        suppliers.MapPatch("/{id:guid}", async Task<Results<Ok<SupplierResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchSupplierRequest request, [FromServices] DocProcDbContext db, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        suppliers.MapPatch("/{id:guid}", async Task<Results<Ok<SupplierResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Suppliers") is { } problem)
             {
@@ -214,6 +244,22 @@ public static partial class SupplierEndpoints
             var errors = new Errors().Optional("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
             ValidateLists(errors, ibans, emailDomains, aliases);
             ValidateAttributes(errors, request.Attributes);
+            if (errors.Count == 0)
+            {
+                await SupplierConfigSupport.ValidateAgainstSchemaAsync(db, errors, request.Attributes, checkRequired: true, ct);
+            }
+
+            if ((request.GroupId is not null || request.Settings is not null) && !await features.IsEnabledAsync(tenant.TenantId!.Value, TenantFeature.SourceRouting, ct))
+            {
+                return SupplierConfigSupport.FeatureOff();
+            }
+
+            var settings = request.Settings is { } settingsElement ? SupplierConfigSupport.ReadSettings(errors, settingsElement) : null;
+            if (request.GroupId is { } groupId && groupId != Guid.Empty && !await db.SupplierGroups.AnyAsync(g => g.Id == groupId, ct))
+            {
+                errors.Add("groupId", $"No supplier group {groupId} in this tenant.");
+            }
+
             string? normalizedName = null;
             if (request.Name is not null)
             {
@@ -287,9 +333,19 @@ public static partial class SupplierEndpoints
                 supplier.AttributesJson = AttributesJson(request.Attributes);
             }
 
+            if (request.GroupId is { } group)
+            {
+                supplier.GroupId = group == Guid.Empty ? null : group;
+            }
+
+            if (settings is not null)
+            {
+                supplier.SettingsJson = settings.ToJson();
+            }
+
             supplier.UpdatedAt = clock.GetUtcNow();
             await db.SaveChangesAsync(ct);
-            return TypedResults.Ok(SupplierResponse.From(supplier));
+            return TypedResults.Ok(await WithEntityAttributesAsync(db, supplier, ct));
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithMetadata(new RequestSizeLimitAttribute(MaxRequestBytes))
@@ -327,6 +383,11 @@ public static partial class SupplierEndpoints
                 return Conflict("Supplier in use", "Output bindings are scoped to this supplier; change or delete them first.");
             }
 
+            if (await db.IngestionChannels.AnyAsync(c => c.DefaultSupplierId == id, ct))
+            {
+                return Conflict("Supplier in use", "A channel names this supplier as its default; change the channel first.");
+            }
+
             var current = await CurrentTenantAsync(db, ct);
             if (current is not null && current.Settings.AlwaysReviewSupplierIds.Remove(id))
             {
@@ -339,7 +400,7 @@ public static partial class SupplierEndpoints
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("DeleteSupplier")
-        .WithSummary("Deletes a supplier no document, extractor profile or output binding references; otherwise 409.");
+        .WithSummary("Deletes a supplier no document, extractor profile, output binding or channel default references, with its source rules and entity attributes; otherwise 409.");
 
         suppliers.MapGet("/{id:guid}/activity", async Task<Results<Ok<IReadOnlyList<SupplierActivityItem>>, NotFound, ProblemHttpResult>> (Guid id, [FromServices] DocProcDbContext db, ITenantContext tenant, CancellationToken ct) =>
         {
@@ -380,11 +441,26 @@ public static partial class SupplierEndpoints
     /// from review (<c>POST /documents/{id}:create-supplier</c>) checks exactly what the supplier list does and saves the
     /// supplier with its assignment in one go. The context's scope is the tenant's (the duplicate check reads it).
     /// </summary>
-    internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct)
+    internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, ITenantFeatures features, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct)
     {
+        if ((request.GroupId is not null || request.Settings is not null) && !await features.IsEnabledAsync(tenantId, TenantFeature.SourceRouting, ct))
+        {
+            return new SupplierCreation(null, null, SupplierConfigSupport.FeatureOff());
+        }
+
         var errors = new Errors().Require("name", request.Name, MaxNameLength).Optional("vatId", request.VatId, 32).Optional("taxId", request.TaxId, 32);
         ValidateLists(errors, request.Ibans, request.EmailDomains, request.Aliases);
         ValidateAttributes(errors, request.Attributes);
+        if (errors.Count == 0)
+        {
+            await SupplierConfigSupport.ValidateAgainstSchemaAsync(db, errors, request.Attributes, checkRequired: true, ct);
+        }
+
+        var settings = request.Settings is { } settingsElement ? SupplierConfigSupport.ReadSettings(errors, settingsElement) : null;
+        if (request.GroupId is { } groupId && !await db.SupplierGroups.AnyAsync(g => g.Id == groupId, ct))
+        {
+            errors.Add("groupId", $"No supplier group {groupId} in this tenant.");
+        }
         if (request.DefaultCurrency is not null && !IsCurrency(request.DefaultCurrency))
         {
             errors.Add("defaultCurrency", "Currency must be a three-letter upper-case ISO 4217 code.", ValidationCodes.CurrencyCode);
@@ -425,6 +501,8 @@ public static partial class SupplierEndpoints
             DefaultCurrency = request.DefaultCurrency,
             AlwaysReview = request.AlwaysReview ?? false,
             AttributesJson = request.Attributes is null ? null : AttributesJson(request.Attributes),
+            GroupId = request.GroupId,
+            SettingsJson = settings?.ToJson(),
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -440,6 +518,19 @@ public static partial class SupplierEndpoints
 
     /// <inheritdoc cref="MaxAttributes"/>
     public const int MaxAttributeValueLength = 400;
+
+    /// <summary>The supplier with its attributes per receiving entity, for the responses about one supplier.</summary>
+    internal static async Task<SupplierResponse> WithEntityAttributesAsync(DocProcDbContext db, Supplier supplier, CancellationToken ct)
+    {
+        var rows = await db.SupplierEntityAttributes.AsNoTracking()
+            .Where(a => a.SupplierId == supplier.Id)
+            .Select(a => new { a.ReceivingEntityId, Code = a.ReceivingEntity!.Code, a.AttributesJson, a.UpdatedAt })
+            .ToListAsync(ct);
+        return SupplierResponse.From(supplier) with
+        {
+            EntityAttributes = [.. rows.OrderBy(r => r.Code, StringComparer.Ordinal).Select(r => new SupplierEntityAttributesResponse(r.ReceivingEntityId, r.Code, AttributesOf(r.AttributesJson), r.UpdatedAt))],
+        };
+    }
 
     /// <summary>The stored attributes as the API shows them (none for a supplier without, or with a value that does not parse).</summary>
     internal static IReadOnlyDictionary<string, JsonElement> AttributesOf(string? json)
@@ -463,11 +554,11 @@ public static partial class SupplierEndpoints
     }
 
     /// <summary>The attributes as stored: a JSON object, or null for none.</summary>
-    private static string? AttributesJson(IReadOnlyDictionary<string, JsonElement> attributes) =>
+    internal static string? AttributesJson(IReadOnlyDictionary<string, JsonElement> attributes) =>
         attributes.Count == 0 ? null : JsonSerializer.Serialize(attributes.ToDictionary(p => p.Key.Trim(), p => p.Value, StringComparer.Ordinal));
 
     /// <summary>At most <see cref="MaxAttributes"/> keys (a letter, then letters, digits, <c>_</c>, <c>-</c> or <c>.</c>), each a scalar.</summary>
-    private static void ValidateAttributes(Errors errors, IReadOnlyDictionary<string, JsonElement>? attributes)
+    internal static void ValidateAttributes(Errors errors, IReadOnlyDictionary<string, JsonElement>? attributes)
     {
         if (attributes is null)
         {

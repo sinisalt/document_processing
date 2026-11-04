@@ -32,6 +32,9 @@ export const flagCodes = [
   "REVISION_OF",
   "CHECKS_SKIPPED",
   "DELIVERY_FAILED",
+  "SUPPLIER_SOURCE_UNVERIFIED",
+  "SUPPLIER_AMBIGUOUS",
+  "SUPPLIER_CONFLICT",
 ] as const;
 
 /** What the queue offers on a task, by the API's rules (ReviewTaskEndpoints). */

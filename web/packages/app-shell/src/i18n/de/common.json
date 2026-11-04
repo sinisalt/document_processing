@@ -260,6 +260,15 @@
     },
     "DELIVERY_FAILED": {
       "default": "Die Zustellung an {{destination}} ist endgültig fehlgeschlagen: {{error}}. Ein Integrations-Admin kann sie erneut senden."
+    },
+    "SUPPLIER_SOURCE_UNVERIFIED": {
+      "default": "Eine Quellregel für einen anderen Lieferanten hätte gegriffen, aber der Absender {{sender}} ist nicht authentifiziert (DMARC); die Regel wurde übersprungen."
+    },
+    "SUPPLIER_AMBIGUOUS": {
+      "default": "Quellregeln mehrerer Lieferanten passen gleich gut auf dieses Dokument; es wurde kein Lieferant zugeordnet."
+    },
+    "SUPPLIER_CONFLICT": {
+      "default": "Der Inhalt des Dokuments ({{evidence}}) nennt {{contentSupplierName}}, die Quelle aber {{sourceSupplierName}}; der Lieferant der Quelle bleibt, bis die Prüfung entscheidet."
     }
   },
   "apiErrors": {

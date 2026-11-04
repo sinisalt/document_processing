@@ -61,7 +61,10 @@
     "RULE_FAILED": "Regel verletzt",
     "REVISION_OF": "Neufassung eines früheren Dokuments",
     "CHECKS_SKIPPED": "Prüfungen übersprungen",
-    "DELIVERY_FAILED": "Zustellung fehlgeschlagen"
+    "DELIVERY_FAILED": "Zustellung fehlgeschlagen",
+    "SUPPLIER_SOURCE_UNVERIFIED": "Absender nicht authentifiziert",
+    "SUPPLIER_AMBIGUOUS": "Lieferant mehrdeutig",
+    "SUPPLIER_CONFLICT": "Lieferantenkonflikt"
   },
   "stages": {
     "Normalize": "Normalisieren",

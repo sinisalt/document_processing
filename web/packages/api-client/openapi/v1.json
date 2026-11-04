@@ -47,6 +47,47 @@
         }
       }
     },
+    "/api/v1/routing:test": {
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Dry-runs the tenant's source rules against a source (channel, sender, recipients, mailbox, folder, subject, file name, sender authentication) and explains the result: winner, runners-up, conflicts and the type (docs/11 §18).",
+        "operationId": "TestRouting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/document-templates": {
       "get": {
         "tags": [
@@ -2006,7 +2047,7 @@
         "tags": [
           "Suppliers"
         ],
-        "summary": "Deletes a supplier no document, extractor profile or output binding references; otherwise 409.",
+        "summary": "Deletes a supplier no document, extractor profile, output binding or channel default references, with its source rules and entity attributes; otherwise 409.",
         "operationId": "DeleteSupplier",
         "parameters": [
           {
@@ -2063,6 +2104,687 @@
           },
           "404": {
             "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/supplier-groups": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The tenant's supplier groups, by name, with their member count.",
+        "operationId": "ListSupplierGroups",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SupplierGroupResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Creates a supplier group whose attributes and settings its members inherit (docs/11 §6.4).",
+        "operationId": "CreateSupplierGroup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSupplierGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierGroupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supplier-groups/{id}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One supplier group.",
+        "operationId": "GetSupplierGroup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierGroupResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Renames a supplier group or replaces its attributes or settings.",
+        "operationId": "UpdateSupplierGroup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchSupplierGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierGroupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Deletes a supplier group without members (409 otherwise).",
+        "operationId": "DeleteSupplierGroup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/receiving-entities": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The tenant's receiving entities (its own companies and branches), by code.",
+        "operationId": "ListReceivingEntities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReceivingEntityResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Creates a receiving entity: a code unique in the tenant, a name, VAT ids, addresses and attributes (docs/11 §6.4).",
+        "operationId": "CreateReceivingEntity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceivingEntityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingEntityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/receiving-entities/{id}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One receiving entity.",
+        "operationId": "GetReceivingEntity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingEntityResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Changes a receiving entity.",
+        "operationId": "UpdateReceivingEntity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchReceivingEntityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivingEntityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Deletes a receiving entity no document, source rule, channel or supplier attribute names (409 otherwise).",
+        "operationId": "DeleteReceivingEntity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{supplierId}/entity-attributes": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The supplier's attributes per receiving entity.",
+        "operationId": "ListSupplierEntityAttributes",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SupplierEntityAttributesResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{supplierId}/entity-attributes/{entityId}": {
+      "put": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Sets the supplier's attributes in one receiving entity (the vendor number in company 1000); the values view merges them over the supplier's.",
+        "operationId": "PutSupplierEntityAttributes",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierEntityAttributesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierEntityAttributesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Removes the supplier's attributes in one receiving entity.",
+        "operationId": "DeleteSupplierEntityAttributes",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{supplierId}/source-rules": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The supplier's source rules (docs/11 §6.5), by priority, then oldest first.",
+        "operationId": "ListSourceRules",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceRuleResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Adds a source rule: conditions on the channel, recipient, sender, sender domain, folder, subject and file name that route a document to the supplier, with its mode, sender authentication, priority, pinned type and receiving entity.",
+        "operationId": "CreateSourceRule",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers/{supplierId}/source-rules/{ruleId}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One source rule of the supplier.",
+        "operationId": "GetSourceRule",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Replaces a source rule (the body of POST); it routes new ingestions from then on.",
+        "operationId": "ReplaceSourceRule",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Deletes a source rule; the documents it routed keep their supplier and name it in their timeline.",
+        "operationId": "DeleteSourceRule",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -4608,6 +5330,39 @@
           }
         }
       },
+      "AssignSupplierRemember": {
+        "required": [
+          "conditions"
+        ],
+        "type": "object",
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pinType": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "requireSenderAuth": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "Remember the assignment as a source rule (docs/11 §12.1): IReadOnlyList&lt;string&gt; AssignSupplierRemember.Conditions names the facts of the document's\ningestion the rule matches on, any of `sender`, `senderDomain`, `recipient` (the mailbox, else the\nfirst recipient), `folder` (the folder path within its channel) and `channel`; string? AssignSupplierRemember.Mode is\n`Exclusive` (the default) or `DefaultWhenNoContentMatch`; bool? AssignSupplierRemember.PinType also pins the document's type.\nA reviewer's rule is saved disabled, a proposal a config admin enables; a config admin's is enabled at once."
+      },
       "AssignSupplierRequest": {
         "required": [
           "supplierId"
@@ -4617,9 +5372,19 @@
           "supplierId": {
             "type": "string",
             "format": "uuid"
+          },
+          "remember": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssignSupplierRemember"
+              }
+            ]
           }
         },
-        "description": "`POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant."
+        "description": "`POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant, and optionally\nAssignSupplierRemember? AssignSupplierRequest.Remember: a source rule made from the document's own source (docs/11 §18, needs `sourceRouting`)."
       },
       "ChangeMemberRoleRequest": {
         "required": [
@@ -4681,6 +5446,36 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "defaultSupplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The supplier of a document no source rule claims (docs/11 §7.2 step 4).",
+            "format": "uuid"
+          },
+          "defaultDocumentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type of a document no source rule pins (`TypeSource=Supplier`)."
+          },
+          "defaultReceivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The receiving entity of a document no source rule names.",
+            "format": "uuid"
+          },
+          "sourceKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "What a polling channel reads, normalised (`imap:platform/invoices@tenant-a.local/inbox`); null for upload channels and invalid configs."
           }
         },
         "description": "bool ChannelResponse.HasSecret is all a client learns about the credential; the reference itself stays server-side."
@@ -4821,6 +5616,29 @@
               "null",
               "string"
             ]
+          },
+          "defaultSupplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The channel's default supplier (docs/11 §7.2; needs `sourceRouting`).",
+            "format": "uuid"
+          },
+          "defaultDocumentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The channel's default type (needs `sourceRouting`)."
+          },
+          "defaultReceivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The channel's default receiving entity (needs `sourceRouting`).",
+            "format": "uuid"
           }
         },
         "description": "JsonElement? CreateChannelRequest.Config is the type-specific settings object (mailbox address, folder path), at most 16 KB.\nstring? CreateChannelRequest.Secret is write-only: the mailbox password or token goes to the secret store under a reference the\nserver generates; the response only ever says whether one exists."
@@ -5173,6 +5991,57 @@
         },
         "description": "`POST /output-mappings`: OutputMappingSource? CreateOutputMappingRequest.From copies a platform template (under string? CreateOutputMappingRequest.Key, or the\ntemplate's key), or a mapping of the tenant's own from string? CreateOutputMappingRequest.Key, string? CreateOutputMappingRequest.Name and an optional first\ndraft (string? CreateOutputMappingRequest.Engine, string? CreateOutputMappingRequest.Expression, JsonElement? CreateOutputMappingRequest.TargetSchema). Either way version 1 is a draft."
       },
+      "CreateReceivingEntityRequest": {
+        "required": [
+          "code",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "vatIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "addresses": { },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        },
+        "description": "The body of `POST /receiving-entities`."
+      },
+      "CreateSupplierGroupRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "settings": { }
+        },
+        "description": "The body of `POST /supplier-groups`."
+      },
       "CreateSupplierRequest": {
         "required": [
           "name",
@@ -5245,7 +6114,26 @@
               "null",
               "object"
             ],
-            "description": "The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null."
+            "description": "The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null; checked against the tenant's attribute schema when it has one."
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The supplier group (docs/11 §6.4; needs `sourceRouting`).",
+            "format": "uuid"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "The supplier's settings (docs/11 §6.4; needs `sourceRouting`).",
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
           }
         }
       },
@@ -6089,6 +6977,32 @@
                 "$ref": "#/components/schemas/SupplierMatchMethod"
               }
             ]
+          },
+          "supplierMatchConfidence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "How sure the supplier match is (docs/11 §7.2: 0.99 for an Exclusive source rule, 0.7 for a default; 1.0 when a reviewer assigned it).",
+            "format": "double"
+          },
+          "supplierSourceRuleId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The source rule that routed the document to its supplier (`SupplierMatchMethod` `SourceRule`, docs/11 §7.2).",
+            "format": "uuid"
+          },
+          "receivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.",
+            "format": "uuid"
           },
           "joinedIntoDocumentId": {
             "type": [
@@ -8974,9 +9888,29 @@
               "null",
               "string"
             ]
+          },
+          "defaultSupplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "defaultDocumentTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultReceivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         },
-        "description": "Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it."
+        "description": "Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential,\nset to an empty string removes it. The defaults (needs `sourceRouting`) are cleared with the empty id or an empty\ntype key."
       },
       "PatchDestinationRequest": {
         "required": [
@@ -9213,6 +10147,59 @@
         },
         "description": "Every field optional; an empty string? PatchOutputMappingRequest.SourceTypeKey clears it (any type). string? PatchOutputMappingRequest.Status is Active or Archived."
       },
+      "PatchReceivingEntityRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vatIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "addresses": { },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        },
+        "description": "The body of `PATCH /receiving-entities/{id}`: every member optional; lists and attributes replace the stored ones."
+      },
+      "PatchSupplierGroupRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attributes": {
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "settings": { }
+        },
+        "description": "The body of `PATCH /supplier-groups/{id}`: every member optional; attributes and settings replace the stored ones."
+      },
       "PatchSupplierRequest": {
         "required": [
           "name",
@@ -9289,6 +10276,25 @@
               "object"
             ],
             "description": "The supplier's attributes, replacing the stored ones (an empty object clears them)."
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The supplier group; the empty id (`00000000-0000-0000-0000-000000000000`) takes the supplier out of its group (needs `sourceRouting`).",
+            "format": "uuid"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "The supplier's settings, replacing the stored ones (an empty object clears them; needs `sourceRouting`).",
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
           }
         },
         "description": "Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list."
@@ -9699,6 +10705,59 @@
         },
         "description": "What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row\nused (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there\nwere more), with `write` the document as stored after the write, and the locale the values were read in\n(`de-DE`: the request's, or the tenant country's)."
       },
+      "ReceivingEntityResponse": {
+        "required": [
+          "id",
+          "code",
+          "name",
+          "vatIds",
+          "addresses",
+          "attributes",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "vatIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "addresses": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "attributes": {
+            "type": "object"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A receiving entity (docs/11 §6.4): one of the tenant's own companies or branches."
+      },
       "RedeliverRequest": {
         "required": [
           "mode",
@@ -9886,6 +10945,293 @@
           "Skipped"
         ]
       },
+      "RoutingTestCandidate": {
+        "required": [
+          "ruleId",
+          "supplierId",
+          "supplierName",
+          "matched",
+          "unverified",
+          "specificity",
+          "priority",
+          "mode",
+          "held",
+          "failed",
+          "describe"
+        ],
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "unverified": {
+            "type": "boolean"
+          },
+          "specificity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "held": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "describe": {
+            "type": "string"
+          }
+        },
+        "description": "How one rule fared in a routing test."
+      },
+      "RoutingTestRequest": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sender": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "recipients": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "mailbox": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folderPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "subject": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "senderAuth": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingTestSenderAuth"
+              }
+            ]
+          }
+        },
+        "description": "The source facts of `POST /routing:test` (docs/11 §18): what an ingestion would carry."
+      },
+      "RoutingTestResponse": {
+        "required": [
+          "supplierId",
+          "supplierName",
+          "method",
+          "ruleId",
+          "mode",
+          "confidence",
+          "pinTypeKey",
+          "pinTypeFrom",
+          "receivingEntityId",
+          "ambiguous",
+          "ambiguousSupplierIds",
+          "senderVerified",
+          "unverifiedRuleIds",
+          "flags",
+          "candidates",
+          "explanation"
+        ],
+        "type": "object",
+        "properties": {
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "supplierName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "method": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ruleId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confidence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "pinTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pinTypeFrom": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "receivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "ambiguous": {
+            "type": "boolean"
+          },
+          "ambiguousSupplierIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "senderVerified": {
+            "type": "boolean"
+          },
+          "unverifiedRuleIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoutingTestCandidate"
+            }
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "description": "The answer of `POST /routing:test`: the supplier and how it was found (`sourceRule`, `channelDefault`),\nthe winning rule, its mode and confidence, the type and entity the source decides, whether the top candidates tie\n(`ambiguous`, no supplier), the rules skipped for an unauthenticated sender that would have won\n(`SUPPLIER_SOURCE_UNVERIFIED`), every rule looked at with the conditions that held and failed, and a sentence."
+      },
+      "RoutingTestSenderAuth": {
+        "type": "object",
+        "properties": {
+          "spf": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dkim": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dmarc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dkimDomains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The sender authentication a routing test assumes: the SPF, DKIM and DMARC results and the DKIM signing domains."
+      },
       "SaveOutputMappingDraftRequest": {
         "required": [
           "engine",
@@ -10023,6 +11369,225 @@
           }
         },
         "description": "An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes."
+      },
+      "SourceRuleRequest": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "recipient": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sender": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "senderDomain": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folderPrefix": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "subjectRegex": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileNameRegex": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "requireSenderAuth": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pinTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "receivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "The body of `POST` and `PUT /suppliers/{id}/source-rules` (docs/11 §6.5): the conditions, all of which must\nhold (at least one of `channelId`, `recipient`, `sender` and `senderDomain`; a\n`folderPrefix` needs its `channelId`), and what the rule decides. `mode` is `Exclusive` (the\ndefault) or `DefaultWhenNoContentMatch`; `requireSenderAuth` defaults to true for a sender rule (decision\n1 of docs/11 §24), or to the supplier's `settings.requireSenderAuth`."
+      },
+      "SourceRuleResponse": {
+        "required": [
+          "id",
+          "supplierId",
+          "channelId",
+          "recipient",
+          "sender",
+          "senderDomain",
+          "folderPrefix",
+          "subjectRegex",
+          "fileNameRegex",
+          "mode",
+          "requireSenderAuth",
+          "priority",
+          "pinTypeKey",
+          "receivingEntityId",
+          "enabled",
+          "createdFromDocumentId",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "describe"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "recipient": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sender": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "senderDomain": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folderPrefix": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "subjectRegex": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileNameRegex": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mode": {
+            "type": "string"
+          },
+          "requireSenderAuth": {
+            "type": "boolean"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pinTypeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "receivingEntityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdFromDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "describe": {
+            "type": "string"
+          }
+        },
+        "description": "A supplier source rule (docs/11 §6.5) with its conditions in their normalised form and a sentence describing it."
       },
       "SplitDocumentRequest": {
         "required": [
@@ -10173,6 +11738,47 @@
         },
         "description": "One recent document of a supplier, for the supplier activity view (docs/05 \"Suppliers: ... activity\")."
       },
+      "SupplierEntityAttributesRequest": {
+        "required": [
+          "attributes"
+        ],
+        "type": "object",
+        "properties": {
+          "attributes": {
+            "type": "object"
+          }
+        },
+        "description": "The body of `PUT /suppliers/{id}/entity-attributes/{entityId}`: the attributes, replacing the stored ones."
+      },
+      "SupplierEntityAttributesResponse": {
+        "required": [
+          "receivingEntityId",
+          "receivingEntityCode",
+          "attributes",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "receivingEntityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receivingEntityCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attributes": {
+            "type": "object"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A supplier's attributes in one receiving entity (`SupplierEntityAttributes`, docs/11 §6.4)."
+      },
       "SupplierFromReviewResponse": {
         "required": [
           "supplier",
@@ -10189,6 +11795,50 @@
         },
         "description": "What `POST /documents/{id}:create-supplier` answers: the new supplier and the document it was assigned to."
       },
+      "SupplierGroupResponse": {
+        "required": [
+          "id",
+          "name",
+          "attributes",
+          "settings",
+          "supplierCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "supplierCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A supplier group (docs/11 §6.4) with the number of its members."
+      },
       "SupplierMatchMethod": {
         "enum": [
           "Vat",
@@ -10196,6 +11846,9 @@
           "Domain",
           "Name",
           "Human",
+          "SourceRule",
+          "ChannelDefault",
+          "Hint",
           null
         ]
       },
@@ -10284,6 +11937,25 @@
           "attributes": {
             "type": "object",
             "description": "The tenant's attributes of the supplier (docs/11 §6.4, `{\"erpVendorId\": \"V-10042\"}`), what output mappings read as `supplier.attributes`."
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The supplier group whose attributes and settings the supplier inherits (docs/11 §6.4); null for none.",
+            "format": "uuid"
+          },
+          "settings": {
+            "description": "The supplier's own settings (docs/11 §6.4): an object of the members set, every other one inherited.",
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "entityAttributes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierEntityAttributesResponse"
+            },
+            "description": "The supplier's attributes per receiving entity (docs/11 §6.4); only on `GET /suppliers/{id}` and the writes of one supplier, empty in the list."
           }
         }
       },
@@ -11047,9 +12719,25 @@
                 "$ref": "#/components/schemas/TenantFeaturesDto"
               }
             ]
+          },
+          "supplierAttributeSchema": { },
+          "layoutsRequiredByDefault": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "trustedForwarderDomains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "description": "Review policy, retention and the feature switches (docs/02 §1 \"settings\", docs/11 §18 \"Settings\"); the body of PUT\nand the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are."
+        "description": "Review policy, retention and the feature switches (docs/02 §1 \"settings\", docs/11 §18 \"Settings\"); the body of PUT\nand the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.\nThe supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs\n`sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`\nremoves it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)\nand IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant)."
       },
       "TenantSettingsResponse": {
         "required": [
@@ -11111,6 +12799,9 @@
       "name": "DocProc.Api"
     },
     {
+      "name": "Suppliers"
+    },
+    {
       "name": "Document types"
     },
     {
@@ -11133,9 +12824,6 @@
     },
     {
       "name": "Tenants"
-    },
-    {
-      "name": "Suppliers"
     },
     {
       "name": "Channels"

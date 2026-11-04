@@ -82,6 +82,8 @@ var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
     .WithEnvironment("Secrets__Path", secretsPath)
     .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086") // mock-erp over http (docs/11 §13.3, Development only)
+    // The worker polls the mailboxes and watched folders (docs/11 §7.1); one host is enough.
+    .WithEnvironment("Intake__PollersEnabled", "false")
     .WithHttpHealthCheck("/health/ready")
     .WithExternalHttpEndpoints();
 
@@ -95,6 +97,9 @@ builder.AddProject<Projects.DocProc_Worker>("worker")
     .WithEnvironment("Secrets__Path", secretsPath)
     .WithEnvironment("Mail__ImapHost", mail.GetEndpoint("imap").Property(EndpointProperty.Host))
     .WithEnvironment("Mail__ImapPort", mail.GetEndpoint("imap").Property(EndpointProperty.Port))
+    .WithEnvironment("Mail__ImapSecurity", "None") // GreenMail speaks plain IMAP
+    // The drop zone of the watched-folder channels: ./fixtures/dropzone/{tenant slug}/... (docs/11 §7.1).
+    .WithEnvironment("Intake__FolderRoot", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "fixtures", "dropzone")))
     .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086")
     .WaitFor(api); // the API applies migrations first
 

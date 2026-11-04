@@ -1,10 +1,12 @@
 using System.IO.Compression;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Intake;
+using DocProc.Pipeline.Routing;
 using DocProc.Pipeline.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -29,6 +31,8 @@ internal sealed class IngestHandler(
     PipelineBlobs blobs,
     IPipelineQueue queue,
     DocumentTimeline timeline,
+    SourceRouting routing,
+    ITenantFeatures features,
     IOptions<PipelineOptions> options,
     ILogger<IngestHandler> logger) : IIngestionHandler
 {
@@ -197,6 +201,10 @@ internal sealed class IngestHandler(
         var acceptedByHash = new Dictionary<string, Guid>(StringComparer.Ordinal);
         var accepted = new List<AcceptedItem>();
 
+        // docs/11 §7.2: documents are created with the supplier (and a pinned type) the source rules give; a tenant
+        // without sourceRouting ingests exactly as before.
+        var route = await features.IsEnabledAsync(ingestion.TenantId, TenantFeature.SourceRouting, cancellationToken).ConfigureAwait(false);
+
         foreach (var item in items.Where(i => i.Disposition == ItemDisposition.Candidate).OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).ToList())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -238,7 +246,10 @@ internal sealed class IngestHandler(
                 kind = item.Kind,
                 sizeBytes = item.SizeBytes,
             });
-            accepted.Add(new AcceptedItem(item, document, received));
+            IReadOnlyList<object> routed = route
+                ? await routing.ApplyAsync(ingestion, item, document, cancellationToken).ConfigureAwait(false)
+                : [];
+            accepted.Add(new AcceptedItem(item, document, received, routed));
         }
 
         return accepted;
@@ -305,6 +316,12 @@ internal sealed class IngestHandler(
 
             // Both are still Added: removing them detaches them, so the next commit inserts neither.
             db.DocumentEvents.Remove(entry.Received);
+            foreach (var added in entry.Routed)
+            {
+                db.Remove(added);
+            }
+
+            entry.Item.RouteJson = null;
             db.Documents.Remove(entry.Document);
             accepted.Remove(entry);
             relinked++;
@@ -581,7 +598,7 @@ internal sealed class IngestHandler(
         : $"the ingestion's limit of {ratioAllowance} unpacked bytes ({_options.MaxArchiveCompressionRatio} times the archive bytes uploaded) is reached";
 
     /// <summary>An item that owns a document after the decision, with the rows the attempt created for it.</summary>
-    private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received);
+    private sealed record AcceptedItem(IngestionItem Item, Document Document, DocumentEvent Received, IReadOnlyList<object> Routed);
 
     /// <summary>
     /// What is left of an ingestion's unpack budget (<see cref="PipelineOptions.MaxUnpackedBytesPerIngestion"/>,

@@ -53,7 +53,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task The_P1_P2_and_P3_migrations_migrate_down_and_up_again()
+    public async Task The_P1_to_P4_migrations_migrate_down_and_up_again()
     {
         // Their Down methods drop columns of the temporal Documents table, which turns system versioning off; SQL
         // Server refuses that while the schema-bound policy names the table, so the old policy comes back last.
@@ -102,6 +102,70 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 seeding.ApiKeys.Add(new ApiKey { Id = feedOnly, TenantId = TenantA, Name = "feed", Prefix = "feed0000", Hash = new string('f', 64), Scopes = [ApiKeyScope.DeliveriesRead], DestinationId = seeded.DestinationId, CreatedAt = DateTimeOffset.UtcNow });
                 await seeding.SaveChangesAsync(ct);
             }
+
+            // P4 part A first, with one of everything it writes: a supplier group, a receiving entity, the supplier's
+            // settings, group and entity attributes, a source rule, a channel default and source key, the source facts
+            // of an ingestion and its item's route, a routed document with a pinned type and its SUPPLIER_CONFLICT.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var group = new SupplierGroup { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "Nordwind-Gruppe", AttributesJson = """{"erpGroup":"NW"}""", SettingsJson = """{"requireSenderAuth":true}""", CreatedAt = now, UpdatedAt = now };
+                var entity = new ReceivingEntity { Id = Guid.CreateVersion7(), TenantId = TenantA, Code = "1000", Name = "Acme Gastro GmbH", VatIds = ["DE123456789"], AttributesJson = """{"companyCode":"1000"}""", CreatedAt = now, UpdatedAt = now };
+                seeding.SupplierGroups.Add(group);
+                seeding.ReceivingEntities.Add(entity);
+                await seeding.SaveChangesAsync(ct);
+                var supplier = await seeding.Suppliers.SingleAsync(s => s.Name == "Nordwind", ct);
+                supplier.GroupId = group.Id;
+                supplier.SettingsJson = """{"allowedTypeKeys":["Invoice"],"layouts":{"required":"true"}}""";
+                seeding.SupplierEntityAttributes.Add(new SupplierEntityAttributes { TenantId = TenantA, SupplierId = supplier.Id, ReceivingEntityId = entity.Id, AttributesJson = """{"erpVendorId":"V-1000-1"}""", UpdatedAt = now });
+                var channel = await seeding.IngestionChannels.FirstAsync(ct);
+                channel.DefaultSupplierId = supplier.Id;
+                channel.DefaultReceivingEntityId = entity.Id;
+                channel.SourceKey = "imap:platform/invoices@tenant-a.local/inbox";
+                var rule = new SupplierSourceRule { Id = Guid.CreateVersion7(), TenantId = TenantA, SupplierId = supplier.Id, ChannelId = channel.Id, FolderPrefix = "lieferanten/nordwind/", PinTypeKey = "Invoice", ReceivingEntityId = entity.Id, ConditionHash = new string('c', 64), CreatedBy = "test", CreatedAt = now, UpdatedAt = now };
+                seeding.SupplierSourceRules.Add(rule);
+                var ingestion = await seeding.Ingestions.FirstAsync(ct);
+                ingestion.SourceMailbox = "invoices@tenant-a.local";
+                ingestion.SourceFolderPath = "lieferanten/nordwind/";
+                ingestion.SourceRecipientsJson = """["nordwind@tenant-a.local"]""";
+                ingestion.SenderAuthJson = """{"dmarc":"pass"}""";
+                ingestion.SourceMessageId = "imap:1:1";
+                (await seeding.IngestionItems.FirstAsync(ct)).RouteJson = $$"""{"ruleId":"{{rule.Id}}"}""";
+                var document = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                document.SupplierId = supplier.Id;
+                document.SupplierMatchMethod = SupplierMatchMethod.SourceRule;
+                document.SupplierSourceRuleId = rule.Id;
+                document.ReceivingEntityId = entity.Id;
+                document.TypeSource = TypeSource.Supplier;
+                seeding.DocumentFlags.Add(DocumentFlagRecord.FromDomain(TenantA, target, Domain.Flags.FlagCodes.Create(Domain.Flags.FlagCodes.SupplierConflict, "conflict"), now));
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261103221330_DeliveryFeedAndRedelivery", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261103221330_DeliveryFeedAndRedelivery");
+            foreach (var table in new[] { "SupplierGroups", "ReceivingEntities", "SupplierEntityAttributes", "SupplierSourceRules" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var (table, column) in new[] { ("Documents", "SupplierSourceRuleId"), ("Documents", "ReceivingEntityId"), ("DocumentsHistory", "ReceivingEntityId"), ("Suppliers", "GroupId"), ("Suppliers", "SettingsJson"), ("IngestionChannels", "SourceKey"), ("IngestionChannels", "DefaultSupplierId"), ("Ingestions", "SourceMailbox"), ("Ingestions", "SenderAuthJson"), ("IngestionItems", "RouteJson") })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = {column}").SingleAsync(ct)).ShouldBe(0, $"{table}.{column}");
+            }
+
+            // The build before P4 has no Supplier type source and no source match methods: a pinned type reads as a
+            // rule's, and the method of a routed supplier as unknown (the supplier stays), in the table and its history.
+            (await platform.Database.SqlQuery<string>($"SELECT [TypeSource] AS [Value] FROM dbo.Documents WHERE Id = {target}").SingleAsync(ct)).ShouldBe(nameof(TypeSource.Rule));
+            (await platform.Database.SqlQuery<string?>($"SELECT [SupplierMatchMethod] AS [Value] FROM dbo.Documents WHERE Id = {target}").SingleAsync(ct)).ShouldBeNull();
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Documents FOR SYSTEM_TIME ALL WHERE [TypeSource] = N'Supplier' OR [SupplierMatchMethod] IN (N'SourceRule', N'ChannelDefault', N'Hint')").SingleAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Documents WHERE Id = {target} AND SupplierId IS NOT NULL").SingleAsync(ct)).ShouldBe(1, "the supplier stays");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM dbo.Suppliers WHERE [Name] = N'Nordwind'").SingleAsync(ct)).ShouldBe(1, "the supplier stays");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            (await platform.Database.SqlQuery<int>($"SELECT CAST(temporal_type AS int) AS [Value] FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.Documents')").SingleAsync(ct)).ShouldBe(2, "system versioning is on again");
+            await platform.Database.MigrateAsync(ct);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID(N'dbo.SupplierSourceRules')").SingleAsync(ct)).ShouldBe(3);
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).SupplierSourceRuleId.ShouldBeNull("up again, the column is new");
+            await migrator.MigrateAsync("20261103221330_DeliveryFeedAndRedelivery", ct);
 
             // P3 part B first: its columns go; deliveries:read is a scope the build before reads as a nameless number,
             // so it leaves every key, and the key that had nothing else is revoked; everything else stays.

@@ -293,7 +293,6 @@ public sealed class RowLevelSecuritySqlTests
             statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV6)]);
         }
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV7);
         RowLevelSecurity.PolicyV7.StrictTables.Except(RowLevelSecurity.PolicyV6.StrictTables).Select(t => t.Table)
             .ShouldBe(["OutputDestinations", "OutputBindings", "OutboxDeliveries", "DeliveryAttempts", "DocumentExternalRefs"], ignoreOrder: true);
         RowLevelSecurity.PolicyV7.PlatformRowTables.Except(RowLevelSecurity.PolicyV6.PlatformRowTables).Select(t => t.Table)
@@ -307,6 +306,43 @@ public sealed class RowLevelSecuritySqlTests
         if (up)
         {
             operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation), "the seed and the policy come once the tables exist");
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_routing_migration_puts_the_supplier_configuration_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.4, §6.5, §6.10: supplier groups, receiving entities, per-entity attributes and source rules belong
+        // to one tenant; SourceRoutingAndSupplierConfig re-creates the policy with them (PolicyV8), and its Down goes
+        // back to PolicyV7 after dropping the policy first (it is schema-bound to the tables Down drops).
+        var migration = new SourceRoutingAndSupplierConfig();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        if (up)
+        {
+            statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV8)]);
+        }
+        else
+        {
+            statements.First().ShouldBe(RowLevelSecurity.DropSql());
+            statements.Last().ShouldBe(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV7));
+        }
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV8);
+        RowLevelSecurity.PolicyV8.StrictTables.Except(RowLevelSecurity.PolicyV7.StrictTables).Select(t => t.Table)
+            .ShouldBe(["SupplierGroups", "ReceivingEntities", "SupplierEntityAttributes", "SupplierSourceRules"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV8.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV7.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV8).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[SupplierSourceRules] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
         }
         else
         {

@@ -52,6 +52,13 @@ internal static class TestPdfs
         AddTextPage(doc, InvoicePage2);
     });
 
+    /// <summary>The two-page German invoice with the supplier's VAT id printed under its letterhead (supplier routing tests, docs/11 §7.4).</summary>
+    public static byte[] GermanInvoiceWithVat(string vatId) => Build(doc =>
+    {
+        AddTextPage(doc, [.. InvoicePage1, new Line(76, 9, $"USt-IdNr. {vatId}")]);
+        AddTextPage(doc, InvoicePage2);
+    });
+
     /// <summary>A batch scan: the invoice's first page alone, then the whole two-page invoice (three pages).</summary>
     public static byte[] SinglePageThenGermanInvoice() => Build(doc =>
     {

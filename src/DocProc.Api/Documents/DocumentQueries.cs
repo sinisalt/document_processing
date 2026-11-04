@@ -130,6 +130,9 @@ public static class DocumentQueries
             ParseJson(d.AppliedConfigJson))
         {
             SupplierMatchMethod = d.SupplierMatchMethod,
+            SupplierMatchConfidence = d.SupplierMatchConfidence,
+            SupplierSourceRuleId = d.SupplierSourceRuleId,
+            ReceivingEntityId = d.ReceivingEntityId,
             JoinedIntoDocumentId = d.JoinedIntoDocumentId,
         };
     }

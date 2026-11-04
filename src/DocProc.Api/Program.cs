@@ -93,6 +93,8 @@ v1.MapDocuments();
 v1.MapReviewTasks();
 v1.MapTenants();
 v1.MapSuppliers();
+v1.MapSupplierGroups();
+v1.MapSourceRules();
 v1.MapChannels();
 v1.MapMembers();
 v1.MapTenantSettings();

@@ -67,6 +67,12 @@ public sealed class Document : ITenantScoped, IVersioned
     /// </summary>
     public SupplierMatchMethod? SupplierMatchMethod { get; set; }
 
+    /// <summary>The source rule that routed the document to its supplier (docs/11 §7.2); null unless <see cref="SupplierMatchMethod"/> is <c>SourceRule</c>.</summary>
+    public Guid? SupplierSourceRuleId { get; set; }
+
+    /// <summary>The tenant's company the document is addressed to (docs/11 §6.4): from the source rule, the channel default or the customer VAT id.</summary>
+    public Guid? ReceivingEntityId { get; set; }
+
     /// <summary>
     /// The document this one was joined into in review (docs/11 §12.7 <c>:join</c>); set together with
     /// <see cref="DocumentStatus.Cancelled"/>.
@@ -215,6 +221,15 @@ public enum SupplierMatchMethod
 
     /// <summary>Assigned by a reviewer (<c>:assign-supplier</c>, create supplier from review).</summary>
     Human,
+
+    /// <summary>A supplier source rule matched the ingestion's source (docs/11 §7.2); <c>SupplierSourceRuleId</c> names it.</summary>
+    SourceRule,
+
+    /// <summary>The channel's default supplier (docs/11 §7.2 step 4), as <c>DefaultWhenNoContentMatch</c>.</summary>
+    ChannelDefault,
+
+    /// <summary>An authorised hint of the uploader (docs/11 §7.2 step 1).</summary>
+    Hint,
 }
 
 /// <summary>How urgent a review task is (docs/11 §6.2, from the type's <c>review.priority</c>); the queue sorts by it first.</summary>

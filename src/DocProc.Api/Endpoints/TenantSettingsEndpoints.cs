@@ -1,4 +1,6 @@
+using System.Text.Json;
 using DocProc.Api.Auth;
+using DocProc.Application.Routing;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -30,10 +32,48 @@ public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, boo
 /// <summary>
 /// Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
 /// and the <c>settings</c> part of GET. <see cref="Features"/> is optional on PUT: left out, the switches stay as they are.
+/// The supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs
+/// <c>sourceRouting</c>: <see cref="SupplierAttributeSchema"/> (a JSON Schema object of the typed subset; <c>{}</c>
+/// removes it), <see cref="LayoutsRequiredByDefault"/> (the default of a supplier's <c>layouts.required: inherit</c>)
+/// and <see cref="TrustedForwarderDomains"/> (forwarders unwrapped for every mailbox of the tenant).
 /// </summary>
-public sealed record TenantSettingsDto(double AutoApproveConfidenceThreshold, IReadOnlyList<Guid> AlwaysReviewSupplierIds, int RetentionYears, bool ShareExtractorProfiles, TenantFeaturesDto? Features = null)
+public sealed record TenantSettingsDto(
+    double AutoApproveConfidenceThreshold,
+    IReadOnlyList<Guid> AlwaysReviewSupplierIds,
+    int RetentionYears,
+    bool ShareExtractorProfiles,
+    TenantFeaturesDto? Features = null,
+    JsonElement? SupplierAttributeSchema = null,
+    bool? LayoutsRequiredByDefault = null,
+    IReadOnlyList<string>? TrustedForwarderDomains = null)
 {
-    internal static TenantSettingsDto From(TenantSettings s) => new(s.AutoApproveConfidenceThreshold, s.AlwaysReviewSupplierIds, s.RetentionYears, s.ShareExtractorProfiles, TenantFeaturesDto.From(s.Features));
+    internal static TenantSettingsDto From(TenantSettings s) => new(
+        s.AutoApproveConfidenceThreshold,
+        s.AlwaysReviewSupplierIds,
+        s.RetentionYears,
+        s.ShareExtractorProfiles,
+        TenantFeaturesDto.From(s.Features),
+        SchemaOf(s.SupplierAttributeSchema),
+        s.LayoutsRequiredByDefault,
+        s.TrustedForwarderDomains ?? []);
+
+    private static JsonElement? SchemaOf(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 public sealed record TenantSettingsResponse(TenantIdentity Tenant, TenantSettingsDto Settings);
@@ -43,6 +83,26 @@ public static class TenantSettingsEndpoints
 {
     public const int MinRetentionYears = 1;
     public const int MaxRetentionYears = 30;
+
+    /// <summary>Whether two stored schemas say the same (whitespace and member order aside).</summary>
+    private static bool SameSchema(string? a, string? b)
+    {
+        if (a is null || b is null)
+        {
+            return a is null && b is null;
+        }
+
+        try
+        {
+            using var left = JsonDocument.Parse(a);
+            using var right = JsonDocument.Parse(b);
+            return JsonElement.DeepEquals(left.RootElement, right.RootElement);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     public static RouteGroupBuilder MapTenantSettings(this RouteGroupBuilder group)
     {
@@ -91,6 +151,35 @@ public static class TenantSettingsEndpoints
                 }
             }
 
+            string? schema = null;
+            if (request.SupplierAttributeSchema is { } schemaElement && schemaElement.ValueKind != JsonValueKind.Null)
+            {
+                var raw = schemaElement.ValueKind == JsonValueKind.Object && !schemaElement.EnumerateObject().Any() ? null : schemaElement.GetRawText();
+                if (raw is not null && Application.Suppliers.SupplierAttributeSchema.TryParse(raw, out var schemaErrors) is null)
+                {
+                    foreach (var error in schemaErrors.Take(20))
+                    {
+                        errors.Add("supplierAttributeSchema", error);
+                    }
+                }
+
+                schema = raw;
+            }
+
+            List<string>? forwarders = null;
+            if (request.TrustedForwarderDomains is { } domains)
+            {
+                forwarders = [.. domains.Select(SourceConditions.Domain).Where(d => d is not null).Select(d => d!).Distinct(StringComparer.Ordinal)];
+                if (forwarders.Count > 20)
+                {
+                    errors.Add("trustedForwarderDomains", "trustedForwarderDomains holds at most 20 domains.");
+                }
+                else if (forwarders.FirstOrDefault(d => !d.Contains('.', StringComparison.Ordinal) || d.Length > 253 || d.Contains('@', StringComparison.Ordinal)) is { } bad)
+                {
+                    errors.Add("trustedForwarderDomains", $"'{bad}' is not a domain name.");
+                }
+            }
+
             if (errors.ToProblem() is { } invalid)
             {
                 return invalid;
@@ -100,6 +189,32 @@ public static class TenantSettingsEndpoints
             if (current is null)
             {
                 return UnknownTenant();
+            }
+
+            // The supplier configuration of P4 changes only with sourceRouting on; a client that sends back what GET
+            // gave (the portal's settings page) changes nothing and needs no switch.
+            var schemaChanged = request.SupplierAttributeSchema is { ValueKind: not JsonValueKind.Null } && !SameSchema(schema, current.Settings.SupplierAttributeSchema);
+            var layoutsChanged = request.LayoutsRequiredByDefault is { } required && required != current.Settings.LayoutsRequiredByDefault;
+            var forwardersChanged = forwarders is not null && !forwarders.SequenceEqual(current.Settings.TrustedForwarderDomains ?? [], StringComparer.Ordinal);
+            var routingOn = request.Features?.SourceRouting ?? current.Settings.Features?.SourceRouting ?? false;
+            if ((schemaChanged || layoutsChanged || forwardersChanged) && !routingOn)
+            {
+                return SupplierConfigSupport.FeatureOff();
+            }
+
+            if (schemaChanged)
+            {
+                current.Settings.SupplierAttributeSchema = schema;
+            }
+
+            if (layoutsChanged)
+            {
+                current.Settings.LayoutsRequiredByDefault = request.LayoutsRequiredByDefault!.Value;
+            }
+
+            if (forwardersChanged)
+            {
+                current.Settings.TrustedForwarderDomains = forwarders;
             }
 
             current.Settings.AutoApproveConfidenceThreshold = request.AutoApproveConfidenceThreshold;

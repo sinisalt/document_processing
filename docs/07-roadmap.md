@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 part A done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -936,7 +936,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       template labels two fields alike (`std.price-list`: "Inhalt" for `packSize`, "Inhaltseinheit" for `packUnit`) it
       can still name the less fitting one, and the reviewer changes it before applying the mapping (the demo list
       prints "Gebinde", which names `packDescription`);
-    - `:assign-supplier`'s `remember` (source rules, P4) and the reprocess through `classify.identification` (P4);
+    - `:assign-supplier`'s `remember` (source rules: done in P4 part A) and the reprocess through `classify.identification` (P4 part B);
     - a move into a member of a composite value (`customer.vatId`) or a bag key, moving whole rows, and a drag onto a
       cell of the grid are not done (a `set` does those); `:set-type` with prefill none replaces the earlier data of
       another type (the earlier tree stays in the temporal history of `Documents` only);
@@ -1227,13 +1227,93 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       lists in code, not the tenant's tables;
     - the publish check of a type against the output mappings that read its fields (docs/11 §5.7 dependents; the paths
       are stored in `ReferencedPathsJson` for it), and the editor's lint for the singleton-array case (§13.2);
-    - the supplier attribute schema (`TenantSettings.SupplierAttributeSchema`), groups, receiving entities and the
+    - (done in P4 part A) the supplier attribute schema (`TenantSettings.SupplierAttributeSchema`), groups, receiving entities and the
       per-entity attributes (P4);
     - the values view cache per `(DocumentId, Version)` (§5.6): not built, see the correction there; `$table` takes the
       table key as a string literal only;
     - the time limit polls the child's processor time every 25 ms, so a render may run up to that much over; a render
       that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
-- **P4 to P6** – not started.
+- **P4, routing, supplier configuration, layouts and identification – part A done (sources, routing, supplier
+  configuration); parts B and later (layouts, identification, the new-layout flow, golden documents, sandbox, config
+  bundles, the supplier sheet tabs) not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
+  a tenant without it behaves exactly as before: its channels are not polled and keep their free config, ingest
+  assigns no supplier and pins no type, Match, Classify and Split run as before, and the new API routes answer 403
+  (docs/05 "Routing and supplier configuration endpoints as built").
+  - Decided (part A, recorded as "Correction (P4, part A)" in docs/11 §6.3 to §7.4, §9.3 and §12.1):
+    - the pollers run only for tenants with `sourceRouting` on (a `Mailbox` channel from before is not read by surprise),
+      next to the runner; compose and the AppHost poll in the worker only (`Intake:PollersEnabled: false` for the API);
+    - "each message once" rests on a message id unique per channel in the database (`imap:{UIDVALIDITY}:{UID}`, a hash of
+      a file's relative path, size and time), the cursor only saves work; two hosts or a lost cursor ingest nothing twice;
+    - the `Authentication-Results` header trusted is the topmost one or one of a configured `authserv-id`; a DMARC pass for
+      another domain than the From domain is not a pass; the original sender of a forward unwrapped from a trusted
+      forwarder counts as authenticated when the forwarder's own message is;
+    - a tenant IMAP host must be public and reached over TLS (`TenantEndpointGuard`, re-checked on the resolved
+      addresses), unless the platform allows it (`Mail:AllowedHosts`);
+    - the drop zone is per tenant (`Intake:FolderRoot/<slug>/`), so a tenant cannot watch another's folder;
+    - a reviewer's `remember` saves a disabled rule (a proposal a ConfigAdmin enables), in line with decision 2;
+    - the folder-prefix specificity counts the prefix's depth, not its length; the attribute schema is a typed subset of
+      JSON Schema checked in the API process (non-backtracking patterns), not a general schema engine;
+    - the Down of the migration maps the `Supplier` type source to `Rule` and the source match methods to none, so the
+      build before reads every document.
+  - Done (part A):
+    - the data model (migration `SourceRoutingAndSupplierConfig`, policy `PolicyV8` with the four new strict tables; its
+      Down runs on SQL Server with P4 rows in place, `TypeCatalogueSqlTests`): the source facts of an ingestion
+      (`SourceRecipientsJson`, `SourceMailbox`, `SourceFolderPath`, `SenderAuthJson`, `ForwardedBy`, the hints), the
+      item's `RouteJson`, the channel's `SourceKey` (unique across tenants) and defaults (supplier, type, receiving
+      entity), the supplier's `GroupId` and `SettingsJson`, the document's `SupplierSourceRuleId` and
+      `ReceivingEntityId`, `SupplierGroups`, `ReceivingEntities`, `SupplierEntityAttributes` and `SupplierSourceRules`
+      (normalised conditions, indexed lookups, a condition hash unique per tenant); `TypeSource.Supplier` and the match
+      methods `SourceRule`, `ChannelDefault` and `Hint`;
+    - the IMAP poller (`MailKitImapMailSource`, MailKit 4.18.2, `ChannelPollerHostedService`): the channel's password from
+      `ISecretStore` under its own reference only, UID tracking, the .eml as raw artefact and its attachments as items,
+      the sender, To and Cc, mailbox, subject, `Authentication-Results` (SPF, DKIM with its domains, DMARC) and forward
+      unwrapping (an attached `message/rfc822`, or an inline "Forwarded message"/"Weitergeleitete Nachricht" block) from
+      the channel's and the tenant's trusted forwarder domains (`MailMessageReader`); size and per-poll limits; the
+      failure reason in the channel's `lastError`; tested against a GreenMail container (`ImapPollerTests`);
+    - the folder watcher: the stable-size check over two scans, the folder path relative to the channel root, the move to
+      `processed/` or `failed/`, links, hidden and partial files skipped, nested channels' folders left to them
+      (`FolderWatcherTests`);
+    - the resolver at ingest (`SupplierSourceResolver`, `SourceRouting`): hint, conditions with the DMARC requirement,
+      specificity and priority, ties (`SUPPLIER_AMBIGUOUS`), the skipped winner (`SUPPLIER_SOURCE_UNVERIFIED`, a warning
+      that never auto-approves), the channel default, the pinned type from the rule, the channel or the supplier's single
+      allowed type, the receiving entity, the timeline event and the item's route; Split keeps a pinned document whole and
+      gives parts the route; Classify keeps a pinned type (not an e-invoice's);
+    - Match as corroboration: VAT or IBAN evidence confirms the routed supplier, keeps an `Exclusive` (or hinted) one with
+      a blocking `SUPPLIER_CONFLICT`, or replaces a default and classifies again a type only the old supplier had pinned;
+    - `POST /routing:test` with candidates, held and failed conditions and an explanation; source rule CRUD (ConfigAdmin);
+      supplier groups, receiving entities and per-entity attributes (TenantAdmin); supplier `settings` (types, locale,
+      review mode, defaults, `layouts.required` with the tenant default `layoutsRequiredByDefault`, `requireSenderAuth`)
+      and `groupId`; the typed attribute schema applied to supplier, group and entity attributes; channel connector
+      configs, source keys and defaults; `:assign-supplier` with `remember`; `:reprocess` from Match; `DocumentDetail`
+      with the match confidence, rule and entity; `review.mode: always` honoured by the review gate;
+    - the values view: `source.mailbox` and `source.folderPath` filled, `entity` from the receiving entity, `supplier.group`,
+      and the attributes merged group, supplier, entity;
+    - the e-invoice extras (`EInvoiceExtrasReader`: buyer reference, accounting cost, project and contract references,
+      the parties' identifications, every line property, each with its element path) and the restricted `xml-path`
+      walker (`XmlPath`) the layouts' rules will use;
+    - the flag labels and messages of `SUPPLIER_SOURCE_UNVERIFIED`, `SUPPLIER_AMBIGUOUS` and `SUPPLIER_CONFLICT` in both
+      apps (en, de); docs/09 "Source routing" and the `Mail` and `Intake` settings; the warm-up passages of docs/11 §8.3,
+      §12.10, §22 and §23 rewritten for decision 2 (default 5; the P4 demo sets the demo tenant's warm-up to 0
+      explicitly), "Correction (P4, warm-up)".
+  - Left for later (part A's scope):
+    - no UI: the supplier sheet's Routing (with the test box), Settings and Attributes tabs, the supplier groups list, the
+      receiving entities, and the typed channel forms are §19 work of the "Supplier sheet tabs" item; the API is complete
+      for them;
+    - `POST /ingestions` does not take `supplierId` and `documentTypeKey` hints yet (the columns and the resolver do), nor
+      the `ingest:hint` API key scope; the portal's upload dialog has no supplier and type pickers;
+    - the blob-prefix folder source, `IngestionItem.Role` and `bodyAsDocument`, the Microsoft Graph mail source,
+      `ConnectorKey` and `GET /connectors`, `ROUTE_DIFFERS`, `:clone-config`, `POST /suppliers:import`;
+    - the receiving entity is taken from the rule or the channel default only, not from the customer VAT id printed on
+      the document; `CustomerMatchRule` still checks the tenant's own VAT id;
+    - `review.autoApproveMinConfidence`, `defaults.currency` and `locale` are stored and returned but not applied yet
+      (the `defaults` step and the parse transforms come with the layouts);
+    - the Match stage still loads every supplier of the tenant; the indexed candidate loading and `SUPPLIER_AMBIGUOUS`
+      for two suppliers with one VAT id or IBAN are not built;
+    - output bindings scoped to a supplier group or a receiving entity (P3 "Left for later") are not built;
+    - the extras are read but not written into the canonical tree; binding them to fields is the layouts' (part B);
+    - the compose demo of part A was not run in the browser; the GreenMail, folder, routing and API scenarios run as
+      tests (`ImapPollerTests`, `FolderWatcherTests`, `SourceRoutingPipelineTests`, `SupplierRoutingEndpointsTests`).
+- **P5 to P6** – not started.
 
 ## Risks and open questions
 

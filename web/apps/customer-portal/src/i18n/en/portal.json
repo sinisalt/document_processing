@@ -61,7 +61,10 @@
     "RULE_FAILED": "Rule failed",
     "REVISION_OF": "Revision of an earlier document",
     "CHECKS_SKIPPED": "Checks skipped",
-    "DELIVERY_FAILED": "Delivery failed"
+    "DELIVERY_FAILED": "Delivery failed",
+    "SUPPLIER_SOURCE_UNVERIFIED": "Sender not authenticated",
+    "SUPPLIER_AMBIGUOUS": "Supplier ambiguous",
+    "SUPPLIER_CONFLICT": "Supplier conflict"
   },
   "stages": {
     "Normalize": "Normalize",

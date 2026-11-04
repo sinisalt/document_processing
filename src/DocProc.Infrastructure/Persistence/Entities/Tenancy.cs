@@ -41,6 +41,27 @@ public sealed class TenantSettings
     /// </para>
     /// </summary>
     public TenantFeatureFlags? Features { get; set; } = new();
+
+    /// <summary>
+    /// The tenant's supplier attribute schema (docs/11 §6.4 <c>SupplierAttributeSchema</c>): a JSON Schema object of the
+    /// typed subset <c>SupplierAttributeSchema</c> (DocProc.Application.Suppliers) reads, which supplier, group and
+    /// per-entity attributes are validated against when they are written. Null for none: attributes are free scalars,
+    /// as in P3.
+    /// </summary>
+    public string? SupplierAttributeSchema { get; set; }
+
+    /// <summary>
+    /// The tenant default of a supplier's <c>layouts.required: inherit</c> (docs/11 §6.4
+    /// <c>TenantSettings.Layouts.RequiredByDefault</c>, stored flat): whether a supplier with no layout yet counts as
+    /// layout-managed. Default false.
+    /// </summary>
+    public bool LayoutsRequiredByDefault { get; set; }
+
+    /// <summary>
+    /// Forwarder domains trusted for every mailbox channel of the tenant (docs/11 §7.1), next to a channel's own
+    /// <c>trustedForwarderDomains</c>: a forward from such a domain is unwrapped to its original sender. Null or empty for none.
+    /// </summary>
+    public List<string>? TrustedForwarderDomains { get; set; }
 }
 
 /// <summary>Per-tenant feature flags (docs/11 §3); all off by default, so a tenant behaves as before until switched.</summary>
