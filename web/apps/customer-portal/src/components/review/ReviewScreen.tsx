@@ -644,7 +644,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                   <TabsContent value="fields" className="p-4">
                     {layoutFlag && layoutChoice !== null && isCorrectable(document.status) && (
                       <div className="mb-6">
-                        <NewLayoutPanel document={document} flag={layoutFlag} locale={locale} choice={layoutChoice} onChoiceChange={setLayoutChoice} fieldLabel={(path) => fieldLabel(path, true)} canReview={canReview} />
+                        <NewLayoutPanel document={document} flag={layoutFlag} locale={locale} choice={layoutChoice} onChoiceChange={setLayoutChoice} fieldLabel={(path) => (path.includes(".") ? `${fieldLabel(path.slice(0, path.indexOf(".")), true)} · ${fieldLabel(path, true)}` : fieldLabel(path, true))} canReview={canReview} />
                       </div>
                     )}
                     {layoutFlag?.code === "LAYOUT_AMBIGUOUS" && layoutChoice === null && isCorrectable(document.status) && (

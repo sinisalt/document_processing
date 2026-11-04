@@ -473,7 +473,7 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {canManage ? t("common:dialog.cancel") : t("common:actions.close")}
           </Button>
-          {canManage && (
+          {canManage && tab === "details" && (
             <Button type="submit" form="supplier-form" disabled={save.isPending} aria-busy={save.isPending}>
               {save.isPending && <Loader2 className="animate-spin" aria-hidden />}
               {supplier ? t("suppliers.save") : t("suppliers.create")}

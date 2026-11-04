@@ -51,7 +51,7 @@ function ReplayMatrix({ replay }: { replay: ReplayReport }) {
             {rows.map((row) => (
               <TableRow key={row.path}>
                 <TableCell className="font-mono text-xs">{row.path}</TableCell>
-                <TableCell className={row.agreement < Math.round(Number(replay.threshold) * 100) ? "text-right text-destructive tabular-nums" : "text-right tabular-nums"}>{row.agreement} %</TableCell>
+                <TableCell className={row.hits + row.mismatches > 0 && row.agreement < Math.round(Number(replay.threshold) * 100) ? "text-right text-destructive tabular-nums" : "text-right tabular-nums"}>{row.hits + row.mismatches > 0 ? `${row.agreement} %` : "—"}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.hits}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.mismatches}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.missing}</TableCell>

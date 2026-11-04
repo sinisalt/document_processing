@@ -78,12 +78,15 @@ internal sealed class LayoutReviewGate(DocProcDbContext db, LayoutIdentification
     /// </summary>
     private async Task<int?> WarmupOrdinalAsync(Document document, SupplierLayoutVersion version, CancellationToken cancellationToken)
     {
+        // DetailsJson is a json column, on which SQL Server refuses LIKE: the document's few warm-up events are read and
+        // the version is looked for here.
         var marker = $"\"versionId\":\"{version.Id}\"";
-        var counted = await db.DocumentEvents.AsNoTracking()
-            .Where(e => e.DocumentId == document.Id && e.EventType == LayoutEventTypes.Warmup && e.DetailsJson != null && e.DetailsJson.Contains(marker))
+        var warmups = await db.DocumentEvents.AsNoTracking()
+            .Where(e => e.DocumentId == document.Id && e.EventType == LayoutEventTypes.Warmup && e.DetailsJson != null)
             .Select(e => e.DetailsJson)
-            .FirstOrDefaultAsync(cancellationToken)
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var counted = warmups.FirstOrDefault(d => d!.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(marker, StringComparison.OrdinalIgnoreCase));
         if (counted is not null)
         {
             return ReadOrdinal(counted);

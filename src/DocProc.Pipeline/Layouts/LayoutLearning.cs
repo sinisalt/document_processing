@@ -207,7 +207,8 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
     private async Task<Dictionary<string, JsonObject>> TableSpecificationsAsync(Guid documentId, CancellationToken cancellationToken)
     {
         var rows = await db.Corrections.AsNoTracking()
-            .Where(c => c.DocumentId == documentId && c.Op == "set" && c.SourceJson != null && c.SourceJson.Contains("\"spec\""))
+            // SourceJson is a json column: SQL Server refuses LIKE on it, so the rows are filtered here, not in the query.
+            .Where(c => c.DocumentId == documentId && c.Op == "set" && c.SourceJson != null)
             .OrderBy(c => c.Id)
             .Select(c => new { c.FieldPath, c.SourceJson })
             .ToListAsync(cancellationToken)
