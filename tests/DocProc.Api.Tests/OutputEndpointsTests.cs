@@ -243,8 +243,126 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
         (await admin.PatchAsJsonAsync($"/api/v1/destinations/{destination.Id}", new { status = "Disabled" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task Repointing_a_destination_where_its_secret_goes_needs_the_secret_again()
+    {
+        var tenant = OutputsTenant("Secret redirect");
+        using var admin = factory.TenantAdminOf(tenant);
+        var secrets = factory.Services.GetRequiredService<ISecretStore>();
+        object Config(string url, string type = "bearer", string? tokenUrl = null) => tokenUrl is null
+            ? new { urlTemplate = url, auth = new { type } }
+            : new { urlTemplate = url, auth = new { type, tokenUrl, clientId = "docproc" } };
+        var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "erp", transport = "http", config = Config("https://erp.example/api/ap"), secret = "erp-token" }, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.Id;
+        await admin.PutAsJsonAsync($"/api/v1/destinations/{id}/secret", new { secret = "erp-token-2" }, Ct);
+        async Task<string[]> SecretErrors(HttpResponseMessage response)
+        {
+            response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+            return (await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["secret"];
+        }
+
+        // Another host, another auth type: refused without the secret, and nothing changes.
+        (await SecretErrors(await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://collector.example/api/ap") }, Ct)))
+            .ShouldHaveSingleItem().ShouldContain("the host of urlTemplate");
+        (await SecretErrors(await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://erp.example/api/ap", "basic") }, Ct)))
+            .ShouldHaveSingleItem().ShouldContain("auth.type");
+        factory.Query(db => db.OutputDestinations.Single(d => d.Id == id).ConfigJson).ShouldContain("https://erp.example/api/ap");
+
+        // The same host, another path: no secret needed, the stored one stays.
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://erp.example/api/v2/ap") }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var before = factory.Query(db => db.OutputDestinations.Single(d => d.Id == id));
+        (await secrets.GetAsync(before.SecretRef!, Ct)).ShouldBe("erp-token-2");
+        before.PreviousSecretRef.ShouldNotBeNull();
+
+        // With the secret in the same request: it replaces the stored one and the previous one is dropped.
+        var moved = await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://erp-new.example/api/ap"), secret = "new-erp-token" }, Ct);
+        moved.StatusCode.ShouldBe(HttpStatusCode.OK, await moved.Content.ReadAsStringAsync(Ct));
+        var response = (await moved.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!;
+        response.HasSecret.ShouldBeTrue();
+        response.HasPreviousSecret.ShouldBeFalse("the previous secret was set up for the old receiver");
+        var after = factory.Query(db => db.OutputDestinations.Single(d => d.Id == id));
+        (await secrets.GetAsync(after.SecretRef!, Ct)).ShouldBe("new-erp-token");
+        foreach (var slot in new[] { 1, 2 }.Select(n => $"tenant/{tenant}/destination/{id}/{n}").Where(r => r != after.SecretRef))
+        {
+            (await secrets.GetAsync(slot, Ct)).ShouldBeNull("neither old secret is kept");
+        }
+
+        // An OAuth token URL on another host, an HMAC destination (whose key never leaves), and a secret given without a redirect.
+        var oauth = Config("https://erp-new.example/api/ap", "oauth2ClientCredentials", "https://login.example/token");
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = oauth, secret = "client-secret" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await SecretErrors(await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://erp-new.example/api/ap", "oauth2ClientCredentials", "https://collector.example/token") }, Ct)))
+            .ShouldHaveSingleItem().ShouldContain("auth.tokenUrl");
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://erp-new.example/api/ap", "hmacSha256"), secret = "hmac-key" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { config = Config("https://anywhere.example/hook", "hmacSha256") }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "an HMAC key is never sent");
+        var rotated = await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { name = "erp-hook", secret = "hmac-key-2" }, Ct);
+        rotated.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await rotated.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.HasPreviousSecret.ShouldBeTrue("a secret without a redirect rotates as PUT /secret does");
+        (await SecretErrors(await admin.PatchAsJsonAsync($"/api/v1/destinations/{id}", new { secret = "" }, Ct))).ShouldHaveSingleItem().ShouldContain("not empty");
+    }
+
+    [Theory]
+    [InlineData("bearer", "abc\r\nInjected: yes", "line break")]
+    [InlineData("apiKeyHeader", "abc\ndef", "line break")]
+    [InlineData("hmacSha256", "abc\0", "NUL")]
+    [InlineData("bearer", "tökén", "printable ASCII")]
+    [InlineData("apiKeyHeader", "tab\tok\u0001", "printable ASCII")]
+    public async Task A_secret_a_header_cannot_carry_is_refused_when_it_is_saved(string type, string secret, string message)
+    {
+        var tenant = OutputsTenant($"Secret {type} {message}");
+        using var admin = factory.TenantAdminOf(tenant);
+        object config = type == "apiKeyHeader"
+            ? new { urlTemplate = "https://erp.example/x", auth = new { type, headerName = "X-Erp-Key" } }
+            : new { urlTemplate = "https://erp.example/x", auth = new { type } };
+
+        var refused = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "d", transport = "http", config, secret }, Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["secret"].ShouldHaveSingleItem().ShouldContain(message);
+
+        var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "d", transport = "http", config }, Ct);
+        var id = (await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.Id;
+        var put = await admin.PutAsJsonAsync($"/api/v1/destinations/{id}/secret", new { secret }, Ct);
+        put.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await put.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["secret"].ShouldHaveSingleItem().ShouldContain(message);
+        factory.Query(db => db.OutputDestinations.Single(d => d.Id == id).SecretRef).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_tenant_has_a_bounded_number_of_destinations_and_bindings()
+    {
+        var tenant = OutputsTenant("Output caps");
+        using var admin = factory.TenantAdminOf(tenant);
+        var ids = new List<Guid>();
+        for (var i = 0; i < DestinationEndpoints.MaxDestinationsPerTenant; i++)
+        {
+            var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = $"feed-{i:00}", transport = "pull" }, Ct);
+            created.StatusCode.ShouldBe(HttpStatusCode.Created);
+            ids.Add((await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!.Id);
+        }
+
+        var tooMany = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "one-more", transport = "pull" }, Ct);
+        tooMany.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await tooMany.Content.ReadAsStringAsync(Ct)).ShouldContain($"at most {DestinationEndpoints.MaxDestinationsPerTenant} destinations");
+
+        for (var i = 0; i < OutputBindingEndpoints.MaxBindingsPerTenant; i++)
+        {
+            (await admin.PostAsJsonAsync("/api/v1/output-bindings", new { name = $"b-{i:00}", mappingKey = "generic-ap-json", destinationId = ids[i % ids.Count] }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        }
+
+        var refused = await admin.PostAsJsonAsync("/api/v1/output-bindings", new { name = "one-more", mappingKey = "generic-ap-json", destinationId = ids[0] }, Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).ShouldContain($"at most {OutputBindingEndpoints.MaxBindingsPerTenant} output bindings");
+
+        // Another tenant has caps of its own.
+        using var other = factory.TenantAdminOf(OutputsTenant("Output caps other"));
+        (await other.PostAsJsonAsync("/api/v1/destinations", new { name = "feed", transport = "pull" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
     [Theory]
     [InlineData("http", """{"urlTemplate":"https://erp.example/x","headers":{"Authorization":"Bearer abc"}}""", "config.headers.Authorization")]
+    [InlineData("http", """{"urlTemplate":"https://erp.example/x","auth":{"type":"apiKeyHeader","headerName":"Host"}}""", "config.auth.headerName")]
+    [InlineData("http", """{"urlTemplate":"https://erp.example/x","auth":{"type":"apiKeyHeader","headerName":"X-DocProc-Document-Id"}}""", "config.auth.headerName")]
+    [InlineData("http", """{"urlTemplate":"https://erp.example/x","headers":{"Connection":"close"}}""", "config.headers.Connection")]
     [InlineData("http", """{"urlTemplate":"https://user:pw@erp.example/x"}""", "config.urlTemplate")]
     [InlineData("http", """{"urlTemplate":"ftp://erp.example/x"}""", "config.urlTemplate")]
     [InlineData("http", """{"urlTemplate":"https://erp.example/x","method":"DELETE"}""", "config.method")]

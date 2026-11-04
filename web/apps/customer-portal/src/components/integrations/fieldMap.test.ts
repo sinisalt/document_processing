@@ -132,6 +132,21 @@ describe("checking a field map", () => {
       { at: "8", code: "formatInvalid" },
     ]);
   });
+
+  it("refuses number separators that would change the amount, as the renderer does", () => {
+    const row = (format: { decimals: number; decimalSeparator?: string; groupSeparator?: string }): FieldMap => ({ version: 1, rows: [{ kind: "value", target: "x", source: "total", format: { kind: "number", ...format } }] });
+    for (const bad of [
+      { decimals: 2, decimalSeparator: "", groupSeparator: "" },
+      { decimals: 2, decimalSeparator: ".", groupSeparator: "." },
+      { decimals: 2, decimalSeparator: "0" },
+      { decimals: 0, groupSeparator: "-" },
+    ]) {
+      expect(fieldMapProblems(row(bad))).toEqual([{ at: "0", code: "formatInvalid" }]);
+    }
+    for (const good of [{ decimals: 2, decimalSeparator: ",", groupSeparator: "." }, { decimals: 0, decimalSeparator: ".", groupSeparator: "." }, { decimals: 2 }, { decimals: 2, groupSeparator: " " }]) {
+      expect(fieldMapProblems(row(good))).toEqual([]);
+    }
+  });
 });
 
 describe("editing rows", () => {

@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 in progress, P2 done (parts A, B and C), P3 done (parts A, B and C)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1126,6 +1126,28 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       added to it, so a render was stopped after 1.7 s of wall-clock time while other tests ran; the child runs with
       `DOTNET_TieredCompilation=0` and `DOTNET_gcConcurrent=0` now (startup about 0.25 s longer, outside the limit).
       The host also read an exited child's processor time without catching the `Win32Exception` Linux throws there.
+  - Done (second review, recorded as "Correction (P3, second review)" in docs/11 §13.1, §13.3 and §13.6):
+    - deliveries run in a lane of their own in the runner (`Delivery:MaxParallelism`, default 4, of which one tenant
+      holds at most `Delivery:MaxParallelismPerTenant`, default 2), so a receiver that never answers holds up neither
+      the document pipeline (whose `Pipeline:MaxParallelism` slots deliveries used to take) nor other tenants'
+      deliveries; the OAuth token request counts against the attempt's `timeoutSeconds`; a tenant has at most 25
+      bindings and 25 destinations (409); the renderer pool answers `unavailable` after 60 s without a free process
+      (`Outputs:Renderer:QueueTimeout`); the output mapping preview runs 2 at a time per tenant with 2 queued (429
+      beyond, `Outputs:Preview`);
+    - `PATCH /destinations/{id}` that moves where the secret goes (another origin of a URL or of the token URL,
+      another auth type or header name) needs the secret in the same request, which replaces the stored one and drops
+      the previous one; the portal sends the secret with the change in one request; a cached OAuth token is used only
+      with the secret and auth settings it was obtained with;
+    - `auth.headerName` and `headers` refuse the headers the transport sets or that frame the request (`Host`,
+      `Idempotency-Key`, `X-DocProc-*`, `Content-Length`, hop-by-hop); secrets with CR, LF or NUL are refused, and
+      header-borne ones (`apiKeyHeader`, `bearer`) must be printable ASCII, when saved and again before a send
+      (permanent, not retried); a request the headers cannot carry is a permanent failure;
+    - the response excerpt masks the client secret exactly as the token request's form encoder writes it (a space as
+      `+`, `!()*'` escaped), the JSON-escaped and HTML-encoded forms of each credential, and masks the whole bounded
+      answer before cutting it to 4 KB (a secret echoed across the old byte cut survived in part);
+    - `$fmtNum` refuses separators that would write another number (an empty decimal separator or one equal to the
+      group separator with decimals, a digit or a sign in either), as does the visual field map;
+    - this section's heading still said "P1 in progress".
   - Left for later:
     - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
       (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
@@ -1137,8 +1159,14 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads `GET /deliveries?documentId=`), the API key
       UI for `deliveries:read` (keys with that scope are made through the API);
     - the pull destination's `retentionDays` (stored, not enforced); masking of a type's
-      `sensitive` fields in response excerpts (§16; only the destination's credentials are masked: the secret, its
-      URL-encoded and Basic forms, and the token);
+      `sensitive` fields in response excerpts (§16; only the destination's credentials are masked: the secret and the
+      token in the forms they travel and are echoed in, and the Basic credential); a receiver that echoes a credential
+      in an encoding of its own (base64 of the bearer token, say) is not masked;
+    - the noisy-neighbour limits stop at the delivery lane, the binding cap and the preview's limiter: the renderer pool
+      of a host has no per-tenant share (the worker's renders are bounded by 25 bindings per tenant, each within the
+      render limits, so one approval's fan-out can still keep a pool process busy for that long), `timeoutSeconds`
+      keeps its ceiling of 120 s (it ties up one of the tenant's two lane slots, not the pipeline), there is no budget
+      of delivery attempts per tenant over time, and the document pipeline itself has no per-tenant share either;
     - a cap on the number of lookup tables per tenant (a render's lookup data is bounded in total instead);
     - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
       them later; `RecipeJson` stays unused;

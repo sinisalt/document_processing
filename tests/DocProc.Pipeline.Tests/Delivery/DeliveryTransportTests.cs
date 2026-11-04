@@ -28,6 +28,8 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
     private static readonly Guid Tenant = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly byte[] Payload = Encoding.UTF8.GetBytes("""{"header":{"docNo":"RE-1","priceListId":"PL 2027/01"},"rows":[{"net":100}]}""");
 
+    private static readonly System.Text.Json.JsonSerializerOptions Relaxed = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -262,6 +264,269 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         excerpt.ShouldNotContain(Uri.EscapeDataString(secret));
         excerpt.ShouldNotContain(Convert.ToBase64String(Encoding.UTF8.GetBytes("erpuser:" + secret)));
         excerpt.ShouldContain("\"error\":\"bad\"");
+    }
+
+    [Theory]
+    [InlineData("a b(c!")]
+    [InlineData("x y*z'()")]
+    [InlineData("plain-secret_1")]
+    public async Task A_token_endpoint_that_echoes_the_posted_form_gets_the_client_secret_masked_as_it_was_sent(string secret)
+    {
+        // FormUrlEncodedContent writes a space as '+' and escapes !()*' (a%20 is not what travels).
+        using var receiver = new FakeReceiver { Respond = r => new ReceiverAnswer(400, "invalid_client for request: " + r.Text) };
+        var (transport, secrets) = Http(receiver);
+        var context = Context(receiver, new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/x",
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = receiver.BaseUrl + "/oauth/token", ["clientId"] = "docproc" },
+        });
+        await secrets.SetAsync(context.Destination.SecretRef!, secret, Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ErrorClass.ShouldBe("permanent:token");
+        var sent = receiver.Requests.ShouldHaveSingleItem().Text;
+        var encoded = HttpDeliveryTransport.FormEncoded(secret);
+        sent.ShouldContain("client_secret=" + encoded, Case.Sensitive, "the mask is the encoder's own output");
+        var excerpt = outcome.ResponseExcerpt.ShouldNotBeNull();
+        excerpt.ShouldContain("client_secret=***");
+        excerpt.ShouldNotContain(encoded);
+        excerpt.ShouldContain("client_id=docproc");
+    }
+
+    [Fact]
+    public void A_secret_echoed_across_the_excerpts_cut_is_masked_whole_whatever_the_bodys_characters()
+    {
+        const string secret = "SECRET-0123456789";
+        var masked = HttpDeliveryTransport.Masked(HttpAuthTypes.Bearer, null, secret, null);
+        foreach (var filler in new[] { "a", "é", "€", "😀" })
+        {
+            // The secret starts just before byte 8192 and before character 4096, where the old excerpt cut the body.
+            foreach (var at in new[] { 8192 - 5, DeliveryAttempt.MaxExcerptLength - 5 })
+            {
+                var prefix = new StringBuilder();
+                while (Encoding.UTF8.GetByteCount(prefix.ToString()) + Encoding.UTF8.GetByteCount(filler) <= at)
+                {
+                    prefix.Append(filler);
+                }
+
+                var body = Encoding.UTF8.GetBytes(prefix + secret + string.Concat(Enumerable.Repeat(filler, 5000)));
+                var excerpt = HttpDeliveryTransport.Excerpt(body, masked).ShouldNotBeNull();
+                excerpt.Length.ShouldBeLessThanOrEqualTo(DeliveryAttempt.MaxExcerptLength);
+                for (var length = 4; length <= secret.Length; length++)
+                {
+                    excerpt.ShouldNotContain(secret[..length], Case.Sensitive, $"filler '{filler}' at byte {at}: no part of the secret survives");
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("tok/en\"<x>")]
+    [InlineData("key&value'1")]
+    public void The_masks_cover_the_json_and_html_escaped_forms_of_a_secret(string secret)
+    {
+        var masked = HttpDeliveryTransport.Masked(HttpAuthTypes.ApiKeyHeader, null, secret, null);
+        var strict = System.Text.Json.JsonSerializer.Serialize(secret)[1..^1];
+        var relaxed = System.Text.Json.JsonSerializer.Serialize(secret, Relaxed)[1..^1];
+        var body = Encoding.UTF8.GetBytes($$"""{"strict":"{{strict}}","relaxed":"{{relaxed}}","slashes":"{{relaxed.Replace("/", "\\/", StringComparison.Ordinal)}}","html":"{{System.Net.WebUtility.HtmlEncode(secret)}}"}""");
+
+        var excerpt = HttpDeliveryTransport.Excerpt(body, masked).ShouldNotBeNull();
+
+        excerpt.ShouldBe("""{"strict":"***","relaxed":"***","slashes":"***","html":"***"}""");
+    }
+
+    [Theory]
+    [InlineData(HttpAuthTypes.Bearer, "abc\r\nInjected: yes")]
+    [InlineData(HttpAuthTypes.ApiKeyHeader, "abc\nInjected: yes")]
+    [InlineData(HttpAuthTypes.ApiKeyHeader, "kéy")]
+    [InlineData(HttpAuthTypes.Basic, "pass\r\nword")]
+    [InlineData(HttpAuthTypes.HmacSha256, "key\0")]
+    public async Task A_stored_secret_a_header_cannot_carry_is_permanent_and_nothing_is_sent(string type, string secret)
+    {
+        // Saved before the API refused such secrets: the transport refuses them too, once, instead of retrying 15 times.
+        using var receiver = new FakeReceiver();
+        var (transport, secrets) = Http(receiver);
+        var auth = new JsonObject { ["type"] = type };
+        if (type == HttpAuthTypes.ApiKeyHeader)
+        {
+            auth["headerName"] = "X-Erp-Key";
+        }
+
+        if (type == HttpAuthTypes.Basic)
+        {
+            auth["username"] = "docproc";
+        }
+
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = auth });
+        await secrets.SetAsync(context.Destination.SecretRef!, secret, Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Permanent);
+        outcome.ErrorClass.ShouldBe("permanent:secret");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Host")]
+    [InlineData("idempotency-key")]
+    [InlineData("X-DocProc-Signature")]
+    [InlineData("X-DocProc-Document-Id")]
+    [InlineData("Content-Length")]
+    [InlineData("Transfer-Encoding")]
+    public async Task An_api_key_header_named_like_a_header_the_transport_sets_is_refused_when_saved_and_when_sent(string headerName)
+    {
+        var auth = new JsonObject { ["type"] = HttpAuthTypes.ApiKeyHeader, ["headerName"] = headerName };
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/x", ["auth"] = auth.DeepClone() })
+            .ShouldContain(p => p.Field == "config.auth.headerName");
+        DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/x", ["headers"] = new JsonObject { [headerName] = "x" } })
+            .ShouldContain(p => p.Field == "config.headers." + headerName);
+
+        using var receiver = new FakeReceiver();
+        var (transport, secrets) = Http(receiver);
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = auth });
+        await secrets.SetAsync(context.Destination.SecretRef!, "key-1", Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ErrorClass.ShouldBe("permanent:auth");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_request_the_headers_cannot_carry_is_permanent_not_an_unexpected_transport_failure()
+    {
+        // MediaTypeHeaderValue.Parse throws FormatException: the same on every attempt, so no 15 retries.
+        using var receiver = new FakeReceiver();
+        var (transport, _) = Http(receiver);
+        var context = Context(receiver) with { ContentType = "not a media type" };
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ErrorClass.ShouldBe("permanent:request");
+        receiver.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void An_api_key_may_still_go_in_a_header_of_its_own_and_the_secrets_are_checked_per_auth_type()
+    {
+        foreach (var header in new[] { "X-Api-Key", "Authorization", "X-Erp-Key" })
+        {
+            DestinationConfig.Validate(OutputTransports.Http, new JsonObject { ["urlTemplate"] = "https://erp.example/x", ["auth"] = new JsonObject { ["type"] = HttpAuthTypes.ApiKeyHeader, ["headerName"] = header } })
+                .ShouldBeEmpty(header);
+        }
+
+        DestinationConfig.SecretProblem(HttpAuthTypes.Bearer, "abc DEF\t~!").ShouldBeNull();
+        DestinationConfig.SecretProblem(HttpAuthTypes.Bearer, "abc\rdef").ShouldNotBeNull();
+        DestinationConfig.SecretProblem(HttpAuthTypes.Bearer, "kéy").ShouldNotBeNull();
+        DestinationConfig.SecretProblem(HttpAuthTypes.Basic, "pässwört").ShouldBeNull("basic sends it base64");
+        DestinationConfig.SecretProblem(HttpAuthTypes.OAuth2ClientCredentials, "sécret").ShouldBeNull("the token request form-encodes it");
+        DestinationConfig.SecretProblem(HttpAuthTypes.HmacSha256, "clé").ShouldBeNull("the key never leaves");
+        DestinationConfig.SecretProblem(HttpAuthTypes.HmacSha256, "a\nb").ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void A_config_change_that_sends_the_secret_elsewhere_is_named()
+    {
+        JsonObject Config(string url, string type = HttpAuthTypes.Bearer, string? update = null, string? tokenUrl = null, string? header = null)
+        {
+            var auth = new JsonObject { ["type"] = type };
+            if (tokenUrl is not null)
+            {
+                auth["tokenUrl"] = tokenUrl;
+                auth["clientId"] = "docproc";
+            }
+
+            if (header is not null)
+            {
+                auth["headerName"] = header;
+            }
+
+            var config = new JsonObject { ["urlTemplate"] = url, ["auth"] = auth };
+            if (update is not null)
+            {
+                config["updateUrlTemplate"] = update;
+            }
+
+            return config;
+        }
+
+        var erp = Config("https://erp.example/api/ap");
+        DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap/v2?x=1")).ShouldBeEmpty("the path is the receiver's own");
+        DestinationConfig.SecretRedirects(erp, Config("HTTPS://ERP.example:443/other")).ShouldBeEmpty("the same origin written another way");
+        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/api/ap")).ShouldContain("the host of urlTemplate");
+        DestinationConfig.SecretRedirects(erp, Config("https://erp.example:8443/api/ap")).ShouldContain("the host of urlTemplate");
+        DestinationConfig.SecretRedirects(erp, Config("http://erp.example/api/ap")).ShouldContain("the host of urlTemplate");
+        DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap", update: "https://attacker.example/{{meta.documentId}}")).ShouldBe(["the host of updateUrlTemplate"]);
+        DestinationConfig.SecretRedirects(erp, Config("https://erp.example/api/ap", type: HttpAuthTypes.Basic)).ShouldBe(["auth.type"]);
+        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.HmacSha256)).ShouldBeEmpty("an HMAC key never leaves");
+        DestinationConfig.SecretRedirects(erp, Config("https://attacker.example/", type: HttpAuthTypes.None)).ShouldBeEmpty();
+
+        var oauth = Config("https://erp.example/api/ap", HttpAuthTypes.OAuth2ClientCredentials, tokenUrl: "https://login.example/token");
+        DestinationConfig.SecretRedirects(oauth, Config("https://erp.example/api/ap", HttpAuthTypes.OAuth2ClientCredentials, tokenUrl: "https://login.example/v2/token")).ShouldBeEmpty();
+        DestinationConfig.SecretRedirects(oauth, Config("https://erp.example/api/ap", HttpAuthTypes.OAuth2ClientCredentials, tokenUrl: "https://attacker.example/token")).ShouldBe(["the host of auth.tokenUrl"]);
+
+        var key = Config("https://erp.example/api/ap", HttpAuthTypes.ApiKeyHeader, header: "X-Erp-Key");
+        DestinationConfig.SecretRedirects(key, Config("https://erp.example/api/ap", HttpAuthTypes.ApiKeyHeader, header: "x-erp-key")).ShouldBeEmpty();
+        DestinationConfig.SecretRedirects(key, Config("https://erp.example/api/ap", HttpAuthTypes.ApiKeyHeader, header: "X-Debug-Echo")).ShouldBe(["auth.headerName"]);
+    }
+
+    [Fact]
+    public async Task A_cached_oauth_token_is_not_used_for_another_token_url_or_secret()
+    {
+        var issued = 0;
+        using var receiver = new FakeReceiver
+        {
+            Respond = request => request.PathAndQuery.EndsWith("/token", StringComparison.Ordinal)
+                ? new ReceiverAnswer(200, $$"""{"access_token":"tok-{{Interlocked.Increment(ref issued)}}","expires_in":3600}""")
+                : new ReceiverAnswer(201),
+        };
+        var (transport, secrets) = Http(receiver);
+        var auth = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = receiver.BaseUrl + "/a/token", ["clientId"] = "docproc" };
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = auth });
+        await secrets.SetAsync(context.Destination.SecretRef!, "client-secret", Ct);
+
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        (await transport.SendAsync(context, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        issued.ShouldBe(1);
+
+        // Another token URL (a PATCH in the API process, which cannot reach this cache): a new token.
+        var moved = context with { Config = new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = receiver.BaseUrl + "/b/token", ["clientId"] = "docproc" } } };
+        (await transport.SendAsync(moved, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        issued.ShouldBe(2);
+        receiver.Requests[^1].Header("Authorization").ShouldBe("Bearer tok-2");
+
+        // The same slot set again later (a rotation back to slot 1): a new token.
+        context.Destination.SecretSetAt = DateTimeOffset.UnixEpoch.AddDays(1);
+        (await transport.SendAsync(moved, Ct)).Kind.ShouldBe(DeliveryOutcomeKind.Delivered);
+        issued.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task The_token_request_counts_against_the_attempts_timeout()
+    {
+        using var receiver = new FakeReceiver
+        {
+            Respond = request =>
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(3));
+                return new ReceiverAnswer(200, """{"access_token":"tok","expires_in":3600}""");
+            },
+        };
+        var (transport, secrets) = Http(receiver);
+        var context = Context(receiver, new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/x",
+            ["timeoutSeconds"] = 1,
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = receiver.BaseUrl + "/oauth/token", ["clientId"] = "docproc" },
+        });
+        await secrets.SetAsync(context.Destination.SecretRef!, "client-secret", Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.ErrorClass.ShouldBe("retryable:token");
+        outcome.DurationMs.ShouldBeLessThan(2900, "the attempt's 1 s budget ends the token request, not its own 30 s");
     }
 
     [Fact]

@@ -93,7 +93,22 @@ public sealed class HttpDeliveryTransport(
             {
                 return DeliveryOutcome.Permanent("secret", $"The destination's auth '{authType}' needs its secret, and none is set (PUT /destinations/{{id}}/secret).");
             }
+
+            // Checked when the secret and the config are saved; checked again here for what was saved before those
+            // checks: a header value with a line break would add header lines, and a reserved name override the
+            // transport's own headers.
+            if (DestinationConfig.SecretProblem(authType, secret) is { } problem)
+            {
+                return DeliveryOutcome.Permanent("secret", problem + " Set it again (PUT /destinations/{id}/secret).");
+            }
         }
+
+        if (authType == HttpAuthTypes.ApiKeyHeader && auth?["headerName"] is JsonValue headerNode && headerNode.TryGetValue<string>(out var headerName) && DestinationConfig.IsReservedHeader(headerName))
+        {
+            return DeliveryOutcome.Permanent("auth", $"The auth's headerName '{headerName}' is a header the transport sets; choose another (PATCH /destinations/{{id}}).");
+        }
+
+        var timeout = TimeSpan.FromSeconds(Int(config, "timeoutSeconds") ?? DefaultTimeoutSeconds);
 
         byte[] body;
         string contentType;
@@ -106,10 +121,14 @@ public sealed class HttpDeliveryTransport(
             return DeliveryOutcome.Permanent("original", exception.Message);
         }
 
+        // One budget per attempt: the token request and the delivery share the destination's timeout, so an attempt
+        // holds its delivery slot for at most timeoutSeconds (plus the read of a bounded answer within it).
+        using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timer.CancelAfter(timeout);
         string? token = null;
         if (authType == HttpAuthTypes.OAuth2ClientCredentials)
         {
-            var obtained = await tokens.GetAsync(context.Destination, auth!, secret!, cancellationToken).ConfigureAwait(false);
+            var obtained = await tokens.GetAsync(context.Destination, auth!, secret!, timer.Token, cancellationToken).ConfigureAwait(false);
             if (obtained.Failure is { } failure)
             {
                 return failure;
@@ -118,31 +137,36 @@ public sealed class HttpDeliveryTransport(
             token = obtained.Token;
         }
 
-        var timeout = TimeSpan.FromSeconds(Int(config, "timeoutSeconds") ?? DefaultTimeoutSeconds);
         using var request = new HttpRequestMessage(new HttpMethod(method), uri);
-        var content = new ByteArrayContent(body);
-        content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-        request.Content = content;
-        if (config["headers"] is JsonObject headers)
+        try
         {
-            foreach (var (name, value) in headers)
+            var content = new ByteArrayContent(body);
+            content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+            request.Content = content;
+            if (config["headers"] is JsonObject headers)
             {
-                if (value is JsonValue text && text.TryGetValue<string>(out var headerValue) && !request.Headers.TryAddWithoutValidation(name, headerValue))
+                foreach (var (name, value) in headers)
                 {
-                    request.Content.Headers.TryAddWithoutValidation(name, headerValue);
+                    if (value is JsonValue text && text.TryGetValue<string>(out var headerValue) && !request.Headers.TryAddWithoutValidation(name, headerValue))
+                    {
+                        request.Content.Headers.TryAddWithoutValidation(name, headerValue);
+                    }
                 }
             }
+
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", context.Delivery.IdempotencyKey);
+            request.Headers.TryAddWithoutValidation("X-DocProc-Document-Id", context.Delivery.DocumentId.ToString("D"));
+            request.Headers.TryAddWithoutValidation("X-DocProc-Revision", context.Delivery.DocumentVersion.ToString(CultureInfo.InvariantCulture));
+            request.Headers.TryAddWithoutValidation("X-DocProc-Event", context.Delivery.Event);
+            Authorize(request, authType, auth, secret, token, body);
+        }
+        catch (FormatException exception)
+        {
+            // A value the headers cannot carry (a content type or an auth value): the same on every attempt.
+            return DeliveryOutcome.Permanent("request", $"The request cannot be built from the destination's settings: {exception.Message}");
         }
 
-        request.Headers.TryAddWithoutValidation("Idempotency-Key", context.Delivery.IdempotencyKey);
-        request.Headers.TryAddWithoutValidation("X-DocProc-Document-Id", context.Delivery.DocumentId.ToString("D"));
-        request.Headers.TryAddWithoutValidation("X-DocProc-Revision", context.Delivery.DocumentVersion.ToString(CultureInfo.InvariantCulture));
-        request.Headers.TryAddWithoutValidation("X-DocProc-Event", context.Delivery.Event);
-        Authorize(request, authType, auth, secret, token, body);
-
         HttpResponseMessage response;
-        using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timer.CancelAfter(timeout);
         try
         {
             response = await http.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timer.Token).ConfigureAwait(false);
@@ -316,18 +340,18 @@ public sealed class HttpDeliveryTransport(
     }
 
     /// <summary>
-    /// The credentials of a destination as a receiver may echo them in an error page: the secret itself (an API key
-    /// header's value, a bearer token, the HMAC key), its URL-encoded form (the token request's <c>client_secret</c>),
-    /// for <c>basic</c> the <c>base64(username:secret)</c> on the wire, and the OAuth access token.
+    /// The credentials of a destination as a receiver may echo them in an error page, each in the forms it can come
+    /// back in: as sent (an API key header's value, a bearer token, the HMAC key), as the token request's
+    /// <c>client_secret</c> exactly as <see cref="FormUrlEncodedContent"/> writes it (<see cref="FormEncoded"/>), the
+    /// other URL encodings, JSON-escaped (strict, relaxed and with <c>\/</c>) and HTML-encoded; for <c>basic</c> the
+    /// <c>base64(username:secret)</c> on the wire; and the OAuth access token.
     /// </summary>
     public static IReadOnlyList<string> Masked(string authType, JsonObject? auth, string? secret, string? token)
     {
         var masked = new List<string>();
         if (!string.IsNullOrEmpty(secret))
         {
-            masked.Add(secret);
-            masked.Add(Uri.EscapeDataString(secret));
-            masked.Add(System.Net.WebUtility.UrlEncode(secret));
+            AddForms(masked, secret);
             if (authType == HttpAuthTypes.Basic && auth?["username"] is JsonValue user && user.TryGetValue<string>(out var username))
             {
                 masked.Add(Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{secret}")));
@@ -336,14 +360,44 @@ public sealed class HttpDeliveryTransport(
 
         if (!string.IsNullOrEmpty(token))
         {
-            masked.Add(token);
+            AddForms(masked, token);
         }
 
         // The longest first, so a value that contains another is masked whole.
-        return [.. masked.Distinct(StringComparer.Ordinal).OrderByDescending(m => m.Length)];
+        return [.. masked.Where(m => m.Length > 0).Distinct(StringComparer.Ordinal).OrderByDescending(m => m.Length)];
     }
 
-    /// <summary>The first 4 KB of a response as text, with every value of <paramref name="masked"/> (of any length) replaced by <c>***</c>.</summary>
+    private static void AddForms(List<string> masked, string value)
+    {
+        masked.Add(value);
+        masked.Add(FormEncoded(value));
+        masked.Add(Uri.EscapeDataString(value));
+        masked.Add(System.Net.WebUtility.UrlEncode(value));
+        var strict = JsonEncodedText.Encode(value).ToString();
+        var relaxed = JsonEncodedText.Encode(value, System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping).ToString();
+        masked.Add(strict);
+        masked.Add(relaxed);
+        masked.Add(strict.Replace("/", "\\/", StringComparison.Ordinal));
+        masked.Add(relaxed.Replace("/", "\\/", StringComparison.Ordinal));
+        masked.Add(System.Net.WebUtility.HtmlEncode(value));
+    }
+
+    /// <summary>A value as <see cref="FormUrlEncodedContent"/> writes it in a form body (the token request's <c>client_secret</c>): the encoder's own output, not a copy of its rules.</summary>
+    public static string FormEncoded(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        using var content = new FormUrlEncodedContent([new KeyValuePair<string, string>("k", value)]);
+        using var stream = content.ReadAsStream();
+        using var reader = new StreamReader(stream, Encoding.ASCII);
+        var body = reader.ReadToEnd();
+        return body.StartsWith("k=", StringComparison.Ordinal) ? body[2..] : body;
+    }
+
+    /// <summary>
+    /// The first 4 KB of a response as text, with every value of <paramref name="masked"/> (of any length) replaced by
+    /// <c>***</c>. The whole bounded response is decoded and masked before it is cut, so a secret the receiver echoes
+    /// across the cut is masked whole, never kept in part.
+    /// </summary>
     public static string? Excerpt(byte[] bytes, IReadOnlyList<string> masked)
     {
         ArgumentNullException.ThrowIfNull(bytes);
@@ -353,7 +407,7 @@ public sealed class HttpDeliveryTransport(
             return null;
         }
 
-        var text = Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, DeliveryAttempt.MaxExcerptLength * 2));
+        var text = Encoding.UTF8.GetString(bytes);
         foreach (var value in masked.OrderByDescending(m => m.Length))
         {
             if (value.Length > 0)
@@ -391,12 +445,17 @@ public sealed class HttpDeliveryTransport(
 
 /// <summary>
 /// The OAuth 2.0 client-credentials tokens of http destinations (docs/11 §13.3, "token cached until expiry"): one per
-/// destination and secret, asked for through <see cref="DeliveryHttpClient"/> at the config's <c>tokenUrl</c> and kept
-/// until a minute before <c>expires_in</c> ends (five minutes when the answer has none).
+/// destination, asked for through <see cref="DeliveryHttpClient"/> at the config's <c>tokenUrl</c> and kept until a
+/// minute before <c>expires_in</c> ends (five minutes when the answer has none). A cached token is used only for the
+/// secret and the auth settings it was obtained with (<see cref="Fingerprint"/>): a new secret, or a changed token URL,
+/// client id or scope, asks for a new token, in whichever process the change was made.
 /// </summary>
 public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
 {
-    private readonly ConcurrentDictionary<Guid, (string SecretRef, string Token, DateTimeOffset ExpiresAt)> _tokens = new();
+    /// <summary>The longest a token request may take, within the attempt's own budget.</summary>
+    public static readonly TimeSpan MaxTokenRequest = TimeSpan.FromSeconds(30);
+
+    private readonly ConcurrentDictionary<Guid, (string Fingerprint, string Token, DateTimeOffset ExpiresAt)> _tokens = new();
 
     public void Forget(OutputDestination destination)
     {
@@ -404,12 +463,28 @@ public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
         _tokens.TryRemove(destination.Id, out _);
     }
 
-    public async Task<(string? Token, DeliveryOutcome? Failure)> GetAsync(OutputDestination destination, JsonObject auth, string secret, CancellationToken cancellationToken)
+    /// <summary>What a cached token was obtained with: the secret's reference and when it was set, and the auth's token URL, client id and scope.</summary>
+    internal static string Fingerprint(OutputDestination destination, JsonObject auth) =>
+        string.Join(
+            '\n',
+            destination.SecretRef ?? string.Empty,
+            destination.SecretSetAt?.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            auth["tokenUrl"]?.ToJsonString() ?? string.Empty,
+            auth["clientId"]?.ToJsonString() ?? string.Empty,
+            auth["scope"]?.ToJsonString() ?? string.Empty);
+
+    /// <param name="destination">The destination the token is for.</param>
+    /// <param name="auth">Its config's <c>auth</c> block.</param>
+    /// <param name="secret">Its client secret.</param>
+    /// <param name="attempt">The attempt's budget (the destination's timeout); the token request ends with it, or after <see cref="MaxTokenRequest"/>.</param>
+    /// <param name="cancellationToken">The host's shutdown.</param>
+    public async Task<(string? Token, DeliveryOutcome? Failure)> GetAsync(OutputDestination destination, JsonObject auth, string secret, CancellationToken attempt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
         ArgumentNullException.ThrowIfNull(auth);
         var now = clock.GetUtcNow();
-        if (_tokens.TryGetValue(destination.Id, out var cached) && cached.SecretRef == destination.SecretRef && cached.ExpiresAt > now)
+        var fingerprint = Fingerprint(destination, auth);
+        if (_tokens.TryGetValue(destination.Id, out var cached) && cached.Fingerprint == fingerprint && cached.ExpiresAt > now)
         {
             return (cached.Token, null);
         }
@@ -432,8 +507,8 @@ public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = new FormUrlEncodedContent(form) };
-        using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timer.CancelAfter(TimeSpan.FromSeconds(30));
+        using var timer = CancellationTokenSource.CreateLinkedTokenSource(attempt, cancellationToken);
+        timer.CancelAfter(MaxTokenRequest);
         try
         {
             // The tenant chooses the token URL: its answer is read up to a bound, as a delivery's is, never whole.
@@ -461,12 +536,12 @@ public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
 
             var lifetime = json["expires_in"] is JsonValue expires && expires.TryGetValue<int>(out var seconds) && seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.FromMinutes(5);
             var margin = lifetime > TimeSpan.FromMinutes(2) ? TimeSpan.FromMinutes(1) : TimeSpan.Zero;
-            _tokens[destination.Id] = (destination.SecretRef ?? string.Empty, token, now + lifetime - margin);
+            _tokens[destination.Id] = (fingerprint, token, now + lifetime - margin);
             return (token, null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return (null, DeliveryOutcome.Retryable("token", "The token endpoint did not answer within 30 s."));
+            return (null, DeliveryOutcome.Retryable("token", "The token endpoint did not answer in time (the attempt's timeout, at most 30 s)."));
         }
         catch (HttpRequestException exception) when (TenantEndpointGuard.FindBlocked(exception) is not null)
         {

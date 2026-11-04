@@ -15,6 +15,19 @@ public sealed class DeliveryOptions
     /// </summary>
     public List<TimeSpan> RetrySchedule { get; set; } = [];
 
+    /// <summary>
+    /// Delivery attempts a worker runs at once. Deliveries have a lane of their own, apart from the document pipeline's
+    /// <c>Pipeline:MaxParallelism</c>: an attempt waits on a receiver for up to its <c>timeoutSeconds</c>, and slow
+    /// receivers must not hold up ingestion and the document stages.
+    /// </summary>
+    public int MaxParallelism { get; set; } = 4;
+
+    /// <summary>
+    /// Delivery attempts of one tenant a worker runs at once, within <see cref="MaxParallelism"/>: a tenant whose
+    /// receiver never answers ties up this many of the lane's slots, never all of them.
+    /// </summary>
+    public int MaxParallelismPerTenant { get; set; } = 2;
+
     /// <summary>Attempts before a retryable failure is dead-lettered (docs/11 §13.6: 15).</summary>
     public int MaxAttempts { get; set; } = 15;
 

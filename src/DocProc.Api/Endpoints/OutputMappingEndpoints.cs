@@ -199,8 +199,9 @@ public static partial class OutputMappingEndpoints
             .WithTags("Outputs")
             .RequireAuthorization(Policies.IntegrationAdmin)
             .WithMetadata(new RequestSizeLimitAttribute(MaxPreviewRequestBytes))
+            .RequireRateLimiting(OutputPreviewOptions.RateLimitPolicy)
             .WithName("PreviewOutputMapping")
-            .WithSummary("Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads.");
+            .WithSummary("Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads. A few previews run at a time per tenant (429 beyond).");
 
         var mappings = group.MapGroup("/output-mappings").WithTags("Outputs");
         mappings.MapGet("/", ListAsync)

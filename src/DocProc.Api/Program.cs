@@ -37,6 +37,8 @@ builder.AddDocProcDemoData();
 builder.Services.AddDocProcApiServices();
 // The table tool and region OCR run in this shared process: a time budget per read and a few reads at a time per tenant.
 DocProc.Api.Documents.TableToolOptions.AddTableToolLimits(builder.Services, builder.Configuration);
+// The output mapping preview renders in the renderer pool the tenants share: a few previews at a time per tenant.
+DocProc.Api.Endpoints.OutputPreviewOptions.AddOutputPreviewLimits(builder.Services, builder.Configuration);
 
 var app = builder.Build();
 

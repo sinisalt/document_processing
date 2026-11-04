@@ -39,12 +39,52 @@ public static partial class DestinationConfig
     public const int MaxHeaders = 20;
     public const int MaxTemplateLength = 2000;
 
-    /// <summary>Header names a config may not carry: credentials go to the destination's secret and the auth block.</summary>
+    /// <summary>Header names a config's <c>headers</c> may not carry because they are credentials: those go to the destination's secret and the auth block.</summary>
     private static readonly HashSet<string> CredentialHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key", "Api-Key", "X-Auth-Token",
-        "Idempotency-Key", "X-DocProc-Document-Id", "X-DocProc-Revision", "X-DocProc-Event", "X-DocProc-Timestamp", "X-DocProc-Signature", "Host", "Content-Length", "Transfer-Encoding",
     };
+
+    /// <summary>
+    /// Header names the transport sets or that frame the request, which neither <c>headers</c> nor the auth's
+    /// <c>headerName</c> may carry: the delivery's own headers (<c>Idempotency-Key</c>, every <c>X-DocProc-*</c>), the
+    /// host (another virtual host behind the same address), the body's framing and the hop-by-hop headers.
+    /// </summary>
+    private static readonly HashSet<string> TransportHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Host", "Content-Length", "Content-Type", "Content-Encoding", "Transfer-Encoding", "Connection", "Keep-Alive", "TE", "Trailer", "Upgrade",
+        "Expect", "Proxy-Connection", "Proxy-Authorization", "Idempotency-Key",
+    };
+
+    /// <summary>Whether the transport reserves <paramref name="name"/> (<see cref="TransportHeaders"/> and the <c>X-DocProc-</c> prefix).</summary>
+    public static bool IsReservedHeader(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return TransportHeaders.Contains(name) || name.StartsWith("X-DocProc-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The auth types whose secret travels as a header value as it is (<c>apiKeyHeader</c>, <c>bearer</c>).</summary>
+    public static bool SendsSecretInHeader(string authType) => authType is HttpAuthTypes.ApiKeyHeader or HttpAuthTypes.Bearer;
+
+    /// <summary>
+    /// What is wrong with <paramref name="secret"/> for <paramref name="authType"/>, or null. No secret may hold a line
+    /// break or NUL (a header value with CR or LF would add header lines of its own); one that travels in a header as it
+    /// is (<see cref="SendsSecretInHeader"/>) is printable ASCII (space and tab allowed). <c>basic</c> sends it base64,
+    /// <c>oauth2ClientCredentials</c> form-encoded and <c>hmacSha256</c> never, so any other text is fine there.
+    /// </summary>
+    public static string? SecretProblem(string authType, string secret)
+    {
+        ArgumentNullException.ThrowIfNull(authType);
+        ArgumentNullException.ThrowIfNull(secret);
+        if (secret.AsSpan().IndexOfAny('\r', '\n', '\0') >= 0)
+        {
+            return "The secret has a line break or a NUL character.";
+        }
+
+        return SendsSecretInHeader(authType) && secret.Any(c => c != '\t' && (c < ' ' || c > '~'))
+            ? $"The secret of auth '{authType}' is sent in a header as it is, so it is printable ASCII."
+            : null;
+    }
 
     private static readonly HashSet<string> HttpMethods = new(StringComparer.Ordinal) { "POST", "PUT", "PATCH" };
 
@@ -86,6 +126,77 @@ public static partial class DestinationConfig
         return problems;
     }
 
+    /// <summary>
+    /// What in a change of an http config from <paramref name="before"/> to <paramref name="after"/> would send the
+    /// stored secret somewhere it was not set up for: another origin (scheme, host and port) of <c>urlTemplate</c>, of
+    /// the URL a re-approval sends to (<c>updateUrlTemplate</c>, else <c>urlTemplate</c>) or of the OAuth
+    /// <c>tokenUrl</c>, another <c>auth.type</c>, or another <c>headerName</c>. Empty when the new auth sends no secret
+    /// (<c>none</c>, and <c>hmacSha256</c>, whose key never leaves) or nothing of that changed. Such a change needs the
+    /// secret again (docs/05, <c>PATCH /destinations/{id}</c>): otherwise anyone who may edit the destination could
+    /// point it at a host of their own and read the credential set up for the real receiver.
+    /// </summary>
+    public static IReadOnlyList<string> SecretRedirects(JsonObject before, JsonObject after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        var type = AuthTypeOf(after);
+        if (type is HttpAuthTypes.None or HttpAuthTypes.HmacSha256)
+        {
+            return [];
+        }
+
+        var changes = new List<string>();
+        if (AuthTypeOf(before) != type)
+        {
+            changes.Add("auth.type");
+        }
+
+        if (!SameOrigin(Text(before["urlTemplate"]), Text(after["urlTemplate"])))
+        {
+            changes.Add("the host of urlTemplate");
+        }
+
+        if (!SameOrigin(Text(before["updateUrlTemplate"]) ?? Text(before["urlTemplate"]), Text(after["updateUrlTemplate"]) ?? Text(after["urlTemplate"])))
+        {
+            changes.Add("the host of updateUrlTemplate");
+        }
+
+        if (type == HttpAuthTypes.OAuth2ClientCredentials && !SameOrigin(Text(before["auth"]?["tokenUrl"]), Text(after["auth"]?["tokenUrl"])))
+        {
+            changes.Add("the host of auth.tokenUrl");
+        }
+
+        if (type == HttpAuthTypes.ApiKeyHeader && !string.Equals(Text(before["auth"]?["headerName"]), Text(after["auth"]?["headerName"]), StringComparison.OrdinalIgnoreCase))
+        {
+            changes.Add("auth.headerName");
+        }
+
+        return changes;
+    }
+
+    /// <summary>Whether two URL templates name the same origin: the text before the path (<c>scheme://host:port</c>), case-insensitive, with the scheme's default port written or not.</summary>
+    private static bool SameOrigin(string? before, string? after) => string.Equals(Origin(before), Origin(after), StringComparison.Ordinal);
+
+    private static string? Origin(string? template)
+    {
+        if (template is null)
+        {
+            return null;
+        }
+
+        var start = template.IndexOf("://", StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return template.Trim().ToLowerInvariant();
+        }
+
+        var end = template.IndexOfAny(['/', '?', '#'], start + 3);
+        var origin = (end < 0 ? template : template[..end]).Trim().ToLowerInvariant();
+        return origin.EndsWith(":443", StringComparison.Ordinal) && origin.StartsWith("https://", StringComparison.Ordinal) ? origin[..^4]
+            : origin.EndsWith(":80", StringComparison.Ordinal) && origin.StartsWith("http://", StringComparison.Ordinal) ? origin[..^3]
+            : origin;
+    }
+
     /// <summary>The auth type of an http config (<c>none</c> when it has none).</summary>
     public static string AuthTypeOf(JsonObject config) => config["auth"]?["type"] is JsonValue value && value.TryGetValue<string>(out var type) ? type : HttpAuthTypes.None;
 
@@ -120,7 +231,7 @@ public static partial class DestinationConfig
                     {
                         problems.Add(($"config.headers.{name}", "A header is a token name with a single-line string value."));
                     }
-                    else if (CredentialHeaders.Contains(name))
+                    else if (CredentialHeaders.Contains(name) || IsReservedHeader(name))
                     {
                         problems.Add(($"config.headers.{name}", $"'{name}' is set by the transport or is a credential; credentials go to the destination's secret and auth."));
                     }
@@ -155,6 +266,10 @@ public static partial class DestinationConfig
                 else if (type == HttpAuthTypes.ApiKeyHeader && (Text(block["headerName"]) is not { } header || !HeaderName().IsMatch(header)))
                 {
                     problems.Add(("config.auth.headerName", "apiKeyHeader needs headerName, the header the key is sent in."));
+                }
+                else if (type == HttpAuthTypes.ApiKeyHeader && IsReservedHeader(Text(block["headerName"])!))
+                {
+                    problems.Add(("config.auth.headerName", $"'{Text(block["headerName"])}' is set by the transport (Host, Idempotency-Key, X-DocProc-*, the body's framing, hop-by-hop headers); the key goes in a header of its own."));
                 }
                 else if (type == HttpAuthTypes.Basic && Text(block["username"]) is not { Length: > 0 and <= 200 })
                 {

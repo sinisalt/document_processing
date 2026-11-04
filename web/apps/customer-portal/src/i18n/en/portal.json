@@ -905,7 +905,7 @@
         "fileNameTemplate": "With the same placeholders as the URL; the mapping version's file name wins.",
         "pull": "Read with GET /api/v1/feeds/{id} and an API key with the deliveries:read scope; acknowledge with :ack.",
         "secret": "Stored in the secret store; never shown again.",
-        "secretKeep": "A secret is set. Leave this empty to keep it; a new one replaces it and the old one is kept as the previous secret."
+        "secretKeep": "A secret is set. Leave this empty to keep it; a new one replaces it and the old one is kept as the previous secret. Moving the URL or the token URL to another host, or changing the auth type or the header name, needs the secret again."
       },
       "auth": {
         "none": "None",

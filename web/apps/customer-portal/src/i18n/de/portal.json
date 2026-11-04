@@ -905,7 +905,7 @@
         "fileNameTemplate": "Mit denselben Platzhaltern wie die URL; der Dateiname der Mapping-Version hat Vorrang.",
         "pull": "Gelesen mit GET /api/v1/feeds/{id} und einem API-Schlüssel mit dem Scope deliveries:read; bestätigt mit :ack.",
         "secret": "Wird im Geheimnisspeicher abgelegt und nie wieder angezeigt.",
-        "secretKeep": "Ein Geheimnis ist gesetzt. Leer lassen, um es zu behalten; ein neues ersetzt es, das alte bleibt als vorheriges Geheimnis erhalten."
+        "secretKeep": "Ein Geheimnis ist gesetzt. Leer lassen, um es zu behalten; ein neues ersetzt es, das alte bleibt als vorheriges Geheimnis erhalten. Wer die URL oder die Token-URL auf einen anderen Host legt oder die Authentifizierung oder den Headernamen ändert, gibt das Geheimnis erneut ein."
       },
       "auth": {
         "none": "Keine",

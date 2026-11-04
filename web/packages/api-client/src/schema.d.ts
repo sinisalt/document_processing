@@ -1072,7 +1072,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads. */
+        /** Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads. A few previews run at a time per tenant (429 beyond). */
         post: operations["PreviewOutputMapping"];
         delete?: never;
         options?: never;
@@ -2553,10 +2553,17 @@ export interface components {
             secret: null | string;
             status: null | string;
         };
-        /** @description Every field optional. A config replaces the stored one; string? PatchDestinationRequest.Status is Active or Disabled. */
+        /**
+         * @description Every field optional. A config replaces the stored one; string? PatchDestinationRequest.Status is Active or Disabled. A config that
+         *     would send the stored secret somewhere else (another host of a URL or of the token URL, another auth type or header
+         *     name) needs `secret` in the same request (400 under `secret` otherwise), which then replaces the stored
+         *     secret and drops the previous one; without such a change `secret` rotates the secret as
+         *     `PUT /destinations/{id}/secret` does.
+         */
         PatchDestinationRequest: {
             config: null | components["schemas"]["JsonElement"];
             name: null | string;
+            secret?: null | string;
             status: null | string;
         };
         PatchLookupTableRequest: {

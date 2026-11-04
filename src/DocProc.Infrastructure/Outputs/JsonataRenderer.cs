@@ -35,6 +35,13 @@ public sealed class JsonataRendererOptions
     /// </summary>
     public TimeSpan TransferTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How long a render waits for a free process of the pool (which the tenants of the host share) before it answers
+    /// <c>unavailable</c>: the fan-out is then retried by the publish stage, a preview answers 503. Bounded so a pool
+    /// kept busy cannot hold callers for ever.
+    /// </summary>
+    public TimeSpan QueueTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
     /// <summary>How long a new renderer process may take to start (outside the render's time limit).</summary>
     public TimeSpan StartTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -349,7 +356,11 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
         var id = Interlocked.Increment(ref _nextId);
         var text = "{\"id\":" + id.ToString(CultureInfo.InvariantCulture) + "," + request[1..];
 
-        await _slots.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (!await _slots.WaitAsync(_options.QueueTimeout, cancellationToken).ConfigureAwait(false))
+        {
+            return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, "BUSY", $"Every renderer process was busy for {_options.QueueTimeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} s."));
+        }
+
         RendererProcess? process = null;
         try
         {

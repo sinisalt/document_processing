@@ -10,6 +10,7 @@ using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Runner;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DocProc.Pipeline.Tests.Delivery;
 
@@ -69,6 +70,69 @@ public sealed class DeliveryPipelineTests
         Details(succeeded).GetProperty("statusCode").GetInt32().ShouldBe(201);
         Details(succeeded).GetProperty("destination").GetString().ShouldBe("erp");
         (await AttemptsAsync(host, delivery.Id)).ShouldHaveSingleItem().ErrorClass.ShouldBe("delivered");
+    }
+
+    [Fact]
+    public async Task Deliveries_waiting_on_a_receiver_hold_neither_the_document_pipeline_nor_more_than_the_tenants_share()
+    {
+        // One document slot, a delivery lane of four with two per tenant, and a receiver that never answers until the
+        // test lets it: before the delivery lane, the first delivery held the only slot and the next document stalled.
+        var receiverGate = new BlockingTransport();
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(
+            receiver,
+            settings =>
+            {
+                settings["Pipeline:MaxParallelism"] = "1";
+                settings["Delivery:MaxParallelism"] = "4";
+                settings["Delivery:MaxParallelismPerTenant"] = "2";
+            },
+            services =>
+            {
+                // In place of the http transport (registered with the persistence, before this runs).
+                services.RemoveAll<IDeliveryTransport>();
+                services.AddSingleton<IDeliveryTransport>(receiverGate);
+            });
+        await BindAsync(host, receiver, ApExpression);
+
+        var first = await IngestWithoutWaitingAsync(host);
+        var second = await IngestWithoutWaitingAsync(host);
+        var third = await IngestWithoutWaitingAsync(host);
+        try
+        {
+            await receiverGate.WaitForRunningAsync(2);
+        }
+        catch (ShouldAssertException)
+        {
+            var state = await host.WithDbAsync(async db => string.Join("; ", (await db.Documents.AsNoTracking().Select(d => d.Status.ToString() + " " + d.Id).ToListAsync()).Concat(await db.OutboxDeliveries.AsNoTracking().Select(d => "delivery " + d.Status.ToString() + " " + d.Attempts + " " + d.LastError).ToListAsync())));
+            throw new InvalidOperationException($"running {receiverGate.MaxRunning}, sent {receiverGate.Sent}: {state}");
+        }
+
+        // Two of tenant A's three deliveries wait on the receiver, the third waits for the tenant's share; a further
+        // document still goes through every stage on the one document slot.
+        var later = await IngestWithoutWaitingAsync(host);
+        await WaitForAsync(host, later, d => d.Status == DocumentStatus.AutoApproved);
+        var laterId = (await host.SingleDocumentAsync(later)).Id;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while ((await DeliveriesAsync(host, laterId)).Count == 0)
+        {
+            watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(60), "the later document's publish stage fans out while tenant A's deliveries wait");
+            await Task.Delay(TimeSpan.FromMilliseconds(20), Ct);
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(200), Ct);
+        receiverGate.MaxRunning.ShouldBe(2, "a tenant runs at most Delivery:MaxParallelismPerTenant attempts at once");
+
+        receiverGate.Release();
+        await host.RunUntilIdleAsync();
+        foreach (var ingestion in new[] { first, second, third, later })
+        {
+            var document = await host.SingleDocumentAsync(ingestion);
+            (await DeliveriesAsync(host, document.Id)).ShouldHaveSingleItem().Status.ShouldBe(DeliveryStatus.Delivered);
+        }
+
+        receiverGate.MaxRunning.ShouldBe(2);
+        receiverGate.Sent.ShouldBe(4);
     }
 
     [Fact]
@@ -542,7 +606,93 @@ public sealed class DeliveryPipelineTests
         return document;
     }
 
-    /// <summary>What a reprocess and a second approval leave: a new document version, approved again, its outbox row, and the publish stage run.</summary>
+    /// <summary>An e-invoice of tenant A with an invoice number of its own (so no duplicate review), queued; the pipeline runs it while the test goes on.</summary>
+    private static async Task<Guid> IngestWithoutWaitingAsync(PipelineTestHost host)
+    {
+        var marker = Guid.NewGuid().ToString("N");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(PipelineTestHost.FixtureVariant(marker))
+            .Replace("<cbc:ID>RE-2026-10412</cbc:ID>", $"<cbc:ID>RE-{marker[..8]}</cbc:ID>", StringComparison.Ordinal));
+        return (await host.IngestAsync(TenantA, [new IngestFile($"{marker}.xml", XmlMime, bytes)])).Id;
+    }
+
+    /// <summary>Polls the document of an ingestion until it satisfies <paramref name="done"/> (60 s at most).</summary>
+    private static async Task WaitForAsync(PipelineTestHost host, Guid ingestionId, Func<Document, bool> done)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var document = await host.WithDbAsync(db => db.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.IngestionItem!.IngestionId == ingestionId));
+            if (document is not null && done(document))
+            {
+                return;
+            }
+
+            watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(60), $"the document of ingestion {ingestionId} did not get there (now {document?.Status.ToString() ?? "not created"})");
+            await Task.Delay(TimeSpan.FromMilliseconds(20), Ct);
+        }
+    }
+
+    /// <summary>
+    /// The http transport of a receiver that holds every request until <see cref="Release"/>: counts the attempts
+    /// running at once.
+    /// </summary>
+    private sealed class BlockingTransport : IDeliveryTransport
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Lock _gate = new();
+        private int _running;
+
+        public string Transport => OutputTransports.Http;
+
+        public int MaxRunning { get; private set; }
+
+        public int Sent { get; private set; }
+
+        public void Release() => _release.TrySetResult();
+
+        public async Task WaitForRunningAsync(int count)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                lock (_gate)
+                {
+                    if (_running >= count)
+                    {
+                        return;
+                    }
+                }
+
+                watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(60), $"{count} deliveries did not reach the receiver");
+                await Task.Delay(TimeSpan.FromMilliseconds(20), Ct);
+            }
+        }
+
+        public async Task<DeliveryOutcome> SendAsync(DeliveryContext context, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                _running++;
+                MaxRunning = Math.Max(MaxRunning, _running);
+            }
+
+            try
+            {
+                await _release.Task.WaitAsync(cancellationToken);
+                return DeliveryOutcome.Delivered(201);
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    _running--;
+                    Sent++;
+                }
+            }
+        }
+    }
+
+    /// <summary>What a reprocess and a second approval leave:a new document version, approved again, its outbox row, and the publish stage run.</summary>
     private static async Task<int> ReapproveAsync(PipelineTestHost host, Guid documentId)
     {
         host.Clock.Advance(TimeSpan.FromMinutes(5));

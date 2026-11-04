@@ -972,7 +972,7 @@ this section does not name.
 | Key | Default | What it does |
 |---|---|---|
 | `Pipeline:RunInProcess` | true outside Production; the worker: true everywhere | Whether this process consumes the in-process queue (docs/03 "Implementation"). |
-| `Pipeline:MaxParallelism` | 2 | Messages the runner processes at the same time. At least 1. |
+| `Pipeline:MaxParallelism` | 2 | Ingestion and document messages the runner processes at the same time (deliveries have their own `Delivery:MaxParallelism`). At least 1. |
 | `Pipeline:RetryBaseDelay` | `00:00:05` | Delay before the second attempt; doubled per attempt. Not negative. |
 | `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. Not negative. |
 | `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. At least 1. |
@@ -1042,10 +1042,15 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Outputs:Renderer:WallClockLimit` | `00:00:10` | Wall-clock ceiling of one render however little processor time it got. |
 | `Outputs:Renderer:TransferTimeout` | `00:00:30` | Sending a request and the renderer reading it (a 10,000-row price list is about 20 MB of values view). |
 | `Outputs:Renderer:StartTimeout` | `00:00:30` | Starting a new renderer process. |
+| `Outputs:Renderer:QueueTimeout` | `00:01:00` | How long a render waits for a free process of the pool before it answers `unavailable` (the publish stage retries, a preview answers 503). |
+| `Outputs:Preview:ConcurrentPreviewsPerTenant` | 2 | API only: `POST /output-mappings:preview` requests rendering at once per tenant (per user in platform scope). At least 1. |
+| `Outputs:Preview:QueuedPreviewsPerTenant` | 2 | API only: further previews that wait for a free slot; more answer 429. Not negative. |
 | `Outputs:Renderer:HeapHardLimitBytes` | 1073741824 (1 GiB) | The renderer's GC heap (`DOTNET_GCHeapHardLimit`); a render past it is `memoryLimit` and the process is replaced. |
 | `Outputs:Renderer:RendererPath` | `DocProc.Outputs.Renderer.dll` next to the host | The renderer assembly. |
 | `Outputs:Renderer:DotnetHostPath` | the running runtime's `dotnet` | The `dotnet` host that runs it. |
 | `Delivery:RetrySchedule` | empty: 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h | The waits between attempts of a delivery (docs/11 §13.6), each with up to 10 % jitter; the last entry repeats. |
+| `Delivery:MaxParallelism` | 4 | Delivery attempts the runner sends at once, in a lane of their own beside `Pipeline:MaxParallelism` (an attempt waits on a receiver for up to its `timeoutSeconds`, and must not hold up the document stages). Below 1 counts as 1. |
+| `Delivery:MaxParallelismPerTenant` | 2 | Of those, the most one tenant's attempts take, so a receiver that never answers holds up only its own tenant's deliveries. Below 1 counts as 1. |
 | `Delivery:MaxAttempts` | 15 | Attempts before a retryable failure is dead-lettered (`DELIVERY_FAILED`). |
 | `Delivery:MaxAge` | `3.00:00:00` | How long after its creation a delivery is still retried. |
 | `Delivery:MaxRetryAfter` | `12:00:00` | The longest `Retry-After` of a receiver that is honoured (the shortest is 1 s). |

@@ -1590,6 +1590,11 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
     (`yyyy-MM-ddTHH:mm[:ss[.fffffff]][Z|±hh:mm]`, no offset read as UTC), not culture-style dates such as `11/03/2026`.
     `$table` matches a number by its value when its text matches no entry: `10.0` from the values view finds the
     entry `10`, and the entry `19.00` is found by `19`.
+- Correction (P3, second review): `$fmtNum(n, decimals, decSep?, groupSep?)` formats the same number, so it refuses
+  separators that would write another one (a `function` error): with decimals, an empty decimal separator
+  (`$fmtNum(1234.5, 2, "", "")` gave `123450`) or one equal to the group separator (`1.234.50`); at any count, a
+  separator with a digit or a sign. Without decimals the decimal separator is never written, so
+  `$fmtNum(1234, 0, ".", ".")` stays `1.234`. The visual field map refuses the same settings.
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1691,6 +1696,26 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
     by every role that reads deliveries.
   - `responseMapping` is compiled when the destination is saved (refused as 400 under `config.responseMapping`), as a
     binding's condition is; before, any text up to 8000 characters was stored and failed after every delivery.
+- Correction (P3, second review): the credential rules above left four ways to read or misuse a destination's secret.
+  - "Its URL-encoded form" was not the form the token request sends: `FormUrlEncodedContent` writes a space as `+`
+    and escapes `!()*'`, so a client secret with a space and one of those travelled unmasked. The excerpt now masks
+    each credential as the form encoder itself writes it, its other URL encodings, its JSON-escaped forms (strict,
+    relaxed, with `\/`) and its HTML-encoded form. The whole bounded answer (256 KB, 64 KB for a token endpoint) is
+    decoded and masked before it is cut to 4 KB; cutting the bytes first left part of a secret echoed across the cut.
+  - `auth.headerName` may not be a header the transport sets or that frames the request (`Host`, `Idempotency-Key`,
+    every `X-DocProc-*`, `Content-Length`, `Content-Type`, `Transfer-Encoding`, the hop-by-hop headers); `headers`
+    may not carry them either. A secret has no CR, LF or NUL, and one sent in a header as it is (`apiKeyHeader`,
+    `bearer`) is printable ASCII: checked when it is saved, and again before a send (a permanent `secret` failure, not
+    15 retries), as is a reserved header name saved before the rule. A request the headers cannot carry is a permanent
+    `request` failure.
+  - `PATCH /destinations/{id}` kept the secret when the config sent it elsewhere, so whoever may edit a destination
+    could point it at a host of their own and read the credential set up for the real receiver. A change of the origin
+    of `urlTemplate`, of the URL a re-approval sends to or of `auth.tokenUrl`, or of `auth.type` or `auth.headerName`,
+    now needs the secret in the same request (`secret`, which then replaces the stored one and drops the previous one),
+    unless the new auth sends no secret (`none`, `hmacSha256`). A cached OAuth token is used only with the secret
+    (reference and time it was set), token URL, client id and scope it was obtained with.
+  - The OAuth token request counts against the attempt's `timeoutSeconds` (at most 30 s of it), so an attempt waits on
+    a tenant's endpoints for at most its timeout, not the timeout plus 30 s.
 
 ### 13.4 Multi-call recipes
 
@@ -1788,6 +1813,19 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
     `document.delivery_skipped` event), and the flag resolves once no dead letter is left.
   - Two redeliveries of one delivery at the same moment (a double click) chose the same key `:r<n>`; the second now
     answers 409 "Delivery changed" instead of a 500 from the unique index.
+- Correction (P3, second review): "runs in `PipelineRunnerHostedService` next to `ProcessDocument`" let one tenant tie
+  up the worker every tenant shares. Delivery attempts took the document pipeline's `Pipeline:MaxParallelism` slots (2
+  by default) and waited there on the receiver for up to `timeoutSeconds` (1 to 120 s), so a few deliveries to a host
+  that never answers stalled every tenant's ingestion and stages for minutes per retry round.
+  - Deliveries now run in a lane of their own in the runner: `Delivery:MaxParallelism` attempts at once (default 4),
+    of which one tenant holds at most `Delivery:MaxParallelismPerTenant` (default 2); the reader never waits for a
+    delivery slot, so documents queued behind deliveries are taken at once. An attempt takes its
+    `destination:document` key first, then its tenant's place, then a lane slot.
+  - A tenant has at most 25 bindings and 25 destinations (409 beyond), which bounds the renders one approval's
+    fan-out runs in the publish stage (a condition and a mapping per binding in scope).
+  - The renderer pool answers `unavailable` after `Outputs:Renderer:QueueTimeout` (60 s) without a free process
+    instead of waiting for ever, and `POST /output-mappings:preview` runs a few at a time per tenant (2 running, 2
+    queued, 429 beyond; `Outputs:Preview`), as the table tool does (12.4).
 
 ### 13.7 Batches
 

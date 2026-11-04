@@ -203,8 +203,8 @@ every human decision is published by the worker's publish sweeper (docs/11 §13.
 `recoveredBy: "publish-sweeper"` in the timeline. Nothing is lost (before P0 these publishes were
 lost without a trace), but there "recovered" is the normal case, not a sign of a crash; the signal
 means a lost message only where the deciding host runs a runner (Development, compose, the
-AppHost). Auto-approvals are nudged in the worker and publish at once. The runner processes `Pipeline:MaxParallelism` messages at a
-time (default 2), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
+AppHost). Auto-approvals are nudged in the worker and publish at once. The runner processes `Pipeline:MaxParallelism` ingestion and document messages at a
+time (default 2; delivery attempts have a lane of their own, `Delivery:MaxParallelism`, docs/11 §13.6), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
 to the message's tenant before any query runs. Messages with the same key (the document id, or the
 ingestion id for stage 1) are serialised through a keyed single-flight gate (`KeyedWorkGate`), so
 two copies of one message never run at the same time in one process; the copy that waits finds the

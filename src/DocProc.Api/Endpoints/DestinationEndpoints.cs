@@ -45,8 +45,14 @@ public sealed record DestinationResponse(
 /// <summary><c>POST /destinations</c>: a name, a transport (<c>http</c>, <c>blob</c>, <c>pull</c>), its config and, write-only, the secret.</summary>
 public sealed record CreateDestinationRequest(string Name, string Transport, JsonElement? Config, string? Secret);
 
-/// <summary>Every field optional. A config replaces the stored one; <see cref="Status"/> is Active or Disabled.</summary>
-public sealed record PatchDestinationRequest(string? Name, string? Status, JsonElement? Config);
+/// <summary>
+/// Every field optional. A config replaces the stored one; <see cref="Status"/> is Active or Disabled. A config that
+/// would send the stored secret somewhere else (another host of a URL or of the token URL, another auth type or header
+/// name) needs <c>secret</c> in the same request (400 under <c>secret</c> otherwise), which then replaces the stored
+/// secret and drops the previous one; without such a change <c>secret</c> rotates the secret as
+/// <c>PUT /destinations/{id}/secret</c> does.
+/// </summary>
+public sealed record PatchDestinationRequest(string? Name, string? Status, JsonElement? Config, string? Secret = null);
 
 /// <summary><c>PUT /destinations/{id}/secret</c>: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16).</summary>
 public sealed record SetDestinationSecretRequest(string Secret);
@@ -64,6 +70,9 @@ public static class DestinationEndpoints
     private const string What = "Destinations";
 
     public const int MaxSecretLength = 8192;
+
+    /// <summary>The most destinations a tenant has (disabled ones count).</summary>
+    public const int MaxDestinationsPerTenant = 25;
 
     public static RouteGroupBuilder MapDestinations(this RouteGroupBuilder group)
     {
@@ -152,7 +161,7 @@ public static class DestinationEndpoints
             }
         }
 
-        ValidateSecret(errors, request.Secret, "secret");
+        ValidateSecret(errors, request.Secret, config is null ? HttpAuthTypes.None : DestinationConfig.AuthTypeOf(config));
         if (errors.ToProblem() is { } invalid)
         {
             return invalid;
@@ -163,6 +172,11 @@ public static class DestinationEndpoints
         if (await db.OutputDestinations.AnyAsync(d => d.Name == name, ct))
         {
             return Conflict("Destination exists", $"The tenant already has a destination named '{name}'.");
+        }
+
+        if (await db.OutputDestinations.CountAsync(ct) >= MaxDestinationsPerTenant)
+        {
+            return Conflict("Too many destinations", $"A tenant has at most {MaxDestinationsPerTenant} destinations. Remove one that no binding uses, or reconfigure one.");
         }
 
         var now = clock.GetUtcNow();
@@ -200,6 +214,7 @@ public static class DestinationEndpoints
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
         [FromServices] IOutputRenderer renderer,
+        [FromServices] ISecretStore secrets,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -251,6 +266,28 @@ public static class DestinationEndpoints
             }
         }
 
+        var current = JsonNode.Parse(destination.ConfigJson) as JsonObject ?? [];
+        var next = config ?? current;
+        var redirects = destination.Transport == OutputTransports.Http && destination.SecretRef is not null && config is not null
+            ? DestinationConfig.SecretRedirects(current, config)
+            : [];
+        if (redirects.Count > 0 && string.IsNullOrEmpty(request.Secret))
+        {
+            errors.Add("secret", $"This change sends the stored secret somewhere else ({string.Join(", ", redirects)} changed): give the secret again in the same request (secret).");
+        }
+
+        if (request.Secret is not null)
+        {
+            if (request.Secret.Length == 0)
+            {
+                errors.Add("secret", "secret is not empty when given (leave it out to keep the stored one).");
+            }
+            else
+            {
+                ValidateSecret(errors, request.Secret, DestinationConfig.AuthTypeOf(next));
+            }
+        }
+
         if (errors.ToProblem() is { } invalid)
         {
             return invalid;
@@ -265,6 +302,13 @@ public static class DestinationEndpoints
         destination.Status = status ?? destination.Status;
         destination.ConfigJson = config?.ToJsonString() ?? destination.ConfigJson;
         destination.UpdatedAt = clock.GetUtcNow();
+        string? dropped = null;
+        if (!string.IsNullOrEmpty(request.Secret))
+        {
+            // A redirect drops the previous secret too: it was set up for the old receiver as much as the current one.
+            dropped = await StoreSecretAsync(destination, request.Secret, keepPrevious: redirects.Count == 0, secrets, destination.UpdatedAt, ct);
+        }
+
         try
         {
             await db.SaveChangesAsync(ct);
@@ -274,7 +318,31 @@ public static class DestinationEndpoints
             return Conflict("Destination changed", "The destination changed while it was saved; read it again.");
         }
 
+        if (dropped is not null)
+        {
+            await secrets.DeleteAsync(dropped, ct);
+        }
+
         return TypedResults.Ok(DestinationResponse.From(destination));
+    }
+
+    /// <summary>
+    /// Writes <paramref name="secret"/> to the other of the destination's two slots (…/1, …/2) and points the row at it.
+    /// With <paramref name="keepPrevious"/> the replaced secret stays as the previous one for the overlap of a rotation
+    /// (the one before it is overwritten); without, no previous secret is kept and the caller deletes the reference
+    /// returned once the row is saved. References are computed, never taken from the row.
+    /// </summary>
+    private static async Task<string?> StoreSecretAsync(OutputDestination destination, string secret, bool keepPrevious, ISecretStore secrets, DateTimeOffset now, CancellationToken ct)
+    {
+        var slot = destination.SecretRef == SecretReference(destination.TenantId, destination.Id, 1) ? 2 : 1;
+        var reference = SecretReference(destination.TenantId, destination.Id, slot);
+        var other = SecretReference(destination.TenantId, destination.Id, slot == 1 ? 2 : 1);
+        await secrets.SetAsync(reference, secret, ct);
+        destination.PreviousSecretRef = keepPrevious && destination.SecretRef is not null ? other : null;
+        destination.SecretRef = reference;
+        destination.SecretSetAt = now;
+        destination.UpdatedAt = now;
+        return keepPrevious ? null : other;
     }
 
     /// <summary>
@@ -318,34 +386,30 @@ public static class DestinationEndpoints
             return problem;
         }
 
-        var errors = new Errors();
-        if (string.IsNullOrEmpty(request.Secret))
-        {
-            errors.Add("secret", "secret is required.");
-        }
-
-        ValidateSecret(errors, request.Secret, "secret");
-        if (errors.ToProblem() is { } invalid)
-        {
-            return invalid;
-        }
-
         var destination = await db.OutputDestinations.SingleOrDefaultAsync(d => d.Id == id, ct);
         if (destination is null)
         {
             return NotFound(id);
         }
 
+        var errors = new Errors();
+        if (string.IsNullOrEmpty(request.Secret))
+        {
+            errors.Add("secret", "secret is required.");
+        }
+        else
+        {
+            ValidateSecret(errors, request.Secret, destination.Transport == OutputTransports.Http ? DestinationConfig.AuthTypeOf(JsonNode.Parse(destination.ConfigJson) as JsonObject ?? []) : HttpAuthTypes.None);
+        }
+
+        if (errors.ToProblem() is { } invalid)
+        {
+            return invalid;
+        }
+
         // Two slots alternate (…/1, …/2), so the replaced secret stays readable while a receiver moves over; the one
-        // before it is deleted. References are computed, never taken from the row.
-        var slot = destination.SecretRef == SecretReference(destination.TenantId, destination.Id, 1) ? 2 : 1;
-        var reference = SecretReference(destination.TenantId, destination.Id, slot);
-        var previous = destination.SecretRef is null ? null : SecretReference(destination.TenantId, destination.Id, slot == 1 ? 2 : 1);
-        await secrets.SetAsync(reference, request.Secret, ct);
-        destination.PreviousSecretRef = previous;
-        destination.SecretRef = reference;
-        destination.SecretSetAt = clock.GetUtcNow();
-        destination.UpdatedAt = destination.SecretSetAt.Value;
+        // before it is overwritten.
+        await StoreSecretAsync(destination, request.Secret, keepPrevious: true, secrets, clock.GetUtcNow(), ct);
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok(DestinationResponse.From(destination));
     }
@@ -404,11 +468,16 @@ public static class DestinationEndpoints
         return JsonNode.Parse(config.Value.GetRawText())!.AsObject();
     }
 
-    private static void ValidateSecret(Errors errors, string? secret, string field)
+    /// <summary>At most <see cref="MaxSecretLength"/> characters, and what <see cref="DestinationConfig.SecretProblem"/> allows for the auth type it is used with.</summary>
+    private static void ValidateSecret(Errors errors, string? secret, string authType)
     {
         if (secret is { Length: > MaxSecretLength })
         {
-            errors.Add(field, $"{field} is at most {MaxSecretLength} characters.");
+            errors.Add("secret", $"secret is at most {MaxSecretLength} characters.");
+        }
+        else if (!string.IsNullOrEmpty(secret) && DestinationConfig.SecretProblem(authType, secret) is { } problem)
+        {
+            errors.Add("secret", problem);
         }
     }
 

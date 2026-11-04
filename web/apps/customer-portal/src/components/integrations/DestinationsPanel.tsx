@@ -189,9 +189,9 @@ function DestinationDialog({ destination, open, onOpenChange, onSaved }: { desti
       if (!destination) {
         return unwrap(await client.POST("/api/v1/destinations", { body: { name: values.name.trim(), transport: values.transport, config: built.config as never, secret: values.secret || null } }));
       }
-      const saved = unwrap(await client.PATCH("/api/v1/destinations/{id}", { params: { path: { id: destination.id } }, body: { name: values.name.trim(), status: null, config: built.config as never } }));
-      if (values.secret) unwrap(await client.PUT("/api/v1/destinations/{id}/secret", { params: { path: { id: destination.id } }, body: { secret: values.secret } }));
-      return saved;
+      // The secret goes in the same request: a change that sends it to another host, auth type or header needs it
+      // again, and the server refuses such a change without it (400 under "secret").
+      return unwrap(await client.PATCH("/api/v1/destinations/{id}", { params: { path: { id: destination.id } }, body: { name: values.name.trim(), status: null, config: built.config as never, secret: values.secret || null } }));
     },
     meta: { silent: true },
     onSuccess: async (saved) => {

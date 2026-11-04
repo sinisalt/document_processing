@@ -234,6 +234,18 @@ export function fieldMapOf(expression: string): { map: FieldMap | null; inSync: 
 }
 
 /** What keeps the map from compiling to a sensible expression, row by row. */
+/**
+ * The separators of `$fmtNum` as the renderer accepts them (a function error otherwise): with decimals the decimal
+ * separator is not empty and differs from the group separator, and no separator holds a digit or a sign, so the text
+ * reads back as the same number.
+ */
+export function separatorsValid(format: { decimals: number; decimalSeparator?: string; groupSeparator?: string }): boolean {
+  const decimal = format.decimalSeparator ?? ".";
+  const group = format.groupSeparator ?? "";
+  if (/[\p{Nd}+\-−]/u.test(decimal + group)) return false;
+  return Math.trunc(format.decimals) === 0 || (decimal !== "" && decimal !== group);
+}
+
 export function fieldMapProblems(map: FieldMap): FieldMapProblem[] {
   const problems: FieldMapProblem[] = [];
   const check = (rows: MapRow[], prefix: string, inList: boolean) => {
@@ -255,7 +267,7 @@ export function fieldMapProblems(map: FieldMap): FieldMapProblem[] {
           if (row.lookup && row.lookup.table.trim() === "") problems.push({ at, code: "lookupMissing" });
           if (row.whenEmpty?.type === "number" && !NUMBER.test(row.whenEmpty.value.trim())) problems.push({ at, code: "numberInvalid" });
           if (row.format?.kind === "date" && row.format.pattern.trim() === "") problems.push({ at, code: "formatInvalid" });
-          if ((row.format?.kind === "number" && !(row.format.decimals >= 0 && row.format.decimals <= 10)) || (row.format?.kind === "truncate" && !(row.format.length >= 1))) problems.push({ at, code: "formatInvalid" });
+          if ((row.format?.kind === "number" && !(row.format.decimals >= 0 && row.format.decimals <= 10 && separatorsValid(row.format))) || (row.format?.kind === "truncate" && !(row.format.length >= 1))) problems.push({ at, code: "formatInvalid" });
           break;
         case "constant":
           if (row.value.type === "number" && !NUMBER.test(row.value.value.trim())) problems.push({ at, code: "numberInvalid" });

@@ -119,6 +119,31 @@ describe("Settings > Integrations", () => {
     expect(callsTo("POST /api/v1/destinations")[0]!.options.body).toEqual({ name: "erp-ap", transport: "http", config: { method: "POST", urlTemplate: "http://mock-erp:8080/api/ap/invoices", responseMapping: "erpId" }, secret: null });
   });
 
+  it("sends a new secret with the change in one request and shows the API's demand for it on the secret field", async () => {
+    const bearer = { ...destination, config: { method: "POST", urlTemplate: "https://erp.example/api/article-prices", auth: { type: "bearer" } }, hasSecret: true };
+    api.handlers.set("GET /api/v1/destinations", () => ({ body: [bearer] }));
+    let attempt = 0;
+    api.handlers.set("PATCH /api/v1/destinations/{id}", ({ body }) =>
+      ++attempt === 1
+        ? { status: 400, body: { title: "One or more validation errors occurred.", status: 400, errors: { secret: ["This change sends the stored secret somewhere else (the host of urlTemplate changed): give the secret again in the same request (secret)."] } } }
+        : { body: { ...bearer, ...(body as object) } },
+    );
+    renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("edit-destination-erp-articles"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/needs the secret again/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByTestId("destination-urlTemplate"), { target: { value: "https://erp-new.example/api/article-prices" } });
+    fireEvent.click(within(dialog).getByTestId("destination-save"));
+    expect(await within(dialog).findByText(/sends the stored secret somewhere else/)).toBeInTheDocument();
+    expect(callsTo("PATCH /api/v1/destinations/{id}")[0]!.options.body).toMatchObject({ secret: null });
+
+    fireEvent.change(within(dialog).getByTestId("destination-secret"), { target: { value: "new-token" } });
+    fireEvent.click(within(dialog).getByTestId("destination-save"));
+    await waitFor(() => expect(callsTo("PATCH /api/v1/destinations/{id}")).toHaveLength(2));
+    expect(callsTo("PATCH /api/v1/destinations/{id}")[1]!.options.body).toMatchObject({ config: { urlTemplate: "https://erp-new.example/api/article-prices", auth: { type: "bearer" } }, secret: "new-token" });
+    expect(callsTo("PUT /api/v1/destinations/{id}/secret")).toHaveLength(0);
+  });
+
   it("shows the API's config error on its field", async () => {
     api.handlers.set("POST /api/v1/destinations", () => ({ status: 400, body: { title: "One or more validation errors occurred.", status: 400, errors: { "config.urlTemplate": ["urlTemplate is an absolute http(s) URL."] } } }));
     renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);

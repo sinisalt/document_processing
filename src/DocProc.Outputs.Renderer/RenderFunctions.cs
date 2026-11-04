@@ -216,6 +216,25 @@ public static class RenderFunctions
         var formatted = Math.Round(value, count, MidpointRounding.AwayFromZero).ToString("N" + count.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
         var dec = TextOf(decimalSeparator ?? JValue.CreateUndefined()) ?? ".";
         var group = TextOf(groupSeparator ?? JValue.CreateUndefined()) ?? string.Empty;
+
+        // The text must read back as the same number: with decimals, a decimal separator that is missing or equal to the
+        // group separator gives another number (or an ambiguous one), and a separator with a digit or a sign does at any
+        // count. Without decimals the decimal separator is never written, so "1.234" from (n, 0, ".", ".") is fine.
+        if (count > 0 && dec.Length == 0)
+        {
+            throw new RenderFunctionException("$fmtNum: with decimals the decimal separator is not empty.");
+        }
+
+        if (count > 0 && dec == group)
+        {
+            throw new RenderFunctionException("$fmtNum: the decimal and the group separator differ.");
+        }
+
+        if (dec.Any(IsNumberCharacter) || group.Any(IsNumberCharacter))
+        {
+            throw new RenderFunctionException("$fmtNum: a separator has no digit and no sign.");
+        }
+
         var result = new StringBuilder(formatted.Length + 8);
         foreach (var c in formatted)
         {
@@ -229,6 +248,9 @@ public static class RenderFunctions
 
         return new JValue(result.ToString());
     }
+
+    /// <summary>A character that is part of a number's text, so not a separator of <c>$fmtNum</c>: a digit or a sign.</summary>
+    private static bool IsNumberCharacter(char c) => char.IsDigit(c) || c is '-' or '+' or '\u2212';
 
     /// <summary><c>$today()</c>: today (<c>yyyy-MM-dd</c>) in the tenant's time zone.</summary>
     public static JToken today() => new JValue(Current.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));

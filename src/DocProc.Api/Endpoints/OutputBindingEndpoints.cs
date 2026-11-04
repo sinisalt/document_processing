@@ -94,6 +94,13 @@ public static class OutputBindingEndpoints
 
     public const int MaxConditionLength = 4000;
 
+    /// <summary>
+    /// The most bindings a tenant has (disabled ones count). The publish stage renders the condition and the mapping of
+    /// every binding in a document's scope, each up to the render limits, in the worker the tenants share; this bounds
+    /// what one approval costs.
+    /// </summary>
+    public const int MaxBindingsPerTenant = 25;
+
     public static RouteGroupBuilder MapOutputBindings(this RouteGroupBuilder group)
     {
         var bindings = group.MapGroup("/output-bindings").WithTags("Outputs");
@@ -206,6 +213,11 @@ public static class OutputBindingEndpoints
         if (await db.OutputBindings.AnyAsync(b => b.Name == binding.Name, ct))
         {
             return Conflict("Binding exists", $"The tenant already has an output binding named '{binding.Name}'.");
+        }
+
+        if (await db.OutputBindings.CountAsync(ct) >= MaxBindingsPerTenant)
+        {
+            return Conflict("Too many bindings", $"A tenant has at most {MaxBindingsPerTenant} output bindings: the publish stage renders each one's condition and mapping, in the worker every tenant shares. Remove one, or combine them with a condition.");
         }
 
         db.OutputBindings.Add(binding);

@@ -86,6 +86,9 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     [InlineData("""$fmtNum(-0.5, 0)""", "-1")]
     [InlineData("""$fmtNum(1234567.1, 3)""", "1234567.100")]
     [InlineData("""$fmtNum(50, 2, ",")""", "50,00")]
+    [InlineData("""$fmtNum(1234, 0, ".", ".")""", "1.234")]
+    [InlineData("""$fmtNum(1234, 0, "", "'")""", "1'234")]
+    [InlineData("""$fmtNum(1234.5, 2, ",", " ")""", "1 234,50")]
     [InlineData("""$today()""", "2026-11-03")]
     public async Task The_formatting_functions_and_today(string expression, string expected) =>
         (await OutputAsync(expression))!.GetValue<string>().ShouldBe(expected);
@@ -114,6 +117,14 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     [InlineData("""$fmtDate("28.10.2026", "yyyyMMdd")""", "not a date")]
     [InlineData("""$fmtNum(1, 11)""", "decimals")]
     [InlineData("""$fmtNum("x", 2)""", "number")]
+    [InlineData("""$fmtNum(1234.5, 2, "", "")""", "decimal separator is not empty")]
+    [InlineData("""$fmtNum(1234.5, 2, "", ".")""", "decimal separator is not empty")]
+    [InlineData("""$fmtNum(1234.5, 2, ".", ".")""", "differ")]
+    [InlineData("""$fmtNum(1234.5, 2, ",", ",")""", "differ")]
+    [InlineData("""$fmtNum(1234.5, 2, "0")""", "no digit")]
+    [InlineData("""$fmtNum(1234.5, 2, ",", "1")""", "no digit")]
+    [InlineData("""$fmtNum(1234.5, 2, "-")""", "no digit")]
+    [InlineData("""$fmtNum(1234, 0, ".", "-")""", "no digit")]
     public async Task A_custom_function_used_wrongly_is_a_function_error(string expression, string message)
     {
         var result = await RenderAsync(expression);
