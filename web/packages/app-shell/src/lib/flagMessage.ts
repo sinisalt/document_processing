@@ -53,8 +53,14 @@ export function flagMessageValues(params: Readonly<Record<string, string>>, opti
  * value the flag does not carry.
  */
 export function flagMessage(flag: FlagText, options: FlagMessageOptions = {}): string {
-  if (!i18n.isInitialized) return flag.message;
   const params = flag.params ?? {};
+  // A rule's own message from its type definition (docs/11 §11, definition flags): `message.<locale>` in the parameters,
+  // in the UI language when the definition has it, else the definition's English text the API sends as `message`.
+  const language = (options.language ?? (i18n.isInitialized ? i18n.language : undefined) ?? "en").split("-")[0];
+  const own = params[`message.${language}`];
+  if (own) return own;
+  if (Object.keys(params).some((key) => key.startsWith("message."))) return flag.message;
+  if (!i18n.isInitialized) return flag.message;
   const key = `flagMessages.${flag.code}.${params.reason ?? "default"}`;
   const lng = options.language;
   const count = params.count !== undefined && Number.isFinite(Number(params.count)) ? Number(params.count) : undefined;

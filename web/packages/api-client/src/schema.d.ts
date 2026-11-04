@@ -283,6 +283,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-types/{key}/identification-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant fallback identification rules of a type (docs/11 §8.5), each with its versions and their tests. */
+        get: operations["ListTypeIdentificationRules"];
+        put?: never;
+        /** Creates a tenant fallback rule for the type: version 1 as a Draft, tested at once against the last 500 approved documents of the tenant. */
+        post: operations["CreateTypeIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types/{key}/resolved-pipeline": {
         parameters: {
             query?: never;
@@ -642,6 +660,23 @@ export interface paths {
         patch: operations["CorrectDocumentFields"];
         trace?: never;
     };
+    "/api/v1/documents/{id}/identification-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** "Use for all suppliers without own layouts" in review (docs/11 §12.10 step 5): saves the marked rule as a Draft tenant rule of the document's type (or the type named), tested at once; it must hold on the document. */
+        post: operations["CreateTypeIdentificationRuleFromDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/identifiers:propose": {
         parameters: {
             query?: never;
@@ -891,6 +926,110 @@ export interface paths {
         put?: never;
         /** Checks an identification rule and evaluates it on documents of a supplier, a group or the tenant: per document whether it holds, with evidence, and the overlaps with other layouts (docs/11 §8.3, §12.9). */
         post: operations["TestIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One tenant fallback rule with its versions. */
+        get: operations["GetTypeIdentificationRule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Renames a tenant fallback rule or changes its priority (which orders rules of the same type only). */
+        patch: operations["PatchTypeIdentificationRule"];
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disables a tenant fallback rule: it types no document from then on; documents it typed keep their version. */
+        post: operations["DisableTypeIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The versions of a tenant fallback rule. */
+        get: operations["ListTypeIdentificationRuleVersions"];
+        put?: never;
+        /** A new Draft version of the rule, tested at once; a rule has at most one Draft. */
+        post: operations["CreateTypeIdentificationRuleVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a Draft's rule (If-Match: the revision read), tested again; a version out of Draft never changes. */
+        put: operations["SaveTypeIdentificationRuleDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}:activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activates a Draft after its test (confirmOtherTypes when it matched documents of other types); the previous Active version is retired. */
+        post: operations["ActivateTypeIdentificationRuleVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the save-time test again: the last 500 approved documents of the tenant, without excluded suppliers and suppliers that have layouts. */
+        post: operations["TestTypeIdentificationRuleVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2090,6 +2229,11 @@ export interface components {
             reprocessed: string[];
             waiting: string[];
         };
+        /** @description The body of `:activate`: a rule whose test matched documents of other types is activated only when confirmed. */
+        ActivateTypeIdentificationRuleRequest: {
+            /** @default false */
+            confirmOtherTypes: boolean;
+        };
         AddMemberRequest: {
             displayName: null | string;
             email: null | string;
@@ -2428,6 +2572,22 @@ export interface components {
             timeZone: string;
             vatId: null | string;
         };
+        /** @description The body of "use for all suppliers without own layouts" in review (docs/11 §12.10 step 5): the rule, and the type when it is not the document's. */
+        CreateTypeIdentificationRuleFromDocumentRequest: {
+            name?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+            typeKey?: null | string;
+        };
+        /** @description The body of creating a tenant fallback rule (docs/11 §8.5, §18): its name, priority, rule and excluded suppliers. */
+        CreateTypeIdentificationRuleRequest: {
+            excludedSupplierIds?: null | string[];
+            name: string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+        };
         DefinitionProblemDto: {
             message: string;
             where: string;
@@ -2589,6 +2749,11 @@ export interface components {
             flags: components["schemas"]["DocumentFlagDto"][];
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; `GET /identification-rules/{id}`); null when none did.
+             */
+            identificationRuleVersionId?: null | string;
             ingestion: null | components["schemas"]["DocumentIngestionRef"];
             /** Format: date */
             issueDate: null | string;
@@ -3796,6 +3961,12 @@ export interface components {
             status: null | string;
             vatId: null | string;
         };
+        /** @description The body of `PATCH /identification-rules/{id}`. */
+        PatchTypeIdentificationRuleRequest: {
+            name?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+        };
         /** @description A refusal of a layer of overrides: where, and why. */
         PipelineProblemResponse: {
             message: string;
@@ -4655,6 +4826,41 @@ export interface components {
             updatedAt: string;
             vatId: null | string;
         };
+        /** @description One document a rule under test matched (at most int TypeIdentificationRuleEndpoints.MaxListedMatches listed). */
+        TenantRuleTestMatch: {
+            /** Format: uuid */
+            documentId: string;
+            fileName: null | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description The save-time test of a tenant fallback rule (docs/11 §8.5 "Checks at save"): evaluated on the last 500 approved
+         *     documents of the tenant, without the excluded suppliers and the suppliers that have layouts (own or group); how many it
+         *     would have matched, per type, and the summary sentence of the editor ("would have matched 37 price-list documents, 0
+         *     other documents").
+         */
+        TenantRuleTestReport: {
+            byType: {
+                [key: string]: number | string;
+            };
+            /** Format: int32 */
+            matched: number | string;
+            matches: components["schemas"]["TenantRuleTestMatch"][];
+            otherTypeMatches: components["schemas"]["TenantRuleTestMatch"][];
+            /** Format: int32 */
+            otherTypes: number | string;
+            ruleHash: string;
+            /** Format: int32 */
+            sameType: number | string;
+            summary: string;
+            /** Format: int32 */
+            tested: number | string;
+            /** Format: date-time */
+            testedAt: string;
+            typeKey: string;
+        };
         /**
          * @description Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
          *     and the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.
@@ -4688,6 +4894,54 @@ export interface components {
             settings: components["schemas"]["TenantSettingsDto"];
             tenant: components["schemas"]["TenantIdentity"];
         };
+        TypeIdentificationRuleResponse: {
+            /** Format: int32 */
+            activeVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            documentTypeKey: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            matched: number | string;
+            name: string;
+            /** Format: int32 */
+            overridden: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["TypeIdentificationRuleVersionResponse"][];
+        };
+        /** @description The body of a new or edited Draft version: the rule and the excluded suppliers. */
+        TypeIdentificationRuleVersionRequest: {
+            excludedSupplierIds?: null | string[];
+            rule: components["schemas"]["JsonElement"];
+        };
+        TypeIdentificationRuleVersionResponse: {
+            /** Format: date-time */
+            approvedAt: null | string;
+            approvedBy: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            describe: string;
+            excludedSupplierIds: string[];
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            revision: number | string;
+            rule: components["schemas"]["JsonElement"];
+            ruleHash: string;
+            state: string;
+            test: null | components["schemas"]["TenantRuleTestReport"];
+            /** Format: int32 */
+            version: number | string;
+        };
         /** @enum {unknown} */
         TypeSource: "Rule" | "Llm" | "Human" | "Structured" | "Supplier" | "Identification" | "Proposed" | null;
         /** @description A reading of the selected text as a field kind (docs/11 §12.3: "28.10.2026 → 2026-10-28"), in the shape a correction takes. */
@@ -4704,6 +4958,7 @@ export interface components {
 }
 export type SchemaActivateLayoutRequest = components['schemas']['ActivateLayoutRequest'];
 export type SchemaActivateLayoutResponse = components['schemas']['ActivateLayoutResponse'];
+export type SchemaActivateTypeIdentificationRuleRequest = components['schemas']['ActivateTypeIdentificationRuleRequest'];
 export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
@@ -4735,6 +4990,8 @@ export type SchemaCreateReceivingEntityRequest = components['schemas']['CreateRe
 export type SchemaCreateSupplierGroupRequest = components['schemas']['CreateSupplierGroupRequest'];
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
+export type SchemaCreateTypeIdentificationRuleFromDocumentRequest = components['schemas']['CreateTypeIdentificationRuleFromDocumentRequest'];
+export type SchemaCreateTypeIdentificationRuleRequest = components['schemas']['CreateTypeIdentificationRuleRequest'];
 export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
 export type SchemaDeliveryAttemptDto = components['schemas']['DeliveryAttemptDto'];
 export type SchemaDeliveryDetail = components['schemas']['DeliveryDetail'];
@@ -4839,6 +5096,7 @@ export type SchemaPatchReceivingEntityRequest = components['schemas']['PatchRece
 export type SchemaPatchSupplierGroupRequest = components['schemas']['PatchSupplierGroupRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaPatchTypeIdentificationRuleRequest = components['schemas']['PatchTypeIdentificationRuleRequest'];
 export type SchemaPipelineProblemResponse = components['schemas']['PipelineProblemResponse'];
 export type SchemaPipelineSnapshotResponse = components['schemas']['PipelineSnapshotResponse'];
 export type SchemaProposedSourceRuleDto = components['schemas']['ProposedSourceRuleDto'];
@@ -4912,8 +5170,13 @@ export type SchemaTargetSchemaErrorDto = components['schemas']['TargetSchemaErro
 export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
+export type SchemaTenantRuleTestMatch = components['schemas']['TenantRuleTestMatch'];
+export type SchemaTenantRuleTestReport = components['schemas']['TenantRuleTestReport'];
 export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
 export type SchemaTenantSettingsResponse = components['schemas']['TenantSettingsResponse'];
+export type SchemaTypeIdentificationRuleResponse = components['schemas']['TypeIdentificationRuleResponse'];
+export type SchemaTypeIdentificationRuleVersionRequest = components['schemas']['TypeIdentificationRuleVersionRequest'];
+export type SchemaTypeIdentificationRuleVersionResponse = components['schemas']['TypeIdentificationRuleVersionResponse'];
 export type SchemaTypeSource = components['schemas']['TypeSource'];
 export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
@@ -5561,6 +5824,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+        };
+    };
+    ListTypeIdentificationRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"][];
+                };
+            };
+        };
+    };
+    CreateTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -6322,6 +6642,41 @@ export interface operations {
             };
         };
     };
+    CreateTypeIdentificationRuleFromDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTypeIdentificationRuleFromDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     ProposeIdentifier: {
         parameters: {
             query?: never;
@@ -6721,6 +7076,228 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    PatchTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DisableTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    ListTypeIdentificationRuleVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"][];
+                };
+            };
+        };
+    };
+    CreateTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypeIdentificationRuleVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SaveTypeIdentificationRuleDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypeIdentificationRuleVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ActivateTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ActivateTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    TestTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
                 };
             };
         };

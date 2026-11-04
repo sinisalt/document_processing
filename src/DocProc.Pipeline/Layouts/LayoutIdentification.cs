@@ -36,6 +36,9 @@ public static class LayoutEventTypes
     /// <summary>A layout version's field mapping filled the document; it counted once towards the version's statistics (and its drift count).</summary>
     public const string Applied = "document.layout_applied";
 
+    /// <summary>A tenant fallback identification rule decided (or, under <c>NEW_LAYOUT</c>, proposed) the type, or rules of two types held (docs/11 §8.5, P5).</summary>
+    public const string TypeIdentifiedByRule = "document.type_identified_by_rule";
+
     /// <summary>The layout version drifted on three documents in a row (<c>LayoutExtractor.DegradeAfter</c>) and is Degraded.</summary>
     public const string Degraded = "document.layout_degraded";
 }

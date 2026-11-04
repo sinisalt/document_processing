@@ -258,7 +258,9 @@
     },
     "CHECKS_SKIPPED": {
       "patternBudget_one": "{{count}} pattern check was skipped: the document reached the limit for pattern checks. Check the values by hand.",
-      "patternBudget_other": "{{count}} pattern checks were skipped: the document reached the limit for pattern checks. Check the values by hand."
+      "patternBudget_other": "{{count}} pattern checks were skipped: the document reached the limit for pattern checks. Check the values by hand.",
+      "expressionBudget_one": "A rule was not checked to the end: its expressions reached their step limit on this document. Check the values by hand.",
+      "expressionBudget_other": "A rule was not checked to the end: its expressions reached their step limit on this document. Check the values by hand."
     },
     "DELIVERY_FAILED": {
       "default": "The delivery to {{destination}} failed for good: {{error}}. An integration admin can send it again."

@@ -919,6 +919,502 @@
         }
       }
     },
+    "/api/v1/document-types/{key}/identification-rules": {
+      "get": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "The tenant fallback identification rules of a type (docs/11 §8.5), each with its versions and their tests.",
+        "operationId": "ListTypeIdentificationRules",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Creates a tenant fallback rule for the type: version 1 as a Draft, tested at once against the last 500 approved documents of the tenant.",
+        "operationId": "CreateTypeIdentificationRule",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTypeIdentificationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/identification-rules": {
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "\"Use for all suppliers without own layouts\" in review (docs/11 §12.10 step 5): saves the marked rule as a Draft tenant rule of the document's type (or the type named), tested at once; it must hold on the document.",
+        "operationId": "CreateTypeIdentificationRuleFromDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTypeIdentificationRuleFromDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}": {
+      "get": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "One tenant fallback rule with its versions.",
+        "operationId": "GetTypeIdentificationRule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Renames a tenant fallback rule or changes its priority (which orders rules of the same type only).",
+        "operationId": "PatchTypeIdentificationRule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTypeIdentificationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}/versions": {
+      "get": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "The versions of a tenant fallback rule.",
+        "operationId": "ListTypeIdentificationRuleVersions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TypeIdentificationRuleVersionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "A new Draft version of the rule, tested at once; a rule has at most one Draft.",
+        "operationId": "CreateTypeIdentificationRuleVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeIdentificationRuleVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleVersionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}/versions/{version}": {
+      "put": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Replaces a Draft's rule (If-Match: the revision read), tested again; a version out of Draft never changes.",
+        "operationId": "SaveTypeIdentificationRuleDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeIdentificationRuleVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleVersionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}/versions/{version}:test": {
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Runs the save-time test again: the last 500 approved documents of the tenant, without excluded suppliers and suppliers that have layouts.",
+        "operationId": "TestTypeIdentificationRuleVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleVersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}/versions/{version}:activate": {
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Activates a Draft after its test (confirmOtherTypes when it matched documents of other types); the previous Active version is retired.",
+        "operationId": "ActivateTypeIdentificationRuleVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ActivateTypeIdentificationRuleRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identification-rules/{id}:disable": {
+      "post": {
+        "tags": [
+          "Identification rules"
+        ],
+        "summary": "Disables a tenant fallback rule: it types no document from then on; documents it typed keep their version.",
+        "operationId": "DisableTypeIdentificationRule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeIdentificationRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{id}:golden": {
       "post": {
         "tags": [
@@ -6602,6 +7098,16 @@
         },
         "description": "What `:activate` did: the layout, the replay that allowed it, the documents waiting for the version and the ones reprocessed."
       },
+      "ActivateTypeIdentificationRuleRequest": {
+        "type": "object",
+        "properties": {
+          "confirmOtherTypes": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "description": "The body of `:activate`: a rule whose test matched documents of other types is activated only when confirmed."
+      },
       "AddMemberRequest": {
         "required": [
           "userId",
@@ -7795,6 +8301,74 @@
           }
         }
       },
+      "CreateTypeIdentificationRuleFromDocumentRequest": {
+        "required": [
+          "rule"
+        ],
+        "type": "object",
+        "properties": {
+          "rule": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "typeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "The body of \"use for all suppliers without own layouts\" in review (docs/11 §12.10 step 5): the rule, and the type when it is not the document's."
+      },
+      "CreateTypeIdentificationRuleRequest": {
+        "required": [
+          "name",
+          "rule"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "excludedSupplierIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "The body of creating a tenant fallback rule (docs/11 §8.5, §18): its name, priority, rule and excluded suppliers."
+      },
       "CreatedApiKey": {
         "required": [
           "id",
@@ -8657,6 +9231,14 @@
               "string"
             ],
             "description": "The Candidate layout version the document waits for (docs/11 §12.10); never applied.",
+            "format": "uuid"
+          },
+          "identificationRuleVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; `GET /identification-rules/{id}`); null when none did.",
             "format": "uuid"
           },
           "pipelineHash": {
@@ -13061,6 +13643,27 @@
         },
         "description": "Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it."
       },
+      "PatchTypeIdentificationRuleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "The body of `PATCH /identification-rules/{id}`."
+      },
       "PipelineProblemResponse": {
         "required": [
           "path",
@@ -16280,6 +16883,125 @@
           }
         }
       },
+      "TenantRuleTestMatch": {
+        "required": [
+          "documentId",
+          "typeKey",
+          "supplierId",
+          "fileName"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One document a rule under test matched (at most int TypeIdentificationRuleEndpoints.MaxListedMatches listed)."
+      },
+      "TenantRuleTestReport": {
+        "required": [
+          "ruleHash",
+          "typeKey",
+          "tested",
+          "matched",
+          "sameType",
+          "otherTypes",
+          "byType",
+          "otherTypeMatches",
+          "matches",
+          "summary",
+          "testedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "ruleHash": {
+            "type": "string"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "tested": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "matched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sameType": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "otherTypes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "byType": {
+            "type": "object",
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "otherTypeMatches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantRuleTestMatch"
+            }
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantRuleTestMatch"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "testedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "The save-time test of a tenant fallback rule (docs/11 §8.5 \"Checks at save\"): evaluated on the last 500 approved\ndocuments of the tenant, without the excluded suppliers and the suppliers that have layouts (own or group); how many it\nwould have matched, per type, and the summary sentence of the editor (\"would have matched 37 price-list documents, 0\nother documents\")."
+      },
       "TenantSettingsDto": {
         "required": [
           "autoApproveConfidenceThreshold",
@@ -16377,6 +17099,213 @@
           }
         }
       },
+      "TypeIdentificationRuleResponse": {
+        "required": [
+          "id",
+          "documentTypeKey",
+          "name",
+          "priority",
+          "activeVersion",
+          "status",
+          "createdFromDocumentId",
+          "matched",
+          "overridden",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "versions"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentTypeKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "activeVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdFromDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "matched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "overridden": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TypeIdentificationRuleVersionResponse"
+            }
+          }
+        }
+      },
+      "TypeIdentificationRuleVersionRequest": {
+        "required": [
+          "rule"
+        ],
+        "type": "object",
+        "properties": {
+          "rule": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "excludedSupplierIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "The body of a new or edited Draft version: the rule and the excluded suppliers."
+      },
+      "TypeIdentificationRuleVersionResponse": {
+        "required": [
+          "id",
+          "version",
+          "state",
+          "rule",
+          "describe",
+          "ruleHash",
+          "excludedSupplierIds",
+          "test",
+          "revision",
+          "approvedBy",
+          "approvedAt",
+          "createdBy",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "state": {
+            "type": "string"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "describe": {
+            "type": "string"
+          },
+          "ruleHash": {
+            "type": "string"
+          },
+          "excludedSupplierIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "test": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TenantRuleTestReport"
+              }
+            ]
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "approvedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "approvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TypeSource": {
         "enum": [
           "Rule",
@@ -16444,6 +17373,9 @@
     },
     {
       "name": "Notifications"
+    },
+    {
+      "name": "Identification rules"
     },
     {
       "name": "Governance"

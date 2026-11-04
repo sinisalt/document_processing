@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (part A done)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (parts A and B done)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1674,7 +1674,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
       schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
       subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
-- **P5, configurable steps, custom types end to end, rules and master data – in progress (part A done).**
+- **P5, configurable steps, custom types end to end, rules and master data – in progress (parts A and B done).**
   - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
     document runs the built-in steps as before and records no pipeline hash):
     - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
@@ -1736,9 +1736,57 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5);
     - `step_completed` timeline events per step with their cost; the alert when a type's Unknown rate or LLM spend passes
       its 14-day baseline (docs/11 §16);
-    - the parts B onward of P5 (rule kinds and definition flags, `LlmDefinitionExtractor` and `DefinitionMapper`, the
-      tenant keyword set and classifier enum, tenant fallback identification rules, price lists end to end, the processing
-      UI, master data, callbacks, Insights > Onboarding).
+    - the parts C onward of P5 (price lists end to end, the processing UI, master data, callbacks, Insights >
+      Onboarding); part B's items are below.
+  - Done, part B (rules, custom types end to end, classification, tenant fallback identification):
+    - the rule kinds `requiredIf`, `compare`, `sumEquals`, `arithmetic` and `expression` (`GenericRules`, registered in
+      `RuleKinds` with their parameter schemas, phase P5), with a bounded expression language evaluated in process
+      (`RuleExpression`: a JSONata subset, size, depth, step, list and string bounds, no function that reads outside the
+      value, the variables `$today` and `$supplier`); publish parses every expression and checks row-relative paths;
+    - definition flags: a definition's `flags` block and a rule's `flag` (an `X_*` code with its severity and messages
+      by locale, shown in the UI language), checked at publish, owned by the validate stage;
+    - the review gate keys `requirePassedRules` (which lets a type outside the invoice family auto-approve),
+      `blockOnWarnings` and `lines` (`ReviewGateRules`), with the hold in the `document.validated` event and the review
+      task's reason; the publish warning about `autoApprove` no longer fires for a type that names its rules;
+    - `LlmDefinitionExtractor` and `DefinitionMapper` (prompt `extract-document`, schema `doc_<key>`, fill-missing over a
+      pre-fill) behind `customTypes`; without a provider the document goes on as before (pre-filled or empty tree);
+    - the tenant keyword set (`KeywordRuleTable`, `TenantClassification`; standard types keep the built-in rules) and the
+      LLM classifier over the tenant's types (`document_classification@1+t.<hash8>`, prompt `classify-tenant-document`),
+      behind `customTypes`;
+    - tenant fallback identification rules: `TypeIdentificationRules` and `TypeIdentificationRuleVersions` (migration
+      `TenantIdentificationRules`, `PolicyV12`), `Documents.IdentificationRuleVersionId`, `TypeIdentificationRuleSet`
+      in `classify.identification` after the supplier's layouts and in the split prefilter, the API of docs/11 §18 with
+      the save-time test against the last 500 approved documents ("would have matched N documents of this type, M
+      others"), activation refused while other types matched unless confirmed, `POST /documents/{id}/identification-rules`
+      ("use for all suppliers without own layouts"), `Matched` and `Overridden` counted, `DocumentDetail.identificationRuleVersionId`;
+    - web: definition-flag messages in the UI language (`flagMessage`), `CHECKS_SKIPPED` `expressionBudget` and the
+      `type_identified_by_rule` timeline label (en, de);
+    - tests: `RuleExpressionTests`, `GenericRuleP5Tests`, the publish checks of the P5 kinds and flags
+      (`DefinitionCompilerTests`), `LlmDefinitionExtractorTests`, `TenantClassifierTests`, `TenantKeywordRulesTests`,
+      `CustomTypesPipelineTests` (a custom type classified, extracted with a recorded answer, auto-approved by its named
+      rules, held by a failing rule or a warning, and without a provider as before), `TenantFallbackRulesPipelineTests`,
+      `TypeIdentificationRuleEndpointsTests`, and RLS, the idempotent script and the migrate down and up on SQL Server.
+  - Decided (part B, recorded as "Correction (P5, part B)" in docs/11 §5.3, §6.6, §8.5, §9.3, §9.4, §11 and §18):
+    - `expression` is a bounded JSONata subset evaluated in process, not the out-of-process JSONata renderer (rules are
+      pure and also run inline in the API); the matched supplier is the variable `$supplier` (§5.3's example read the
+      printed party);
+    - definition flag codes are declared in a `flags` block and named by the rule (not derived from the rule id);
+    - "passed" means no warning and no blocking flag (an info note does not fail a rule);
+    - the LLM extraction of custom types, the tenant keyword set and the classifier enum are behind `customTypes`, so a
+      tenant without it classifies and extracts as before;
+    - tenant fallback rules need `supplierLayouts`; `configApprovals.identificationRules` is not built (P6), so
+      activation is immediate, guarded by the other-types confirmation.
+  - Left for later (part B's scope):
+    - the type editor's Identification tab, the review screen's "use for all suppliers without own layouts" button and the
+      rule test card (docs/11 §19); the API is complete;
+    - the splitter's keyword signals and `LlmDocumentSplitter` still use the built-in table and enum;
+    - tenant rules are loaded per document, not cached by the hashes of the Active versions; `AppliedConfigJson` does not
+      record a tenant rule's identification (the timeline event and the pinned version do);
+    - the LLM does not fill what a layout left Missing on a custom type; rows are not anchored with `LocateLine`;
+    - the line-table rule kinds (`tableComplete`, `unique`, `ordered`, `deltaToPrevious`), templates v2, `REVISION_OF`
+      resolution and the price-list demos (part C); a definition naming them is still refused at publish;
+    - no compose demo was run for part B (its demo, the tenant fallback rule on Südhof's price lists, needs part C's
+      fixtures and price-list templates v2).
 - **P6** – not started.
 
 ## Risks and open questions

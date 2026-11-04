@@ -641,6 +641,34 @@ built-in steps as before, whatever a supplier's settings say. Budgets need no sw
   and to review with `LLM_BUDGET_EXCEEDED`. `GET /api/v1/llm-budgets` shows each budget with this period's spend. The
   compose demos run without an LLM key and are not affected.
 
+### Rules, custom types and tenant fallback rules
+
+docs/11 §8.5, §9.3, §9.4 and §11 (P5 part B). No new setting; what each part needs:
+
+- **P5 rule kinds and definition flags** (`configurableTypes`): in a draft's `rules`, for example
+  `{"id": "r_qty", "kind": "compare", "params": {"left": "items[*].quantity", "op": "gt", "value": 0}}`,
+  `{"id": "r_sum", "kind": "sumEquals", "params": {"path": "lines[*].lineNet", "equals": "subtotalNet"}}`,
+  `{"id": "r_row", "kind": "arithmetic", "params": {"rows": "lines[*]", "expression": "quantity * unitPrice", "equals": "lineNet"}}`
+  or `{"id": "r_ref", "kind": "requiredIf", "params": {"path": "supplierCustomerRef", "when": "$exists($supplier.attributes.erpVendorId)"}}`.
+  A rule may raise the definition's own code: declare `"flags": [{"code": "X_LATE", "severity": "warning",
+  "message": {"en": "…", "de": "…"}}]` and put `"flag": "X_LATE"` on the rule. Validate the draft
+  (`POST /api/v1/document-types/{key}/versions/{v}:validate`) to see what publish refuses.
+- **Auto-approval of a type outside the invoice family**: `processing.review` with `"autoApprove": true` and
+  `"requirePassedRules": ["r_qty", …]`; `blockOnWarnings` and `lines` tighten it. The review task's reason, or the
+  `gate` of the `document.validated` event, says which condition held a document.
+- **A tenant's own type end to end** (`configurableTypes` and `customTypes`): `POST /api/v1/document-types` with the
+  definition (its `classification.keywords` titles classify it), publish it, and with an LLM provider configured its
+  documents are extracted against the type's schema (`doc_<key>`). Without a provider (the compose default) they go to
+  review with the type's empty tree, as before.
+- **A rule for all suppliers without own layouts** (`supplierLayouts`, ConfigAdmin): `POST
+  /api/v1/document-types/price-list/identification-rules {"name": "Preisliste im Titel", "rule": {"all": [{"text":
+  "Preisliste", "page": 1, "region": "title"}]}}` saves version 1 as a Draft with its test ("would have matched N
+  price-list documents, M other documents"); from a document in review `POST /api/v1/documents/{id}/identification-rules
+  {"rule": …}` does the same for its type. `POST /api/v1/identification-rules/{id}/versions/1:activate` (with
+  `{"confirmOtherTypes": true}` when the test matched other types) makes it run: the next document from an unknown
+  sender, or from a supplier without layouts, that it holds on is typed by it (`typeSource: Identification`,
+  `identificationRuleVersionId`), and the keyword rules and the LLM are not asked.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's

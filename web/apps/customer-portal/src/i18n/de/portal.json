@@ -107,6 +107,7 @@
       "layout_not_identified": "Kein Layout erkannt",
       "type_corrected_by_layout": "Typ durch Layout korrigiert",
       "layout_warmup": "Layout-Einlaufphase",
+      "type_identified_by_rule": "Typ durch Mandantenregel erkannt",
       "layout_applied": "Vom Layout ausgefüllt",
       "layout_degraded": "Layout herabgestuft",
       "layout_learned": "Als Layout gespeichert",

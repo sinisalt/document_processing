@@ -107,6 +107,7 @@
       "layout_not_identified": "No layout identified",
       "type_corrected_by_layout": "Type corrected by layout",
       "layout_warmup": "Layout warm-up",
+      "type_identified_by_rule": "Type identified by tenant rule",
       "layout_applied": "Filled by layout",
       "layout_degraded": "Layout degraded",
       "layout_learned": "Saved as layout",

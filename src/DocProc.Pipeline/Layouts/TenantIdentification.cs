@@ -42,7 +42,7 @@ public static class TenantIdentificationJson
 internal sealed class TenantIdentification(DocProcDbContext db, ITenantFeatures features, DocumentTimeline timeline)
 {
     /// <summary>A tenant fallback rule decided (or, under <c>NEW_LAYOUT</c>, proposed) the document's type.</summary>
-    public const string IdentifiedEvent = "document.type_identified_by_rule";
+    public const string IdentifiedEvent = LayoutEventTypes.TypeIdentifiedByRule;
 
     /// <summary>The Active rule versions of the tenant; empty when <c>supplierLayouts</c> is off or there are none.</summary>
     public async Task<IReadOnlyList<TenantRuleCandidate>> LoadAsync(Guid tenantId, CancellationToken cancellationToken)

@@ -31,6 +31,20 @@ describe("flagMessage", () => {
     expect(flagMessage(rule, { language: "de" })).toBe("Prices must be positive.");
   });
 
+  it("shows a definition flag's own message in the UI language when the definition has one (docs/11 §11)", () => {
+    const own: FlagText = {
+      code: "X_RETURN_IN_FUTURE",
+      message: "The return date lies after the end of the year.",
+      field: "returnDate",
+      params: { reason: "compare", ruleId: "r_late", "message.en": "The return date lies after the end of the year.", "message.de": "Das Rückgabedatum liegt nach dem Jahresende." },
+    };
+    expect(flagMessage(own, { language: "de" })).toBe("Das Rückgabedatum liegt nach dem Jahresende.");
+    expect(flagMessage(own, { language: "en" })).toBe("The return date lies after the end of the year.");
+    expect(flagMessage(own, { language: "fr" })).toBe("The return date lies after the end of the year.");
+    const englishOnly: FlagText = { code: "RULE_FAILED", message: "Pickup after return.", params: { reason: "compare", "message.en": "Pickup after return." } };
+    expect(flagMessage(englishOnly, { language: "de" })).toBe("Pickup after return.");
+  });
+
   it("phrases a flag from its code and parameters, in the UI language", () => {
     expect(plain(flagMessage(lowConfidence, { language: "en", fieldLabel: (path) => labels[path] ?? path }))).toBe(
       "Due date was read with 50% confidence, below the threshold of 80%.",

@@ -280,6 +280,10 @@ The example is abbreviated: inherited std fields are elided with `"..."` comment
 
 Correction (P1): the coded invoice kinds take no parameters (`InvoiceRuleAdapter` has none to pass on to the coded rules), so a publish refuses `"params": { "tolerance": 0.02 }` on `invoice.totals` and `invoice.lineArithmetic`; the tolerance stays the coded one until those rules take parameters. `requiredIf` (`r_scr`) is a P5 kind, so the example as a whole publishes only from P5.
 
+Correction (P5, part B): in `r_scr`'s `when`, `supplier.attributes.erpVendorId` reads the definition's own `supplier`
+field (the printed party, which has no attributes), so it never holds. The matched supplier's master data is the
+variable `$supplier` of the rule expressions (§11, Correction (P5, part B)): `"when": "$exists($supplier.attributes.erpVendorId)"`.
+
 The std template keeps the key `invoiceNumber` for the credit-note number. This keeps existing CreditNote rows, `Correction.FieldPath` values and `invoice_extraction@1` compatible. The label says "Credit note no.", and output mappings normally use `roles.documentNumber`, so the legacy key does not leak into integrations.
 
 ### 5.4 Example: a new type (return slip)
@@ -883,6 +887,11 @@ Correction (P4, part C), as built (migration `LayoutLearningAndGovernance`, poli
   stored flat like the warm-up.
 
 Reading the earlier draft's terms: a "mapping variant" is now a layout, `SupplierMapping` is `SupplierLayout`, and the "mapping" is the layout's field mapping, executed by the step kind `supplier-mapping` (the step name is unchanged).
+
+Correction (P5, part B), as built (`Entities/Layouts.cs`, migration `TenantIdentificationRules`, policy `PolicyV12`):
+`TypeIdentificationRuleVersion` is not temporal (like `SupplierLayoutVersion`: out of Draft it never changes and
+documents pin it) and gains `Revision`, the If-Match of a Draft's edits. `PendingApproval` is reserved for
+`configApprovals.identificationRules` (P6). `Documents.IdentificationRuleVersionId` is a foreign key without cascade.
 
 `ExtractorProfiles` is left untouched: no code writes it today (`MatchHandler.cs:44` always nulls the reference). It is dropped in P6 after a zero-row check.
 
@@ -1493,6 +1502,14 @@ engine does check it, and a timeout that happens is still reported as above.
   (NonBacktracking, within `PatternSize`: at most 500 unrolled atoms and a variation of 64) and the scope are the
   checks at save.
 
+Correction (P5, part B), as built (`TypeIdentificationRuleSet`, `TypeIdentificationRuleEndpoints`): the test at save
+reads the tenant's last 500 documents in `Approved` or `AutoApproved`, without the excluded suppliers and the suppliers
+with layouts of their own or of their group, evaluates the rule without master data, and stores `{tested, matched,
+sameType, otherTypes, byType, otherTypeMatches, matches, summary}` ("would have matched 37 price-list documents, 0
+other documents"). Saving from review also requires the rule to hold on the document it was marked on. The rule
+evaluation runs every Active version (excluded suppliers left out); rules of one type decide, the one with the
+highest `Priority` (then the name) is the evidence.
+
 ### 8.6 Large tables: price lists over many pages
 
 A price list (section 5.8) is mostly one table of hundreds of rows over many pages. The layout's field mapping maps each column **once**; the `column-table` strategy applies it to every row on every page:
@@ -1600,6 +1617,18 @@ The contracts live in `src/DocProc.Application/Abstractions/IDocumentExtractor.c
 
 `PurchaseOrder` and `DeliveryNote` documents, which are never extracted today, use `LlmDefinitionExtractor` from P5 onward.
 
+Correction (P5, part B), as built (`LlmDefinitionExtractor`, `DefinitionMapper`, `IDefinitionExtractor`): the LLM path of
+a definition-driven type outside the invoice family runs behind `customTypes` (a tenant without it keeps the empty tree
+of P1 for a copied purchase order or delivery note), with an enabled `llm` step and pages or text to read. After a
+pre-fill it asks in fill-missing mode (the Task lists the header paths left Missing; the schema stays the type's) and
+the pre-filled values win the merge. `DefinitionMapper` maps each value by kind with the same envelopes as
+`CustomFieldMapper` (locating it with `LocateIdentifier`, `LocateNumber`, `LocateDate`, `LocateText`); rows of a table
+are mapped per value, not anchored with `LocateLine`, and synonyms of a mapping are not used as label hints. A money
+value takes its currency from its `currencyFrom` field's answer, else the tenant's. A provider that cannot answer (none
+configured, a replay miss, a refusal, an answer that is not the schema) or the budget leaves the document as before
+P5: the pre-filled or empty tree for the reviewer. A document a layout identified keeps the layout's values; the LLM
+does not fill what it left Missing for these types yet.
+
 ### 9.4 Classification against tenant types
 
 Classify runs its steps in this order and stops at the first that decides (section 8.5):
@@ -1622,6 +1651,22 @@ Changes to the keyword and LLM steps:
   - keywords and the LLM only after that, and only if nothing decided (or, under `NEW_LAYOUT`, to propose).
 - Flag ownership. `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS` are raised by two steps, `classify.identification` and `match.layout`, and each step owns the instances it raised, keyed by step id (10.3). `ClassifyHandler` adds them to its owned flags next to `TYPE_UNKNOWN` (`ClassifyHandler.cs:38`), and `MatchHandler` owns its own instances, so a reprocess from Classify, after a layout was saved, re-evaluates and clears both. When Match replaces the supplier, `match.layout` also clears the Classify instances raised for the old supplier (7.4). A reviewer's approval resolves an open `NEW_LAYOUT` (section 11).
 - The splitter's keyword signals (`HeuristicDocumentSplitter.cs:162-167, 228-258`) take the tenant rule set. `LlmDocumentSplitter` fills its range-type enum from tenant types, or drops it.
+
+Correction (P5, part B), as built (`KeywordRuleTable`, `TenantClassification`, `LlmDocumentClassifier`, `TenantIdentification`):
+- The tenant keyword set and the classifier enum are behind `customTypes` (with `configurableTypes`); without them a
+  tenant classifies with the built-in table and the fixed schema, as before. A standard type whose `classification`
+  block equals its template's keeps the built-in rules exactly (they are the block's seed); any other type's block is
+  compiled as escaped literal phrases (at most 50 per type, language and kind, 100 characters each). The table is cached
+  by the hash of the tenant's type keys and published versions.
+- The LLM classifier's schema is `document_classification@1+t.<hash8>` (one per candidate set) with the prompt
+  `classify-tenant-document`; an answer outside the set is Unknown.
+- Not built: the splitter's keyword signals and `LlmDocumentSplitter` keep the built-in table and enum.
+- The tenant fallback rules run after the supplier's own layouts (resolution `NotManaged`, or no layout step because the
+  supplier is unknown at Classify), before the keyword rules and the LLM, and under `NEW_LAYOUT` only propose. A rule
+  whose type the supplier's `allowedTypeKeys` exclude does not decide. They are loaded per document (one query), not
+  cached by the hashes of the Active versions. The decision is the event `document.type_identified_by_rule` (the
+  rule, version, hash and evidence) and `Documents.IdentificationRuleVersionId`; `AppliedConfigJson.identification`
+  is not written for it.
 
 ## 10. Configurable handlers (R7)
 
@@ -1776,6 +1821,31 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
   (warning, blocking with `onFailure: block`) and `PIPELINE_INVALID {phase, path, problem}` (blocking) are new.
 
 `FlagCodes.Create` (`:88-96`) accepts `RULE_FAILED` and definition-scoped codes `X_<RULEID>` that come with a localised message instead of throwing. `flagMessage.ts` already falls back to the message text. The client keeps Ajv hints for instant feedback. `lineArithmetic.ts` is removed in favour of server rule results per path (`DocumentDetail.validation[]`).
+
+Correction (P5, part B), as built (`RuleExpression`, `GenericRules`, `ReviewGateRules`):
+- `expression` is not a sandboxed JSONata predicate run by the out-of-process renderer: rules run inside validation,
+  also inline in the API when a reviewer corrects a value, and are pure. It is a bounded JSONata subset evaluated in
+  process (`DocProc.Domain.Validation.Expressions.RuleExpression`): paths mapped over arrays, filters and indexes, the
+  arithmetic, comparison, `&`, `in`, `and` and `or` operators, literals, `$` and `$$`, a fixed set of functions (no
+  regex, no recursion, nothing that reads outside the value) and the variables `$today` and `$supplier` (`id`, `name`,
+  `vatId`, `attributes`). Bounds: 2,000 characters, 400 nodes and 32 levels (checked at publish), 50,000 steps per
+  evaluation and 2,000,000 per rule and document, lists of 20,000 values and strings of 10,000 characters. A rule out of
+  steps raises a blocking `CHECKS_SKIPPED {reason: expressionBudget}` that neither the rule's severity nor the flag cap
+  hides; one that cannot be evaluated raises `RULE_FAILED {reason: expressionError}`. The same language is
+  `requiredIf.when` and `arithmetic.expression`. A comparison with an absent value is false, as in JSONata.
+- The parameters as built: `requiredIf {path, when}`, `compare {left, op: eq|ne|lt|le|gt|ge, right | value,
+  tolerance?}`, `sumEquals {path, equals, tolerance? (0.02), perItemTolerance?}`, `arithmetic {rows?, expression,
+  equals, tolerance?}` (`equals` a path in the row) and `expression {predicate, forEach?, field?}`.
+- Definition-scoped codes are not derived from the rule id (`X_<RULEID>`): a definition declares its codes in a new
+  top-level `flags` block (`{code: X_…, severity?, message?, description?}`) and a rule of a generic kind names one in
+  `flag`. Its flags carry the code, the rule's severity (else the declaration's, else warning), its message and
+  `message.<locale>` parameters, which the apps show in the UI language; `ruleCode` keeps the kind's own code. Publish
+  refuses an undeclared, unused, repeated or platform code and a flag on a coded invoice kind; the validate stage owns
+  every `X_*` code (`FlagCodes.DefinitionScopedWildcard`).
+- "Ran and passed" (`requirePassedRules`) is: the rule ran (it is registered and `validate.rules` is on) and raised no
+  warning and no blocking flag; an info note does not fail it. `EffectiveType.AutoApprove` takes a type outside the
+  invoice family when every rule `requirePassedRules` names is in its rule list. A hold of these conditions is recorded
+  in the `document.validated` event's `gate` and, when no open flag says why, in the review task's reason.
 
 ## 12. Manual review mapping and learning (R5, R9, R10)
 
@@ -2742,6 +2812,13 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
     `GET /notifications` and `:dismiss`, `?pendingLayoutVersionId=`, the golden documents, sandbox and regression runs,
     and the configuration bundle. Not built: `PATCH /supplier-layouts/{id}`, draft `PUT`, `:shadow`, group layouts
     written through the API, the tenant fallback rules (P5).
+  - Correction (P5, part B): built are the tenant fallback rules' routes as listed above (`GET|POST
+    /document-types/{key}/identification-rules`, `GET|PATCH /identification-rules/{id}`, `GET|POST …/versions`, `PUT
+    …/versions/{v}` with If-Match on a Draft's `revision`, `…/versions/{v}:test`, `…/versions/{v}:activate
+    {confirmOtherTypes}`, `…:disable`), plus `POST /documents/{id}/identification-rules {rule, typeKey?, name?}` for
+    "use for all suppliers without own layouts" in review (§12.10 step 5 names the action but no route). Writes need
+    `ConfigAdmin`; `configApprovals.identificationRules` does not exist yet (four-eyes is P6), so `:activate` activates
+    at once, and a test that matched documents of other types makes it a 409 unless `confirmOtherTypes` is set.
 - **Review**
   - `POST /documents/{id}:set-type {typeKey, version?, prefill: "none"|"auto"}`
   - `POST /documents/{id}:assign-supplier {supplierId, remember?:{conditions…, mode}}` (202; re-runs `classify.identification` for that supplier from Classify, 12.1)

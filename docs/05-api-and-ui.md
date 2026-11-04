@@ -425,6 +425,62 @@ reprocesses exactly as before.
   for one type or supplier from the document's recorded LLM cost. The provider configuration's `monthlySpendCapUsd`
   stays as it was (a hard stop: `LLM_PROVIDER_UNAVAILABLE`).
 
+### Rules, custom types and tenant fallback rules as built (docs/11 §8.5, §9.3, §9.4, §11, P5 part B)
+
+- **Rule kinds of P5** in a definition's `rules` (published through the document-types API as before):
+  `requiredIf {path, when}` (`FIELD_REQUIRED` when the expression `when` holds), `compare {left, op: eq|ne|lt|le|gt|ge,
+  right | value, tolerance?}` (numbers, money amounts, `yyyy-MM-dd` dates or strings; pairwise over `[*]`),
+  `sumEquals {path, equals, tolerance? (0.02), perItemTolerance?}`, `arithmetic {rows?, expression, equals, tolerance?}`
+  (the expression per row, `equals` a path in the row) and `expression {predicate, forEach?, field?}`. Expressions are
+  a bounded JSONata subset evaluated in process (paths, filters, `+ - * / % & = != < <= > >= in and or`, `$exists`,
+  `$not`, `$sum`, `$count`, `$max`, `$min`, `$average`, `$abs`, `$round`, `$floor`, `$ceil`, `$number`, `$string`,
+  `$length`, `$contains`, `$lowercase`, `$uppercase`, `$trim`, `$substring`, `$distinct`; variables `$today` and
+  `$supplier` with `id`, `name`, `vatId`, `attributes`): at most 2,000 characters, 400 nodes and 32 levels at publish,
+  50,000 steps per evaluation and 2,000,000 per rule and document; no function reads anything outside the value.
+  Publish refuses an expression that does not parse, a function or variable it does not know, `compare` without
+  `right` or `value`, and a row path (`arithmetic.equals`, `expression.field`) that is not a field of the rows. A rule
+  out of steps raises a blocking `CHECKS_SKIPPED {reason: expressionBudget}`; one that cannot be evaluated a
+  `RULE_FAILED {reason: expressionError}`.
+- **Definition flags**: a definition's `flags: [{code: "X_…", severity?, message?: {locale: text}, description?}]`, and
+  `flag: "X_…"` on a rule of a generic kind: its flags carry that code, the rule's (else the declaration's) severity and
+  message, and `message.<locale>` in their parameters (the apps show it in the UI language). Publish refuses an
+  undeclared, unused, repeated or platform code and a flag on a coded invoice kind. The validate stage owns every
+  `X_*` code, so a re-validation replaces them.
+- **Review gate keys** of `processing.review`: with `autoApprove` and `requirePassedRules` (every rule named must have
+  run and raised no warning or blocking flag) a type outside the invoice family auto-approves; `blockOnWarnings` holds
+  a document whose named rule warned; `lines {requireSource: [SourceMethod…], requireLocated, maxLowConfidenceRows}`
+  checks the rows of the `lineItems` role. A hold is in the `document.validated` event's `gate` and in the review
+  task's reason (`REQUIRED_RULE_NOT_PASSED`, `RULE_WARNING_BLOCKS`, `LINES_SOURCE`, `LINES_NOT_LOCATED`,
+  `LINES_LOW_CONFIDENCE`) when no open flag names it.
+- **Custom types end to end** (`customTypes` with `configurableTypes`): the tenant keyword set (the tenant's published
+  types' `classification` blocks; standard types with their template's block keep the built-in rules) and the LLM
+  classifier with the tenant's types as its enum (`document_classification@1+t.<hash8>`, the supplier's allowed types
+  when it names any, plus `Unknown`); a type outside the invoice family is extracted by `LlmDefinitionExtractor`
+  against its compiled schema (`doc_<key>`, prompt `extract-document`, over a pre-fill in fill-missing mode) and
+  stored with `ExtractionMethod.Llm`. Without a provider (or when it cannot answer) the document goes on as before:
+  the pre-filled or empty tree for the reviewer.
+- **Tenant fallback identification rules** (`supplierLayouts`; reads `Read`, writes `ConfigAdmin`):
+  - `GET|POST /document-types/{key}/identification-rules`: a type's rules, or a new rule `{name, rule, priority?
+    (0-1000, default 100), excludedSupplierIds?}`, version 1 a Draft tested at once;
+  - `POST /documents/{id}/identification-rules {rule, typeKey?, name?, priority?}`: "use for all suppliers without own
+    layouts" from review, for the document's type (or `typeKey`); the rule must hold on the document;
+  - `GET|PATCH /identification-rules/{id}` (`{name?, priority?}`), `GET|POST /identification-rules/{id}/versions` (a new
+    Draft; at most one), `PUT /identification-rules/{id}/versions/{v}` (Draft only, `If-Match` the revision: `428`
+    without it, `412` when stale, `409` out of Draft), `POST …/versions/{v}:test`, `POST …/versions/{v}:activate
+    {confirmOtherTypes?}` (`409` with the test when it matched documents of other types and that was not confirmed; the
+    previous Active version is retired) and `POST /identification-rules/{id}:disable`;
+  - a rule is checked in tenant scope (no `supplierValue`, the meta-schema, `PatternSize`, a positive identifier);
+    the test (`TestJson`, `test` in the response) evaluates it on the last 500 approved documents of the tenant without
+    the excluded suppliers and the suppliers that have layouts (own or group): `{tested, matched, sameType,
+    otherTypes, byType, otherTypeMatches, matches (50), summary: "would have matched N <type> documents, M other
+    documents"}`;
+  - in the pipeline the Active versions run in `classify.identification` after the supplier's own layouts, for a
+    supplier unknown at Classify or not layout-managed, before the keyword rules and the LLM: rules of one type decide
+    it (`TypeSource=Identification`, `DocumentDetail.identificationRuleVersionId`, `Matched` counted, event
+    `document.type_identified_by_rule`), rules of two types decide nothing, under `NEW_LAYOUT` they only propose; the
+    split prefilter applies the type's `split.mode` the same way. A reviewer's `:set-type` to another type counts in
+    `Overridden` and drops the pin.
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:
