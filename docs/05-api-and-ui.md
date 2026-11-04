@@ -100,6 +100,7 @@ do not know. Flags carry their own `params` the same way (docs/02 §5 "Flag para
 | `GET /llm-policy`, `PUT /llm-policy` | TenantAdmin | Every configuration id must be one of the tenant's own; platform configurations are resolved by the gateway, not chosen here. |
 | `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only (8 to 4096 characters, so `keyLast4` never shows most of it): it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. Responses carry `keyLast4` and `keyFingerprint` (the first 16 hex digits of the SHA-256 of the key's UTF-8 bytes), so a client that holds a key can tell whether it is the stored one (`docker/llm-setup.mjs` does) without the key ever being returned. `models` names each stage once (two spellings of one stage are refused rather than merged). `endpoint` must be `https` to a public host: loopback, private, link-local and other reserved addresses and local names are refused with 400, and the worker checks the resolved address again at connect time (docs/08 "Endpoint restrictions"). Delete is refused while the policy references the configuration (409); otherwise it removes the row and then the key from the secret store. |
 | `GET /llm-usage?from=&to=&groupBy=day\|stage\|model` | Read | Calls, tokens, errors and estimated cost; inclusive UTC dates, last 30 days by default. |
+| `GET /llm-budgets`, `PUT /llm-budgets` | TenantAdmin | The tenant's LLM budgets (docs/11 §16, P5): `{budgets: [{period: day\|month\|document, limitUsd, stage?}]}`; `PUT` replaces the list (an empty list removes every budget), at most 12, one per period and stage, `limitUsd` 0 to 1,000,000 with at most 4 decimals (0 keeps the stage from calling the LLM at all), `stage` one of `Classify`, `Split`, `Extract`, `Synthesize` or left out for every stage. `GET` adds `spentUsd` and `periodStart` for the current UTC day or month (none for a document budget). Spend is the sum of the usage rows; see "Configurable steps and LLM budgets" below for what a refused call does. |
 | `GET /llm/providers`, `POST`, `POST /llm/providers/{id}:disable` / `:enable` | PlatformAdmin | Platform-scope configurations; the key goes to `platform/{configId}`. Their `endpoint` may be plain `http` or a private address (self-hosted models). `:disable` is the kill switch. |
 | `GET /llm/usage?from=&to=&groupBy=tenant\|model\|day` | PlatformAdmin | Across tenants, for invoicing platform-key spend. |
 
@@ -361,6 +362,68 @@ reprocesses exactly as before.
   schema limits; bindings their name, events, type key, group and condition length). An unchanged type (the same
   definition as its latest published version) or layout version (the same rule hash and mapping, compared as JSON, not
   as text) is a `skip`. An `apply` is one transaction: a member of the wrong JSON type is `400` with nothing written.
+
+### Configurable steps and LLM budgets as built (docs/11 §10, §16, P5 part A)
+
+- **Feature switch.** `settings.features.configurableSteps` (TenantAdmin, `PUT /settings`; left out, it is false).
+  Off, every document runs the built-in steps exactly as before P5: overrides are ignored, the type's own step
+  parameters and the steps it adds do not run, and no pipeline hash is recorded.
+- **`GET /step-kinds`** (Read): the catalogue per phase, `[{kind, phase, description, paramsSchema, fixed, insertable,
+  runs, defaultId}]`. `fixed` steps (`classify.identification`, `review-gate`, the `match.*` and `publish.*` steps)
+  take no `disable`, `replace` or added step ahead of them; only `http-lookup` is `insertable`; `defaults`,
+  `code-list` and `transform` are listed with `runs: false` (a definition may name them; this build does not run them).
+- **`settings.pipelineOverrides`** of a supplier (`POST`, `PATCH /suppliers`) or a supplier group (`POST`,
+  `PATCH /supplier-groups`): an ordered list of `{op: disable|param|insertAfter|replace, step, params?, with?: {id,
+  kind, params}}` by step id (built-in ids: `split.heuristic`, `split.llm`, `classify.identification`,
+  `classify.keyword`, `classify.llm`, `xml`, `map`, `prefill`, `llm`, `schema`, `rules`, `duplicate`, `review-gate`; a
+  type's own steps by the ids its definition gives them), at most 50 per layer and 5 `http-lookup` steps per pipeline.
+  Checked at save: the operation, the step id, the fixed steps (`400` with the place, `settings.pipelineOverrides[0].step`:
+  "classify.identification is the fixed first step of Classify"), an inserted kind's phase, every parameter against its
+  kind's schema (a `param` patch with `null` removes a parameter), and for an `http-lookup` its destination (an `http`
+  destination of the tenant) and its two JSONata expressions (parsed by the renderer, not run). Writing them needs
+  `configurableSteps` (`400` otherwise), except when sent back exactly as stored; a reviewer's `:create-supplier`
+  never sets them. The group's apply before the supplier's.
+- **A layout version's `mapping.pipelineOverrides`** (`POST /suppliers/{id}/layouts`, `POST /supplier-layouts/{id}/versions`,
+  bundle import) take the same shape and checks and apply after the supplier's, for a document that version identified.
+- **`GET /document-types/{key}/resolved-pipeline?supplierId=&layoutVersionId=`** (Read): `{hash, configurable,
+  overridden, steps: [{id, kind, phase, params, enabled, source: default|type|group|supplier|layout, fixed, runs}],
+  skipped, refused}`. `skipped` names overrides for a step this type's pipeline does not have (a supplier's override
+  of a price list's step does not touch its invoices); `refused` is set when a layer breaks a rule (settings written
+  outside the API, an imported bundle): the type's own steps run then, and the document gets `PIPELINE_INVALID`
+  (blocking). `404` for an unknown type key, `400` for a supplier or layout version of another tenant.
+- **`GET /pipelines/{hash}`** (Read): `{hash, createdAt, steps}`, the pipeline a document with that
+  `DocumentDetail.pipelineHash` ran (stored once per tenant and hash when a stage first runs it; `404` for another
+  tenant's). Each stage that runs a pipeline that is not the type's own writes `document.pipeline_applied {phase, hash,
+  steps, skipped, refused?}` to the timeline.
+- **What the stages honour.** Split: `split.heuristic` `mode` (`auto`, `never`, `perPage`, `llm`) and `split.llm` off,
+  for a supplier the source named (the type is not known yet). Classify: `classify.keyword` off, `classify.llm` off or
+  its `threshold`, for a supplier the source named. Extract: `xml`, `map`, `prefill` or `llm` off, `llm`'s `effort`
+  (`none`, `low`, `medium`, `high`; the price-list templates' own `effort: low` is the default anyway) and
+  `maxCostPerDocument` (USD), and `http-lookup` steps. Validate: `schema`, `rules`, `duplicate` off (also for the
+  inline re-validation of a correction). Match and Publish are fixed. An invoice no enabled step can extract (the LLM
+  switched off or refused) goes on with its type's empty tree to review instead of failing.
+- **`http-lookup`** `params: {destinationId, method?: GET|POST, request?, response, timeoutMs? (100-5000, default 5000),
+  retries? (0-2, default 1), onFailure?: warn|block|ignore, mode?: fillMissing|override}`. `request` is JSONata over the
+  document's values view (the tree Extract built, with supplier, entity and source); its result fills the
+  destination's `urlTemplate` placeholders (`{{output.vat}}`, percent-encoded, the origin kept) and is a POST's JSON body.
+  The call goes through the delivery client (https to a public address, re-checked at connect; `Delivery:DevelopmentHosts`
+  only in Development), with the destination's headers and auth (its secret from the secret store), `Accept:
+  application/json`, `Idempotency-Key` (the request hash) and `X-DocProc-Lookup-Step`; an answer is read up to 256 KB;
+  408, 425, 429, 5xx, timeouts and network errors are retried, others are not; five failures in a row pause a
+  destination for 30 s. `response` is JSONata over `{response, status, values}` and gives `{"<field path>": value}` (at
+  most 50; a key, a bag key `ext.x` or a composite member `supplier.vatId`), written as `Inferred` (`source.method:
+  Lookup`, confidence 0.95), only where the field is Missing unless `mode: override`, never over a reviewer's value.
+  The result is stored per document, step and request hash (`LookupResults`, the assignments only), so a retry or a
+  reprocess that sends the same request reuses it. A failure is `LOOKUP_FAILED {stepId, reason, httpStatus}` (warning;
+  blocking with `onFailure: block`; none with `ignore`); `appliedConfig.lookups.<stepId>` says what each step wrote.
+- **LLM budgets** (`/llm-budgets` above). Before every LLM call the gateway compares the spend of each budget's period
+  (the current UTC day or month, or the document) with its limit, adding the call's estimate (the average of the
+  tenant's last 20 successful calls of that stage); a call that would pass a budget is not made and nothing is
+  recorded. The stage goes on without it: Split keeps the heuristics' ranges, Classify the keyword type, Extract the
+  layout's or the pre-fill's values or the type's empty tree, and the step gets `LLM_BUDGET_EXCEEDED {step, period,
+  limitUsd, spentUsd}` (blocking, so the document goes to review). The `llm` step's `maxCostPerDocument` does the same
+  for one type or supplier from the document's recorded LLM cost. The provider configuration's `monthlySpendCapUsd`
+  stays as it was (a hard stop: `LLM_PROVIDER_UNAVAILABLE`).
 
 ## React applications
 

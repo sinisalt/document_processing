@@ -53,7 +53,7 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task The_P1_to_P4_migrations_migrate_down_and_up_again()
+    public async Task The_P1_to_P5_migrations_migrate_down_and_up_again()
     {
         // Their Down methods drop columns of the temporal Documents table, which turns system versioning off; SQL
         // Server refuses that while the schema-bound policy names the table, so the old policy comes back last.
@@ -102,6 +102,47 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 seeding.ApiKeys.Add(new ApiKey { Id = feedOnly, TenantId = TenantA, Name = "feed", Prefix = "feed0000", Hash = new string('f', 64), Scopes = [ApiKeyScope.DeliveriesRead], DestinationId = seeded.DestinationId, CreatedAt = DateTimeOffset.UtcNow });
                 await seeding.SaveChangesAsync(ct);
             }
+
+            // P5 part A first, with one of everything it writes: a pipeline snapshot, a document that ran it (its hash),
+            // a lookup result and an LLM budget. Down to P4 part C, the tables and the column are gone and the policy of
+            // part C is back; up again, they are new.
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var hash = new string('a', 32);
+                seeding.PipelineSnapshots.Add(new PipelineSnapshot { TenantId = TenantA, Hash = hash, StepsJson = """[{"id":"llm","kind":"llm","enabled":false}]""", CreatedAt = now });
+                seeding.LookupResults.Add(new LookupResult { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = target, StepId = "erpVendor", RequestHash = new string('b', 64), DestinationId = Guid.CreateVersion7(), Status = LookupCallStatus.Succeeded, HttpStatus = 200, AssignmentsJson = """{"ext.vendor":"V-1"}""", Attempts = 1, DurationMs = 12, CreatedAt = now });
+                seeding.LlmBudgets.Add(new LlmBudgetRecord { Id = Guid.CreateVersion7(), TenantId = TenantA, Period = DocProc.Llm.Gateway.LlmBudgetPeriod.Month, Stage = DocProc.Llm.LlmStage.Extract, LimitUsd = 50m, CreatedAt = now, UpdatedAt = now });
+                var ran = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                ran.PipelineHash = hash;
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261104091721_LayoutLearningAndGovernance", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104091721_LayoutLearningAndGovernance");
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM [Tenants] WHERE JSON_VALUE(CAST([Settings] AS nvarchar(max)), N'$.Features.ConfigurableSteps') IS NOT NULL").SingleAsync(ct)).ShouldBe(0);
+            foreach (var table in new[] { "PipelineSnapshots", "LookupResults", "LlmBudgets" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var table in new[] { "Documents", "DocumentsHistory" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = N'PipelineHash'").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            (await platform.Database.SqlQuery<int>($"SELECT CAST(temporal_type AS int) AS [Value] FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.Documents')").SingleAsync(ct)).ShouldBe(2, "system versioning is on");
+            await platform.Database.MigrateAsync(ct);
+            foreach (var table in new[] { "PipelineSnapshots", "LookupResults", "LlmBudgets" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+            }
+
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == target, ct)).PipelineHash.ShouldBeNull("up again, the column is new");
+            (await platform.LlmBudgets.AsNoTracking().CountAsync(ct)).ShouldBe(0);
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM [Tenants] WHERE JSON_VALUE(CAST([Settings] AS nvarchar(max)), N'$.Features.ConfigurableSteps') = N'false'").SingleAsync(ct))
+                .ShouldBe(2, "the Down removed the flag and the Up back-filled it, off, for every tenant");
 
             // P4 part C first, with one of everything it writes: a golden document, a sandbox run, a notification and a
             // document waiting for a Candidate layout. Down to part B, the tables and the column are gone and the policy

@@ -104,7 +104,57 @@ internal static class SupplierConfigSupport
             errors.Add($"{field}.defaults.currency", "Currency must be a three-letter upper-case ISO 4217 code.");
         }
 
+        foreach (var problem in DocProc.Definitions.Pipelines.PipelineResolver.Check(parsed.PipelineOverrides, $"{field}.pipelineOverrides"))
+        {
+            errors.Add(problem.Path, problem.Message);
+        }
+
         return errors.Count == before ? parsed : null;
+    }
+
+    /// <summary>
+    /// The checks of <c>settings.pipelineOverrides</c> that need the tenant (docs/11 §10.1, P5): the
+    /// <c>configurableSteps</c> switch (a client that sends back the overrides as they are stored needs none), each
+    /// <c>http-lookup</c> step's destination (an http destination of the tenant) and its JSONata expressions (parsed by
+    /// the renderer, not run). <paramref name="renderer"/> null refuses overrides altogether (a reviewer's
+    /// <c>:create-supplier</c>, which may not set them).
+    /// </summary>
+    public static async Task CheckPipelineAsync(
+        DocProcDbContext db,
+        ITenantFeatures features,
+        DocProc.Application.Outputs.IOutputRenderer? renderer,
+        Guid tenantId,
+        SupplierSettings? settings,
+        string? storedSettingsJson,
+        Errors errors,
+        CancellationToken ct,
+        string field = "settings")
+    {
+        if (settings?.PipelineOverrides is not { Count: > 0 } overrides)
+        {
+            return;
+        }
+
+        var at = $"{field}.pipelineOverrides";
+        var stored = SupplierSettings.Parse(storedSettingsJson).PipelineOverrides;
+        if (stored is not null && JsonSerializer.Serialize(stored, DocProc.Definitions.Pipelines.PipelineOverridesJson.Options) == JsonSerializer.Serialize(overrides, DocProc.Definitions.Pipelines.PipelineOverridesJson.Options))
+        {
+            return; // Sent back as stored: no change, no switch needed.
+        }
+
+        if (renderer is null)
+        {
+            errors.Add(at, "pipelineOverrides are set by a config admin in the supplier's settings, not from review.");
+            return;
+        }
+
+        if (!await features.IsEnabledAsync(tenantId, TenantFeature.ConfigurableSteps, ct))
+        {
+            errors.Add(at, "pipelineOverrides need the 'configurableSteps' feature; a tenant admin switches it on in the settings (features.configurableSteps).");
+            return;
+        }
+
+        await PipelineChecks.CheckLookupsAsync(db, renderer, overrides, at, errors, ct);
     }
 
     /// <summary>The settings as the API shows them (an empty object for none).</summary>

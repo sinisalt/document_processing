@@ -54,7 +54,7 @@ public sealed class LlmInvoiceExtractor(
             // Text-only documents travel inside the task text (see the builder); otherwise adapters pick PDF or images.
             Document = document.HasPdf || document.HasImages ? document : null,
             OutputSchema = schema,
-            Options = options.ToLlmOptions(),
+            Options = Effort(input.StepParams) is { } effort ? options.ToLlmOptions() with { Effort = effort } : options.ToLlmOptions(),
             DocumentId = input.DocumentId,
         };
 
@@ -113,4 +113,17 @@ public sealed class LlmInvoiceExtractor(
 
         return (result, usage);
     }
+
+    /// <summary>The <c>effort</c> parameter of the pipeline's <c>llm</c> step (docs/11 §10.1), or null when it sets none.</summary>
+    internal static ReasoningEffort? Effort(System.Text.Json.Nodes.JsonObject? stepParams) =>
+        stepParams?["effort"] is System.Text.Json.Nodes.JsonValue value && value.TryGetValue<string>(out var text)
+            ? text switch
+            {
+                "none" => ReasoningEffort.None,
+                "low" => ReasoningEffort.Low,
+                "medium" => ReasoningEffort.Medium,
+                "high" => ReasoningEffort.High,
+                _ => null,
+            }
+            : null;
 }

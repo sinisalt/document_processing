@@ -267,6 +267,10 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("PeriodStart");
 
+                    b.Property<string>("PipelineHash")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<Guid?>("ReceivingEntityId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1401,6 +1405,47 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.ToTable("IngestionItems", (string)null);
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LlmBudgetRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("LimitUsd")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("Period")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Stage")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Period");
+
+                    b.ToTable("LlmBudgets", (string)null);
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LlmProviderConfigRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1641,6 +1686,68 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.HasIndex("TableId", "From");
 
                     b.ToTable("LookupEntries", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LookupResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssignmentsJson")
+                        .HasColumnType("json");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("DestinationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int?>("HttpStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("StepId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DocumentId", "StepId", "RequestHash")
+                        .IsUnique();
+
+                    b.ToTable("LookupResults", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LookupTable", b =>
@@ -2263,6 +2370,29 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("OutputMappingVersions", (string)null);
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.PipelineSnapshot", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Hash")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("StepsJson")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.HasKey("TenantId", "Hash");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("PipelineSnapshots", (string)null);
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", b =>
@@ -3277,6 +3407,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Navigation("Ingestion");
                 });
 
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LlmBudgetRecord", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LlmProviderConfigRecord", b =>
                 {
                     b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", "Tenant")
@@ -3295,6 +3434,21 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Table");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.LookupResult", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Document", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.Notification", b =>
@@ -3423,6 +3577,15 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Mapping");
+                });
+
+            modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.PipelineSnapshot", b =>
+                {
+                    b.HasOne("DocProc.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DocProc.Infrastructure.Persistence.Entities.ReceivingEntity", b =>
@@ -3624,6 +3787,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                             b1.OwnsOne("DocProc.Infrastructure.Persistence.Entities.TenantFeatureFlags", "Features", b2 =>
                                 {
                                     b2.Property<Guid>("TenantSettingsTenantId");
+
+                                    b2.Property<bool>("ConfigurableSteps");
 
                                     b2.Property<bool>("ConfigurableTypes");
 

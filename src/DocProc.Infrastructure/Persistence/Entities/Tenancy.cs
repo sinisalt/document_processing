@@ -113,6 +113,12 @@ public sealed class TenantFeatureFlags
 
     /// <summary>Structured sources: spreadsheets, custom XML and JSON, e-mail bodies (P6).</summary>
     public bool StructuredSources { get; set; }
+
+    /// <summary>
+    /// Configurable steps (P5, docs/11 §10): supplier, group and layout <c>pipelineOverrides</c>, the type's step
+    /// parameters and the steps it adds (<c>http-lookup</c>). Off: every phase runs its built-in steps as before.
+    /// </summary>
+    public bool ConfigurableSteps { get; set; }
 }
 
 /// <summary>A customer: one restaurant or a restaurant group.</summary>

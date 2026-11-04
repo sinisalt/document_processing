@@ -39,6 +39,7 @@ public class LlmGatewayTests
         public TenantLlmPolicy? Policy { get; set; }
         public List<LlmProviderConfig> TenantConfigs { get; } = [];
         public List<LlmProviderConfig> RequestedCredentials { get; } = [];
+        public ILlmBudgetGuard? Budgets { get; set; }
 
         public LlmGateway Build() => new(
             new PolicyStore(this),
@@ -46,7 +47,8 @@ public class LlmGatewayTests
             [new ReplayLlmProviderFactory(Store)],
             new Recorder(this),
             PriceTable.Default,
-            Clock);
+            Clock,
+            Budgets);
 
         private sealed class PolicyStore(Fixture f) : ILlmPolicyStore
         {
@@ -194,5 +196,48 @@ public class LlmGatewayTests
         batch.Status.ShouldBe(BatchStatus.Completed);
         batch.Items[0].Result.ShouldNotBeNull();
         batch.Items[1].Error!.Kind.ShouldBe(LlmErrorKind.InvalidRequest);
+    }
+
+    private sealed class FixedBudget(LlmBudgetVerdict verdict) : ILlmBudgetGuard
+    {
+        public List<(LlmStage Stage, Guid? DocumentId)> Asked { get; } = [];
+
+        public Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken)
+        {
+            Asked.Add((stage, documentId));
+            return Task.FromResult(verdict);
+        }
+    }
+
+    [Fact]
+    public async Task A_call_the_tenant_s_budget_refuses_is_not_made_and_not_recorded()
+    {
+        var verdict = new LlmBudgetVerdict(false, new LlmBudget(LlmBudgetPeriod.Day, 1m), SpentUsd: 0.99m, EstimateUsd: 0.05m);
+        var budget = new FixedBudget(verdict);
+        var f = new Fixture { Budgets = budget };
+
+        var ex = await Should.ThrowAsync<LlmBudgetExceededException>(() => f.Build().CompleteAsync(TenantId, Request(), CancellationToken.None));
+
+        ex.Kind.ShouldBe(LlmErrorKind.BudgetExceeded);
+        ex.IsRetryable.ShouldBeFalse();
+        ex.BlocksTenant.ShouldBeFalse("a budget sends the document on without the LLM; it does not pause the tenant");
+        ex.Verdict.ShouldBe(verdict);
+        ex.Message.ShouldContain("daily LLM budget of 1.00 USD");
+        f.Records.ShouldBeEmpty();
+        f.RequestedCredentials.ShouldBeEmpty("nothing is sent, so no credential is fetched");
+        budget.Asked.ShouldBe([(LlmStage.Extract, Request().DocumentId)]);
+    }
+
+    [Fact]
+    public async Task Without_a_guard_every_call_is_allowed()
+    {
+        (await NoLlmBudgets.Instance.CheckAsync(TenantId, LlmStage.Classify, null, CancellationToken.None)).Allowed.ShouldBeTrue();
+        var f = new Fixture { Budgets = new FixedBudget(LlmBudgetVerdict.Allow) };
+        var request = Request();
+        f.Store.Put(RequestHasher.Hash(request with { Model = "claude-opus-5-5" }), new LlmResult { Json = "{}", Usage = new LlmUsage(10, 1), Model = "claude-opus-5-5", StopReason = StopReasons.EndTurn });
+
+        await f.Build().CompleteAsync(TenantId, request, CancellationToken.None);
+
+        f.Records.ShouldHaveSingleItem();
     }
 }

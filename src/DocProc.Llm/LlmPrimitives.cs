@@ -84,9 +84,16 @@ public enum LlmErrorKind
 
     /// <summary>No usable provider configuration for this tenant and stage.</summary>
     Unavailable,
+
+    /// <summary>
+    /// The tenant's LLM budget for the period (or the document) would be exceeded by the call (docs/11 §16); the call was
+    /// not made. Not retryable and not a provider fault: the stage goes on without the LLM and raises
+    /// <c>LLM_BUDGET_EXCEEDED</c>.
+    /// </summary>
+    BudgetExceeded,
 }
 
-public sealed class LlmException(LlmErrorKind kind, string message, TimeSpan? retryAfter = null, Exception? inner = null)
+public class LlmException(LlmErrorKind kind, string message, TimeSpan? retryAfter = null, Exception? inner = null)
     : Exception(message, inner)
 {
     public LlmErrorKind Kind { get; } = kind;

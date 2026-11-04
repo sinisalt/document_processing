@@ -49,6 +49,7 @@ internal sealed class ValidateHandler(
     DocumentValidator validator,
     IEffectiveConfigResolver configResolver,
     LayoutReviewGate layoutGate,
+    StagePipeline pipelines,
     ILogger<ValidateHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     public const string ApprovedBy = DocumentTimeline.Actor;
@@ -80,6 +81,14 @@ internal sealed class ValidateHandler(
         // definition requires a field that nothing else checks (EffectiveType.RequiredOutsideSchemaStep).
         var config = await configResolver.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
         var resolved = config.Type;
+        // The validate steps of the document's pipeline (docs/11 §10.1): an override may switch validate.schema,
+        // validate.rules or validate.duplicate off; the review gate below is fixed.
+        var pipeline = await pipelines.ResolveAsync(document, resolved, DocProc.Definitions.Pipelines.PipelinePhases.Validate, cancellationToken).ConfigureAwait(false);
+        if (resolved is not null && pipeline.Overridden)
+        {
+            resolved = resolved.WithPipeline(pipeline);
+        }
+
         var type = resolved is { Rules.Count: > 0 } validated ? validated : null;
         if (document.DocumentTypeVersionId is null && resolved?.VersionId is { } versionId)
         {

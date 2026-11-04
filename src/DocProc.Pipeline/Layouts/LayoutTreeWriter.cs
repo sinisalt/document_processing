@@ -125,6 +125,56 @@ internal static class LayoutTreeWriter
 
     private readonly record struct Slot(JsonNode? Current, string Kind, IReadOnlyList<string>? Options);
 
+    /// <summary>
+    /// Writes one value an <c>http-lookup</c> step gave (docs/11 §10.2) at a top-level field, a bag key or a composite's
+    /// member, as <c>Inferred</c> in the stored shape of the field's kind. With <paramref name="overrideExisting"/>
+    /// false (<c>mode: fillMissing</c>) a field that has a value keeps it; a value a reviewer corrected is never
+    /// replaced. False when the path is not a field of the type, the value does not convert, or nothing was written.
+    /// </summary>
+    public static bool Assign(JsonObject root, DescriptorIndex descriptors, string path, JsonNode value, FieldSource source, double confidence, bool overrideExisting, string? currency, bool typedRecord)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(descriptors);
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(value);
+        if (Locate(root, descriptors, path) is not { } slot)
+        {
+            return false;
+        }
+
+        var current = slot.Current;
+        var dot = path.IndexOf('.', StringComparison.Ordinal);
+        JsonNode? owner = null;
+        if (current is null && dot > 0 && descriptors.Find(path[..dot]) is { Kind: not FieldKinds.Bag } composite)
+        {
+            // A composite's member: its value inside the composite's envelope (the first entry of a list of them).
+            owner = composite.IsList ? (root[composite.Key] as JsonArray)?.FirstOrDefault() : root[composite.Key];
+            JsonNode? member = DefinitionTree.ValueOf(owner);
+            foreach (var segment in path[(dot + 1)..].Split('.'))
+            {
+                member = (member as JsonObject)?[segment];
+            }
+
+            current = member;
+            if (DefinitionTree.StatusOf(owner) == FieldStatus.Corrected)
+            {
+                return false;
+            }
+        }
+        else if (DefinitionTree.StatusOf(current) == FieldStatus.Corrected)
+        {
+            return false;
+        }
+
+        var has = owner is null ? DefinitionTree.ValueOf(current) is not null : current is not null;
+        if (has && !overrideExisting)
+        {
+            return false;
+        }
+
+        return Write(root, descriptors, path, value, source, confidence, inferred: true, currency, typedRecord);
+    }
+
     /// <summary>The current envelope and kind at a top-level field, a key of a bag (<c>ext.storeNo</c>) or a member of a composite.</summary>
     private static Slot? Locate(JsonObject root, DescriptorIndex descriptors, string path)
     {

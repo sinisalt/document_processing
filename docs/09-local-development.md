@@ -613,6 +613,34 @@ field mapping (where each value is printed).
   each part only where its feature is on, with the checks of its own endpoint, and an apply all or nothing); the
   signature key is `ConfigBundles:SigningKey` (below), which only Development and Testing may leave unset.
 
+### Configurable steps and LLM budgets
+
+docs/11 §10 and §16 (P5 part A). The steps need the tenant's `configurableSteps` switch (`PUT /api/v1/settings`
+with `features.configurableSteps: true`, or the admin console's Feature switches); without it every document runs the
+built-in steps as before, whatever a supplier's settings say. Budgets need no switch.
+
+- **See a type's pipeline.** `GET /api/v1/step-kinds` lists every step kind per phase with its parameter schema;
+  `GET /api/v1/document-types/Invoice/resolved-pipeline?supplierId=<id>` shows the steps a document of that supplier
+  runs, which layer changed each, the overrides skipped, and its `hash`. A processed document's `pipelineHash`
+  (`GET /api/v1/documents/{id}`) reads back with `GET /api/v1/pipelines/{hash}`; its timeline has
+  `document.pipeline_applied` where the pipeline was not the type's own.
+- **Change a supplier's steps.** `PATCH /api/v1/suppliers/{id}` with
+  `{"settings": {"pipelineOverrides": [{"op": "disable", "step": "llm"}, {"op": "param", "step": "llm", "params": {"effort": "low"}}]}}`
+  (`sourceRouting` is needed for supplier settings, as before). An override of `classify.identification`, the review
+  gate, a match or publish step, or a parameter its kind does not take is a 400 that names the place. A group's
+  `settings.pipelineOverrides` apply first, a layout version's `mapping.pipelineOverrides` last.
+- **Look a value up.** Create an `http` destination (`POST /api/v1/destinations`, `outputs` switch) whose `urlTemplate`
+  takes the request's values, for example `https://erp.example/api/vendors?vat={{output.vat}}`, then add
+  `{"op": "insertAfter", "step": "map", "with": {"id": "erpVendor", "kind": "http-lookup", "params": {"destinationId": "<id>",
+  "request": "{\"vat\": supplier.vatId}", "response": "{\"ext.erpVendorId\": response.id}"}}}`. The Extract stage
+  calls it (https to a public host only; in Development `Delivery:DevelopmentHosts` lets `mock-erp:8080` through, as for
+  deliveries), writes the mapped values as Inferred (`source.method: Lookup`), keeps the answer per document and request
+  in `LookupResults`, and raises `LOOKUP_FAILED` when the call or the mapping fails.
+- **Cap the LLM.** `PUT /api/v1/llm-budgets {"budgets": [{"period": "month", "limitUsd": 50}, {"period": "day", "limitUsd": 0,
+  "stage": "Extract"}]}` (TenantAdmin). A call that would pass a budget is not made; the document goes on without it
+  and to review with `LLM_BUDGET_EXCEEDED`. `GET /api/v1/llm-budgets` shows each budget with this period's spend. The
+  compose demos run without an LLM key and are not affected.
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's

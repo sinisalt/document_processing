@@ -68,7 +68,10 @@
     "NEW_LAYOUT": "Neues Layout",
     "LAYOUT_AMBIGUOUS": "Layout mehrdeutig",
     "MAPPING_DRIFT": "Layout-Abweichung",
-    "LAYOUT_WARMUP": "Layout-Anlaufphase"
+    "LAYOUT_WARMUP": "Layout-Anlaufphase",
+    "LLM_BUDGET_EXCEEDED": "LLM-Budget erreicht",
+    "LOOKUP_FAILED": "Abfrage fehlgeschlagen",
+    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt"
   },
   "stages": {
     "Normalize": "Normalisieren",
@@ -107,7 +110,8 @@
       "layout_applied": "Vom Layout ausgefüllt",
       "layout_degraded": "Layout herabgestuft",
       "layout_learned": "Als Layout gespeichert",
-      "layout_matched": "Einem Layout zugeordnet"
+      "layout_matched": "Einem Layout zugeordnet",
+      "pipeline_applied": "Pipeline-Anpassungen angewendet"
     }
   },
   "inbox": {

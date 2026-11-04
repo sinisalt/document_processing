@@ -105,7 +105,7 @@ public static class SupplierGroupEndpoints
         return row is null ? NotFound("Supplier group", id) : TypedResults.Ok(GroupResponse(row, await db.Suppliers.CountAsync(s => s.GroupId == id, ct)));
     }
 
-    private static async Task<Results<Created<SupplierGroupResponse>, ValidationProblem, ProblemHttpResult>> CreateGroupAsync(CreateSupplierGroupRequest request, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, TimeProvider clock, CancellationToken ct)
+    private static async Task<Results<Created<SupplierGroupResponse>, ValidationProblem, ProblemHttpResult>> CreateGroupAsync(CreateSupplierGroupRequest request, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] DocProc.Application.Outputs.IOutputRenderer renderer, TimeProvider clock, CancellationToken ct)
     {
         if (await SupplierConfigSupport.GuardAsync(tenant, features, "Supplier groups", ct) is { } problem)
         {
@@ -114,6 +114,7 @@ public static class SupplierGroupEndpoints
 
         var errors = new Errors().Require("name", request.Name, SupplierGroup.MaxNameLength);
         var settings = await ValidateConfigAsync(db, errors, request.Attributes, request.Settings, ct);
+        await SupplierConfigSupport.CheckPipelineAsync(db, features, renderer, tenant.TenantId!.Value, settings, null, errors, ct);
         if (errors.ToProblem() is { } invalid)
         {
             return invalid;
@@ -141,7 +142,7 @@ public static class SupplierGroupEndpoints
         return TypedResults.Created($"/api/v1/supplier-groups/{row.Id}", GroupResponse(row, 0));
     }
 
-    private static async Task<Results<Ok<SupplierGroupResponse>, ValidationProblem, ProblemHttpResult>> PatchGroupAsync(Guid id, PatchSupplierGroupRequest request, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, TimeProvider clock, CancellationToken ct)
+    private static async Task<Results<Ok<SupplierGroupResponse>, ValidationProblem, ProblemHttpResult>> PatchGroupAsync(Guid id, PatchSupplierGroupRequest request, ITenantContext tenant, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] DocProc.Application.Outputs.IOutputRenderer renderer, TimeProvider clock, CancellationToken ct)
     {
         if (await SupplierConfigSupport.GuardAsync(tenant, features, "Supplier groups", ct) is { } problem)
         {
@@ -155,6 +156,12 @@ public static class SupplierGroupEndpoints
         }
 
         var settings = await ValidateConfigAsync(db, errors, request.Attributes, request.Settings, ct);
+        if (settings is not null)
+        {
+            var stored = await db.SupplierGroups.AsNoTracking().Where(g => g.Id == id).Select(g => g.SettingsJson).FirstOrDefaultAsync(ct);
+            await SupplierConfigSupport.CheckPipelineAsync(db, features, renderer, tenant.TenantId!.Value, settings, stored, errors, ct);
+        }
+
         if (errors.ToProblem() is { } invalid)
         {
             return invalid;

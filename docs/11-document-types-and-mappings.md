@@ -70,6 +70,10 @@ The requirements also imply the following, and the design covers each one:
 4. **No stage reorder.** The supplier is resolved from the source at document creation. When its configuration fixes the type, Classify only transitions (`TypeSource.Supplier`). Match stays where it is and corroborates the source-resolved supplier against content evidence.
 5. **Every configuration is versioned, immutable once published, and pinned per document.** `Document.AppliedConfigJson` records which type version, supplier layout version (with the identification evidence), source rule, supplier settings snapshot and pipeline hash a document was processed with. A retry uses the pinned configuration; a reprocess offers "pinned" or "current".
 6. **Additive migrations behind per-tenant feature flags.** `TenantSettings.Features` holds `configurableTypes`, `outputs`, `sourceRouting`, `supplierLayouts`, `customTypes` and `structuredSources`, all off by default and read only through `ITenantFeatures` (`src/DocProc.Application/Configuration/ITenantFeatures.cs`). The P0 migration writes the flags object into every existing tenant's settings: EF updates a nested owned JSON object only in place, so a settings row without it could not be switched on. Nothing is dropped until the hardening phase. The invoice family behaves identically throughout and is the regression gate.
+   Correction (P5, part A): a seventh switch, `configurableSteps`, guards the configurable steps of §10 (supplier,
+   group and layout `pipelineOverrides`, the type's own step parameters and added steps, `http-lookup`); it is
+   back-filled off by the `ConfigurableStepsAndBudgets` migration. LLM budgets (§16) need no switch: without a
+   budget nothing changes.
 7. **The invoice family stays strong.** The std invoice and credit note templates keep `LlmInvoiceExtractor`, today's prompt and examples, `invoice_extraction@1` byte-identical, the UBL/CII parsers and the eight coded invoice rules. These run through adapters over the same tree.
 8. **Safe by default.** Nothing that a tenant newly configured auto-approves until it has rules, an explicit policy and a review warm-up. This applies to a new type, a new layout and a source rule that relies on an unauthenticated sender.
 9. **Strict rules decide, scores only suggest.** Which layout (and therefore which field mapping) applies to a document is decided by identification rules that either hold or do not (section 8.5). A similarity score may rank suggestions for a reviewer; it never applies a layout. A known supplier whose document matches none of its layouts goes to review with a blocking `NEW_LAYOUT`.
@@ -1646,6 +1650,27 @@ Group overrides apply first, then supplier overrides. The `PipelineResolver` mer
 
 `classify.identification` is a **fixed, non-removable first step of Classify**. No type definition, group override or supplier override can `disable` or `replace` it, `insertAfter` cannot target a position before it, and nothing can be inserted ahead of it. Such an override is rejected at save with a validation error naming the step, and `PipelineResolver` refuses a stored pipeline that violates it (a defence for imported bundles). There is no per-type opt-out: at Classify time the type is not known yet, so a per-type switch would have no type to read. Only its own parameters are configurable, and none of them can skip supplier or group layout rules; a tenant that does not want tenant fallback rules simply has none Active, or excludes suppliers through `ExcludedSupplierIds`.
 
+Correction (P5, part A), as built (`DocProc.Definitions.Pipelines`, `PipelineConfigResolver`, `StagePipeline`):
+- Fixed besides `classify.identification`: the `review-gate` (always the last step of Validate; disabling it would
+  publish unchecked documents), the four `match.*` steps and the two `publish.*` steps. Match and Publish take no
+  overrides at all. Split and Classify run before the type is known, so only a supplier the source named (a source
+  rule, the channel default, a hint) changes them; the type's own pipeline applies from Extract on.
+- The built-in extract steps are one chain in a fixed order, `xml` (xml-einvoice), `map` (supplier-mapping),
+  `prefill` (layout-prefill), `llm`; a definition's `processing.extract` gives them their ids and parameters and adds
+  its own steps after the step listed before them, and does not remove a built-in step by leaving it out (the invoice
+  templates list no `supplier-mapping`, and layouts fill invoices since P4). Only `http-lookup` can be inserted
+  (`insertAfter`, into Extract); `replace` takes a step of the same phase. `defaults`, `code-list` and `transform` are
+  listed and reported as not run (`runs: false`).
+- An override for a step the pipeline does not have (a supplier's override of a price list's step, met by its
+  invoice) is skipped and noted, not refused. The step ids of the built-in steps are fixed (`split.heuristic`,
+  `split.llm`, `classify.*`, `xml`, `map`, `prefill`, `llm`, `schema`, `rules`, `duplicate`, `review-gate`), so the
+  save-time check refuses a fixed step by its id before any type is known.
+- The resolved pipeline is not cached by `(typeVersionId, layoutVersionId, settingsHash)`: each stage resolves it (a
+  few rows) and every pipeline that runs is stored once by its hash (`PipelineSnapshots`, `GET /pipelines/{hash}`);
+  `Documents.PipelineHash` names the last stage's. A layer that breaks a rule when resolved (settings written outside
+  the API, an imported bundle) is refused as a whole: the type's own steps run and the document gets a blocking
+  `PIPELINE_INVALID`.
+
 ### 10.2 Plugins
 
 Step kinds, rule kinds, strategies, transports and renderers are C# classes registered by key, each with a `ParamsSchema`:
@@ -1659,6 +1684,19 @@ This follows the `TryAddEnumerable` and factory pattern already used for `ILlmPr
 
 **`http-lookup`** calls a tenant destination through `TenantEndpointGuard`, with a 5 s timeout, a 256 KB response cap and the circuit breaker from `Microsoft.Extensions.Http.Resilience`. A JSONata expression builds the request, and a second one maps the response to field assignments with `Inferred` status. An example is resolving the ERP vendor id or a PO owner.
 
+Correction (P5, part A), as built (`HttpLookupService`, `ExtractLookups`): the lookup calls an `http` destination
+of the tenant (its `urlTemplate`, headers, auth and secret) through the delivery client, which is the guard of P3:
+public addresses re-checked at connect, https, no redirects. Its parameters are `{destinationId, method (GET, POST),
+request, response, timeoutMs (at most 5000), retries (at most 2), onFailure (warn, block, ignore), mode (fillMissing,
+override)}`. `request` is JSONata over the values view of the tree Extract built; its result fills the URL's
+`{{output.*}}` placeholders and is a POST's body. `response` is JSONata over `{response, status, values}` and gives
+`{path: value}` (at most 50), written as `Inferred` with `SourceMethod.Lookup` (a member added to the enum), never
+over a reviewer's value. Both expressions run in the out-of-process renderer with its limits. The circuit breaker is
+the step's own (5 failures in a row, 30 s), not `Microsoft.Extensions.Http.Resilience`. A lookup placed anywhere in
+Extract runs after the built-in chain (§10.1 correction), so it reads what the extraction found. Its result is
+stored per document, step and request hash (`LookupResults`, the assignments only), so a retry or a reprocess that
+sends the same request does not call again. A failure is `LOOKUP_FAILED` (a warning by default), never a failed stage.
+
 ### 10.3 Runner and handler changes
 
 - `ProcessDocument` gains an optional `ConfigHash`. Old messages without it, such as messages in flight during a deploy, resolve the current configuration and pin it. A retry whose pinned hash no longer resolves raises `CONFIG_CHANGED` and uses the pinned snapshot.
@@ -1667,6 +1705,10 @@ This follows the `TryAddEnumerable` and factory pattern already used for `ILlmPr
 - Global options (`PipelineOptions.LlmClassificationThreshold`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`) become defaults that type or supplier parameters override.
 
 A full step-graph engine (StepId, FlowVersion, reordering) is explicitly deferred until a concrete need appears.
+
+Correction (P5, part A): `ProcessDocument.ConfigHash` and `CONFIG_CHANGED` are not built: a retry resolves the
+current overrides (the type version stays pinned as before). Instead of `step_completed` per step, a stage that runs a
+pipeline that is not the type's own writes one `document.pipeline_applied {phase, hash, steps, skipped, refused?}`.
 
 ## 11. Validation and approval safety
 
@@ -1729,6 +1771,9 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
 - `REVISION_OF {documentId, status}` (severity of the `duplicate` rule with `onMatch: "revision"`): an earlier document with the same duplicate key exists; resolved by `:resolve-revision`.
 - `TABLE_ROWS_REJECTED {page, rows}` (blocking), `TABLE_PAGE_NO_ROWS {page}` (blocking with `everyPageInRange`, otherwise a warning)
 - `EXTERNAL_REJECTED`, `DELIVERY_FAILED`, `LLM_BUDGET_EXCEEDED`
+- Correction (P5, part A): `LLM_BUDGET_EXCEEDED {step, period, limitUsd, spentUsd}` is blocking and owned by the
+  step that was not called (`split.llm`, `classify.llm`, `llm`); `LOOKUP_FAILED {stepId, reason, httpStatus}`
+  (warning, blocking with `onFailure: block`) and `PIPELINE_INVALID {phase, path, problem}` (blocking) are new.
 
 `FlagCodes.Create` (`:88-96`) accepts `RULE_FAILED` and definition-scoped codes `X_<RULEID>` that come with a localised message instead of throwing. `flagMessage.ts` already falls back to the message text. The client keeps Ajv hints for instant feedback. `lineArithmetic.ts` is removed in favour of server rule results per path (`DocumentDetail.validation[]`).
 
@@ -2604,6 +2649,15 @@ Correction (P4, second review fixes):
 
   When a cap is reached, the step is skipped with `LLM_BUDGET_EXCEEDED` and the document goes to review. Alerts fire when a type's Unknown rate or LLM spend exceeds its 14-day baseline by more than 50 %.
 
+  Correction (P5, part A), as built: the tenant's budgets are their own table (`LlmBudgets`, `GET`/`PUT
+  /llm-budgets`, TenantAdmin), not a monthly cap in `TenantLlmPolicies`: per UTC day, UTC month or document, for
+  every stage or one, counted from the usage rows. The gateway refuses a call whose period has reached its budget
+  or would pass it by the stage's average call cost (the last 20 calls); nothing is sent or recorded, and the stage
+  goes on without the LLM (Split keeps the heuristics' ranges, Classify the keyword type, Extract the layout's or
+  the pre-fill's values or the type's empty tree). The per-type cap is the `llm` step's `maxCostPerDocument`,
+  which a supplier or layout override can set too; the provider configuration's monthly spend cap stays a hard
+  stop. The 14-day baseline alerts are not built.
+
 ## 17. Onboarding and operations view
 
 `GET /insights/automation?from=&to=`, backed by a nightly `SupplierDailyStats` roll-up plus live queries, reports:
@@ -2652,6 +2706,10 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
   - `POST /document-types/{key}/versions/{v}:upgrade-documents`
   - `GET /rule-kinds`, `GET /step-kinds`
   - `GET /document-types/{key}/resolved-pipeline?supplierId=`
+  - Correction (P5, part A): built are `GET /step-kinds`, `GET /document-types/{key}/resolved-pipeline?supplierId=&layoutVersionId=`,
+    `GET /pipelines/{hash}` and `GET`/`PUT /llm-budgets`; `pipelineOverrides` are written in a supplier's or a
+    group's `settings` and in a layout version's mapping (docs/05 "Configurable steps and LLM budgets").
+    `GET /rule-kinds` is not built yet.
 - **Lookups**: `/lookup-tables` CRUD; `PUT /lookup-tables/{key}/entries` (CSV upload).
 - **Routing and suppliers**
   - `/suppliers/{id}/source-rules` CRUD

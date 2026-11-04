@@ -160,6 +160,12 @@ public sealed record DocumentDetail(
     public Guid? PendingLayoutVersionId { get; init; }
 
     /// <summary>
+    /// The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; <c>GET /pipelines/{hash}</c> lists its
+    /// steps); null for a tenant without <c>configurableSteps</c>.
+    /// </summary>
+    public string? PipelineHash { get; init; }
+
+    /// <summary>
     /// Why <c>:approve</c> would refuse the document now (docs/11 §11 "Approve is refused when a document has no definition
     /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
     /// </summary>

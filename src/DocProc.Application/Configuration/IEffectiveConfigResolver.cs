@@ -88,6 +88,25 @@ public sealed record EffectiveType
     /// <summary>The step kinds of <c>processing.validate</c>, in order (<c>validate.schema</c>, <c>validate.rules</c>, ...).</summary>
     public IReadOnlyList<string> ValidateSteps { get; }
 
+    // The enabled validate kinds of the document's resolved pipeline (docs/11 §10.1, P5), when a stage applied one.
+    private IReadOnlyList<string>? _pipelineValidateSteps;
+
+    /// <summary>
+    /// This type with the validate steps of a resolved pipeline (<see cref="DocProc.Definitions.Pipelines.ResolvedPipeline"/>):
+    /// the kinds of its enabled <c>validate</c> steps replace the definition's list, so a supplier override that disables
+    /// <c>duplicate</c> or <c>rules</c> is what <see cref="RunsValidateStep"/> answers. The pipeline without overrides
+    /// lists exactly the steps <see cref="RunsValidateStep"/> answers for the definition alone.
+    /// </summary>
+    public EffectiveType WithPipeline(DocProc.Definitions.Pipelines.ResolvedPipeline pipeline)
+    {
+        ArgumentNullException.ThrowIfNull(pipeline);
+        var kinds = pipeline.Phase(DocProc.Definitions.Pipelines.PipelinePhases.Validate)
+            .Where(s => s.Enabled && s.Kind != DocProc.Definitions.Pipelines.StepKindCatalogue.ReviewGate)
+            .Select(s => s.Kind)
+            .ToList();
+        return new EffectiveType(TypeKey, Definition, Origin, TemplateKey, TemplateVersion, VersionId, () => Compiled) { _pipelineValidateSteps = kinds };
+    }
+
     /// <summary>
     /// Whether the validate stage runs the step kind for this type: when <c>processing.validate</c> lists it, or, for a
     /// definition without a validate list, the legacy default (the rules and the coded duplicate check). The coded
@@ -99,6 +118,11 @@ public sealed record EffectiveType
         if (kind == ValidateStepKinds.Duplicate && Definition.Rules.Any(r => r.Kind == "duplicate"))
         {
             return false;
+        }
+
+        if (_pipelineValidateSteps is { } resolved)
+        {
+            return resolved.Contains(kind, StringComparer.Ordinal);
         }
 
         return ValidateSteps.Count == 0

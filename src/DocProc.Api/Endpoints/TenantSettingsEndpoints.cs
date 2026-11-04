@@ -20,13 +20,14 @@ public sealed record TenantIdentity(Guid Id, string Name, string Slug, string Le
 /// <summary>
 /// The per-tenant switches of docs/11 §3 (principle 6), all off by default. <c>configurableTypes</c> opens the type
 /// catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; <c>customTypes</c> also allows types
-/// of the tenant's own; the others belong to later phases and change nothing yet.
+/// of the tenant's own; <c>configurableSteps</c> (P5) applies supplier, group and layout <c>pipelineOverrides</c>, the
+/// type's step parameters and added steps (<c>http-lookup</c>); left out on PUT, it is false.
 /// </summary>
-public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, bool SourceRouting, bool SupplierLayouts, bool CustomTypes, bool StructuredSources)
+public sealed record TenantFeaturesDto(bool ConfigurableTypes, bool Outputs, bool SourceRouting, bool SupplierLayouts, bool CustomTypes, bool StructuredSources, bool ConfigurableSteps = false)
 {
     internal static TenantFeaturesDto From(TenantFeatureFlags? f) => f is null
-        ? new(false, false, false, false, false, false)
-        : new(f.ConfigurableTypes, f.Outputs, f.SourceRouting, f.SupplierLayouts, f.CustomTypes, f.StructuredSources);
+        ? new(false, false, false, false, false, false, false)
+        : new(f.ConfigurableTypes, f.Outputs, f.SourceRouting, f.SupplierLayouts, f.CustomTypes, f.StructuredSources, f.ConfigurableSteps);
 }
 
 /// <summary>
@@ -275,6 +276,7 @@ public static class TenantSettingsEndpoints
                 flags.SupplierLayouts = features.SupplierLayouts;
                 flags.CustomTypes = features.CustomTypes;
                 flags.StructuredSources = features.StructuredSources;
+                flags.ConfigurableSteps = features.ConfigurableSteps;
             }
 
             current.UpdatedAt = clock.GetUtcNow();

@@ -619,7 +619,10 @@
     "NEW_LAYOUT": "New layout",
     "LAYOUT_AMBIGUOUS": "Layout ambiguous",
     "MAPPING_DRIFT": "Layout drift",
-    "LAYOUT_WARMUP": "Layout warm-up"
+    "LAYOUT_WARMUP": "Layout warm-up",
+    "LLM_BUDGET_EXCEEDED": "LLM budget reached",
+    "LOOKUP_FAILED": "Lookup failed",
+    "PIPELINE_INVALID": "Pipeline overrides refused"
   },
   "failure": {
     "EncryptedPdf": "Password-protected PDF",
@@ -652,6 +655,10 @@
     "supplierLayouts": {
       "label": "Supplier layouts",
       "hint": "Documents of a supplier are recognised by its layouts' identification rules and filled by their field mappings; a design no layout recognises goes to review as a new layout and is saved as one there. Off: no layout is used and the documents run as before."
+    },
+    "configurableSteps": {
+      "label": "Configurable steps",
+      "hint": "Suppliers, supplier groups and layouts can change the steps their documents run (pipelineOverrides: switch the LLM off, set its effort, add an http-lookup to the tenant's systems), and a type's own step parameters apply. Off: every document runs the built-in steps as before."
     }
   }
 }

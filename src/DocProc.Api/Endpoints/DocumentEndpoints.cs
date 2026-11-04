@@ -784,6 +784,7 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
@@ -894,7 +895,8 @@ public static partial class DocumentEndpoints
         if (definitionDriven && config.Type is { } type)
         {
             var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == document.TenantId, ct);
-            var run = await DocProc.Pipeline.Support.DocumentChecks.RunAsync(db, document, type, tenant, DocProc.Pipeline.Support.DocumentChecks.TodayFor(tenant, now), validator, ct);
+            var checkedType = await DocProc.Pipeline.Support.DocumentChecks.WithPipelineAsync(pipelines, document, type, ct);
+            var run = await DocProc.Pipeline.Support.DocumentChecks.RunAsync(db, document, checkedType, tenant, DocProc.Pipeline.Support.DocumentChecks.TodayFor(tenant, now), validator, ct);
             DocProc.Pipeline.Support.DocumentChecks.ReplaceFlags(db, document, DocProc.Pipeline.Support.DocumentChecks.OwnedFlags, run.Flags, now);
             await db.SaveChangesAsync(ct);
             row = row with

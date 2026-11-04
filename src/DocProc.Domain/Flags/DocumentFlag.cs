@@ -95,6 +95,17 @@ public static class FlagCodes
     /// <summary>The document is one of the first under a new layout version (its review warm-up, decision 2 of docs/11 §24); it goes to review.</summary>
     public const string LayoutWarmup = "LAYOUT_WARMUP";
 
+    // Configurable steps and LLM budgets (docs/11 §10, §16, P5).
+
+    /// <summary>An LLM step was not called because the tenant's LLM budget would have been exceeded; the document went on without it and goes to review.</summary>
+    public const string LlmBudgetExceeded = "LLM_BUDGET_EXCEEDED";
+
+    /// <summary>An <c>http-lookup</c> step could not call its destination or map its answer; the fields it fills stay as they were.</summary>
+    public const string LookupFailed = "LOOKUP_FAILED";
+
+    /// <summary>The supplier's, group's or layout's pipeline overrides were refused (a fixed step, invalid parameters); the type's own pipeline ran.</summary>
+    public const string PipelineInvalid = "PIPELINE_INVALID";
+
     /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
     public static readonly string DefinitionScopedPrefix = "X_";
 
@@ -133,6 +144,9 @@ public static class FlagCodes
         new(MappingDrift, FlagSeverity.Warning, "The layout recognised the document, but its field rules found fewer fields than usual; the supplier may have moved them."),
         new(LayoutWarmup, FlagSeverity.Info, "The document is one of the first documents under a new layout version and goes to review (the layout's warm-up), already filled by the layout."),
         new(DeliveryFailed, FlagSeverity.Warning, "A delivery to a destination failed for good (retries ran out or the receiver refused it); an integration admin redelivers it."),
+        new(LlmBudgetExceeded, FlagSeverity.Blocking, "An LLM step was not called because the tenant's LLM budget for the period (or the document) would have been exceeded; a reviewer checks what it would have filled."),
+        new(LookupFailed, FlagSeverity.Warning, "An http-lookup step could not call its destination or map its answer; the fields it fills stay as they were (blocking when the step says so)."),
+        new(PipelineInvalid, FlagSeverity.Blocking, "The pipeline overrides of the supplier, its group or its layout were refused (a fixed step, invalid parameters); the type's own steps ran and a reviewer checks the document."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);

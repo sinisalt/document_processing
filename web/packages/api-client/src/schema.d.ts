@@ -283,6 +283,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-types/{key}/resolved-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The pipeline a document of the type runs, for a supplier and a layout version (docs/11 §10.1). */
+        get: operations["GetResolvedPipeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types/{key}/versions": {
         parameters: {
             query?: never;
@@ -915,6 +932,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/llm-budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's LLM budgets with what was spent in each current period (docs/11 §16). */
+        get: operations["ListLlmBudgets"];
+        /** Replaces the tenant's LLM budgets; a call that would exceed one is not made (LLM_BUDGET_EXCEEDED). */
+        put: operations["PutLlmBudgets"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/llm-policy": {
         parameters: {
             query?: never;
@@ -1388,6 +1423,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pipelines/{hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The steps of a pipeline documents ran, by its hash (Documents.pipelineHash). */
+        get: operations["GetPipelineSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receiving-entities": {
         parameters: {
             query?: never;
@@ -1572,6 +1624,23 @@ export interface paths {
         get: operations["GetTenantSettings"];
         /** Replaces the review policy and retention of the current tenant, and its feature switches when features is given. */
         put: operations["PutTenantSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/step-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The step kinds per phase with their parameter schemas (docs/11 §10.2). */
+        get: operations["ListStepKinds"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2545,6 +2614,11 @@ export interface components {
              */
             pendingLayoutVersionId?: null | string;
             /**
+             * @description The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; `GET /pipelines/{hash}` lists its
+             *     steps); null for a tenant without `configurableSteps`.
+             */
+            pipelineHash?: null | string;
+            /**
              * Format: uuid
              * @description The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.
              */
@@ -3214,6 +3288,27 @@ export interface components {
             path: string;
             reason: string;
         };
+        /** @description One LLM budget (docs/11 §16): `day`, `month` (UTC) or `document`; every stage, or one (`Classify`, `Split`, `Extract`, `Synthesize`). */
+        LlmBudgetDto: {
+            /** Format: double */
+            limitUsd: number | string;
+            period: string;
+            stage?: null | string;
+        };
+        /** @description A budget with what was spent in its current period (a document budget has no period total). */
+        LlmBudgetResponse: {
+            /** Format: double */
+            limitUsd: number | string;
+            period: string;
+            /** Format: date-time */
+            periodStart: null | string;
+            /** Format: double */
+            spentUsd: null | number | string;
+            stage: null | string;
+        };
+        LlmBudgetsResponse: {
+            budgets: components["schemas"]["LlmBudgetResponse"][];
+        };
         LlmPolicyResponse: {
             allowPlatformKeyAtAll: boolean;
             /** Format: uuid */
@@ -3701,6 +3796,18 @@ export interface components {
             status: null | string;
             vatId: null | string;
         };
+        /** @description A refusal of a layer of overrides: where, and why. */
+        PipelineProblemResponse: {
+            message: string;
+            path: string;
+        };
+        /** @description A pipeline as it ran (`GET /pipelines/{hash}`): the steps a document with this `pipelineHash` ran. */
+        PipelineSnapshotResponse: {
+            /** Format: date-time */
+            createdAt: string;
+            hash: string;
+            steps: components["schemas"]["JsonElement"];
+        };
         /** @description A source rule `:learn-layout` proposes from the document's ingestion (docs/11 §12.6): the conditions (as `remember` names them), a sentence, and whether the supplier has it already. */
         ProposedSourceRuleDto: {
             conditions: string[];
@@ -3731,6 +3838,10 @@ export interface components {
             llmSchema: null | string;
             problems: components["schemas"]["DefinitionProblemDto"][];
             warnings: components["schemas"]["DefinitionProblemDto"][];
+        };
+        /** @description The tenant's LLM budgets, as a whole: the list replaces the stored one (an empty list removes every budget). */
+        PutLlmBudgetsRequest: {
+            budgets: null | components["schemas"]["LlmBudgetDto"][];
         };
         PutLlmPolicyRequest: {
             /** Format: uuid */
@@ -3940,6 +4051,30 @@ export interface components {
         ReprocessDocumentRequest: {
             configMode?: null | string;
             fromStage: null | string;
+        };
+        /**
+         * @description The pipeline a document of the type would run (docs/11 §18 `GET /document-types/{key}/resolved-pipeline`):
+         *     its hash, whether the tenant is on `configurableSteps`, every step per phase, the overrides skipped (named a step
+         *     this pipeline does not have) and, when the layers were refused, why (the type's own steps run then).
+         */
+        ResolvedPipelineResponse: {
+            configurable: boolean;
+            hash: string;
+            overridden: boolean;
+            refused: components["schemas"]["PipelineProblemResponse"][];
+            skipped: string[];
+            steps: components["schemas"]["ResolvedStepResponse"][];
+        };
+        /** @description One step of a resolved pipeline: its id, kind, phase, parameters, whether it runs, and the layer that last changed it. */
+        ResolvedStepResponse: {
+            enabled: boolean;
+            fixed: boolean;
+            id: string;
+            kind: string;
+            params: components["schemas"]["JsonElement"];
+            phase: string;
+            runs: boolean;
+            source: string;
         };
         /** @enum {unknown} */
         ReviewPriority: "Normal" | "High" | "Urgent" | null;
@@ -4159,6 +4294,17 @@ export interface components {
             pages: (number | string)[];
             status: components["schemas"]["DocumentStatus"];
             typeKey: null | string;
+        };
+        /** @description One step kind of the catalogue (docs/11 §10.2 `GET /step-kinds`): what the UI renders a parameter form from. */
+        StepKindResponse: {
+            defaultId: string;
+            description: string;
+            fixed: boolean;
+            insertable: boolean;
+            kind: string;
+            paramsSchema: components["schemas"]["JsonElement"];
+            phase: string;
+            runs: boolean;
         };
         /** @description One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity"). */
         SupplierActivityItem: {
@@ -4467,9 +4613,12 @@ export interface components {
         /**
          * @description The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type
          *     catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types
-         *     of the tenant's own; the others belong to later phases and change nothing yet.
+         *     of the tenant's own; `configurableSteps` (P5) applies supplier, group and layout `pipelineOverrides`, the
+         *     type's step parameters and added steps (`http-lookup`); left out on PUT, it is false.
          */
         TenantFeaturesDto: {
+            /** @default false */
+            configurableSteps: boolean;
             configurableTypes: boolean;
             customTypes: boolean;
             outputs: boolean;
@@ -4648,6 +4797,9 @@ export type SchemaLearnedFieldDto = components['schemas']['LearnedFieldDto'];
 export type SchemaLearnLayoutRequest = components['schemas']['LearnLayoutRequest'];
 export type SchemaLearnLayoutResponse = components['schemas']['LearnLayoutResponse'];
 export type SchemaLearnSkipDto = components['schemas']['LearnSkipDto'];
+export type SchemaLlmBudgetDto = components['schemas']['LlmBudgetDto'];
+export type SchemaLlmBudgetResponse = components['schemas']['LlmBudgetResponse'];
+export type SchemaLlmBudgetsResponse = components['schemas']['LlmBudgetsResponse'];
 export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
 export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
 export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
@@ -4687,10 +4839,13 @@ export type SchemaPatchReceivingEntityRequest = components['schemas']['PatchRece
 export type SchemaPatchSupplierGroupRequest = components['schemas']['PatchSupplierGroupRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaPipelineProblemResponse = components['schemas']['PipelineProblemResponse'];
+export type SchemaPipelineSnapshotResponse = components['schemas']['PipelineSnapshotResponse'];
 export type SchemaProposedSourceRuleDto = components['schemas']['ProposedSourceRuleDto'];
 export type SchemaProposeIdentifierRequest = components['schemas']['ProposeIdentifierRequest'];
 export type SchemaProposeIdentifierResponse = components['schemas']['ProposeIdentifierResponse'];
 export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
+export type SchemaPutLlmBudgetsRequest = components['schemas']['PutLlmBudgetsRequest'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
 export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntriesRequest'];
 export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
@@ -4708,6 +4863,8 @@ export type SchemaReplayLayoutRequest = components['schemas']['ReplayLayoutReque
 export type SchemaReplayOverlap = components['schemas']['ReplayOverlap'];
 export type SchemaReplayReport = components['schemas']['ReplayReport'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
+export type SchemaResolvedPipelineResponse = components['schemas']['ResolvedPipelineResponse'];
+export type SchemaResolvedStepResponse = components['schemas']['ResolvedStepResponse'];
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
@@ -4726,6 +4883,7 @@ export type SchemaSplitDocumentRequest = components['schemas']['SplitDocumentReq
 export type SchemaSplitDocumentResponse = components['schemas']['SplitDocumentResponse'];
 export type SchemaSplitPartRequest = components['schemas']['SplitPartRequest'];
 export type SchemaSplitPartResult = components['schemas']['SplitPartResult'];
+export type SchemaStepKindResponse = components['schemas']['StepKindResponse'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
 export type SchemaSupplierEntityAttributesRequest = components['schemas']['SupplierEntityAttributesRequest'];
 export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
@@ -5404,6 +5562,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DocumentTypeDetail"];
                 };
+            };
+        };
+    };
+    GetResolvedPipeline: {
+        parameters: {
+            query?: {
+                layoutVersionId?: string;
+                supplierId?: string;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedPipelineResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -6624,6 +6823,59 @@ export interface operations {
             };
         };
     };
+    ListLlmBudgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmBudgetsResponse"];
+                };
+            };
+        };
+    };
+    PutLlmBudgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutLlmBudgetsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmBudgetsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetLlmPolicy: {
         parameters: {
             query?: never;
@@ -7758,6 +8010,35 @@ export interface operations {
             };
         };
     };
+    GetPipelineSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineSnapshotResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ListReceivingEntities: {
         parameters: {
             query?: never;
@@ -8149,6 +8430,26 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListStepKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepKindResponse"][];
                 };
             };
         };

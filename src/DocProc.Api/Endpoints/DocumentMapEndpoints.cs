@@ -206,6 +206,7 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         [FromServices] IOptions<TableToolOptions> limits,
         TimeProvider clock,
         ClaimsPrincipal user,
@@ -386,7 +387,7 @@ public static partial class DocumentEndpoints
             return ConcurrentChange(id);
         }
 
-        await RecheckAsync(db, document, type, validator, now, ct);
+        await RecheckAsync(db, document, type, validator, pipelines, now, ct);
         var detail = await FreshDetailAsync(db, id, configs, features, ct);
         return TypedResults.Ok(new ReadTableResponse(target.Path, false, columns, header, spec.RowAnchor, report, rows, result.Rows.Count > rows.Count, true, detail, readLocale.Name));
     }

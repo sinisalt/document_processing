@@ -111,16 +111,24 @@ public sealed class LayoutMapping
     public const int MaxRulesPerField = 10;
     public const int MaxPatternLength = 500;
 
-    private LayoutMapping(IReadOnlyList<LayoutFieldMapping> fields, IReadOnlyList<LayoutTableMapping> tables, IReadOnlyList<LayoutDefault> defaults, IReadOnlyList<string> requiredFields, string? culture)
+    private LayoutMapping(IReadOnlyList<LayoutFieldMapping> fields, IReadOnlyList<LayoutTableMapping> tables, IReadOnlyList<LayoutDefault> defaults, IReadOnlyList<string> requiredFields, string? culture, IReadOnlyList<DocProc.Definitions.Pipelines.PipelineOverride>? pipelineOverrides = null)
     {
         Fields = fields;
         Tables = tables;
         Defaults = defaults;
         RequiredFields = requiredFields;
         Culture = culture;
+        PipelineOverrides = pipelineOverrides ?? [];
     }
 
     public static LayoutMapping Empty { get; } = new([], [], [], [], null);
+
+    /// <summary>
+    /// The layout version's patch of the pipeline (docs/11 §8.1 <c>pipelineOverrides</c>, P5): applied after the group's
+    /// and the supplier's for a document this version identified, with <c>configurableSteps</c> on. Checked when the
+    /// version is saved (<c>PipelineResolver.Check</c>).
+    /// </summary>
+    public IReadOnlyList<DocProc.Definitions.Pipelines.PipelineOverride> PipelineOverrides { get; }
 
     public IReadOnlyList<LayoutFieldMapping> Fields { get; }
 
@@ -214,7 +222,14 @@ public sealed class LayoutMapping
             ? r.Select(x => x is JsonValue rv && rv.TryGetValue<string>(out var s) ? s : throw new LayoutMappingException("requiredFields", "requiredFields lists field paths.")).ToList()
             : [];
         var culture = Str(root, "locale", string.Empty);
-        return new LayoutMapping(fields, tables, defaults, required, culture);
+        var overrides = DocProc.Definitions.Pipelines.PipelineOverridesJson.TryRead(root["pipelineOverrides"], out var overridesError)
+            ?? throw new LayoutMappingException("pipelineOverrides", overridesError ?? "pipelineOverrides does not read.");
+        if (DocProc.Definitions.Pipelines.PipelineResolver.Check(overrides, "pipelineOverrides") is { Count: > 0 } problems)
+        {
+            throw new LayoutMappingException(problems[0].Path, problems[0].Message);
+        }
+
+        return new LayoutMapping(fields, tables, defaults, required, culture, overrides);
     }
 
     /// <summary>Tries <see cref="Parse"/>; null with the error otherwise.</summary>

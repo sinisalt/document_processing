@@ -23,6 +23,9 @@ public enum TenantFeature
 
     /// <summary>Structured sources: spreadsheets, custom XML and JSON, e-mail bodies (P6).</summary>
     StructuredSources,
+
+    /// <summary>Configurable steps per phase: pipeline overrides and the <c>http-lookup</c> step (P5, docs/11 §10).</summary>
+    ConfigurableSteps,
 }
 
 /// <summary>The switches that are on for one tenant.</summary>

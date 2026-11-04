@@ -200,6 +200,7 @@ public static class PersistenceHostExtensions
     {
         services.TryAddSingleton<PublishedDefinitionCache>();
         services.AddScoped<IEffectiveConfigResolver, CatalogueConfigResolver>();
+        services.AddScoped<IPipelineConfigResolver, PipelineConfigResolver>();
         services.AddScoped<DocumentTypeCatalogue>();
         return services;
     }

@@ -4,7 +4,7 @@ using DocProc.Llm.Providers;
 namespace DocProc.Llm.Gateway;
 
 /// <summary>
-/// Resolves the provider for a tenant and stage, enforces the spend cap, calls the adapter and records usage
+/// Resolves the provider for a tenant and stage, enforces the spend cap and the tenant's budgets, calls the adapter and records usage
 /// (docs/08 "Provider abstraction"). Rate limiting per config is applied by the worker's concurrency limiter around
 /// this class; batch submission goes through <see cref="ILlmProvider"/> directly from the eval and backfill jobs.
 /// </summary>
@@ -14,8 +14,11 @@ public sealed class LlmGateway(
     IEnumerable<ILlmProviderFactory> factories,
     ILlmUsageRecorder usage,
     PriceTable prices,
-    TimeProvider clock) : ILlmGateway
+    TimeProvider clock,
+    ILlmBudgetGuard? budgets = null) : ILlmGateway
 {
+    private readonly ILlmBudgetGuard _budgets = budgets ?? NoLlmBudgets.Instance;
+
     private readonly IReadOnlyList<ILlmProviderFactory> _factories = factories.ToList();
 
     public async Task<LlmResult> CompleteAsync(Guid tenantId, LlmRequest request, CancellationToken cancellationToken)
@@ -28,6 +31,14 @@ public sealed class LlmGateway(
         if (resolved.Config.Limits.MonthlySpendCapUsd is { } cap && setup.SpentThisMonthUsd >= cap)
         {
             throw new LlmException(LlmErrorKind.Quota, $"Provider configuration {resolved.Config.Id} reached its monthly spend cap of {cap:0.00} USD.");
+        }
+
+        // The tenant's budgets (docs/11 §16): a call that would take a period's spend past its budget is not made, and
+        // the stage goes on without it (LLM_BUDGET_EXCEEDED). Nothing is recorded: no call happened.
+        var verdict = await _budgets.CheckAsync(tenantId, request.Stage, request.DocumentId, cancellationToken).ConfigureAwait(false);
+        if (!verdict.Allowed)
+        {
+            throw new LlmBudgetExceededException(verdict);
         }
 
         var factory = _factories.FirstOrDefault(f => f.Supports(resolved.Config.Kind))

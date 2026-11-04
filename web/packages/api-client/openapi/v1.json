@@ -1395,6 +1395,124 @@
         }
       }
     },
+    "/api/v1/step-kinds": {
+      "get": {
+        "tags": [
+          "Pipelines"
+        ],
+        "summary": "The step kinds per phase with their parameter schemas (docs/11 §10.2).",
+        "operationId": "ListStepKinds",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StepKindResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-types/{key}/resolved-pipeline": {
+      "get": {
+        "tags": [
+          "Pipelines"
+        ],
+        "summary": "The pipeline a document of the type runs, for a supplier and a layout version (docs/11 §10.1).",
+        "operationId": "GetResolvedPipeline",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "supplierId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "layoutVersionId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolvedPipelineResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/{hash}": {
+      "get": {
+        "tags": [
+          "Pipelines"
+        ],
+        "summary": "The steps of a pipeline documents ran, by its hash (Documents.pipelineHash).",
+        "operationId": "GetPipelineSnapshot",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineSnapshotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/api-keys": {
       "get": {
         "tags": [
@@ -6367,6 +6485,66 @@
           }
         }
       }
+    },
+    "/api/v1/llm-budgets": {
+      "get": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "The tenant's LLM budgets with what was spent in each current period (docs/11 §16).",
+        "operationId": "ListLlmBudgets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmBudgetsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Replaces the tenant's LLM budgets; a call that would exceed one is not made (LLM_BUDGET_EXCEEDED).",
+        "operationId": "PutLlmBudgets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLlmBudgetsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmBudgetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8480,6 +8658,13 @@
             ],
             "description": "The Candidate layout version the document waits for (docs/11 §12.10); never applied.",
             "format": "uuid"
+          },
+          "pipelineHash": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; `GET /pipelines/{hash}` lists its\nsteps); null for a tenant without `configurableSteps`."
           },
           "approvalBlocked": {
             "oneOf": [
@@ -10808,6 +10993,93 @@
         },
         "description": "A field the learner turned into rules: its strategies in order, the label and value pattern, and whether the rules read the confirmed value back."
       },
+      "LlmBudgetDto": {
+        "required": [
+          "period",
+          "limitUsd"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string"
+          },
+          "limitUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "stage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One LLM budget (docs/11 §16): `day`, `month` (UTC) or `document`; every stage, or one (`Classify`, `Split`, `Extract`, `Synthesize`)."
+      },
+      "LlmBudgetResponse": {
+        "required": [
+          "period",
+          "limitUsd",
+          "stage",
+          "spentUsd",
+          "periodStart"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string"
+          },
+          "limitUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "stage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "spentUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "periodStart": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "description": "A budget with what was spent in its current period (a document budget has no period total)."
+      },
+      "LlmBudgetsResponse": {
+        "required": [
+          "budgets"
+        ],
+        "type": "object",
+        "properties": {
+          "budgets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmBudgetResponse"
+            }
+          }
+        }
+      },
       "LlmPolicyResponse": {
         "required": [
           "defaultConfigId",
@@ -12789,6 +13061,43 @@
         },
         "description": "Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it."
       },
+      "PipelineProblemResponse": {
+        "required": [
+          "path",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "description": "A refusal of a layer of overrides: where, and why."
+      },
+      "PipelineSnapshotResponse": {
+        "required": [
+          "hash",
+          "createdAt",
+          "steps"
+        ],
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "steps": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "A pipeline as it ran (`GET /pipelines/{hash}`): the steps a document with this `pipelineHash` ran."
+      },
       "ProposeIdentifierRequest": {
         "required": [
           "page"
@@ -12939,6 +13248,24 @@
           }
         },
         "description": "The publish-time checks' report (docs/11 §5.7): what blocks, what to know, which fields changed."
+      },
+      "PutLlmBudgetsRequest": {
+        "required": [
+          "budgets"
+        ],
+        "type": "object",
+        "properties": {
+          "budgets": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LlmBudgetDto"
+            }
+          }
+        },
+        "description": "The tenant's LLM budgets, as a whole: the list replaces the stored one (an empty list removes every budget)."
       },
       "PutLlmPolicyRequest": {
         "required": [
@@ -13665,6 +13992,87 @@
           }
         },
         "description": "Which stage to rerun; the document is reset to the state before it (docs/03 \"any stage can be re-run\").\n`configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;\n`current` drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork\nwith a custom field published after the document arrived)."
+      },
+      "ResolvedPipelineResponse": {
+        "required": [
+          "hash",
+          "configurable",
+          "overridden",
+          "steps",
+          "skipped",
+          "refused"
+        ],
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "configurable": {
+            "type": "boolean"
+          },
+          "overridden": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResolvedStepResponse"
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineProblemResponse"
+            }
+          }
+        },
+        "description": "The pipeline a document of the type would run (docs/11 §18 `GET /document-types/{key}/resolved-pipeline`):\nits hash, whether the tenant is on `configurableSteps`, every step per phase, the overrides skipped (named a step\nthis pipeline does not have) and, when the layers were refused, why (the type's own steps run then)."
+      },
+      "ResolvedStepResponse": {
+        "required": [
+          "id",
+          "kind",
+          "phase",
+          "params",
+          "enabled",
+          "source",
+          "fixed",
+          "runs"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "fixed": {
+            "type": "boolean"
+          },
+          "runs": {
+            "type": "boolean"
+          }
+        },
+        "description": "One step of a resolved pipeline: its id, kind, phase, parameters, whether it runs, and the layer that last changed it."
       },
       "ReviewPriority": {
         "enum": [
@@ -14525,6 +14933,46 @@
           }
         },
         "description": "A part a split produced: the first keeps the document's id, the others are new documents of the same attachment."
+      },
+      "StepKindResponse": {
+        "required": [
+          "kind",
+          "phase",
+          "description",
+          "paramsSchema",
+          "fixed",
+          "insertable",
+          "runs",
+          "defaultId"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "paramsSchema": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "fixed": {
+            "type": "boolean"
+          },
+          "insertable": {
+            "type": "boolean"
+          },
+          "runs": {
+            "type": "boolean"
+          },
+          "defaultId": {
+            "type": "string"
+          }
+        },
+        "description": "One step kind of the catalogue (docs/11 §10.2 `GET /step-kinds`): what the UI renders a parameter form from."
       },
       "SupplierActivityItem": {
         "required": [
@@ -15716,9 +16164,13 @@
           },
           "structuredSources": {
             "type": "boolean"
+          },
+          "configurableSteps": {
+            "type": "boolean",
+            "default": false
           }
         },
-        "description": "The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type\ncatalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types\nof the tenant's own; the others belong to later phases and change nothing yet."
+        "description": "The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type\ncatalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types\nof the tenant's own; `configurableSteps` (P5) applies supplier, group and layout `pipelineOverrides`, the\ntype's step parameters and added steps (`http-lookup`); left out on PUT, it is false."
       },
       "TenantIdentity": {
         "required": [
@@ -16004,6 +16456,9 @@
     },
     {
       "name": "LLM"
+    },
+    {
+      "name": "Pipelines"
     },
     {
       "name": "API keys"

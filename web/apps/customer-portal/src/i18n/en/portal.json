@@ -68,7 +68,10 @@
     "NEW_LAYOUT": "New layout",
     "LAYOUT_AMBIGUOUS": "Layout ambiguous",
     "MAPPING_DRIFT": "Layout drift",
-    "LAYOUT_WARMUP": "Layout warm-up"
+    "LAYOUT_WARMUP": "Layout warm-up",
+    "LLM_BUDGET_EXCEEDED": "LLM budget reached",
+    "LOOKUP_FAILED": "Lookup failed",
+    "PIPELINE_INVALID": "Pipeline overrides refused"
   },
   "stages": {
     "Normalize": "Normalize",
@@ -107,7 +110,8 @@
       "layout_applied": "Filled by layout",
       "layout_degraded": "Layout degraded",
       "layout_learned": "Saved as layout",
-      "layout_matched": "Matched to a layout"
+      "layout_matched": "Matched to a layout",
+      "pipeline_applied": "Pipeline overrides applied"
     }
   },
   "inbox": {

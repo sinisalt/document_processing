@@ -619,7 +619,10 @@
     "NEW_LAYOUT": "Neues Layout",
     "LAYOUT_AMBIGUOUS": "Layout mehrdeutig",
     "MAPPING_DRIFT": "Layout-Abweichung",
-    "LAYOUT_WARMUP": "Layout-Anlaufphase"
+    "LAYOUT_WARMUP": "Layout-Anlaufphase",
+    "LLM_BUDGET_EXCEEDED": "LLM-Budget erreicht",
+    "LOOKUP_FAILED": "Abfrage fehlgeschlagen",
+    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt"
   },
   "failure": {
     "EncryptedPdf": "Passwortgeschützte PDF",
@@ -652,6 +655,10 @@
     "supplierLayouts": {
       "label": "Lieferantenlayouts",
       "hint": "Dokumente eines Lieferanten werden an den Erkennungsregeln seiner Layouts erkannt und von deren Feldzuordnung gefüllt; ein Layout, das keines erkennt, geht als neues Layout in die Prüfung und wird dort als Layout gespeichert. Aus: kein Layout wird verwendet, die Dokumente laufen wie bisher."
+    },
+    "configurableSteps": {
+      "label": "Konfigurierbare Schritte",
+      "hint": "Lieferanten, Lieferantengruppen und Layouts können die Schritte ihrer Dokumente ändern (pipelineOverrides: das LLM abschalten, seinen Aufwand setzen, eine http-lookup-Abfrage an die Systeme des Mandanten einfügen), und die Schrittparameter des Typs gelten. Aus: jedes Dokument läuft wie bisher mit den eingebauten Schritten."
     }
   }
 }

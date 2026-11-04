@@ -47,6 +47,7 @@ internal sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
 
         // Documents waiting for a Candidate layout (docs/11 §12.10): a hint, not a reference, so a retired layout's rows go freely.
         b.HasIndex(d => new { d.TenantId, d.PendingLayoutVersionId });
+        b.Property(d => d.PipelineHash).HasMaxLength(32);
     }
 }
 

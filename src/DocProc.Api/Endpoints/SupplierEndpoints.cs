@@ -185,14 +185,14 @@ public static partial class SupplierEndpoints
         .WithName("ListSuppliers")
         .WithSummary("Suppliers of the current tenant, by name; q matches the folded name or the exact VAT id.");
 
-        suppliers.MapPost("/", async Task<Results<Created<SupplierResponse>, ValidationProblem, ProblemHttpResult>> (CreateSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        suppliers.MapPost("/", async Task<Results<Created<SupplierResponse>, ValidationProblem, ProblemHttpResult>> (CreateSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] DocProc.Application.Outputs.IOutputRenderer renderer, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Suppliers") is { } problem)
             {
                 return problem;
             }
 
-            var creation = await AddAsync(db, features, tenant.TenantId!.Value, request, clock.GetUtcNow(), ct);
+            var creation = await AddAsync(db, features, tenant.TenantId!.Value, request, clock.GetUtcNow(), ct, renderer);
             if (creation.Invalid is { } invalid)
             {
                 return invalid;
@@ -226,7 +226,7 @@ public static partial class SupplierEndpoints
         .WithName("GetSupplier")
         .WithSummary("One supplier of the current tenant.");
 
-        suppliers.MapPatch("/{id:guid}", async Task<Results<Ok<SupplierResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
+        suppliers.MapPatch("/{id:guid}", async Task<Results<Ok<SupplierResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchSupplierRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, [FromServices] DocProc.Application.Outputs.IOutputRenderer renderer, ITenantContext tenant, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Suppliers") is { } problem)
             {
@@ -255,6 +255,7 @@ public static partial class SupplierEndpoints
             }
 
             var settings = request.Settings is { } settingsElement ? SupplierConfigSupport.ReadSettings(errors, settingsElement) : null;
+            await SupplierConfigSupport.CheckPipelineAsync(db, features, renderer, tenant.TenantId!.Value, settings, supplier?.SettingsJson, errors, ct);
             if (request.GroupId is { } groupId && groupId != Guid.Empty && !await db.SupplierGroups.AnyAsync(g => g.Id == groupId, ct))
             {
                 errors.Add("groupId", $"No supplier group {groupId} in this tenant.");
@@ -441,7 +442,7 @@ public static partial class SupplierEndpoints
     /// from review (<c>POST /documents/{id}:create-supplier</c>) checks exactly what the supplier list does and saves the
     /// supplier with its assignment in one go. The context's scope is the tenant's (the duplicate check reads it).
     /// </summary>
-    internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, ITenantFeatures features, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct)
+    internal static async Task<SupplierCreation> AddAsync(DocProcDbContext db, ITenantFeatures features, Guid tenantId, CreateSupplierRequest request, DateTimeOffset now, CancellationToken ct, DocProc.Application.Outputs.IOutputRenderer? renderer = null)
     {
         if ((request.GroupId is not null || request.Settings is not null) && !await features.IsEnabledAsync(tenantId, TenantFeature.SourceRouting, ct))
         {
@@ -457,6 +458,7 @@ public static partial class SupplierEndpoints
         }
 
         var settings = request.Settings is { } settingsElement ? SupplierConfigSupport.ReadSettings(errors, settingsElement) : null;
+        await SupplierConfigSupport.CheckPipelineAsync(db, features, renderer, tenantId, settings, null, errors, ct);
         if (request.GroupId is { } groupId && !await db.SupplierGroups.AnyAsync(g => g.Id == groupId, ct))
         {
             errors.Add("groupId", $"No supplier group {groupId} in this tenant.");

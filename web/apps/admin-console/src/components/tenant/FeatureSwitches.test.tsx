@@ -7,7 +7,7 @@ import { FeatureSwitches, withSwitch } from "./FeatureSwitches";
 vi.mock("@docproc/app-shell", async (original) => (await import("@/test/shell")).mockShell(await original()));
 vi.mock("@tanstack/react-router", async (original) => (await import("@/test/shell")).mockRouter(await original()));
 
-const off = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false };
+const off = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false, configurableSteps: false };
 const settings = { autoApproveConfidenceThreshold: 0.85, retentionYears: 10, shareExtractorProfiles: false, alwaysReviewSupplierIds: ["s1"], features: off };
 
 describe("feature switches", () => {

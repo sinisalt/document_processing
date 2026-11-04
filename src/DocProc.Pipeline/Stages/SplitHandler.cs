@@ -1,6 +1,7 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
+using DocProc.Definitions.Pipelines;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Text;
@@ -43,6 +44,7 @@ internal sealed class SplitHandler(
     IPipelineQueue queue,
     LayoutIdentification layouts,
     IEffectiveConfigResolver configResolver,
+    StagePipeline pipelines,
     ILogger<SplitHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
@@ -81,13 +83,19 @@ internal sealed class SplitHandler(
         // its siblings a second time.
         // A type the source pinned (docs/11 §7.5: a price list dropped in its folder) keeps the file whole: the heuristic
         // splitter would cut a 30-page list at its page breaks.
+        // The split steps of the document's pipeline (docs/11 §10.1): a supplier the source named may keep its files whole
+        // (split.heuristic mode never), cut them per page (perPage) or always ask the LLM (llm), or not ask it (split.llm off).
+        var pipeline = await pipelines.ResolveAsync(document, null, PipelinePhases.Split, cancellationToken).ConfigureAwait(false);
+        var mode = pipeline.Enabled(StepKindCatalogue.SplitHeuristic)?.Text("mode") ?? "auto";
         var skipReason = document.EmbeddedXmlBlob is not null ? "e-invoice"
             : document.PageCount <= 1 ? "single page"
             : document.TypeSource == TypeSource.Supplier ? "type pinned by the supplier configuration"
             : await IsSplitPartAsync(document, cancellationToken).ConfigureAwait(false) ? "already split"
+            : mode == "never" ? "split mode never (pipeline)"
             : await PrefilterAsync(document, cancellationToken).ConfigureAwait(false);
         if (skipReason is not null)
         {
+            pipelines.RecordBudget(document, StepKindCatalogue.SplitLlm, null);
             Timeline.Transition(document, DocumentStatus.Split, new
             {
                 ranges = new[] { new { start = document.PageStart, end = document.PageEnd } },
@@ -104,11 +112,26 @@ internal sealed class SplitHandler(
         var ranges = analysis.Ranges;
         var usedLlm = false;
         var tooLong = document.PageCount > splitterOptions.Value.MaxConfidentPageCount;
-        if ((!analysis.IsConfident || tooLong) && services.GetService<LlmDocumentSplitter>() is { } llm)
+        DocProc.Llm.Gateway.LlmBudgetExceededException? budget = null;
+        if (mode == "perPage")
         {
-            ranges = await llm.SplitAsync(document.TenantId, document.Id, textLayer, pages, cancellationToken).ConfigureAwait(false);
-            usedLlm = true;
+            ranges = [.. Enumerable.Range(1, document.PageCount).Select(p => new PageRange(p, p))];
         }
+        else if ((!analysis.IsConfident || tooLong || mode == "llm") && pipeline.Runs(StepKindCatalogue.SplitLlm) && services.GetService<LlmDocumentSplitter>() is { } llm)
+        {
+            try
+            {
+                ranges = await llm.SplitAsync(document.TenantId, document.Id, textLayer, pages, cancellationToken).ConfigureAwait(false);
+                usedLlm = true;
+            }
+            catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
+            {
+                // The tenant's LLM budget (docs/11 §16): the heuristics' ranges stand, and the flag sends the document to review.
+                budget = exception;
+            }
+        }
+
+        pipelines.RecordBudget(document, StepKindCatalogue.SplitLlm, budget);
 
         ranges = SplitRangeNormalizer.Normalize(ranges, document.PageCount);
         var details = new
@@ -118,6 +141,8 @@ internal sealed class SplitHandler(
             heuristicConfident = analysis.IsConfident,
             tooLongForHeuristics = tooLong,
             usedLlm,
+            mode = mode == "auto" ? null : mode,
+            llmBudgetExceeded = budget is null ? (bool?)null : true,
             signals = analysis.Signals.Select(s => new { s.Page, kind = s.Kind, s.Evidence }).ToList(),
         };
 

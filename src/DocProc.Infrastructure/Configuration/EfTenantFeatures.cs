@@ -48,6 +48,7 @@ public sealed class EfTenantFeatures(DocProcDbContext db) : ITenantFeatures
         Add(flags.SupplierLayouts, TenantFeature.SupplierLayouts);
         Add(flags.CustomTypes, TenantFeature.CustomTypes);
         Add(flags.StructuredSources, TenantFeature.StructuredSources);
+        Add(flags.ConfigurableSteps, TenantFeature.ConfigurableSteps);
         return enabled.Count == 0 ? TenantFeatureSet.None : new TenantFeatureSet(enabled);
 
         void Add(bool on, TenantFeature feature)

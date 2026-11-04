@@ -41,4 +41,9 @@ public static class DocumentEventTypes
 
     /// <summary>Someone asked for a delivery to be sent again (<c>POST /deliveries/{id}:redeliver</c>).</summary>
     public const string RedeliveryRequested = "document.redelivery_requested";
+
+    // Configurable steps of docs/11 §10 (P5); timeline only, never published.
+
+    /// <summary>A stage ran a pipeline that is not the type's own: overrides changed its steps, or were refused.</summary>
+    public const string PipelineApplied = "document.pipeline_applied";
 }

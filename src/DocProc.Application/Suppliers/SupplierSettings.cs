@@ -108,6 +108,7 @@ public sealed record SupplierLayoutSettings(InheritableSwitch? Required = null);
 /// <item><see cref="Layouts"/>: <c>required</c> (<c>true</c>, <c>false</c>, <c>inherit</c>) resolves against
 /// <c>TenantSettings.LayoutsRequiredByDefault</c>.</item>
 /// <item><see cref="RequireSenderAuth"/>: the default of <c>requireSenderAuth</c> for the supplier's new sender rules.</item>
+/// <item><see cref="PipelineOverrides"/>: the patch of the supplier's pipeline (<c>configurableSteps</c>).</item>
 /// </list>
 /// </summary>
 public sealed record SupplierSettings
@@ -135,6 +136,13 @@ public sealed record SupplierSettings
     public SupplierLayoutSettings? Layouts { get; init; }
 
     public bool? RequireSenderAuth { get; init; }
+
+    /// <summary>
+    /// The supplier's (or the group's) ordered patch of its documents' pipeline (docs/11 §10.1 <c>pipelineOverrides</c>):
+    /// <c>disable</c>, <c>param</c>, <c>insertAfter</c> and <c>replace</c> by step id. Applied with <c>configurableSteps</c>
+    /// on only: the group's first, then the supplier's, then the identified layout version's.
+    /// </summary>
+    public IReadOnlyList<DocProc.Definitions.Pipelines.PipelineOverride>? PipelineOverrides { get; init; }
 
     /// <summary>The stored settings, or <see cref="Empty"/> for none or for a value that does not read (written outside the API).</summary>
     public static SupplierSettings Parse(string? json)
@@ -175,6 +183,8 @@ public sealed record SupplierSettings
             Defaults = Defaults is null && inherited.Defaults is null ? null : new SupplierDefaults(Defaults?.Currency ?? inherited.Defaults?.Currency),
             Layouts = Layouts?.Required is null or InheritableSwitch.Inherit ? inherited.Layouts ?? Layouts : Layouts,
             RequireSenderAuth = RequireSenderAuth ?? inherited.RequireSenderAuth,
+            // Overrides add up rather than inherit: the group's apply first, then the supplier's (docs/11 §10.1).
+            PipelineOverrides = PipelineOverrides is null && inherited.PipelineOverrides is null ? null : [.. inherited.PipelineOverrides ?? [], .. PipelineOverrides ?? []],
         };
     }
 

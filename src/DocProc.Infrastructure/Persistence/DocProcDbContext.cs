@@ -61,6 +61,9 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<GoldenDocument> GoldenDocuments => Set<GoldenDocument>();
     public DbSet<RegressionRun> RegressionRuns => Set<RegressionRun>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<PipelineSnapshot> PipelineSnapshots => Set<PipelineSnapshot>();
+    public DbSet<LookupResult> LookupResults => Set<LookupResult>();
+    public DbSet<LlmBudgetRecord> LlmBudgets => Set<LlmBudgetRecord>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -162,6 +165,9 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<GoldenDocument>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<RegressionRun>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<Notification>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<PipelineSnapshot>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupResult>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LlmBudgetRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);

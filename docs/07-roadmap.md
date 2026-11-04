@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (part A done)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1674,7 +1674,72 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
       schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
       subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
-- **P5 to P6** – not started.
+- **P5, configurable steps, custom types end to end, rules and master data – in progress (part A done).**
+  - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
+    document runs the built-in steps as before and records no pipeline hash):
+    - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
+      phase with its `ParamsSchema`, fixed and insertable kinds; `GET /step-kinds`), `PipelineDefaults` (the built-in
+      steps, which are the steps the phases ran before; the type's `processing.extract` names the built-in steps' ids and
+      parameters and adds its own steps; the validate list as before) and `PipelineResolver` (the group's, the
+      supplier's and the layout version's `pipelineOverrides` in order, `disable`, `param`, `insertAfter`, `replace`;
+      an override for a step the type's pipeline lacks is skipped and noted; `classify.identification`, the review gate,
+      the match and publish steps are fixed; only `http-lookup` can be inserted, and only into Extract), with a hash per
+      pipeline;
+    - validated at save: supplier and group `settings.pipelineOverrides` (`PATCH`/`POST /suppliers`,
+      `/supplier-groups`) and a layout version's `mapping.pipelineOverrides` (layout creation, new versions, bundle
+      import), with the fixed steps refused at every layer, parameters checked against their kind's schema, and an
+      `http-lookup`'s destination and JSONata checked; refused again when resolved (settings written outside the API, an
+      imported bundle), and then the type's own steps run with a blocking `PIPELINE_INVALID`;
+    - versioned: every pipeline a stage runs is stored once by hash (`PipelineSnapshots`), `Documents.PipelineHash` and
+      `DocumentDetail.pipelineHash` name the last one, `GET /pipelines/{hash}` reads it, and a stage that runs a pipeline
+      that is not the type's own writes `document.pipeline_applied`; `GET /document-types/{key}/resolved-pipeline`;
+    - applied by the stage handlers: Split (`split.heuristic` mode `never`, `perPage`, `llm`; `split.llm` off),
+      Classify (`classify.keyword`, `classify.llm` off, its `threshold`), Extract (`xml`, `map`, `prefill`, `llm` off;
+      `llm` `effort` and `maxCostPerDocument`; `http-lookup`), Validate (`schema`, `rules`, `duplicate` off, also in a
+      correction's inline re-validation); an invoice nothing may extract goes to review with its empty tree;
+    - the `http-lookup` step (`HttpLookupService`, `ExtractLookups`): JSONata in the sandboxed renderer builds the
+      request (URL placeholders of an `http` destination, a POST body) and maps the answer to field assignments written
+      as `Inferred` (`SourceMethod.Lookup`); through the delivery client (public addresses re-checked at connect, TLS,
+      no redirects), at most 5 s per attempt, 256 KB, 2 retries, a breaker per destination, the destination's secret
+      from `ISecretStore`; stored per document, step and request hash (`LookupResults`), so a retry or reprocess with
+      the same request reuses the answer; failures are `LOOKUP_FAILED` (warning, `block`, or `ignore`);
+    - LLM budgets (`LlmBudgets`, `GET`/`PUT /llm-budgets`, TenantAdmin): per tenant, per UTC day, UTC month or
+      document, for every stage or one; the gateway refuses a call that would pass a budget by the stage's average call
+      cost (`EfLlmBudgetGuard`, spend from the usage rows), and the stage goes on without the LLM with a blocking
+      `LLM_BUDGET_EXCEEDED`; the `llm` step's `maxCostPerDocument` per type, supplier or layout;
+    - migration `ConfigurableStepsAndBudgets` (the column, three tables, `PolicyV11`, the flag back-filled off), the
+      admin console's switch, flag and source labels (en, de);
+    - tests: `PipelineResolverTests` (fixed steps refused at type, group, supplier and layout level and in a stored
+      pipeline; the operations; the hash; the save check), `ConfigurableStepsPipelineTests` (each stage's overrides,
+      nothing changed without the switch, a refused pipeline, lookups against a loopback receiver with caching, retries,
+      the guard, oversized and unmappable answers, budgets and `maxCostPerDocument`), `LlmBudgetGuardTests`,
+      `LlmGatewayTests`, `PipelineEndpointsTests`, and RLS, the idempotent script and the migrate down and up on SQL Server.
+  - Decided (part A, recorded as "Correction (P5)" in docs/11 §3, §10.1, §10.2, §10.3, §11, §16 and §18):
+    - a new switch `configurableSteps`, not one of the six of principle 6;
+    - the review gate, the match steps and the publish steps are fixed like `classify.identification`; Match and Publish
+      take no overrides, and Split and Classify take a supplier's only when the source named it;
+    - the built-in extract steps run as one chain in their fixed order (a definition names their ids and parameters and
+      does not remove one by leaving it out); `http-lookup` steps run after that chain, in their order;
+    - the pipeline is resolved per stage and stored by hash, not cached by `(typeVersionId, layoutVersionId,
+      settingsHash)`; documents keep no pinned pipeline (`ProcessDocument.ConfigHash` and `CONFIG_CHANGED` are not
+      built), so a retry resolves the current overrides;
+    - the circuit breaker of `http-lookup` is the step's own (5 failures, 30 s), not `Microsoft.Extensions.Http.Resilience`;
+    - budgets are their own table with day, month and document periods, not a monthly cap in `TenantLlmPolicies`; a
+      refused call is not recorded in the usage rows.
+  - Left for later (part A's scope):
+    - the UI of docs/11 §19 for pipelines and budgets (the supplier sheet's processing tab, a parameter form per step
+      kind from `GET /step-kinds`, the budgets in the AI settings); the API is complete, the admin console has the switch;
+    - a layout version's `ruleOverrides`, `llmHints` and the reduced LLM schema per layout version (`CoverageJson` is
+      stored, `params.reducedSchema` is not read); a new layout version saved from review does not carry the previous
+      version's `pipelineOverrides` over;
+    - `defaults`, `code-list` and `transform` steps (listed, not run), the tenant-currency default still in the mapper,
+      and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5);
+    - `step_completed` timeline events per step with their cost; the alert when a type's Unknown rate or LLM spend passes
+      its 14-day baseline (docs/11 §16);
+    - the parts B onward of P5 (rule kinds and definition flags, `LlmDefinitionExtractor` and `DefinitionMapper`, the
+      tenant keyword set and classifier enum, tenant fallback identification rules, price lists end to end, the processing
+      UI, master data, callbacks, Insights > Onboarding).
+- **P6** – not started.
 
 ## Risks and open questions
 

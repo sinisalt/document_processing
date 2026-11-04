@@ -1,6 +1,7 @@
 using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Application.Suppliers;
+using DocProc.Definitions.Pipelines;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
 using DocProc.Domain.Invoices;
@@ -44,6 +45,7 @@ internal sealed class ClassifyHandler(
     IServiceProvider services,
     LayoutIdentification layouts,
     IOptions<PipelineOptions> options,
+    StagePipeline pipelines,
     ILogger<ClassifyHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
@@ -110,10 +112,14 @@ internal sealed class ClassifyHandler(
             identification = await layouts.ResolveAsync(document, outcome.Type.Value, cancellationToken).ConfigureAwait(false);
         }
 
+        DocProc.Llm.Gateway.LlmBudgetExceededException? budget = null;
         if (outcome is null)
         {
             var allowed = KnownFromSource(document) ? await AllowedTypesAsync(Db, document.SupplierId, cancellationToken).ConfigureAwait(false) : null;
-            (outcome, usedLlm) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken, allowed).ConfigureAwait(false);
+            // The classify steps of the document's pipeline (docs/11 §10.1): a supplier the source named may switch the
+            // keyword rules or the LLM off, or set the LLM's threshold; classify.identification above is fixed.
+            var pipeline = await pipelines.ResolveAsync(document, null, PipelinePhases.Classify, cancellationToken).ConfigureAwait(false);
+            (outcome, usedLlm, budget) = await ClassifyPagesAsync(document, blobs, keywords, services, _options, cancellationToken, allowed, pipeline).ConfigureAwait(false);
             if (identification?.Result.Resolution == LayoutResolution.NewLayout && outcome.Type != DocumentTypeKey.Unknown)
             {
                 // Under NEW_LAYOUT the classifiers only propose (§8.4 step 5): the type never counts as decided.
@@ -123,6 +129,7 @@ internal sealed class ClassifyHandler(
 
         SetType(document, outcome);
         await RecordIdentificationAsync(document, identification, cancellationToken).ConfigureAwait(false);
+        pipelines.RecordBudget(document, StepKindCatalogue.ClassifyLlm, budget);
         flags.Replace(document, OwnedFlags, outcome.Type == DocumentTypeKey.Unknown
             ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
             : []);
@@ -134,6 +141,7 @@ internal sealed class ClassifyHandler(
             source = outcome.Source,
             language = outcome.Language,
             usedLlm,
+            llmBudgetExceeded = budget is null ? (bool?)null : true,
             embeddedXmlIgnored = xmlIgnored,
             layout = identification?.Result.Resolution.ToString(),
         });
@@ -148,26 +156,47 @@ internal sealed class ClassifyHandler(
     /// configuration had pinned the type (docs/11 §7.4). With <paramref name="allowedTypes"/> (the supplier's
     /// <c>allowedTypeKeys</c>, docs/11 §7.3) the keyword rules choose among those types only, and an LLM answer outside
     /// them is Unknown (the LLM's own enum restricted to the set comes with P5's classifier).
+    /// <para>
+    /// The <paramref name="pipeline"/>'s classify steps (docs/11 §10.1) decide whether the keyword rules
+    /// (<c>classify.keyword</c>) and the LLM (<c>classify.llm</c>, with its <c>threshold</c>) are asked; without one both
+    /// are, as before P5. An LLM call the tenant's budget refused (docs/11 §16) is not made: the keyword outcome stands,
+    /// and the refusal comes back for the stage's <c>LLM_BUDGET_EXCEEDED</c>.
+    /// </para>
     /// </summary>
-    internal static async Task<(ClassificationOutcome Outcome, bool UsedLlm)> ClassifyPagesAsync(
+    internal static async Task<(ClassificationOutcome Outcome, bool UsedLlm, DocProc.Llm.Gateway.LlmBudgetExceededException? Budget)> ClassifyPagesAsync(
         Document document,
         PipelineBlobs blobs,
         KeywordDocumentClassifier keywords,
         IServiceProvider services,
         PipelineOptions options,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<string>? allowedTypes = null)
+        IReadOnlyCollection<string>? allowedTypes = null,
+        ResolvedPipeline? pipeline = null)
     {
         var textLayer = await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false);
-        var outcome = keywords.Classify(textLayer, allowedTypes);
+        var outcome = pipeline is null || pipeline.Runs(StepKindCatalogue.ClassifyKeyword)
+            ? keywords.Classify(textLayer, allowedTypes)
+            : new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule);
         var usedLlm = false;
-        if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < options.LlmClassificationThreshold)
+        var llmStep = pipeline is null ? null : pipeline.Enabled(StepKindCatalogue.ClassifyLlm);
+        var threshold = llmStep?.Number("threshold") ?? options.LlmClassificationThreshold;
+        if ((outcome.Type == DocumentTypeKey.Unknown || outcome.Confidence < threshold)
+            && (pipeline is null || llmStep is not null)
             && services.GetService<LlmDocumentClassifier>() is { } llm)
         {
             var firstPage = document.PageImageKeys.Count > 0
                 ? await blobs.ReadDerivedAsync(document.PageImageKeys[0], cancellationToken).ConfigureAwait(false)
                 : (ReadOnlyMemory<byte>?)null;
-            var fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
+            ClassificationOutcome fromLlm;
+            try
+            {
+                fromLlm = await llm.ClassifyAsync(document.TenantId, document.Id, textLayer, firstPage, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
+            {
+                return (outcome, false, exception);
+            }
+
             usedLlm = true;
             if (fromLlm.Type != DocumentTypeKey.Unknown && (allowedTypes is not { Count: > 0 } || allowedTypes.Contains(fromLlm.Type.Value, StringComparer.Ordinal)))
             {
@@ -175,7 +204,7 @@ internal sealed class ClassifyHandler(
             }
         }
 
-        return (outcome, usedLlm);
+        return (outcome, usedLlm, null);
     }
 
     /// <summary>

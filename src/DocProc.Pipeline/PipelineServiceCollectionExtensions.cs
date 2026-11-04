@@ -75,9 +75,12 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddSingleton(DocumentValidator.Default);
         // P0: every tenant has adopted the standard templates, so a document's definition is its legacy type's template.
         services.TryAddSingleton<IEffectiveConfigResolver>(new StandardTemplateConfigResolver(DocProc.Llm.Schema.DefinitionSchemaCompiler.Options));
+        services.TryAddSingleton<IPipelineConfigResolver>(BuiltinPipelineConfigResolver.Instance);
         services.TryAddScoped<DocumentTimeline>();
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
+        services.TryAddScoped<StagePipeline>();
+        services.TryAddScoped<ExtractLookups>();
         services.TryAddScoped<Routing.SourceRouting>();
         services.TryAddScoped<Layouts.LayoutIdentification>();
         services.TryAddScoped<Layouts.LayoutExtractor>();

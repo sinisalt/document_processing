@@ -86,7 +86,8 @@ public static class LlmServiceCollectionExtensions
             ProviderFactories(sp, replay),
             sp.GetRequiredService<ILlmUsageRecorder>(),
             sp.GetRequiredService<PriceTable>(),
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<ILlmBudgetGuard>()));
 
         services.TryAddSingleton<LlmInvoiceExtractor>();
         // One LLM extractor in the IEnumerable<IDocumentExtractor> however many times a host composes this helper.

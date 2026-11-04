@@ -109,7 +109,7 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
             })
             .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
-        var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
+        var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, request.TypeVersionId ?? document.DocumentTypeVersionId), cancellationToken).ConfigureAwait(false);
         var compiled = config.Type?.Compiled;
         var context = new DocumentDataContext(new DocumentDataMeta(
             document.Id,
@@ -144,7 +144,7 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
             Links = Links(document.Id),
         };
 
-        var canonical = ParseObject(document.CanonicalJson);
+        var canonical = ParseObject(request.CanonicalJson ?? document.CanonicalJson);
         var view = compiled is null ? DocumentDataView.BuildWithoutDefinition(context) : DocumentDataView.Build(canonical, compiled, context);
         var fields = request.IncludeFields && compiled is not null ? DocumentDataView.FieldEnvelopes(canonical, compiled.Descriptors) : null;
         return new DocumentDataViewResult(view, fields, document.TenantId, document.Version, document.Type.Value, today);

@@ -30,4 +30,7 @@ public enum SourceMethod
     Llm,
     Ocr,
     Human,
+
+    /// <summary>Written by an <c>http-lookup</c> step from a tenant system's answer (docs/11 §10.2, P5).</summary>
+    Lookup,
 }

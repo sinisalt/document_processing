@@ -231,6 +231,21 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
 
         (await asA.Notifications.AsNoTracking().CountAsync(ct)).ShouldBe(1);
 
+        // ConfigurableStepsAndBudgets (P5 part A): the pipeline snapshots, lookup results and LLM budgets are strict
+        // tenant tables, and a tenant session writes and reads its own budget through the policy.
+        foreach (var table in new[] { "PipelineSnapshots", "LookupResults", "LlmBudgets" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+        }
+
+        if (!await asA.LlmBudgets.AnyAsync(ct))
+        {
+            asA.LlmBudgets.Add(new Infrastructure.Persistence.Entities.LlmBudgetRecord { Id = Guid.CreateVersion7(), TenantId = TenantA, Period = DocProc.Llm.Gateway.LlmBudgetPeriod.Day, LimitUsd = 1m, CreatedAt = At, UpdatedAt = At });
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.LlmBudgets.AsNoTracking().CountAsync(ct)).ShouldBe(1);
+
         (await asA.OutputMappings.AsNoTracking().Where(m => m.TenantId == null).Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"]);
         (await asA.OutputMappingVersions.AsNoTracking().CountAsync(v => v.TenantId == null, ct)).ShouldBe(2);
         (await asA.Suppliers.AsNoTracking().AllAsync(s => s.AttributesJson == null, ct)).ShouldBeTrue("nothing to back-fill");

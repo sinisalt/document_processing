@@ -248,8 +248,26 @@ public static class RowLevelSecurity
     /// </summary>
     public static readonly PolicyDefinition PolicyV10 = new(GovernanceProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
 
+    /// <summary>
+    /// The strict tables of the <c>ConfigurableStepsAndBudgets</c> migration (P5 part A): <see cref="GovernanceProtectedTables"/>
+    /// plus the pipeline snapshots, the <c>http-lookup</c> results and the LLM budgets of docs/11 §10 and §16. Frozen.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Table, string Column)> StepsProtectedTables =
+    [
+        .. GovernanceProtectedTables,
+        ("PipelineSnapshots", "TenantId"),
+        ("LookupResults", "TenantId"),
+        ("LlmBudgets", "TenantId"),
+    ];
+
+    /// <summary>
+    /// The policy of the <c>ConfigurableStepsAndBudgets</c> migration (P5 part A): <see cref="PolicyV10"/> with the
+    /// pipeline, lookup and budget tables among the strict tables. None of them is temporal. Frozen.
+    /// </summary>
+    public static readonly PolicyDefinition PolicyV11 = new(StepsProtectedTables, PlatformRowTablesV3, StrictHistoryTablesV1, PlatformRowHistoryTablesV2, BlockStrictUpdates: true);
+
     /// <summary>The policy the latest migration creates.</summary>
-    public static PolicyDefinition CurrentPolicy => PolicyV10;
+    public static PolicyDefinition CurrentPolicy => PolicyV11;
 
     /// <summary>Every tenant-scoped table with a non-null tenant column: the strict set the current policy covers.</summary>
     public static IReadOnlyList<(string Table, string Column)> ProtectedTables => CurrentPolicy.StrictTables;

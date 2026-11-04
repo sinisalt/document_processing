@@ -43,6 +43,7 @@ public static class OutputServiceCollectionExtensions
             var contentRoot = sp.GetService<IHostEnvironment>()?.ContentRootPath ?? Directory.GetCurrentDirectory();
             return new BlobDropTransport(Path.GetFullPath(root, contentRoot));
         }));
+        services.TryAddScoped<Lookups.HttpLookupService>();
         services.TryAddScoped<DeliveryFanOut>();
         services.TryAddScoped<DeliveryProcessor>();
         return services;

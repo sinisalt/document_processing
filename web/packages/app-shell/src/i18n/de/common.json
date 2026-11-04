@@ -99,6 +99,7 @@
     "Llm": "KI",
     "Ocr": "OCR",
     "Human": "Prüfer",
+    "Lookup": "Abfrage",
     "page": "S. {{page}}",
     "onPageTitle": "Auf Seite {{page}} des Dokuments gefunden"
   },
@@ -282,6 +283,15 @@
     },
     "LAYOUT_WARMUP": {
       "default": "Dokument {{ordinal}} der ersten {{warmup}} unter Layout {{layoutKey}} (Version {{version}}): es geht in die Prüfung, bereits vom Layout ausgefüllt."
+    },
+    "LLM_BUDGET_EXCEEDED": {
+      "default": "{{step}} wurde nicht aufgerufen: das LLM-Budget ({{period}}) von {{limitUsd}} USD wäre überschritten ({{spentUsd}} USD verbraucht). Die Prüfung ergänzt, was es gefüllt hätte."
+    },
+    "LOOKUP_FAILED": {
+      "default": "Die Abfrage {{stepId}} ist fehlgeschlagen ({{reason}}); die Felder, die sie füllt, bleiben wie sie waren."
+    },
+    "PIPELINE_INVALID": {
+      "default": "Die Pipeline-Anpassungen des Lieferanten, seiner Gruppe oder seines Layouts wurden abgelehnt ({{path}}: {{problem}}); die Schritte des Typs liefen."
     }
   },
   "apiErrors": {

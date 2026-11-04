@@ -197,6 +197,8 @@ the watched folder, routed by source rules, identified by "Rechnung" and the VAT
 `NEW_LAYOUT`, pre-filled, saved as `nordwind-invoice-webshop` in review; warm-up 1 of 5, then warm-up 0 and delivery
 to the mock ERP without review; a Candidate in tenant B), step by step in docs/09 "Demo data", "Demo: types as data",
 "Demo: manual mapping", "Demo: outputs and delivery" and "Demo: routing and layouts".
+P5 part A adds configurable steps per supplier, group and layout (`pipelineOverrides`, the `http-lookup` step) behind the
+`configurableSteps` switch, and LLM budgets per tenant (docs/09 "Configurable steps and LLM budgets").
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.

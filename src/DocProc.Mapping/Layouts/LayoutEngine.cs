@@ -35,6 +35,9 @@ public sealed record LayoutExtraction(IReadOnlyList<LayoutHit> Hits, IReadOnlyDi
     /// they are reported here and a drift they cause is not the layout's (docs/11 §8.2).
     /// </summary>
     public IReadOnlyList<string> TimedOut { get; init; } = [];
+
+    /// <summary>Nothing found: what a type's empty tree is built from (a document no step could fill).</summary>
+    public static LayoutExtraction Empty { get; } = new([], new Dictionary<string, TableResult>(), new DriftReport(0, 0, [], [], false));
 }
 
 /// <summary>A pattern of a field rule or transform ran out of time (<see cref="IdentificationRuleEvaluator.PatternTimeout"/>): the value was not read, rather than read as if the pattern did not match.</summary>

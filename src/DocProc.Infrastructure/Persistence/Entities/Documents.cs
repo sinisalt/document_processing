@@ -83,6 +83,13 @@ public sealed class Document : ITenantScoped, IVersioned
     /// </summary>
     public Guid? PendingLayoutVersionId { get; set; }
 
+    /// <summary>
+    /// The hash of the pipeline the document's last stage ran (docs/11 §10.1 <c>pipelineHash</c>, P5), whose steps
+    /// <c>PipelineSnapshots</c> keeps; null for a tenant without <c>configurableSteps</c>, where every document runs the
+    /// built-in steps.
+    /// </summary>
+    public string? PipelineHash { get; set; }
+
     /// <summary>The tenant's company the document is addressed to (docs/11 §6.4): from the source rule, the channel default or the customer VAT id.</summary>
     public Guid? ReceivingEntityId { get; set; }
 

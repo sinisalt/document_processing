@@ -99,6 +99,7 @@
     "Llm": "AI",
     "Ocr": "OCR",
     "Human": "Reviewer",
+    "Lookup": "Lookup",
     "page": "p. {{page}}",
     "onPageTitle": "Located on page {{page}} of the document"
   },
@@ -282,6 +283,15 @@
     },
     "LAYOUT_WARMUP": {
       "default": "Document {{ordinal}} of the first {{warmup}} under layout {{layoutKey}} (version {{version}}): it goes to review, already filled by the layout."
+    },
+    "LLM_BUDGET_EXCEEDED": {
+      "default": "{{step}} was not called: the {{period}} LLM budget of {{limitUsd}} USD would be exceeded ({{spentUsd}} USD spent). A reviewer checks what it would have filled."
+    },
+    "LOOKUP_FAILED": {
+      "default": "The lookup {{stepId}} failed ({{reason}}); the fields it fills stay as they were."
+    },
+    "PIPELINE_INVALID": {
+      "default": "The pipeline overrides of the supplier, its group or its layout were refused ({{path}}: {{problem}}); the type's own steps ran."
     }
   },
   "apiErrors": {

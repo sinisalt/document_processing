@@ -49,6 +49,7 @@ internal sealed class MatchHandler(
     IServiceProvider services,
     LayoutIdentification layouts,
     IOptions<PipelineOptions> options,
+    StagePipeline pipelines,
     ILogger<MatchHandler> logger) : DocumentStageHandler(db, timeline, logger)
 {
     private static readonly string[] OwnedFlags = [FlagCodes.SupplierUnmatched, FlagCodes.SupplierConflict];
@@ -206,8 +207,9 @@ internal sealed class MatchHandler(
         if (document.TypeSource is TypeSource.Supplier or TypeSource.Identification or TypeSource.Proposed)
         {
             var allowed = await ClassifyHandler.AllowedTypesAsync(Db, evidence.Supplier.Id, cancellationToken).ConfigureAwait(false);
-            var (outcome, _) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed).ConfigureAwait(false);
+            var (outcome, _, budget) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed).ConfigureAwait(false);
             ClassifyHandler.SetType(document, outcome);
+            pipelines.RecordBudget(document, DocProc.Definitions.Pipelines.StepKindCatalogue.ClassifyLlm, budget);
             flags.Replace(document, [FlagCodes.TypeUnknown], outcome.Type == DocumentTypeKey.Unknown
                 ? [FlagCodes.Create(FlagCodes.TypeUnknown, "The document type could not be determined.")]
                 : []);

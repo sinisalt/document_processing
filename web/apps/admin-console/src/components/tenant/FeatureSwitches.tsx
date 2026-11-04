@@ -11,13 +11,14 @@ type Settings = components["schemas"]["TenantSettingsDto"];
 /**
  * The switches of docs/11 §3 (principle 6) that are built: the type catalogue (P1), outputs (P3, the Integrations
  * tab, the fan-out and delivery), source routing and supplier layouts (P4: mailboxes and watched folders polled,
- * source rules, supplier settings; layouts, identification rules and the new-layout flow); `structuredSources`
- * changes nothing yet and stays as it is.
+ * source rules, supplier settings; layouts, identification rules and the new-layout flow) and configurable steps
+ * (P5: supplier, group and layout pipeline overrides, http-lookup steps); `structuredSources` changes nothing yet and
+ * stays as it is.
  */
-export const builtSwitches = ["configurableTypes", "customTypes", "outputs", "sourceRouting", "supplierLayouts"] as const;
+export const builtSwitches = ["configurableTypes", "customTypes", "outputs", "sourceRouting", "supplierLayouts", "configurableSteps"] as const;
 export type BuiltSwitch = (typeof builtSwitches)[number];
 
-const allOff: Features = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false };
+const allOff: Features = { configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false, configurableSteps: false };
 
 /**
  * The switches after one is flipped: `customTypes` (types of the tenant's own) needs `configurableTypes`, so switching

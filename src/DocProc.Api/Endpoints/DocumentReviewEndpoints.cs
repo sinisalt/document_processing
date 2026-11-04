@@ -108,6 +108,7 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
@@ -268,7 +269,7 @@ public static partial class DocumentEndpoints
             return ConcurrentChange(id);
         }
 
-        await RecheckAsync(db, document, type, validator, now, ct);
+        await RecheckAsync(db, document, type, validator, pipelines, now, ct);
         return TypedResults.Ok(await FreshDetailAsync(db, id, configs, features, ct));
     }
 
@@ -282,6 +283,7 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         CancellationToken ct)
     {
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
@@ -348,7 +350,7 @@ public static partial class DocumentEndpoints
             }
         }
 
-        await RecheckAsync(db, document, configs, validator, now, ct);
+        await RecheckAsync(db, document, configs, validator, pipelines, now, ct);
         return TypedResults.Ok(await FreshDetailAsync(db, id, configs, features, ct));
     }
 
@@ -436,6 +438,7 @@ public static partial class DocumentEndpoints
         [FromServices] IEffectiveConfigResolver configs,
         [FromServices] ITenantFeatures features,
         [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         CancellationToken ct)
     {
         if (EndpointSupport.RequireTenant(tenant, "Suppliers") is { } scope)
@@ -486,7 +489,7 @@ public static partial class DocumentEndpoints
             return ConcurrentChange(id);
         }
 
-        await RecheckAsync(db, document, configs, validator, now, ct);
+        await RecheckAsync(db, document, configs, validator, pipelines, now, ct);
         var detail = await FreshDetailAsync(db, id, configs, features, ct);
         return TypedResults.Created($"/api/v1/suppliers/{supplier.Id}", new SupplierFromReviewResponse(SupplierResponse.From(supplier), detail));
     }
@@ -901,7 +904,7 @@ public static partial class DocumentEndpoints
     /// review action changed its type or supplier: the flags they own are replaced, so a duplicate the new supplier
     /// reveals, or the fields the new type requires, show at once. Nothing to check without a type or data.
     /// </summary>
-    private static async Task RecheckAsync(DocProcDbContext db, Document document, IEffectiveConfigResolver configs, DocumentValidator validator, DateTimeOffset now, CancellationToken ct)
+    private static async Task RecheckAsync(DocProcDbContext db, Document document, IEffectiveConfigResolver configs, DocumentValidator validator, IPipelineConfigResolver pipelines, DateTimeOffset now, CancellationToken ct)
     {
         if (document.Type.IsUnknown || string.IsNullOrWhiteSpace(document.CanonicalJson))
         {
@@ -911,11 +914,11 @@ public static partial class DocumentEndpoints
         var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), ct);
         if (config.Type is { } type)
         {
-            await RecheckAsync(db, document, type, validator, now, ct);
+            await RecheckAsync(db, document, type, validator, pipelines, now, ct);
         }
     }
 
-    private static async Task RecheckAsync(DocProcDbContext db, Document document, EffectiveType type, DocumentValidator validator, DateTimeOffset now, CancellationToken ct)
+    private static async Task RecheckAsync(DocProcDbContext db, Document document, EffectiveType type, DocumentValidator validator, IPipelineConfigResolver pipelines, DateTimeOffset now, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(document.CanonicalJson))
         {
@@ -923,6 +926,7 @@ public static partial class DocumentEndpoints
         }
 
         var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == document.TenantId, ct);
+        type = await DocumentChecks.WithPipelineAsync(pipelines, document, type, ct);
         var run = await DocumentChecks.RunAsync(db, document, type, tenant, DocumentChecks.TodayFor(tenant, now), validator, ct);
         DocumentChecks.ReplaceFlags(db, document, DocumentChecks.OwnedFlags, run.Flags, now);
         await db.SaveChangesAsync(ct);

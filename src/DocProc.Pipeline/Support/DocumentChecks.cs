@@ -85,6 +85,7 @@ public static class DocumentChecks
     /// </summary>
     public static async Task<CheckRun> RunAsync(DocProcDbContext db, Document document, EffectiveType type, Tenant tenant, DateOnly today, DocumentValidator validator, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(type);
         var flags = new List<DocumentFlag>();
         var budget = new PatternBudget();
         var view = DocumentView.FromJson(document.Type, document.CanonicalJson);
@@ -134,6 +135,24 @@ public static class DocumentChecks
         }
 
         return new CheckRun(flags, result);
+    }
+
+    /// <summary>
+    /// <paramref name="type"/> with the validate steps of the document's pipeline (docs/11 §10.1) when overrides change
+    /// them (<c>configurableSteps</c>), for the inline re-validation of a correction, which checks what the Validate
+    /// stage checks.
+    /// </summary>
+    public static async Task<EffectiveType> WithPipelineAsync(IPipelineConfigResolver? pipelines, Document document, EffectiveType type, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(type);
+        if (pipelines is null)
+        {
+            return type;
+        }
+
+        var config = await pipelines.ResolveAsync(new PipelineRequest(document.TenantId, type, document.SupplierId, document.SupplierLayoutVersionId), cancellationToken).ConfigureAwait(false);
+        return config.Configurable && config.Pipeline.Overridden ? type.WithPipeline(config.Pipeline) : type;
     }
 
     /// <summary>The role bindings as the generic rules read them (role name to path; <c>duplicateKey</c> joined with commas).</summary>

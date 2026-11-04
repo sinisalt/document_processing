@@ -39,6 +39,9 @@ export const flagCodes = [
   "LAYOUT_AMBIGUOUS",
   "MAPPING_DRIFT",
   "LAYOUT_WARMUP",
+  "LLM_BUDGET_EXCEEDED",
+  "LOOKUP_FAILED",
+  "PIPELINE_INVALID",
 ] as const;
 
 /** What the queue offers on a task, by the API's rules (ReviewTaskEndpoints). */

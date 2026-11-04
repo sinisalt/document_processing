@@ -19,7 +19,15 @@ public sealed record ExtractionInput(
     ReadOnlyMemory<byte>? EmbeddedXml,
     SupplierHints? Supplier,
     TenantHints Tenant,
-    ResolvedDefinition? Definition = null);
+    ResolvedDefinition? Definition = null)
+{
+    /// <summary>
+    /// The parameters of the pipeline's <c>llm</c> step (docs/11 §9.1 <c>StepParams</c>, §10.1), with
+    /// <c>configurableSteps</c> only: <c>effort</c> sets the reasoning effort of the call. Null keeps the extractor's
+    /// own options, as before P5.
+    /// </summary>
+    public System.Text.Json.Nodes.JsonObject? StepParams { get; init; }
+}
 
 /// <summary>
 /// The type version a document is extracted against (docs/11 §9.1): its key and version, the compiled LLM schema, and

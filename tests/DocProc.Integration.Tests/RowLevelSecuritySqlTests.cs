@@ -115,7 +115,9 @@ public sealed class RowLevelSecuritySqlTests
         // The frozen literal names real flags, all off.
         var flags = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, bool>>(P0PersistenceSeams.AllFlagsOff)!;
         flags.Values.ShouldAllBe(on => !on);
-        flags.Keys.ShouldBe(typeof(TenantFeatureFlags).GetProperties().Select(p => p.Name), ignoreOrder: true);
+        // A flag added after P0 is back-filled by its own migration (ConfigurableSteps by ConfigurableStepsAndBudgets).
+        flags.Keys.ShouldBe(typeof(TenantFeatureFlags).GetProperties().Select(p => p.Name).Except([nameof(TenantFeatureFlags.ConfigurableSteps)]), ignoreOrder: true);
+        new ConfigurableStepsAndBudgets().UpOperations.OfType<SqlOperation>().ShouldContain(o => o.Sql == RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.BackfillFlagSql));
     }
 
     [Fact]
@@ -352,6 +354,36 @@ public sealed class RowLevelSecuritySqlTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public void The_configurable_steps_migration_puts_the_P5_part_A_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §10, §16: pipeline snapshots, lookup results and LLM budgets belong to one tenant;
+        // ConfigurableStepsAndBudgets re-creates the policy with them (PolicyV11), its Down goes back to PolicyV10.
+        var migration = new ConfigurableStepsAndBudgets();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        statements.ShouldBe(up
+            ? [RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.BackfillFlagSql), RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11)]
+            : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10), RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.RemoveFlagSql)]);
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV11);
+        RowLevelSecurity.PolicyV11.StrictTables.Except(RowLevelSecurity.PolicyV10.StrictTables).Select(t => t.Table)
+            .ShouldBe(["PipelineSnapshots", "LookupResults", "LlmBudgets"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV11.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV10.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[LlmBudgets] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void The_governance_migration_puts_the_part_C_tables_under_the_strict_policy(bool up)
     {
         // docs/11 §6.9, §6.10: golden documents, sandbox and regression runs and notifications belong to one tenant;
@@ -367,7 +399,6 @@ public sealed class RowLevelSecuritySqlTests
             statements.ShouldBe([RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV9)]);
         }
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV10);
         RowLevelSecurity.PolicyV10.StrictTables.Except(RowLevelSecurity.PolicyV9.StrictTables).Select(t => t.Table)
             .ShouldBe(["GoldenDocuments", "RegressionRuns", "Notifications"], ignoreOrder: true);
         RowLevelSecurity.PolicyV10.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV9.PlatformRowTables);

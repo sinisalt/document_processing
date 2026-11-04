@@ -181,7 +181,7 @@ public sealed class HttpDeliveryTransport(
             request.Headers.TryAddWithoutValidation("X-DocProc-Document-Id", context.Delivery.DocumentId.ToString("D"));
             request.Headers.TryAddWithoutValidation("X-DocProc-Revision", context.Delivery.DocumentVersion.ToString(CultureInfo.InvariantCulture));
             request.Headers.TryAddWithoutValidation("X-DocProc-Event", context.Delivery.Event);
-            Authorize(request, authType, auth, secret, token, body);
+            Authorize(request, authType, auth, secret, token, body, clock);
         }
         catch (FormatException exception)
         {
@@ -282,7 +282,8 @@ public sealed class HttpDeliveryTransport(
         return (bytes, multipart.Headers.ContentType!.ToString());
     }
 
-    private void Authorize(HttpRequestMessage request, string authType, JsonObject? auth, string? secret, string? token, byte[] body)
+    /// <summary>Adds the destination's auth to a request (shared with the <c>http-lookup</c> step, docs/11 §10.2).</summary>
+    internal static void Authorize(HttpRequestMessage request, string authType, JsonObject? auth, string? secret, string? token, byte[] body, TimeProvider clock)
     {
         switch (authType)
         {

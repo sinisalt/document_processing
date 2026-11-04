@@ -526,6 +526,7 @@ public static partial class LayoutEndpoints
         System.Security.Claims.ClaimsPrincipal user,
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
+        [FromServices] DocProc.Application.Outputs.IOutputRenderer renderer,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -580,6 +581,11 @@ public static partial class LayoutEndpoints
         else
         {
             errors.Add("mapping", mappingError!);
+        }
+
+        if (mapping is { PipelineOverrides.Count: > 0 })
+        {
+            await PipelineChecks.CheckLookupsAsync(db, renderer, mapping.PipelineOverrides, "mapping.pipelineOverrides", errors, ct);
         }
 
         if (errors.ToProblem() is { } invalid)
