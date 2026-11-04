@@ -61,7 +61,33 @@ public sealed class MailKitImapMailSource(ImapEndpoint endpoint, MailOptions opt
         }
 
         var tls = config.Security == "starttls" ? SecureSocketOptions.StartTls : SecureSocketOptions.SslOnConnect;
-        return new ImapEndpoint(config.Host!.Trim(), config.Port ?? (tls == SecureSocketOptions.StartTls ? 143 : 993), tls, PlatformServer: false, config.Login, password, config.FolderName);
+        return new ImapEndpoint(config.Host!.Trim(), config.EffectivePort, tls, PlatformServer: false, config.Login, password, config.FolderName);
+    }
+
+    /// <summary>
+    /// Logs in with the channel's own credential and opens its folder, reading nothing: the proof a channel must give
+    /// before it may claim the mailbox's <c>SourceKey</c> (docs/11 §6.3), so a tenant cannot lock or probe a mailbox it
+    /// cannot log in to. A refused login throws <see cref="AuthenticationException"/>, a missing folder
+    /// <see cref="FolderNotFoundException"/>.
+    /// </summary>
+    public async Task VerifyLoginAsync(CancellationToken cancellationToken)
+    {
+        using var client = protocolLogger is null ? new ImapClient() : new ImapClient(protocolLogger);
+        client.Timeout = (int)options.Timeout.TotalMilliseconds;
+        await ConnectAsync(client, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await client.AuthenticateAsync(endpoint.Username, endpoint.Password ?? string.Empty, cancellationToken).ConfigureAwait(false);
+            var folder = await client.GetFolderAsync(endpoint.Folder, cancellationToken).ConfigureAwait(false);
+            await folder.OpenAsync(FolderAccess.ReadOnly, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (client.IsConnected)
+            {
+                await client.DisconnectAsync(true, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
     }
 
     public async IAsyncEnumerable<InboundMessage> FetchAsync(string? cursor, [EnumeratorCancellation] CancellationToken cancellationToken)

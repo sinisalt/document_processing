@@ -283,6 +283,27 @@ public sealed class MailMessageReaderTests
     }
 
     [Fact]
+    public void The_source_key_names_the_port_the_poller_connects_to()
+    {
+        // starttls without a port connects to 143, as does an explicit 143: one server, one key (and one channel).
+        static MailboxChannelConfig Config(string json) => MailboxChannelConfig.TryParse(json, [], out var errors).ShouldNotBeNull(string.Join(" ", errors));
+        var implicitStartTls = Config("""{"address":"ap@acme.example","host":"imap.example.com","security":"starttls"}""");
+        var explicitStartTls = Config("""{"address":"ap@acme.example","host":"imap.example.com","port":143,"security":"starttls"}""");
+        implicitStartTls.EffectivePort.ShouldBe(143);
+        implicitStartTls.SourceKey.ShouldBe("imap:imap.example.com:143/ap@acme.example/inbox");
+        explicitStartTls.SourceKey.ShouldBe(implicitStartTls.SourceKey);
+        MailKitImapMailSource.Endpoint(implicitStartTls, "pw", new MailOptions(), out _).ShouldNotBeNull().Port.ShouldBe(143);
+        MailKitImapMailSource.Endpoint(explicitStartTls, "pw", new MailOptions(), out _).ShouldNotBeNull().Port.ShouldBe(143);
+
+        var implicitSsl = Config("""{"address":"ap@acme.example","host":"imap.example.com"}""");
+        var explicitSsl = Config("""{"address":"ap@acme.example","host":"imap.example.com","port":993,"security":"ssl"}""");
+        implicitSsl.SourceKey.ShouldBe("imap:imap.example.com:993/ap@acme.example/inbox");
+        explicitSsl.SourceKey.ShouldBe(implicitSsl.SourceKey);
+        MailKitImapMailSource.Endpoint(implicitSsl, "pw", new MailOptions(), out _).ShouldNotBeNull().Port.ShouldBe(993);
+        Config("""{"address":"ap@acme.example","host":"imap.example.com","port":143}""").SourceKey.ShouldNotBe(implicitSsl.SourceKey, "another port is another key");
+    }
+
+    [Fact]
     public void Mailbox_configs_are_checked_and_give_a_source_key()
     {
         var platform = MailboxChannelConfig.TryParse("""{"address":"Invoices@Tenant-A.local"}""", [], out var none).ShouldNotBeNull(string.Join(" ", none));

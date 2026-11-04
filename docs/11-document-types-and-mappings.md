@@ -857,6 +857,14 @@ Correction (P4, part B), as built (`Entities/Layouts.cs`, migration `SupplierLay
   no "1 of 5"). The place is taken by a compare-and-set (`UPDATE … SET WarmupSeen = n + 1 WHERE WarmupSeen = n AND n <
   ReviewWarmup`, read again on a lost race; `LayoutWarmup.TakePlaceAsync`), so each caller's place is the one its own
   update wrote.
+
+  Correction (P4, third review fixes): the compare-and-set committed on its own, while the `document.layout_warmup`
+  event that records the document's place was saved later with the stage's result. A Validate attempt dropped as a
+  stale twin (another node saved the document first), or one that failed before its save, kept its place and lost the
+  event, so fewer than `ReviewWarmup` documents went to review. The Validate stage now runs in one transaction under
+  the execution strategy (`DocumentStageHandler.RunsInTransaction`, the publish message queued after the commit): the
+  place commits with the event or not at all, and a document waiting on the version's row then takes the place given
+  back.
 - `TenantSettings.LayoutActivation` is stored flat as `TenantSettings.LayoutReviewWarmup` (nullable, null for the
   default 5 of decision 2), as `LayoutsRequiredByDefault` is.
 
@@ -1030,6 +1038,28 @@ Correction (P4, second review fixes):
   after the path was checked again, and on Linux the handle's real path (`/proc/self/fd`) must be the real path of
   the tenant's root plus the file's relative path; anything else is neither read nor moved. On other hosts only the
   re-check right before the open remains.
+
+Correction (P4, third review fixes):
+- "Neither read nor moved" held for the read only: the move checked the target folder's path and then renamed by path,
+  and a `processed/` or `failed/` swapped for a link in between (or one created as a link after a check that found no
+  folder) moved the file out of the tenant's tree. On Linux (x64, arm64, where the worker runs) every folder from the
+  tenant's root down is now opened relative to the one above with `O_NOFOLLOW`, the target folders are made with
+  `mkdirat` below the channel's handle, and the file is moved with `renameat2(RENAME_NOREPLACE)` between the two folder
+  handles; the file is read through a handle opened the same way. Nothing is checked first and acted on later, so a
+  link at any moment is refused by the kernel. On other hosts the path checks remain (a narrower window, not none).
+- A named pipe (FIFO) in a watched folder was opened for reading and `open(2)` waited for a writer, which stopped the
+  poller, and every tenant's channels on the host with it. The file is opened with `O_NONBLOCK`, so a pipe opens at
+  once, cannot be measured and is moved to `failed/`.
+- A mailbox's `SourceKey` was claimed by the API on create and patch, first come first served across tenants, with no
+  proof that the channel could read the mailbox: a tenant could lock another tenant's mailbox on the platform server,
+  and the `409` told it whether some other tenant read an address. The API never claims a mailbox's key now; the poller
+  claims it after the channel logged in with its own secret (`VerifyLoginAsync`), the `409` looks only at the tenant's
+  own channels, and a channel whose login is refused gives up the key it held. The key names the port the poller
+  connects to (`EffectivePort`: 143 for `starttls` without a port), so `{host, security: starttls}` and `{host, port:
+  143, security: starttls}` are one source.
+- A message MimeKit cannot read (no header block, empty) stopped the channel's poll before the cursor moved, so every
+  later poll failed on it and the messages behind it were never ingested. It is now skipped like one over the size
+  limit: the cursor moves past it, it stays in the mailbox, and `LastError` names it.
 
 ### 7.2 Resolution at ingest
 
@@ -1386,6 +1416,14 @@ groups still held inside a longer, different number (`12345` in `Tel 040 12345 6
 value's edge is now: the line's start or end; a character that is neither a letter nor a digit; a gap (a space between
 words, or a `.`, `-` or `/` that compacting removes) unless digits are on both sides of it; or, with no gap, where
 letters turn into digits or back.
+
+Correction (P4, third review fixes): a space between words with digits on both sides is not always a number going on.
+A line of the page holds the words of every column at its height, so the customer number of a values row (`12345
+04.03.2027 RE-1001` under "Kundennr. Datum Rechnungsnr.") did not hold, nor did the `supplierValue attributes.<key>`
+that `identifiers:propose` (§12.10) proposed from it on its own document. Across a space the number goes on only when
+the space is narrow (less than the words' height; a column gap is wider) and the word on the far side of the value is a
+plain group of digits (`67890`, `9`); a date, a document number or a word in another column ends the value. A removed
+`.`, `-` or `/` inside a word with digits on both sides still goes on (`040-12345-67`, `1.12345`).
 - `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
 - The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
   (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.

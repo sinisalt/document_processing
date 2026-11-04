@@ -218,6 +218,105 @@ public sealed class FolderWatcherTests
     }
 
     [Fact]
+    public async Task A_processed_folder_swapped_for_a_link_after_the_scan_is_not_moved_through()
+    {
+        // processed/ does not exist at the scan; while the file is stored, a link named processed/ appears that leads into
+        // tenant B's watched folder. The move is bound to folder handles opened without following links, so the file is
+        // not moved into tenant B's folder.
+        var root = NewRoot();
+        var blobs = Path.Combine(root, ".blobs");
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(root, "tenant-a")).FullName;
+        var inboxB = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "scans")).FullName;
+        var scans = Directory.CreateDirectory(Path.Combine(tenantRoot, "scans")).FullName;
+        var file = Path.Combine(scans, "rechnung.pdf");
+        await File.WriteAllBytesAsync(file, TestPdfs.GermanInvoice(), Ct);
+        var swap = new SwapOnFirstPut(blobs, () => Directory.CreateSymbolicLink(Path.Combine(scans, "processed"), inboxB));
+        await using var host = await StartAsync(root, blobs, swap);
+        var channel = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(1, "read and stored before the swap");
+
+        swap.Swapped.ShouldBeTrue();
+        Directory.EnumerateFileSystemEntries(inboxB).ShouldBeEmpty("nothing was moved through the link into tenant B's folder");
+        File.Exists(file).ShouldBeTrue("the file stays where it was");
+    }
+
+    [Fact]
+    public async Task A_move_is_bound_to_folder_handles_and_refuses_a_link_on_either_side()
+    {
+        if (!DropZoneHandles.Supported)
+        {
+            Assert.Skip("The handle-based steps run on Linux (x64, arm64).");
+        }
+
+        var root = NewRoot();
+        var other = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "scans")).FullName;
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(root, "tenant-a")).FullName;
+        var scans = Directory.CreateDirectory(Path.Combine(tenantRoot, "scans", "sub")).Parent!.FullName;
+        await File.WriteAllTextAsync(Path.Combine(scans, "sub", "a.pdf"), "a", Ct);
+        static string Stamp(string name) => "stamped-" + name;
+
+        // A move makes the target folders below the channel's and keeps a taken name.
+        DropZoneHandles.Move(tenantRoot, "scans/sub/a.pdf", "scans/processed/sub/a.pdf", 1, Stamp).ShouldBe((DropZoneOutcome.Done, "scans/processed/sub/a.pdf"));
+        File.ReadAllText(Path.Combine(scans, "processed", "sub", "a.pdf")).ShouldBe("a");
+        await File.WriteAllTextAsync(Path.Combine(scans, "sub", "a.pdf"), "a again", Ct);
+        DropZoneHandles.Move(tenantRoot, "scans/sub/a.pdf", "scans/processed/sub/a.pdf", 1, Stamp).ShouldBe((DropZoneOutcome.Done, "scans/processed/sub/stamped-a.pdf"));
+        File.ReadAllText(Path.Combine(scans, "processed", "sub", "a.pdf")).ShouldBe("a", "the first one is not replaced");
+        DropZoneHandles.Move(tenantRoot, "scans/sub/gone.pdf", "scans/processed/sub/gone.pdf", 1, Stamp).Outcome.ShouldBe(DropZoneOutcome.Missing);
+
+        // A target folder that is a link (at the moment of the move, no check before) is refused.
+        await File.WriteAllTextAsync(Path.Combine(scans, "b.pdf"), "b", Ct);
+        Directory.CreateSymbolicLink(Path.Combine(scans, "failed"), other);
+        DropZoneHandles.Move(tenantRoot, "scans/b.pdf", "scans/failed/b.pdf", 1, Stamp).Outcome.ShouldBe(DropZoneOutcome.Link);
+        Directory.EnumerateFileSystemEntries(other).ShouldBeEmpty();
+        File.Exists(Path.Combine(scans, "b.pdf")).ShouldBeTrue();
+
+        // So is a source folder that is a link: tenant B's file is not moved into tenant A's tree.
+        await File.WriteAllTextAsync(Path.Combine(other, "c.pdf"), "TENANT-B", Ct);
+        Directory.CreateSymbolicLink(Path.Combine(scans, "via"), other);
+        DropZoneHandles.Move(tenantRoot, "scans/via/c.pdf", "scans/processed/via/c.pdf", 1, Stamp).Outcome.ShouldBe(DropZoneOutcome.Link);
+        File.Exists(Path.Combine(other, "c.pdf")).ShouldBeTrue();
+
+        // And the channel's own folder swapped for a link.
+        Directory.Move(scans, scans + "-old");
+        Directory.CreateSymbolicLink(scans, other);
+        DropZoneHandles.Move(tenantRoot, "scans/c.pdf", "scans/processed/c.pdf", 1, Stamp).Outcome.ShouldBe(DropZoneOutcome.Link);
+        File.Exists(Path.Combine(other, "c.pdf")).ShouldBeTrue();
+        DropZoneHandles.OpenFile(tenantRoot, "scans/c.pdf").Outcome.ShouldBe(DropZoneOutcome.Link, "nor is it read");
+    }
+
+    [Fact]
+    public async Task A_named_pipe_in_a_watched_folder_does_not_hang_the_poller_and_is_moved_to_failed()
+    {
+        if (!DropZoneHandles.Supported)
+        {
+            Assert.Skip("The handle-based steps run on Linux (x64, arm64).");
+        }
+
+        var root = NewRoot();
+        await using var host = await StartAsync(root);
+        var scans = Directory.CreateDirectory(Path.Combine(root, "tenant-a", "scans")).FullName;
+        var fifo = Path.Combine(scans, "rechnung.pdf");
+        using (var mkfifo = System.Diagnostics.Process.Start("mkfifo", [fifo]))
+        {
+            await mkfifo.WaitForExitAsync(Ct);
+            mkfifo.ExitCode.ShouldBe(0);
+        }
+
+        await File.WriteAllBytesAsync(Path.Combine(scans, "echt.pdf"), TestPdfs.GermanInvoice(), Ct);
+        var channel = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        var created = await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct).WaitAsync(TimeSpan.FromSeconds(20), Ct);
+
+        created.ShouldBe(1, "the real file is read; the pipe opens without waiting for a writer and is refused");
+        File.Exists(Path.Combine(scans, "processed", "echt.pdf")).ShouldBeTrue();
+        File.Exists(fifo).ShouldBeFalse();
+        new FileInfo(Path.Combine(scans, "failed", "rechnung.pdf")).Exists.ShouldBeTrue("the pipe is moved to failed/");
+    }
+
+    [Fact]
     public async Task A_file_is_read_from_a_handle_checked_against_the_real_path_of_the_tenants_root()
     {
         // The drop zone itself may be reached through a link (a mounted volume): that is the platform's, not the tenant's.

@@ -21,12 +21,70 @@ internal abstract class DocumentStageHandler(DocProcDbContext db, DocumentTimeli
 
     protected ILogger Logger { get; } = logger;
 
+    private readonly List<Func<CancellationToken, Task>> _afterCommit = [];
+
     public abstract PipelineStage Stage { get; }
 
     public async Task<StageOutcome> HandleAsync(ProcessDocument message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
+        _afterCommit.Clear();
+        StageOutcome outcome;
+        try
+        {
+            outcome = RunsInTransaction
+                ? await Db.Database.CreateExecutionStrategy().ExecuteAsync(
+                    async ct =>
+                    {
+                        // Each attempt of the strategy starts from an empty change tracker and reloads the document,
+                        // so a retry after a transient failure does not save the failed attempt's rows a second time.
+                        Db.ChangeTracker.Clear();
+                        _afterCommit.Clear();
+                        await using var transaction = await Db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+                        var result = await LoadAndRunAsync(message, ct).ConfigureAwait(false);
+                        await transaction.CommitAsync(ct).ConfigureAwait(false);
+                        return result;
+                    },
+                    cancellationToken).ConfigureAwait(false)
+                : await LoadAndRunAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            // Another unit of work (a twin message on another node, a reviewer, a reprocess) wrote the document after
+            // this one loaded it; its version moved on, so this attempt's result is stale and is dropped unsaved (and,
+            // for a stage that runs in a transaction, everything it wrote directly is rolled back with it).
+            if (Logger.IsEnabled(LogLevel.Information))
+            {
+                Logger.LogInformation(exception, "Stage {Stage}: document {DocumentId} was changed by another writer while attempt {Attempt} ran; message dropped as already handled.", Stage, message.DocumentId, message.Attempt);
+            }
 
+            _afterCommit.Clear();
+            return StageOutcome.Skipped;
+        }
+
+        foreach (var action in _afterCommit)
+        {
+            await action(cancellationToken).ConfigureAwait(false);
+        }
+
+        _afterCommit.Clear();
+        return outcome;
+    }
+
+    /// <summary>
+    /// Whether the stage runs in one database transaction, from loading the document to its last save, under the
+    /// context's execution strategy: what the stage writes directly (<c>ExecuteUpdate</c>, such as the place a document
+    /// takes in a layout version's warm-up) then commits with its saved result or not at all, also when the attempt is
+    /// dropped as stale or fails. Work that must follow the commit (queueing the next message) goes to
+    /// <see cref="AfterCommit"/>.
+    /// </summary>
+    protected virtual bool RunsInTransaction => false;
+
+    /// <summary>Runs <paramref name="action"/> once the stage's work is committed, after the stage returns.</summary>
+    protected void AfterCommit(Func<CancellationToken, Task> action) => _afterCommit.Add(action);
+
+    private async Task<StageOutcome> LoadAndRunAsync(ProcessDocument message, CancellationToken cancellationToken)
+    {
         var document = await Db.Documents
             .Include(d => d.Flags)
             .Include(d => d.IngestionItem)
@@ -50,21 +108,7 @@ internal abstract class DocumentStageHandler(DocProcDbContext db, DocumentTimeli
             return StageOutcome.Skipped;
         }
 
-        try
-        {
-            return await RunAsync(document, message, cancellationToken).ConfigureAwait(false);
-        }
-        catch (DbUpdateConcurrencyException exception)
-        {
-            // Another unit of work (a twin message on another node, a reviewer, a reprocess) wrote the document after
-            // this one loaded it; its version moved on, so this attempt's result is stale and is dropped unsaved.
-            if (Logger.IsEnabled(LogLevel.Information))
-            {
-                Logger.LogInformation(exception, "Stage {Stage}: document {DocumentId} was changed by another writer while attempt {Attempt} ran; message dropped as already handled.", Stage, document.Id, message.Attempt);
-            }
-
-            return StageOutcome.Skipped;
-        }
+        return await RunAsync(document, message, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The status a document has when this stage is due.</summary>

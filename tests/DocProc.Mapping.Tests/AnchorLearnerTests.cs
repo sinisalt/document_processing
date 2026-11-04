@@ -240,6 +240,25 @@ public sealed class AnchorLearnerTests
     }
 
     [Fact]
+    public void A_proposed_supplier_attribute_in_a_values_row_holds_on_its_own_document()
+    {
+        // docs/11 §12.10: identifiers:propose turns a selected scalar attribute into supplierValue attributes.<key>; the
+        // proposal must hold on the document it was proposed from, also where a date and a number follow in their columns.
+        var words = new DocumentWords([new PageBuilder(1)
+            .Text(60, 40, "Nordwind Großhandel GmbH")
+            .Line(300, (60, "Kundennr."), (300, "Datum"), (500, "Rechnungsnr."))
+            .Line(315, (60, "12345"), (300, "04.03.2027"), (500, "RE-1001"))
+            .Words()], false);
+        var supplier = new SupplierValues(Attributes: new Dictionary<string, string>(StringComparer.Ordinal) { ["customerNo"] = "12345" });
+        var customer = words.Page(1)!.Words.Single(w => w.Text == "12345");
+
+        var proposal = IdentifierProposer.Propose(words, 1, null, [customer.Index], tenantScope: false, supplier).ShouldNotBeNull();
+
+        proposal.Identifier.ToJsonString().ShouldBe("""{"supplierValue":"attributes.customerNo","page":1}""");
+        proposal.Holds.ShouldBeTrue();
+    }
+
+    [Fact]
     public void A_selection_below_the_title_band_gets_a_box_around_it()
     {
         var words = Invoice();

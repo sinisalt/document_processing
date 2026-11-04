@@ -487,9 +487,11 @@ public static class IdentificationRuleEvaluator
     /// consecutive words whose compacted text holds the value as a whole, so <c>DE 811 111 111</c>,
     /// <c>USt-IdNr.: DE811111111</c> and <c>USt-IdNr.DE811111111</c> all hold for the VAT id <c>DE811111111</c>. "As a
     /// whole" (docs/11 §8.5, nothing nearly matched) is decided at both ends of the value by <see cref="Edge"/>: a digit
-    /// run that goes on, glued or across a space or a removed separator, is a longer, different number; so the longer
-    /// VAT id <c>DE 811 111 111 9</c>, or a customer number <c>12345</c> inside <c>040 12345 67890</c> or
-    /// <c>0401234567890</c>, does not hold.
+    /// run that goes on, glued, across a removed separator, or across a narrow space into a plain group of digits, is a
+    /// longer, different number; so the longer VAT id <c>DE 811 111 111 9</c>, or a customer number <c>12345</c> inside
+    /// <c>040 12345 67890</c> or <c>0401234567890</c>, does not hold. A column gap, or a space before a word that is not a
+    /// plain group of digits (a date, a document number), ends the value, so the customer number of a values row
+    /// <c>12345   04.03.2027   RE-1001</c> holds (Correction (P4), third review).
     /// </summary>
     private static List<IndexedWord>? FindSupplierValue(string key, List<IndexedWord> words, SupplierValues supplier)
     {
@@ -501,37 +503,40 @@ public static class IdentificationRuleEvaluator
 
         foreach (var line in PageGeometry.Lines(words))
         {
-            // The line's compacted text, for each of its characters the word it came from, and where a gap (between two
-            // words, or a separator NormalizeCompact removes) lies before it.
+            // The line's compacted text, for each of its characters the word it came from, and what lies before it: no
+            // gap, a separator NormalizeCompact removes inside a word, or a space between two words.
             var text = new StringBuilder();
             var owner = new List<int>();
-            var gapBefore = new List<bool>();
+            var gapBefore = new List<Gap>();
             for (var w = 0; w < line.Words.Count; w++)
             {
-                var gap = text.Length > 0;
+                var gap = text.Length > 0 ? Gap.Space : Gap.None;
                 foreach (var c in line.Words[w].Text)
                 {
                     if (IsCompactSeparator(c))
                     {
-                        gap = text.Length > 0;
+                        if (gap == Gap.None && text.Length > 0)
+                        {
+                            gap = Gap.Separator;
+                        }
+
                         continue;
                     }
 
                     text.Append(char.ToUpperInvariant(c));
                     owner.Add(w);
                     gapBefore.Add(gap);
-                    gap = false;
+                    gap = Gap.None;
                 }
             }
 
-            gapBefore.Add(true); // past the line's end
             var joined = text.ToString();
             foreach (var value in values)
             {
                 for (var at = joined.IndexOf(value, StringComparison.Ordinal); at >= 0; at = joined.IndexOf(value, at + 1, StringComparison.Ordinal))
                 {
                     var after = at + value.Length;
-                    if (!Edge(joined, at, gapBefore) || !Edge(joined, after, gapBefore))
+                    if (!Edge(joined, at, gapBefore, owner, line.Words, valueStarts: true) || !Edge(joined, after, gapBefore, owner, line.Words, valueStarts: false))
                     {
                         continue;
                     }
@@ -546,17 +551,30 @@ public static class IdentificationRuleEvaluator
         return null;
     }
 
+    /// <summary>What lies before a character of a compacted line.</summary>
+    private enum Gap
+    {
+        /// <summary>Nothing: the character follows the previous one in the same word.</summary>
+        None,
+
+        /// <summary>A <c>.</c>, <c>-</c> or <c>/</c> inside a word, which compacting removed.</summary>
+        Separator,
+
+        /// <summary>The space between two words (compacting removes it too).</summary>
+        Space,
+    }
+
     /// <summary>The characters <see cref="Identifiers.NormalizeCompact"/> removes: whitespace, dots, dashes and slashes.</summary>
     private static bool IsCompactSeparator(char c) => char.IsWhiteSpace(c) || c is '.' or '-' or '/';
 
     /// <summary>
     /// Whether a value may begin or end at <paramref name="index"/> of the compacted line (between the characters
     /// <c>index - 1</c> and <c>index</c>): at the line's start or end; next to a character that is neither a letter nor a
-    /// digit (the <c>:</c> of a label glued to it); across a gap (a space between words, or a removed <c>.</c>, <c>-</c>
-    /// or <c>/</c>) unless digits are on both sides of it, since a number printed in groups goes on across its gaps; and,
-    /// with no gap, where letters turn into digits or back.
+    /// digit (the <c>:</c> of a label glued to it); with no gap, where letters turn into digits or back; across a removed
+    /// <c>.</c>, <c>-</c> or <c>/</c> unless digits are on both sides of it; and across the space between two words
+    /// unless digits are on both sides and the number goes on (<see cref="ContinuesNumber"/>).
     /// </summary>
-    private static bool Edge(string text, int index, List<bool> gapBefore)
+    private static bool Edge(string text, int index, List<Gap> gapBefore, List<int> owner, IReadOnlyList<IndexedWord> lineWords, bool valueStarts)
     {
         if (index <= 0 || index >= text.Length)
         {
@@ -570,8 +588,32 @@ public static class IdentificationRuleEvaluator
             return true;
         }
 
-        return gapBefore[index]
-            ? !(char.IsDigit(left) && char.IsDigit(right))
-            : char.IsDigit(left) != char.IsDigit(right);
+        var digits = char.IsDigit(left) && char.IsDigit(right);
+        return gapBefore[index] switch
+        {
+            Gap.None => char.IsDigit(left) != char.IsDigit(right),
+            Gap.Separator => !digits,
+            _ => !digits || !ContinuesNumber(lineWords[owner[index - 1]], lineWords[owner[index]], valueStarts),
+        };
+    }
+
+    /// <summary>
+    /// Whether a number goes on across the space between <paramref name="before"/> and <paramref name="after"/>, as the
+    /// groups of a number printed in groups do (<c>040 12345 67890</c>, <c>DE 811 111 111 9</c>): the space is narrow
+    /// (less than the words' height, where a column gap is several characters wide), and the word on the far side of the
+    /// value is a plain group of digits. A word such as a date (<c>04.03.2027</c>) or a document number (<c>RE-1001</c>)
+    /// is another value of its own, so a values row <c>12345 04.03.2027 RE-1001</c> does not run the customer number on.
+    /// </summary>
+    private static bool ContinuesNumber(IndexedWord before, IndexedWord after, bool valueStarts)
+    {
+        var space = after.Box.X0 - before.Box.X1;
+        var height = Math.Min(before.Box.Y1 - before.Box.Y0, after.Box.Y1 - after.Box.Y0);
+        if (height > 0 && space >= height)
+        {
+            return false;
+        }
+
+        var far = (valueStarts ? before : after).Text.TrimEnd('.', ',', ';', ':');
+        return far.Length > 0 && far.All(char.IsAsciiDigit);
     }
 }

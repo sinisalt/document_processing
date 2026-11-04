@@ -210,14 +210,21 @@ A tenant without the switch sees the API as before: the new response members are
   platform's server, `Mail:ImapHost`, is read; a tenant `host` must be a public name or address and is reached over
   TLS; the password is the write-only `secret`), a `WatchedFolder` config `{path? (relative to the tenant's drop-zone
   root, no `..`), pattern? (*), stableSeconds?}`; unknown members are refused. Such a channel gets `sourceKey`, unique
-  across tenants (`409 Source in use`). `defaultSupplierId`, `defaultDocumentTypeKey` and `defaultReceivingEntityId`
-  are set on `POST`/`PATCH` (the empty id or type key clears one). Without the switch the config stays free, as before,
-  and no channel is polled; `sourceKey` is still computed from a config that reads as its connector's shape and kept
-  when no other channel holds it (null when one does, never a 409), so the source is claimed before the channel can
-  ever be read. The poller reads a channel only under its own key: one without a key (written before P4 or while the
-  switch was off), or whose key no longer matches its config, claims the key of its config on its next poll, and when
-  another channel of any tenant holds it the channel is put in `Error` ("Another channel already reads this mailbox or
-  folder"). Delete is refused while source rules name the channel.
+  across tenants. A watched folder's key names the tenant's own drop zone and is set on save (`409 Source in use` when
+  another channel of the tenant reads the folder). A mailbox's key (`imap:{platform or host:port}/{login}/{folder}`,
+  the port being the one connected to: 143 for `starttls` without one, else 993) is never set by `POST` or `PATCH`:
+  the poller claims it once the channel has logged in with its own secret, so no tenant can lock another tenant's
+  mailbox or learn whether another tenant reads one. `sourceKey` is therefore null after a create, kept by a save that
+  leaves the source as it is, and dropped by one that changes it. With the switch on, a mailbox another channel of the
+  same tenant reads or is configured to read is `409 Source in use`; other tenants' channels are never looked at.
+  `defaultSupplierId`, `defaultDocumentTypeKey` and `defaultReceivingEntityId` are set on `POST`/`PATCH` (the empty id
+  or type key clears one). Without the switch the config stays free, as before, and no channel is polled; a folder's
+  `sourceKey` is still computed from a config that reads as its connector's shape and kept when no other channel holds
+  it (null when one does, never a 409). The poller reads a channel only under its own key: one without a key, or whose
+  key no longer matches its config, claims the key of its config on its next poll (a mailbox only after a successful
+  login), and when another channel of any tenant holds it the channel is put in `Error` ("Another channel already
+  reads this mailbox or folder"). A mailbox channel whose login is refused gives up the key it held. Delete is refused
+  while source rules name the channel.
 - **Documents.** `DocumentDetail` carries `supplierMatchConfidence`, `supplierSourceRuleId` and `receivingEntityId`;
   `supplierMatchMethod` adds `SourceRule`, `ChannelDefault` and `Hint`. `:reprocess` takes `fromStage: Match` (from
   Classified). `:assign-supplier` takes `remember: {conditions: [sender, senderDomain, recipient, folder, channel],
@@ -246,7 +253,9 @@ together with a role that may review; the grant alone, or with Viewer, gives not
   `POST /supplier-layouts/{id}/versions/{v}:activate {reviewWarmup?, reprocessWaiting?}` runs the replay of docs/11 §8.3
   (the identification test: `409` with `code: LAYOUT_OVERLAP` and the `documentIds`; the field replay: `409` with
   `code: LAYOUT_REPLAY_FAILED` and the `fields` below the tenant's agreement), makes the version Active with the given
-  warm-up or the tenant's `layoutReviewWarmup` (5 by default), retires the version Active before, resolves the
+  warm-up or the tenant's `layoutReviewWarmup` (5 by default; a `reviewWarmup` below the tenant's is a tenant admin's
+  to ask for, as the setting is: anyone else gets `403` with `code: LAYOUT_WARMUP_BELOW_TENANT` and `tenantWarmup`,
+  while the tenant's value or more is any MappingAuthor's), retires the version Active before, resolves the
   version's notifications, and answers `{layout, replay, waiting, reprocessed}`: the documents waiting for it, sent back
   from Classify with `reprocessWaiting: true`. `POST /supplier-layouts/{id}:retire` retires a layout. Learning from
   review: see "Layout learning, review flows and governance endpoints as built".

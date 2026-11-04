@@ -11,6 +11,7 @@ using DocProc.Mapping.Identification;
 using DocProc.Mapping.Layouts;
 using DocProc.Pipeline.Layouts;
 using DocProc.Pipeline.Review;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -642,6 +643,7 @@ public static partial class LayoutEndpoints
         [FromServices] IContainerBlobStore blobs,
         [FromServices] IEffectiveConfigResolver configs,
         Application.Pipeline.IPipelineQueue queue,
+        [FromServices] IAuthorizationService authorization,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -665,6 +667,22 @@ public static partial class LayoutEndpoints
         if (request?.ReviewWarmup is { } asked && asked is < 0 or > TenantSettings.MaxLayoutReviewWarmup)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid warm-up", detail: $"reviewWarmup is 0 to {TenantSettings.MaxLayoutReviewWarmup} documents.");
+        }
+
+        // The review warm-up is the tenant's (decision 2 of docs/11 §24: the first 5 documents under every new version go
+        // to review), and only a tenant admin lowers it, as in the settings: an author may raise it for one version, and
+        // only a tenant admin may activate one with fewer documents to review than the tenant's.
+        if (request?.ReviewWarmup is { } requested)
+        {
+            var tenantWarmup = (await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == layout.TenantId, ct)).Settings.EffectiveLayoutReviewWarmup();
+            if (requested < tenantWarmup && !(await authorization.AuthorizeAsync(user, Policies.TenantAdmin)).Succeeded)
+            {
+                return TypedResults.Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "Warm-up below the tenant's",
+                    detail: $"The tenant's review warm-up is {tenantWarmup} documents; only a tenant admin activates a version with fewer (reviewWarmup {requested}). Leave reviewWarmup out, or ask for {tenantWarmup} or more.",
+                    extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "LAYOUT_WARMUP_BELOW_TENANT", ["tenantWarmup"] = tenantWarmup });
+            }
         }
 
         // The activation condition of docs/11 §8.3: the identification test (the rule holds on its own documents and on no

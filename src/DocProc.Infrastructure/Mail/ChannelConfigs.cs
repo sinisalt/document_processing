@@ -50,10 +50,19 @@ public sealed record MailboxChannelConfig
     public bool UsesPlatformServer => string.IsNullOrWhiteSpace(Host);
 
     /// <summary>
-    /// The channel's <c>SourceKey</c>: server, login and folder, so two channels (of any tenants) cannot read one folder of
-    /// one mailbox. The platform server is named <c>platform</c>, whatever host it is.
+    /// The port the poller connects to on a tenant's own server: <see cref="Port"/>, or the default of the security
+    /// (143 for <c>starttls</c>, 993 for TLS on connect). <c>MailKitImapMailSource</c> and <see cref="SourceKey"/> both
+    /// read it, so the key names the port actually used.
     /// </summary>
-    public string SourceKey => $"imap:{(UsesPlatformServer ? "platform" : $"{Host!.Trim().ToLowerInvariant()}:{Port ?? 993}")}/{Login.ToLowerInvariant()}/{FolderName.ToLowerInvariant()}";
+    public int EffectivePort => Port ?? (string.Equals(Security, "starttls", StringComparison.Ordinal) ? 143 : 993);
+
+    /// <summary>
+    /// The channel's <c>SourceKey</c>: server, port, login and folder, so two channels (of any tenants) cannot read one
+    /// folder of one mailbox. The port is the one connected to (<see cref="EffectivePort"/>), so a <c>starttls</c> config
+    /// without a port and one with port 143 get the same key. The platform server is named <c>platform</c>, whatever
+    /// host it is.
+    /// </summary>
+    public string SourceKey => $"imap:{(UsesPlatformServer ? "platform" : $"{Host!.Trim().ToLowerInvariant()}:{EffectivePort}")}/{Login.ToLowerInvariant()}/{FolderName.ToLowerInvariant()}";
 
     /// <summary>The config of <paramref name="json"/>, or null with the reasons; <paramref name="allowedHosts"/> pass the public-host check.</summary>
     public static MailboxChannelConfig? TryParse(string? json, IReadOnlyCollection<string> allowedHosts, out IReadOnlyList<string> errors)

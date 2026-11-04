@@ -15,6 +15,8 @@ public static class LayoutWarmup
     /// ReviewWarmup</c>), so the place returned is the one this caller's update wrote: two documents validated at once
     /// never get the same place, none is skipped, and none is over the warm-up. A caller that loses the race reads the
     /// count again; it loses only to a caller that took a place, so the loop ends within <c>ReviewWarmup</c> rounds.
+    /// Called inside a transaction (the Validate stage's), the place is held until that transaction ends and given back
+    /// if it rolls back: a caller waiting on the row then takes the same place.
     /// </summary>
     public static async Task<int?> TakePlaceAsync(DocProcDbContext db, Guid versionId, CancellationToken cancellationToken)
     {

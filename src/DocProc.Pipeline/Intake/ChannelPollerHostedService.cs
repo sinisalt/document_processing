@@ -162,11 +162,6 @@ public sealed class ChannelPollerHostedService(
             return await FailAsync(db, channel, "The mailbox config is not valid: " + string.Join(" ", errors), cancellationToken).ConfigureAwait(false);
         }
 
-        if (!await OwnsSourceAsync(db, channel, config.SourceKey, cancellationToken).ConfigureAwait(false))
-        {
-            return 0;
-        }
-
         var reference = ChannelSecrets.Reference(channel.TenantId, channel.Id);
         var password = string.Equals(channel.SecretRef, reference, StringComparison.Ordinal)
             ? await scoped.GetRequiredService<ISecretStore>().GetAsync(reference, cancellationToken).ConfigureAwait(false)
@@ -176,6 +171,36 @@ public sealed class ChannelPollerHostedService(
         {
             return await FailAsync(db, channel, problem!, cancellationToken).ConfigureAwait(false);
         }
+
+        var source = new MailKitImapMailSource(endpoint, _mail, Math.Max(1, _options.MaxMessagesPerPoll));
+        try
+        {
+            // A mailbox's source key is claimed only by a channel that logged in to it with its own credential
+            // (docs/11 §6.3): the API never claims one, so a tenant can neither lock nor probe a mailbox it cannot read.
+            if (!string.Equals(channel.SourceKey, config.SourceKey, StringComparison.Ordinal))
+            {
+                await source.VerifyLoginAsync(cancellationToken).ConfigureAwait(false);
+                if (!await OwnsSourceAsync(db, channel, config.SourceKey, cancellationToken).ConfigureAwait(false))
+                {
+                    return 0;
+                }
+            }
+
+            return await ReadMailboxAsync(scoped, db, channel, config, source, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MailKit.Security.AuthenticationException) when (channel.SourceKey is not null)
+        {
+            // A key is held only while its channel can log in: one that no longer can (or a key written before the
+            // proof was asked for) is given up, so the mailbox's owner can claim it.
+            logger.LogWarning("Channel {ChannelId} of tenant {TenantId}: the mailbox refused the login; the channel gives up {SourceKey}.", channel.Id, channel.TenantId, channel.SourceKey);
+            channel.SourceKey = null;
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task<int> ReadMailboxAsync(IServiceProvider scoped, DocProcDbContext db, IngestionChannel channel, MailboxChannelConfig config, MailKitImapMailSource source, CancellationToken cancellationToken)
+    {
 
         var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == channel.TenantId, cancellationToken).ConfigureAwait(false);
         var forwarders = config.ForwarderDomains
@@ -188,7 +213,6 @@ public sealed class ChannelPollerHostedService(
             .ToHashSet(StringComparer.Ordinal);
         var read = new MailReadOptions(config.UnwrapForwards ?? true, forwarders, authServIds);
         var blobs = scoped.GetRequiredService<IBlobStore>();
-        var source = new MailKitImapMailSource(endpoint, _mail, Math.Max(1, _options.MaxMessagesPerPoll));
 
         var created = 0;
         string? skipped = null;
@@ -206,13 +230,29 @@ public sealed class ChannelPollerHostedService(
 
             // One copy of the message for parsing and storing (the source's buffer is bounded by Mail:MaxMessageBytes).
             var rawEml = message.RawEml.ToArray();
-            MimeMessage mime;
-            using (var stream = new MemoryStream(rawEml, writable: false))
+            ParsedMail parsed;
+            try
             {
-                mime = await MimeMessage.LoadAsync(stream, cancellationToken).ConfigureAwait(false);
+                MimeMessage mime;
+                using (var stream = new MemoryStream(rawEml, writable: false))
+                {
+                    mime = await MimeMessage.LoadAsync(stream, cancellationToken).ConfigureAwait(false);
+                }
+
+                parsed = MailMessageReader.Read(mime, read);
+            }
+            catch (Exception exception) when (exception is FormatException or ArgumentException or NotSupportedException or InvalidOperationException)
+            {
+                // A message that does not read as a mail (no header block, empty, broken MIME) is skipped like one over
+                // the size limit: the cursor moves past it, so it never blocks the messages behind it, and it stays in
+                // the mailbox for a person to look at.
+                skipped = $"Message {message.MessageId} was not ingested: it does not read as a mail ({exception.GetType().Name}); it stays in the mailbox.";
+                logger.LogWarning(exception, "Channel {ChannelId}: {Reason}", channel.Id, skipped);
+                channel.Cursor = message.Cursor;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
-            var parsed = MailMessageReader.Read(mime, read);
             var files = parsed.Attachments
                 .Select(a => new UploadFile(UploadIntake.FitFileName(a.FileName), a.ContentType, ItemKinds.Detect(a.ContentType, a.FileName), () => new MemoryStream(a.Content.ToArray(), writable: false)))
                 .ToList();
@@ -364,7 +404,7 @@ public sealed class ChannelPollerHostedService(
                 if (file.Length > _options.MaxFileBytes)
                 {
                     logger.LogWarning("Channel {ChannelId}: {File} is over the limit of {Limit} bytes; moved to failed/.", channel.Id, relative, _options.MaxFileBytes);
-                    Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
+                    Move(tenantRoot, channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
                     continue;
                 }
 
@@ -380,7 +420,7 @@ public sealed class ChannelPollerHostedService(
                 if (bytes is null)
                 {
                     logger.LogWarning("Channel {ChannelId}: {File} is over the limit of {Limit} bytes or not a regular file; moved to failed/.", channel.Id, relative, _options.MaxFileBytes);
-                    Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
+                    Move(tenantRoot, channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
                     continue;
                 }
 
@@ -407,12 +447,12 @@ public sealed class ChannelPollerHostedService(
                     logger.LogInformation("Channel {ChannelId}: {File} is already ingested (same path, size and time); it is moved to processed/.", channel.Id, relative);
                 }
 
-                Move(channelRoot, file.FullName, Path.Combine(channelRoot, "processed", relative));
+                Move(tenantRoot, channelRoot, file.FullName, Path.Combine(channelRoot, "processed", relative));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 logger.LogWarning(exception, "Channel {ChannelId}: {File} could not be taken; moved to failed/.", channel.Id, relative);
-                Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
+                Move(tenantRoot, channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
             }
         }
 
@@ -423,8 +463,9 @@ public sealed class ChannelPollerHostedService(
 
     /// <summary>
     /// Whether the channel may read its source (docs/11 §6.3): its stored <c>SourceKey</c> is the key its config gives.
-    /// A row without one (written before P4, or while <c>sourceRouting</c> was off by a build that did not compute it),
-    /// or with one its config no longer gives, gets the config's key now; when another channel (of any tenant) already
+    /// A row without one (a mailbox channel always starts without one; a folder written before P4 or while its source
+    /// was taken), or with one its config no longer gives, gets the config's key now (a mailbox channel only after it
+    /// logged in with its own secret, see <see cref="PollMailboxAsync"/>); when another channel (of any tenant) already
     /// holds that key, the unique index refuses it and the channel is put in Error, so two channels never read one
     /// mailbox or folder.
     /// </summary>
@@ -473,33 +514,65 @@ public sealed class ChannelPollerHostedService(
     }
 
     /// <summary>
-    /// The bytes of a file of the tenant's drop zone, read from a handle that is checked to be the file itself: no link
-    /// on the way from the tenant's root (checked right before opening), and on Linux the opened handle's real path
-    /// (<c>/proc/self/fd</c>) is the real path of the tenant's root followed by the file's relative path, so a file or
-    /// folder swapped for a link between the check and the open is refused rather than read through. A file that is
-    /// over <paramref name="maxBytes"/> or cannot be measured (not a regular file) is <see cref="FolderReadRefusal.TooLarge"/>.
+    /// The bytes of a file of the tenant's drop zone, read from a handle that is the file itself. On Linux (x64, arm64)
+    /// the file is opened through <see cref="DropZoneHandles"/>: every folder from the tenant's root down, and the file,
+    /// is opened relative to the one above it without following a link, so a file or folder swapped for a link at any
+    /// moment is refused by the kernel, and a named pipe opens without waiting for a writer. Elsewhere the way is checked
+    /// for links right before opening, and on Linux of another architecture the opened handle's real path
+    /// (<c>/proc/self/fd</c>) must be the real path of the tenant's root followed by the file's relative path. A file that
+    /// is over <paramref name="maxBytes"/> or cannot be measured (not a regular file: a FIFO, a socket) is
+    /// <see cref="FolderReadRefusal.TooLarge"/>.
     /// </summary>
     internal static async Task<(byte[]? Bytes, FolderReadRefusal Refusal)> ReadInsideAsync(string tenantRoot, string path, long maxBytes, CancellationToken cancellationToken)
     {
-        if (LinkOnPath(tenantRoot, path) is not null)
+        FileStream stream;
+        if (DropZoneHandles.Supported)
         {
-            return (null, FolderReadRefusal.Link);
+            var relative = Path.GetRelativePath(tenantRoot, path);
+            if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+            {
+                return (null, FolderReadRefusal.Link);
+            }
+
+            var (handle, outcome) = DropZoneHandles.OpenFile(tenantRoot, relative);
+            if (outcome == DropZoneOutcome.Link)
+            {
+                return (null, FolderReadRefusal.Link);
+            }
+
+            if (handle is null)
+            {
+                throw new FileNotFoundException("The file is gone.", path);
+            }
+
+            stream = new FileStream(handle, FileAccess.Read, bufferSize: 0);
+        }
+        else
+        {
+            if (LinkOnPath(tenantRoot, path) is not null)
+            {
+                return (null, FolderReadRefusal.Link);
+            }
+
+            stream = new FileStream(path, new FileStreamOptions { Mode = FileMode.Open, Access = FileAccess.Read, Share = FileShare.Read, Options = FileOptions.Asynchronous | FileOptions.SequentialScan });
         }
 
-        var stream = new FileStream(path, new FileStreamOptions { Mode = FileMode.Open, Access = FileAccess.Read, Share = FileShare.Read, Options = FileOptions.Asynchronous | FileOptions.SequentialScan });
         await using (stream.ConfigureAwait(false))
         {
-            if (OpenedPath(stream) is { } opened)
+            if (!DropZoneHandles.Supported)
             {
-                var expected = Path.Combine(RealPath(tenantRoot), Path.GetRelativePath(tenantRoot, path));
-                if (!string.Equals(opened, expected, StringComparison.Ordinal))
+                if (OpenedPath(stream) is { } opened)
+                {
+                    var expected = Path.Combine(RealPath(tenantRoot), Path.GetRelativePath(tenantRoot, path));
+                    if (!string.Equals(opened, expected, StringComparison.Ordinal))
+                    {
+                        return (null, FolderReadRefusal.Link);
+                    }
+                }
+                else if (LinkOnPath(tenantRoot, path) is not null)
                 {
                     return (null, FolderReadRefusal.Link);
                 }
-            }
-            else if (LinkOnPath(tenantRoot, path) is not null)
-            {
-                return (null, FolderReadRefusal.Link);
             }
 
             if (!stream.CanSeek || stream.Length > maxBytes)
@@ -720,12 +793,34 @@ public sealed class ChannelPollerHostedService(
 
     /// <summary>
     /// Moves a file below the channel's root (a name already taken gets a time stamp); a file another host moved first
-    /// is left alone, and so is one whose target folder, or a folder on the way to it, is a link.
+    /// is left alone, and so is one whose folder, target folder, or a folder on the way to either, is a link. On Linux
+    /// (x64, arm64) the move is bound to handles (<see cref="DropZoneHandles.Move"/>): the folders from the tenant's root
+    /// down are opened without following a link and the file is renamed between the two folder handles, so a folder
+    /// swapped for a link between the scan and the move is refused, not moved through. Elsewhere the way is checked for
+    /// links right before the rename (a narrower window, not none).
     /// </summary>
-    private void Move(string channelRoot, string from, string to)
+    private void Move(string tenantRoot, string channelRoot, string from, string to)
     {
+        string AlternativeName(string name) => $"{Path.GetFileNameWithoutExtension(name)}.{clock.GetUtcNow():yyyyMMddHHmmssfff}{Path.GetExtension(name)}";
         try
         {
+            if (DropZoneHandles.Supported)
+            {
+                var below = Path.GetRelativePath(tenantRoot, channelRoot);
+                var channelParts = below == "." ? 0 : below.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Length;
+                var (outcome, movedTo) = DropZoneHandles.Move(tenantRoot, Path.GetRelativePath(tenantRoot, from), Path.GetRelativePath(tenantRoot, to), channelParts, AlternativeName);
+                if (outcome == DropZoneOutcome.Link)
+                {
+                    logger.LogWarning("{File} was not moved to {Target}: a folder on the way, or the file, is a link.", from, to);
+                }
+                else if (outcome == DropZoneOutcome.Done && logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug("{File} was moved to {Target}.", from, movedTo);
+                }
+
+                return;
+            }
+
             if (!File.Exists(from))
             {
                 return;
@@ -740,7 +835,7 @@ public sealed class ChannelPollerHostedService(
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             if (File.Exists(to))
             {
-                to = Path.Combine(Path.GetDirectoryName(to)!, $"{Path.GetFileNameWithoutExtension(to)}.{clock.GetUtcNow():yyyyMMddHHmmssfff}{Path.GetExtension(to)}");
+                to = Path.Combine(Path.GetDirectoryName(to)!, AlternativeName(Path.GetFileName(to)));
             }
 
             File.Move(from, to);

@@ -525,7 +525,10 @@ docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` swit
 - **Mailbox channels.** The worker reads each active `Mailbox` channel every `Intake:PollInterval` (30 s). In compose and
   under the AppHost the platform server is GreenMail (`Mail:ImapHost`), so a channel needs only its address:
   `POST /api/v1/channels {"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local","trustedForwarderDomains":["bureau.example"]}}`
-  (GreenMail accepts any password; a real server takes the channel's write-only `secret`). Send it a mail through
+  (GreenMail accepts any password; a real server takes the channel's write-only `secret`). The channel's `sourceKey`
+  is null until the worker's first poll logs in to the mailbox and claims it (no other channel then reads that
+  folder of that mailbox); a message that does not read as a mail is skipped, stays in the mailbox and is named in
+  `lastError`. Send it a mail through
   GreenMail's SMTP port 3025, for example `curl smtp://localhost:3025 --mail-from rechnungsversand@nordwind.example
   --mail-rcpt invoices@tenant-a.local --upload-file rechnung.eml`. Each message is ingested once (the channel's cursor
   is `{UIDVALIDITY}:{UID}`, and the message id, a hash of the `Message-ID` header and the sender, is unique per
@@ -543,8 +546,9 @@ docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` swit
   `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/`. A file is taken once its size and time stayed the same
   for `stableSeconds` (two scans at least), recorded with its folder path relative to the channel root
   (`lieferanten/nordwind/`, the values view's `source.folderPath`) and moved to `processed/` (or `failed/`) below the
-  channel root. Hidden files, `.part`/`.tmp` files and links are skipped. The container's user must be able to write
-  the folder (`chmod -R a+rwX fixtures/dropzone` on Linux).
+  channel root. Hidden files, `.part`/`.tmp` files and links are skipped; a named pipe or other file that is not a
+  regular one is moved to `failed/`, and on Linux files are read and moved through folder handles that never follow
+  a link. The container's user must be able to write the folder (`chmod -R a+rwX fixtures/dropzone` on Linux).
 - **Source rules.** `POST /api/v1/suppliers/{id}/source-rules` with a sender, sender domain, recipient, channel and
   folder prefix, subject or file-name expression; `POST /api/v1/routing:test` shows what a source would get and why.
   Documents are created with the supplier (and a pinned type) at ingest; the Match stage corroborates it with the VAT id
@@ -584,7 +588,9 @@ field mapping (where each value is printed).
   ("document 1 of the first 5"), already filled by the layout. The default is 5 (decision 2 of docs/11 §24); a tenant
   admin sets another value with `PUT /api/v1/settings {"layoutReviewWarmup": 0}` (the demo tenant's warm-up of docs/11
   §23 P4): versions activated from then on take it, and Active versions whose warm-up is still the old tenant value
-  follow, so the next document of a version inside its warm-up auto-approves. Per activation: `{"reviewWarmup": n}`.
+  follow, so the next document of a version inside its warm-up auto-approves. Per activation: `{"reviewWarmup": n}`
+  (a MappingAuthor may ask for the tenant's warm-up or more; only a tenant admin may ask for fewer, otherwise `403`
+  with `code: LAYOUT_WARMUP_BELOW_TENANT`).
 - **Learning in review** (P4 part C). A `NEW_LAYOUT` document arrives pre-filled by the `layout-prefill` step
   (`appliedConfig.prefill.sources`: the pending Candidate's mapping, the supplier's other layouts' labels anywhere, its
   master data and known values, each Inferred with its place; the LLM fills the rest only when a provider is
@@ -1082,9 +1088,9 @@ writes the `Authentication-Results` header the receiving server would (`dmarc=pa
    "Ihre Bestellung im Nordwind Webshop". Its title "RECHNUNG / INVOICE" sits top right and the VAT id is on page 2,
    so the ERP layout's rule does not hold: it arrives with `NEW_LAYOUT`, no layout applied (it is never processed
    with the ERP layout). Inbox > New layouts lists it with the New layout badge. The New layout panel offers Match to
-   Invoice and shows the pre-fill: the supplier's name, VAT id and currency from the ERP layout's labels ("other
-   layout"), the invoice number `WS-2026-000318` and the customer number from the type's labels ("type's label",
-   docs/11 §9.3, Correction (P4, part D)).
+   Invoice and shows "Pre-filled: 6 values": the supplier's name, VAT id, the currency and VAT breakdown · Rate (%)
+   from the ERP layout's labels ("other layout's label"), the invoice number `WS-2026-000318` and the customer number
+   from the type's labels ("type's label", docs/11 §9.3, Correction (P4, part D)).
 9. **Fill the rest from the page.** Match to Invoice ("Matched to Invoice."). Map from page (M): focus Issue date and
    click `23.10.2026`; focus the customer's name and drag a box around "Gasthaus zur Post GmbH"; on page 2 click
    `83,10` for Subtotal net, `15,79` for Total tax and `98,89` for Total gross; Save. Table tool: drag one box on

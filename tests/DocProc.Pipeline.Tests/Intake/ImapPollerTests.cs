@@ -17,8 +17,8 @@ using MimeKit;
 
 namespace DocProc.Pipeline.Tests.Intake;
 
-/// <summary>A GreenMail container (the development mailbox of docs/09) the IMAP poller tests read.</summary>
-public sealed class GreenMailFixture : IAsyncLifetime
+/// <summary>A GreenMail container (the development mailbox of docs/09) the IMAP poller tests read; authentication is off, as in compose.</summary>
+public class GreenMailFixture : IAsyncLifetime
 {
     public const int ImapPort = 3143;
     public const string Users = "invoices@tenant-a.local:invoices,invoices@tenant-b.local:invoices,routed@tenant-a.local:invoices";
@@ -33,12 +33,15 @@ public sealed class GreenMailFixture : IAsyncLifetime
 
     public int Port => _container!.GetMappedPublicPort(ImapPort);
 
+    /// <summary>Whether GreenMail checks passwords (off in compose and in <see cref="GreenMailFixture"/>, so any login reads any mailbox).</summary>
+    protected virtual bool Authenticates => false;
+
     public async ValueTask InitializeAsync()
     {
         try
         {
             _container = new ContainerBuilder("greenmail/standalone:2.1.15")
-                .WithEnvironment("GREENMAIL_OPTS", $"-Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users={Users}")
+                .WithEnvironment("GREENMAIL_OPTS", $"-Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0{(Authenticates ? string.Empty : " -Dgreenmail.auth.disabled")} -Dgreenmail.users={Users}")
                 .WithPortBinding(ImapPort, assignRandomHostPort: true)
                 .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(ImapPort))
                 .Build();
@@ -59,6 +62,8 @@ public sealed class GreenMailFixture : IAsyncLifetime
         {
             await _container.DisposeAsync();
         }
+
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>Puts a message into a GreenMail mailbox with IMAP APPEND (the mailbox exists for every configured user).</summary>
@@ -69,6 +74,40 @@ public sealed class GreenMailFixture : IAsyncLifetime
         await client.AuthenticateAsync(user, "invoices");
         await client.Inbox.AppendAsync(message);
         await client.DisconnectAsync(true);
+    }
+
+    /// <summary>
+    /// Puts raw bytes into a mailbox with a plain IMAP <c>APPEND</c> (MailKit appends only messages it can write), so a
+    /// test can store what MimeKit cannot read: no header block, or nothing at all.
+    /// </summary>
+    public async Task AppendRawAsync(string user, byte[] raw)
+    {
+        using var tcp = new System.Net.Sockets.TcpClient();
+        await tcp.ConnectAsync(Host, Port);
+        var stream = tcp.GetStream();
+        using var reader = new StreamReader(stream, System.Text.Encoding.ASCII, detectEncodingFromByteOrderMarks: false, bufferSize: 1, leaveOpen: true);
+        async Task<string> UntilAsync(string prefix)
+        {
+            while (true)
+            {
+                var line = await reader.ReadLineAsync() ?? throw new IOException("GreenMail closed the connection.");
+                if (line.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return line;
+                }
+            }
+        }
+
+        async Task SendAsync(string text) => await stream.WriteAsync(System.Text.Encoding.ASCII.GetBytes(text));
+        await UntilAsync("* OK");
+        await SendAsync($"A1 LOGIN \"{user}\" \"invoices\"\r\n");
+        (await UntilAsync("A1 ")).ShouldContain("OK");
+        await SendAsync($"A2 APPEND INBOX {{{raw.Length.ToString(CultureInfo.InvariantCulture)}}}\r\n");
+        await UntilAsync("+");
+        await stream.WriteAsync(raw);
+        await SendAsync("\r\n");
+        (await UntilAsync("A2 ")).ShouldContain("OK");
+        await SendAsync("A3 LOGOUT\r\n");
     }
 
     private async Task WaitForImapAsync()
@@ -87,6 +126,90 @@ public sealed class GreenMailFixture : IAsyncLifetime
                 await Task.Delay(500);
             }
         }
+    }
+}
+
+/// <summary>A GreenMail container that checks passwords (the users of <see cref="GreenMailFixture.Users"/>, password <c>invoices</c>).</summary>
+public sealed class AuthenticatingGreenMailFixture : GreenMailFixture
+{
+    protected override bool Authenticates => true;
+}
+
+/// <summary>
+/// The claim of a mailbox's source key (docs/11 §6.3) against a server that checks passwords: a channel claims the key
+/// only after it logged in with its own secret, so a tenant can neither lock nor probe another tenant's mailbox, and a
+/// channel whose login is refused gives up a key it held.
+/// </summary>
+public sealed class ImapSourceClaimTests(AuthenticatingGreenMailFixture mail) : IClassFixture<AuthenticatingGreenMailFixture>
+{
+    private const string MailboxA = "invoices@tenant-a.local";
+    private const string KeyA = "imap:platform/invoices@tenant-a.local/inbox";
+    private static readonly CancellationToken Ct = CancellationToken.None;
+
+    [Fact]
+    public async Task A_mailbox_key_is_claimed_only_after_a_login_with_the_channels_own_secret()
+    {
+        if (!mail.Available)
+        {
+            Assert.Skip($"The GreenMail container did not start (Docker is needed): {mail.Reason}");
+        }
+
+        await using var host = await PipelineTestHost.StartAsync(settings =>
+        {
+            settings["Intake:PollersEnabled"] = "false";
+            settings["Mail:ImapHost"] = mail.Host;
+            settings["Mail:ImapPort"] = mail.Port.ToString(CultureInfo.InvariantCulture);
+            settings["Mail:ImapSecurity"] = "None";
+            settings["Mail:Timeout"] = "00:00:10";
+        });
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+        var secrets = host.Services.GetRequiredService<ISecretStore>();
+        async Task<Guid> ChannelAsync(Guid tenant, string? password)
+        {
+            var id = Guid.CreateVersion7();
+            await host.WithDbAsync(async db =>
+            {
+                db.IngestionChannels.Add(new IngestionChannel { Id = id, TenantId = tenant, Name = $"Mail {id:N}"[..30], Type = ChannelType.Mailbox, ConfigJson = $$"""{"address":"{{MailboxA}}"}""", SecretRef = password is null ? null : ChannelSecrets.Reference(tenant, id), CreatedAt = host.Clock.GetUtcNow() });
+                await db.SaveChangesAsync();
+            });
+            if (password is not null)
+            {
+                await secrets.SetAsync(ChannelSecrets.Reference(tenant, id), password, Ct);
+            }
+
+            return id;
+        }
+
+        Task<IngestionChannel> RowAsync(Guid id) => host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == id));
+
+        // Tenant B names tenant A's mailbox, without a secret and with a guessed one: the login is refused, no key is taken.
+        var noSecret = await ChannelAsync(Infrastructure.Persistence.DevSeed.TenantB, null);
+        var guessed = await ChannelAsync(Infrastructure.Persistence.DevSeed.TenantB, "guess");
+        await Should.ThrowAsync<AuthenticationException>(() => poller.PollChannelAsync(Infrastructure.Persistence.DevSeed.TenantB, noSecret, Ct));
+        await Should.ThrowAsync<AuthenticationException>(() => poller.PollChannelAsync(Infrastructure.Persistence.DevSeed.TenantB, guessed, Ct));
+        (await RowAsync(noSecret)).SourceKey.ShouldBeNull();
+        (await RowAsync(guessed)).SourceKey.ShouldBeNull();
+
+        // Tenant A's channel logs in with its own password and claims the key.
+        var owner = await ChannelAsync(PipelineTestHost.TenantA, "invoices");
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, owner, Ct)).ShouldBe(0);
+        var claimed = await RowAsync(owner);
+        claimed.SourceKey.ShouldBe(KeyA);
+        claimed.Status.ShouldBe(ChannelStatus.Active);
+        claimed.LastError.ShouldBeNull();
+
+        // A key held by a channel that cannot log in (one written before the proof was asked for) is given up on its
+        // next poll, and the mailbox's owner then claims it.
+        await host.WithDbAsync(async db =>
+        {
+            (await db.IngestionChannels.SingleAsync(c => c.Id == owner)).SourceKey = null;
+            (await db.IngestionChannels.SingleAsync(c => c.Id == guessed)).SourceKey = KeyA;
+            await db.SaveChangesAsync();
+        });
+        await Should.ThrowAsync<AuthenticationException>(() => poller.PollChannelAsync(Infrastructure.Persistence.DevSeed.TenantB, guessed, Ct));
+        (await RowAsync(guessed)).SourceKey.ShouldBeNull("a key is held only while its channel can log in");
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, owner, Ct)).ShouldBe(0);
+        (await RowAsync(owner)).SourceKey.ShouldBe(KeyA);
     }
 }
 
@@ -132,6 +255,27 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
         stored.Cursor.ShouldNotBeNull().ShouldEndWith(":3");
         stored.LastError.ShouldBeNull();
         stored.LastPolledAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task A_message_that_does_not_read_as_a_mail_is_skipped_and_does_not_block_the_mailbox()
+    {
+        SkipUnlessAvailable();
+        await using var host = await StartAsync();
+        var mailbox = $"bad-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
+        var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
+        await mail.AppendRawAsync(mailbox, "this line is not a header\r\nnor this one\r\n\r\nbody"u8.ToArray());
+        await mail.AppendAsync(mailbox, MailMessageReaderTests.Message("rechnungsversand@nordwind.example", "Rechnung danach", files: ("rechnung.pdf", "application/pdf", MailMessageReaderTests.Pdf)));
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(1, "the mail behind the broken one is ingested");
+
+        var stored = await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == channel));
+        stored.Cursor.ShouldNotBeNull().ShouldEndWith(":2", Case.Sensitive, "the cursor moved past both");
+        stored.LastError.ShouldNotBeNull().ShouldContain("does not read as a mail");
+        stored.Status.ShouldBe(ChannelStatus.Active);
+        (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().SingleAsync(i => i.ChannelId == channel))).SourceSubject.ShouldBe("Rechnung danach");
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(0, "nothing is read again");
     }
 
     [Fact]

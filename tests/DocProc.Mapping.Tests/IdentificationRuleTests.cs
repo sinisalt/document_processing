@@ -170,6 +170,29 @@ public sealed class IdentificationRuleTests
     }
 
     [Fact]
+    public void A_supplier_value_in_a_values_row_or_its_own_column_holds_when_a_date_or_a_document_number_follows()
+    {
+        var supplier = new SupplierValues(VatId: NordwindVat, Attributes: new Dictionary<string, string>(StringComparer.Ordinal) { ["customerNo"] = "12345" });
+        const string Customer = """{ "all": [ { "supplierValue": "attributes.customerNo" } ] }""";
+
+        // A German header: the labels in one row, the values under them, in columns.
+        var valuesRow = Words(new PageBuilder(1)
+            .Line(60, (60, "Kundennr."), (300, "Datum"), (500, "Rechnungsnr."))
+            .Line(75, (60, "12345"), (300, "04.03.2027"), (500, "RE-1001")));
+        var holds = Eval(Customer, valuesRow, supplier);
+        holds.Holds.ShouldBeTrue("a column gap ends the value");
+        holds.Evidence[0].Text.ShouldBe("12345");
+
+        Eval(Customer, Words(new PageBuilder(1).Text(60, 60, "12345 04.03.2027 RE-1001")), supplier).Holds.ShouldBeTrue("a date after a narrow space is a value of its own");
+        Eval(Customer, Words(new PageBuilder(1).Text(60, 60, "RE-1001 12345")), supplier).Holds.ShouldBeTrue("a document number before it");
+        Eval(Customer, Words(new PageBuilder(1).Line(60, (60, "12345"), (300, "67890"))), supplier).Holds.ShouldBeTrue("two numbers in two columns");
+        Eval(Customer, Words(new PageBuilder(1).Line(60, (60, "67890"), (300, "12345"))), supplier).Holds.ShouldBeTrue();
+
+        Eval(Customer, Words(new PageBuilder(1).Text(60, 60, "12345 67890")), supplier).Holds.ShouldBeFalse("a plain digit group after a narrow space goes on");
+        Eval(Customer, Words(new PageBuilder(1).Text(60, 60, "Tel 040 12345 67890")), supplier).Holds.ShouldBeFalse();
+    }
+
+    [Fact]
     public void The_rule_in_words_names_supplier_values_by_their_labels()
     {
         IdentificationRule.Parse("""{ "all": [ { "text": "Rechnung", "page": 1, "region": "title" }, { "supplierValue": "vatId", "page": "last" }, { "supplierValue": "attributes.customerNo" }, { "supplierValue": "iban" } ] }""")

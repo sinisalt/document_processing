@@ -170,10 +170,11 @@ public static class ChannelEndpoints
             var configJson = request.Config is { ValueKind: JsonValueKind.Object } given ? given.GetRawText() : "{}";
 
             // The source key is computed whatever the switch. With sourceRouting on, the config is checked and a source
-            // another channel reads is a 409. Without it, the channel is saved as before P4 (a free config, no 409):
-            // the key is kept when it is free and left empty when it is not, and the poller claims an empty key under
-            // the same unique index before the channel is ever read (ChannelPollerHostedService), so two channels never
-            // poll one mailbox or folder.
+            // another channel of this tenant reads is a 409. Without it, the channel is saved as before P4 (a free
+            // config, no 409). A folder's key (below the tenant's own drop zone) is kept when it is free and left empty
+            // when it is not; a mailbox's key is never claimed here: the poller claims it under the same unique index
+            // once the channel has logged in with its own secret (ChannelPollerHostedService), so no tenant can lock or
+            // probe a mailbox it cannot read, and two channels never poll one mailbox or folder.
             var sourceKey = ConnectorConfig(routing ? errors : new Errors(), type, configJson, current.Slug, mail.Value);
             if (routing)
             {
@@ -194,7 +195,6 @@ public static class ChannelEndpoints
                 ConfigJson = configJson,
                 Status = ChannelStatus.Active,
                 CreatedAt = clock.GetUtcNow(),
-                SourceKey = sourceKey,
                 DefaultSupplierId = request.DefaultSupplierId,
                 DefaultDocumentTypeKey = request.DefaultDocumentTypeKey is null ? null : DocumentTypeKey.Parse(request.DefaultDocumentTypeKey).Value,
                 DefaultReceivingEntityId = request.DefaultReceivingEntityId,
@@ -209,7 +209,7 @@ public static class ChannelEndpoints
             }
 
             db.IngestionChannels.Add(channel);
-            if (await SaveSourceAsync(db, channel, strict: routing, ct) is { } taken)
+            if (await SaveSourceAsync(db, channel, sourceKey, strict: routing, mail.Value, ct) is { } taken)
             {
                 return taken;
             }
@@ -266,7 +266,7 @@ public static class ChannelEndpoints
             // The key follows the config on every save, whatever the switch (see the create); with sourceRouting on, a
             // config sent is checked, and the stored one (perhaps written before the switch) only gives the key.
             var slug = await db.Tenants.AsNoTracking().Where(t => t.Id == channel.TenantId).Select(t => t.Slug).SingleAsync(ct);
-            channel.SourceKey = request.Config is { ValueKind: JsonValueKind.Object } c
+            var sourceKey = request.Config is { ValueKind: JsonValueKind.Object } c
                 ? ConnectorConfig(routing ? errors : new Errors(), channel.Type, c.GetRawText(), slug, mail.Value)
                 : ConnectorConfig(new Errors(), channel.Type, channel.ConfigJson, slug, mail.Value);
             if (routing)
@@ -335,7 +335,7 @@ public static class ChannelEndpoints
                 channel.SecretRef = null;
             }
 
-            if (await SaveSourceAsync(db, channel, strict: routing, ct) is { } taken)
+            if (await SaveSourceAsync(db, channel, sourceKey, strict: routing, mail.Value, ct) is { } taken)
             {
                 return taken;
             }
@@ -451,13 +451,40 @@ public static class ChannelEndpoints
     }
 
     /// <summary>
-    /// Saves the channel; when another channel (of any tenant) already reads its mailbox or folder, 409 if
-    /// <paramref name="strict"/> (sourceRouting on), else the channel is saved without a source key (the poller claims
-    /// one before it reads, and puts the channel in Error when the source is taken). The source key is unique across
-    /// tenants in the database (docs/11 §6.3), which a tenant session cannot query past its own rows.
+    /// Saves the channel with the source key its config gives (<paramref name="sourceKey"/>).
+    /// <para>
+    /// A mailbox's key is never claimed here (docs/11 §6.3): the poller claims it once the channel has logged in with its
+    /// own secret, so a tenant can neither lock a mailbox of another tenant nor learn whether another tenant reads one. A
+    /// key the channel already holds stays while its config still gives it; a changed source drops it until the poller
+    /// claims the new one. With <paramref name="strict"/> (sourceRouting on) a mailbox another channel of this tenant
+    /// reads, or is configured to read, is a 409; another tenant's channels are not looked at.
+    /// </para>
+    /// <para>
+    /// A folder's key names the tenant's own drop zone, so only the tenant's own channels can hold it: when another one
+    /// already does, 409 if <paramref name="strict"/>, else the channel is saved without a key (the poller claims one
+    /// before it reads, and puts the channel in Error when the source is taken). The source key is unique across tenants
+    /// in the database, which a tenant session cannot query past its own rows.
+    /// </para>
     /// </summary>
-    private static async Task<ProblemHttpResult?> SaveSourceAsync(DocProcDbContext db, IngestionChannel channel, bool strict, CancellationToken ct)
+    private static async Task<ProblemHttpResult?> SaveSourceAsync(DocProcDbContext db, IngestionChannel channel, string? sourceKey, bool strict, MailOptions mail, CancellationToken ct)
     {
+        if (channel.Type == ChannelType.Mailbox)
+        {
+            if (!string.Equals(channel.SourceKey, sourceKey, StringComparison.Ordinal))
+            {
+                channel.SourceKey = null;
+            }
+
+            if (strict && sourceKey is not null && await TenantReadsMailboxAsync(db, channel.Id, sourceKey, mail, ct))
+            {
+                return Conflict("Source in use", "Another channel of this tenant already reads this mailbox.");
+            }
+
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+
+        channel.SourceKey = sourceKey;
         if (channel.SourceKey is { } key && await db.IngestionChannels.AnyAsync(c => c.Id != channel.Id && c.Type == channel.Type && c.SourceKey == key, ct))
         {
             if (strict)
@@ -484,6 +511,17 @@ public static class ChannelEndpoints
             await db.SaveChangesAsync(ct);
             return null;
         }
+    }
+
+    /// <summary>Whether another mailbox channel of this tenant holds <paramref name="key"/> or is configured to read it (a tenant session sees only its own channels).</summary>
+    private static async Task<bool> TenantReadsMailboxAsync(DocProcDbContext db, Guid channelId, string key, MailOptions mail, CancellationToken ct)
+    {
+        var others = await db.IngestionChannels.AsNoTracking()
+            .Where(c => c.Id != channelId && c.Type == ChannelType.Mailbox)
+            .Select(c => new { c.SourceKey, c.ConfigJson })
+            .ToListAsync(ct);
+        return others.Any(o => string.Equals(o.SourceKey, key, StringComparison.Ordinal)
+                               || string.Equals(MailboxChannelConfig.TryParse(o.ConfigJson, mail.AllowedHosts, out _)?.SourceKey, key, StringComparison.Ordinal));
     }
 
     /// <summary>

@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Pipeline runner (docs/03): in-process queue, stage handlers, failure policy and the host composition both hosts share.</Description>
+    <!-- The folder watcher's handle-based file steps (Intake/DropZoneHandles.cs) call libc through LibraryImport. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />

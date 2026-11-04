@@ -11,9 +11,7 @@ using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Configuration;
 using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence.Entities;
-using DocProc.Pipeline.Intake;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace DocProc.Api.Tests;
@@ -283,12 +281,14 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
         var created = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{address}}","trustedForwarderDomains":["bureau.example"]}""").RootElement, "secret") { DefaultSupplierId = supplier.Id, DefaultDocumentTypeKey = "invoice" }, Ct);
         created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
         var channel = (await created.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        channel.SourceKey.ShouldBe($"imap:platform/{address}/inbox");
+        channel.SourceKey.ShouldBeNull("a mailbox's key is claimed by the poller once the channel has logged in");
         channel.DefaultSupplierId.ShouldBe(supplier.Id);
         channel.DefaultDocumentTypeKey.ShouldBe("Invoice");
         channel.HasSecret.ShouldBeTrue();
 
-        (await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{address.ToUpperInvariant()}}"}""").RootElement, null), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var twin = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{address.ToUpperInvariant()}}"}""").RootElement, null), Ct);
+        twin.StatusCode.ShouldBe(HttpStatusCode.Conflict, "another channel of this tenant is configured to read it");
+        (await twin.Content.ReadAsStringAsync(Ct)).ShouldContain("of this tenant");
         (await admin.DeleteAsync($"/api/v1/suppliers/{supplier.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "the channel names it as its default");
 
         var cleared = await admin.PatchAsJsonAsync($"/api/v1/channels/{channel.Id}", new PatchChannelRequest("renamed", null, null, null) { DefaultSupplierId = Guid.Empty, DefaultDocumentTypeKey = string.Empty }, Ct);
@@ -303,50 +303,79 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task A_tenant_without_sourceRouting_cannot_claim_a_mailbox_another_tenant_reads_by_create_or_patch()
+    public async Task No_tenant_can_lock_or_probe_a_mailbox_of_another_tenant_by_create_or_patch()
     {
-        // Tenant A (routing on) reads the mailbox; tenant B has sourceRouting off.
+        // Tenant B names tenant A's mailbox, without a secret: the channel is saved, but it claims no key (only the
+        // poller does, after a login with the channel's own secret), so tenant A's channel is not refused and the answer
+        // tells neither tenant whether the other reads the mailbox.
         using var a = Admin();
         using var b = Admin(ApiFactory.TenantB);
         var address = $"{Unique("shared")}@tenant-a.local";
         var config = JsonDocument.Parse($$"""{"address":"{{address}}"}""").RootElement;
-        var owner = (await (await a.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", config, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        owner.SourceKey.ShouldBe($"imap:platform/{address}/inbox");
+        var squatter = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", config, null), Ct);
+        squatter.StatusCode.ShouldBe(HttpStatusCode.Created, await squatter.Content.ReadAsStringAsync(Ct));
+        var squatterChannel = (await squatter.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        squatterChannel.SourceKey.ShouldBeNull();
 
-        // Without the switch a channel is saved as before P4 (a free config, no 409), but it gets no key it cannot have.
-        var twin = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", config, null), Ct);
-        twin.StatusCode.ShouldBe(HttpStatusCode.Created, await twin.Content.ReadAsStringAsync(Ct));
-        var twinChannel = (await twin.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        twinChannel.SourceKey.ShouldBeNull("the mailbox is tenant A's");
+        var owner = await a.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", config, "invoices"), Ct);
+        owner.StatusCode.ShouldBe(HttpStatusCode.Created, "another tenant's channel neither locks the mailbox nor is revealed");
+        var ownerChannel = (await owner.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        ownerChannel.SourceKey.ShouldBeNull();
+
+        // A key the poller claimed stays through a save that keeps the source; a patch to another source drops it.
+        var key = $"imap:platform/{address}/inbox";
+        _factory.Run(db => db.IngestionChannels.Single(c => c.Id == ownerChannel.Id).SourceKey = key);
+        var renamed = (await (await a.PatchAsJsonAsync($"/api/v1/channels/{ownerChannel.Id}", new PatchChannelRequest("renamed", null, null, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        renamed.SourceKey.ShouldBe(key);
+        var same = (await (await a.PatchAsJsonAsync($"/api/v1/channels/{ownerChannel.Id}", new PatchChannelRequest(null, null, JsonDocument.Parse($$"""{"address":"{{address.ToUpperInvariant()}}"}""").RootElement, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        same.SourceKey.ShouldBe(key, "the same mailbox, written otherwise");
+
+        // Tenant B's create and patch towards the mailbox tenant A's channel holds are no 409 and claim nothing.
+        var second = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Again"), "Mailbox", config, null), Ct);
+        second.StatusCode.ShouldBe(HttpStatusCode.Created, "without the switch a twin of the tenant's own channel is saved as before");
         var free = $"{Unique("own")}@tenant-b.local";
         var own = (await (await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Own"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{free}}"}""").RootElement, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        own.SourceKey.ShouldBe($"imap:platform/{free}/inbox", "a free source is claimed whatever the switch");
+        own.SourceKey.ShouldBeNull();
+        var moved = await b.PatchAsJsonAsync($"/api/v1/channels/{own.Id}", new PatchChannelRequest(null, null, config, null), Ct);
+        moved.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await moved.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!.SourceKey.ShouldBeNull();
         (await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Loose"), "Mailbox", JsonDocument.Parse("""{"provider":"imap"}""").RootElement, null), Ct))
             .StatusCode.ShouldBe(HttpStatusCode.Created, "a config that is not a mailbox's shape is still accepted without the switch");
 
-        // A patch to another tenant's mailbox drops the key it had; a patch back to its own claims it again.
-        var moved = (await (await b.PatchAsJsonAsync($"/api/v1/channels/{own.Id}", new PatchChannelRequest(null, null, config, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        moved.SourceKey.ShouldBeNull();
-        var back = (await (await b.PatchAsJsonAsync($"/api/v1/channels/{own.Id}", new PatchChannelRequest(null, null, JsonDocument.Parse($$"""{"address":"{{free}}"}""").RootElement, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
-        back.SourceKey.ShouldBe($"imap:platform/{free}/inbox");
-        (await b.PatchAsJsonAsync($"/api/v1/channels/{twinChannel.Id}", new PatchChannelRequest("renamed", null, null, null), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "a rename is no 409 without the switch");
-
-        // Switched on, the poller claims the empty key first and stops the channel: only tenant A's channel is read.
+        // With the switch on, tenant B is still not told that tenant A reads the mailbox (only its own channels count).
         _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantB).Settings.Features!.SourceRouting = true);
         try
         {
-            var poller = ActivatorUtilities.CreateInstance<ChannelPollerHostedService>(_factory.Services);
-            (await poller.PollChannelAsync(ApiFactory.TenantB, twinChannel.Id, Ct)).ShouldBe(0);
-            var stopped = _factory.Query(db => db.IngestionChannels.Single(c => c.Id == twinChannel.Id));
-            stopped.Status.ShouldBe(ChannelStatus.Error);
-            stopped.SourceKey.ShouldBeNull();
-            stopped.LastError.ShouldNotBeNull().ShouldContain("Another channel already reads");
-            _factory.Query(db => db.IngestionChannels.Single(c => c.Id == owner.Id)).Status.ShouldBe(ChannelStatus.Active);
+            var other = $"{Unique("other")}@tenant-a.local";
+            _factory.Run(db => db.IngestionChannels.Single(c => c.Id == ownerChannel.Id).ConfigJson = $$"""{"address":"{{other}}"}""");
+            _factory.Run(db => db.IngestionChannels.Single(c => c.Id == ownerChannel.Id).SourceKey = $"imap:platform/{other}/inbox");
+            var probe = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Probe"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{other}}"}""").RootElement, null), Ct);
+            probe.StatusCode.ShouldBe(HttpStatusCode.Created, "tenant A's channel is not looked at");
+            (await probe.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!.SourceKey.ShouldBeNull();
+            var ownTwin = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Probe2"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{other}}"}""").RootElement, null), Ct);
+            ownTwin.StatusCode.ShouldBe(HttpStatusCode.Conflict, "the tenant's own channel is configured to read it");
+            _factory.Query(db => db.IngestionChannels.Single(c => c.Id == ownerChannel.Id).SourceKey).ShouldBe($"imap:platform/{other}/inbox", "tenant A keeps its key");
         }
         finally
         {
             _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantB).Settings.Features!.SourceRouting = false);
         }
+    }
+
+    [Fact]
+    public async Task A_starttls_mailbox_with_and_without_its_port_is_one_source()
+    {
+        // MailboxChannelConfig.SourceKey names the port the poller connects to: 143 for starttls without a port.
+        using var admin = Admin();
+        var host = "imap.example.com";
+        var implicitPort = JsonDocument.Parse($$"""{"address":"ap@acme.example","host":"{{host}}","security":"starttls","username":"{{Unique("ap")}}"}""").RootElement;
+        var created = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Own"), "Mailbox", implicitPort, "pw"), Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var username = implicitPort.GetProperty("username").GetString();
+        var explicitPort = JsonDocument.Parse($$"""{"address":"ap@acme.example","host":"{{host}}","port":143,"security":"starttls","username":"{{username}}"}""").RootElement;
+        (await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", explicitPort, "pw"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var tls = JsonDocument.Parse($$"""{"address":"ap@acme.example","host":"{{host}}","port":993,"username":"{{username}}"}""").RootElement;
+        (await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Tls"), "Mailbox", tls, "pw"), Ct)).StatusCode.ShouldBe(HttpStatusCode.Created, "port 993 is another source");
     }
 
     [Fact]

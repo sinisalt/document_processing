@@ -389,6 +389,43 @@ public sealed class LayoutEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Only_a_tenant_admin_activates_a_version_with_a_warm_up_below_the_tenants()
+    {
+        // Decision 2 of docs/11 §24: the first 5 documents under every new version go to review, and only a tenant admin
+        // lowers that (the settings are 403 for anyone else), so an author's activation cannot lower it either.
+        var name = $"Warmup {Guid.NewGuid():N}";
+        var (supplier, _, _) = SeedLayout(name);
+        await _factory.SeedDocumentAsync(new DocumentSeed { SupplierName = name, TextLayerJson = Layer((200, "Gutschrift")), Type = Domain.Documents.DocumentTypeKey.CreditNote, Status = Domain.Documents.DocumentStatus.Approved });
+        using var admin = Admin();
+        using var author = _factory.ClientFor(new TokenSpec("tenant-a-author", [Roles.Reviewer, Roles.MappingAuthor], ApiFactory.TenantA.ToString()));
+        var rule = JsonDocument.Parse("""{ "all": [ { "text": "Gutschrift" } ] }""").RootElement;
+        var mapping = JsonDocument.Parse("""{ "fields": {} }""").RootElement;
+        async Task<SupplierLayoutResponse> AddAsync(string key) =>
+            (await (await admin.PostAsJsonAsync($"/api/v1/suppliers/{supplier}/layouts", new CreateLayoutRequest(key, key, "CreditNote", rule, mapping), Ct)).Content.ReadFromJsonAsync<SupplierLayoutResponse>(ApiFactory.Json, Ct))!;
+
+        var lowered = await AddAsync("credit-low");
+        var refused = await author.PostAsJsonAsync($"/api/v1/supplier-layouts/{lowered.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 0), Ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await refused.Content.ReadAsStringAsync(Ct)).ShouldContain("LAYOUT_WARMUP_BELOW_TENANT");
+        _factory.Query(db => db.SupplierLayoutVersions.Single(v => v.LayoutId == lowered.Id).Status).ShouldBe(SupplierLayoutVersionStatus.Candidate, "nothing was activated");
+        (await author.PostAsJsonAsync($"/api/v1/supplier-layouts/{lowered.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: TenantSettings.DefaultLayoutReviewWarmup - 1), Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        // The tenant's own warm-up, or more, is the author's to choose.
+        var same = await author.PostAsJsonAsync($"/api/v1/supplier-layouts/{lowered.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: TenantSettings.DefaultLayoutReviewWarmup), Ct);
+        same.StatusCode.ShouldBe(HttpStatusCode.OK, await same.Content.ReadAsStringAsync(Ct));
+        var raised = await AddAsync("credit-high");
+        var higher = await author.PostAsJsonAsync($"/api/v1/supplier-layouts/{raised.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 8), Ct);
+        higher.StatusCode.ShouldBe(HttpStatusCode.OK, await higher.Content.ReadAsStringAsync(Ct));
+        (await higher.Content.ReadFromJsonAsync<ActivateLayoutResponse>(ApiFactory.Json, Ct))!.Layout.Versions[0].ReviewWarmup.ShouldBe(8);
+
+        // A tenant admin may lower it for one version.
+        var byAdmin = await AddAsync("credit-admin");
+        var adminActivated = await admin.PostAsJsonAsync($"/api/v1/supplier-layouts/{byAdmin.Id}/versions/1:activate", new ActivateLayoutRequest(ReviewWarmup: 0), Ct);
+        adminActivated.StatusCode.ShouldBe(HttpStatusCode.OK, await adminActivated.Content.ReadAsStringAsync(Ct));
+        (await adminActivated.Content.ReadFromJsonAsync<ActivateLayoutResponse>(ApiFactory.Json, Ct))!.Layout.Versions[0].ReviewWarmup.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task The_document_detail_names_the_layout_version_and_the_type_source()
     {
         var name = $"Nordwind {Guid.NewGuid():N}";

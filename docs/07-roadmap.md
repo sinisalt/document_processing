@@ -1593,8 +1593,37 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       layout, the folder rule with its channel Scanner, the sender rule);
     - left for later: on a host other than Linux the folder watcher re-checks the path for links right before opening
       but cannot check the opened handle (a narrower window, not none); a move (`rename`) of a file whose folder is
-      swapped for a link between its check and the rename is not bound to a handle; two channels without a source key
-      that read the same source are resolved by poll order (the first claims it), not by which was created first.
+      swapped for a link between its check and the rename is not bound to a handle (closed on Linux x64 and arm64 by
+      the third review fixes below); two channels without a source key that read the same source are resolved by poll
+      order (the first claims it), not by which was created first.
+  - Third review fixes (recorded as "Correction (P4, third review fixes)" in docs/11 §7.1, §8.2 and §8.5):
+    - done: `supplierValue` across a space goes on only into a plain group of digits after a narrow space, so the
+      customer number of a values row (`12345   04.03.2027   RE-1001`) or of its own column holds, and the
+      `supplierValue attributes.<key>` that `identifiers:propose` proposes holds on its own document; spaced phone
+      numbers and VAT ids printed in groups still do not hold inside a longer number;
+    - done: the Validate stage runs in one transaction under the execution strategy, so a warm-up place commits with
+      the `document.layout_warmup` event or is rolled back (a twin dropped as stale, a failure before the save); the
+      publish message is queued after the commit. A pipeline test drops the first save as a twin's, a SQL Server test
+      rolls a place back while a second taker waits on the row;
+    - done: activating a version with a `reviewWarmup` below the tenant's needs a tenant admin (`403`
+      `LAYOUT_WARMUP_BELOW_TENANT` otherwise); a MappingAuthor may keep or raise it;
+    - done: a mailbox's `sourceKey` is never claimed by the API; the poller claims it after the channel logged in with
+      its own secret, the `409` looks only at the tenant's own channels, and a channel whose login is refused gives up
+      its key, so no tenant can lock or probe another tenant's mailbox (a GreenMail test with authentication on). The
+      key names the port connected to (143 for `starttls` without a port);
+    - done: a message MimeKit cannot read is skipped (cursor moved, `lastError` names it, it stays in the mailbox)
+      instead of blocking the mailbox;
+    - done: on Linux (x64, arm64) the folder watcher opens every folder from the tenant's root and the file with
+      `O_NOFOLLOW` relative to the one above, makes target folders with `mkdirat` and moves with `renameat2` between
+      folder handles, so a folder swapped for a link at any moment is neither read nor moved through; files open with
+      `O_NONBLOCK`, so a named pipe no longer hangs the poller (moved to `failed/`);
+    - done: docs/09 step 8 quotes the pre-fill as the panel shows it ("Pre-filled: 6 values", "other layout's label",
+      VAT breakdown · Rate (%));
+    - left for later: a mailbox key claimed by an earlier build of this branch for a channel that is never polled
+      (its tenant has `sourceRouting` off) is not cleared by a data step: it is given up when that channel is polled and
+      its login is refused. GreenMail in compose accepts any password, so there the login proves nothing; a production
+      platform server must check passwords. On hosts other than Linux x64/arm64 the folder watcher keeps the path checks
+      (a narrower window, not none), and a named pipe there still blocks the open.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

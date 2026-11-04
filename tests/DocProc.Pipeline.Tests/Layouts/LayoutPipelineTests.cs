@@ -11,6 +11,8 @@ using DocProc.Pipeline.Tests.Demo;
 using DocProc.Pipeline.Tests.Pdf;
 using DocProc.Pipeline.Tests.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.Pipeline.Tests.Layouts;
 
@@ -27,10 +29,10 @@ public sealed class LayoutPipelineTests
     private const string Sender = "rechnung@nordwind.example";
     private static readonly SenderAuthentication DmarcPass = new() { Dmarc = "pass", FromDomain = "nordwind.example" };
 
-    private static async Task<(PipelineTestHost Host, Supplier Nordwind)> StartAsync(bool layouts = true, bool routed = true)
+    private static async Task<(PipelineTestHost Host, Supplier Nordwind)> StartAsync(bool layouts = true, bool routed = true, Action<IServiceCollection>? services = null)
     {
         // No LLM is configured, so classification is the keyword rules' alone.
-        var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:LlmClassificationThreshold"] = "0");
+        var host = await PipelineTestHost.StartAsync(settings => settings["Pipeline:LlmClassificationThreshold"] = "0", services);
         await host.WithDbAsync(async db =>
         {
             var tenant = await db.Tenants.SingleAsync(t => t.Id == PipelineTestHost.TenantA);
@@ -258,6 +260,57 @@ public sealed class LayoutPipelineTests
         (await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id))).WarmupSeen.ShouldBe(2);
         var task = await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().SingleAsync(t => t.DocumentId == first.Id));
         task.Reason.ShouldContain(FlagCodes.LayoutWarmup);
+    }
+
+    [Fact]
+    public async Task A_validation_dropped_as_a_stale_twin_gives_its_warm_up_place_back()
+    {
+        // The save that records the first document's warm-up place fails as a twin's would (another node saved the
+        // document first): the attempt is dropped, and the place it took must not be lost with it (decision 2 of §24).
+        var twin = new TwinSavesFirst();
+        var (host, nordwind) = await StartAsync(services: s => s.ConfigureDbContext<DocProc.Infrastructure.Persistence.DocProcDbContext>(o => o.AddInterceptors(twin)));
+        await using var _ = host;
+        var (_, version) = await NordwindLayouts.AddAsync(host, nordwind.Id, NordwindLayouts.ErpKey, NordwindLayouts.ErpRule, NordwindLayouts.ErpMapping(), warmup: 2);
+
+        var dropped = await ProcessAsync(host, DemoNordwindInvoices.Erp[0]);
+        twin.Fired.ShouldBe(1);
+        dropped.Status.ShouldBe(DocumentStatus.Extracted, "the attempt was dropped unsaved");
+        (await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id))).WarmupSeen.ShouldBe(0, "the place rolled back with the attempt");
+        (await host.EventsAsync(dropped.Id)).ShouldNotContain(e => e.EventType == LayoutEventTypes.Warmup);
+
+        // The twin's run (here the message again) counts the document once, in the first place.
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(PipelineTestHost.TenantA, dropped.Id, PipelineStage.Validate), TestContext.Current.CancellationToken);
+        await host.RunUntilIdleAsync();
+        var first = await host.DocumentAsync(dropped.Id);
+        first.Status.ShouldBe(DocumentStatus.NeedsReview);
+        first.Flags.Single(f => f.Code == FlagCodes.LayoutWarmup).ToDomain().Params!["ordinal"].ShouldBe("1");
+
+        var second = await ProcessAsync(host, DemoNordwindInvoices.Erp[1]);
+        second.Status.ShouldBe(DocumentStatus.NeedsReview, "the second place is still free");
+        second.Flags.Single(f => f.Code == FlagCodes.LayoutWarmup).ToDomain().Params!["ordinal"].ShouldBe("2");
+        var third = await ProcessAsync(host, DemoNordwindInvoices.Erp[2]);
+        third.Status.ShouldBe(DocumentStatus.AutoApproved, "past the warm-up of two");
+        (await host.WithDbAsync(db => db.SupplierLayoutVersions.AsNoTracking().SingleAsync(v => v.Id == version.Id))).WarmupSeen.ShouldBe(2);
+    }
+
+    /// <summary>Fails the first save that records a warm-up place, as a stale twin's save fails.</summary>
+    private sealed class TwinSavesFirst : SaveChangesInterceptor
+    {
+        private int _fired;
+
+        public int Fired => _fired;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is { } context
+                && context.ChangeTracker.Entries<DocumentEvent>().Any(e => e.State == EntityState.Added && e.Entity.EventType == LayoutEventTypes.Warmup)
+                && Interlocked.CompareExchange(ref _fired, 1, 0) == 0)
+            {
+                throw new DbUpdateConcurrencyException("Another node saved the document first.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     [Fact]

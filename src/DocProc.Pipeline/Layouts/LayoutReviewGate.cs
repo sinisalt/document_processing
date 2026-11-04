@@ -74,7 +74,10 @@ internal sealed class LayoutReviewGate(DocProcDbContext db, LayoutIdentification
     /// <summary>
     /// The document's place in the version's warm-up (1-based), or null when it is past it: a document counted before
     /// keeps its place; otherwise it takes the next one while places are left (<see cref="LayoutWarmup.TakePlaceAsync"/>,
-    /// a compare-and-set, so two documents validated at once never take the same place, and none over the warm-up).
+    /// a compare-and-set, so two documents validated at once never take the same place, and none over the warm-up). The
+    /// Validate stage runs in one transaction (<c>ValidateHandler.RunsInTransaction</c>), so the place commits only with
+    /// the <c>layout_warmup</c> event recorded here: a twin attempt dropped as stale, or one that fails before its save,
+    /// rolls its place back, and no place of the warm-up is lost.
     /// </summary>
     private async Task<int?> WarmupOrdinalAsync(Document document, SupplierLayoutVersion version, CancellationToken cancellationToken)
     {

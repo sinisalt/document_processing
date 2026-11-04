@@ -60,6 +60,14 @@ internal sealed class ValidateHandler(
 
     protected override bool Accepts(DocumentStatus status) => status == DocumentStatus.Extracted;
 
+    /// <summary>
+    /// The stage runs in one transaction: a document's place in a layout version's warm-up
+    /// (<see cref="LayoutReviewGate"/>) is taken by a direct update, and commits only with the <c>layout_warmup</c> event
+    /// that records it, so an attempt dropped as a stale twin, or one that fails before its save, gives the place back
+    /// and the first <c>ReviewWarmup</c> documents of the version all go to review (docs/11 §8.3; decision 2 of §24).
+    /// </summary>
+    protected override bool RunsInTransaction => true;
+
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
         var tenant = await LoadTenantAsync(document, cancellationToken).ConfigureAwait(false);
@@ -143,7 +151,8 @@ internal sealed class ValidateHandler(
             // and the publish sweeper finds the row if the message is lost.
             DocumentOutbox.Add(Db, document, now);
             await Db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), cancellationToken).ConfigureAwait(false);
+            var publish = new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish);
+            AfterCommit(async ct => await queue.EnqueueAsync(publish, ct).ConfigureAwait(false));
             return StageOutcome.Stopped;
         }
 
