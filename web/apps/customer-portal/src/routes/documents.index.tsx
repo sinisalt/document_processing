@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { AlertTriangle, OctagonAlert, Search, X } from "lucide-react";
 import type { components } from "@docproc/api-client";
-import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger, useIsMobile } from "@docproc/ui";
+import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsList, TabsTrigger, Toggle, Tooltip, TooltipContent, TooltipTrigger, useIsMobile } from "@docproc/ui";
 import {
   DataTable,
   LocalizedDateInput,
@@ -18,7 +18,7 @@ import {
   useAuth,
   type DocumentListQuery,
 } from "@docproc/app-shell";
-import { useDocumentTypes } from "@docproc/review";
+import { useDocumentTypes, useTenantFeatures } from "@docproc/review";
 import { UploadDialog } from "@/components/UploadDialog";
 import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeLabel, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
@@ -35,6 +35,9 @@ const searchSchema = z.object({
   /** An indexed field's definition path and the value to find in it (`?field.<path>=value`, docs/11 §18). */
   field: z.string().optional().catch(undefined),
   value: z.string().optional().catch(undefined),
+  /** Documents held with NEW_LAYOUT (docs/11 §12.10 step 1), and those waiting for one pending Candidate layout. */
+  flag: z.enum(["NEW_LAYOUT"]).optional().catch(undefined),
+  pendingLayoutVersionId: z.string().optional().catch(undefined),
 });
 
 export type InboxSearch = z.infer<typeof searchSchema>;
@@ -66,6 +69,10 @@ function InboxPage() {
   // Columns for the indexed fields of the type the inbox is filtered by.
   const fieldColumns = useMemo(() => (search.type ? fieldChoices.slice(0, MAX_FIELD_COLUMNS) : []), [search.type, fieldChoices]);
   const filterField = fieldChoices.find((option) => option.path === search.field);
+  // The "New layouts" filter is offered to tenants with supplierLayouts (principle 6); others see the inbox as before.
+  const features = useTenantFeatures();
+  const layoutsOn = tenantScope && features.data?.supplierLayouts === true;
+  const newLayoutFilter = search.flag === "NEW_LAYOUT" || !!search.pendingLayoutVersionId;
 
   const query = useMemo<DocumentListQuery>(
     () => ({
@@ -78,9 +85,11 @@ function InboxPage() {
       fields: fieldColumns.length > 0 ? fieldColumns.map((column) => column.path).join(",") : undefined,
       // `field.<path>` is read from the query string by the API, so it is not part of the generated parameters.
       ...(fieldFilterQuery(search.field, search.value) as Partial<DocumentListQuery>),
+      flag: search.flag || undefined,
+      pendingLayoutVersionId: search.pendingLayoutVersionId || undefined,
       limit: 50,
     }),
-    [tab, search.type, search.supplierId, search.from, search.to, search.q, search.field, search.value, fieldColumns],
+    [tab, search.type, search.supplierId, search.from, search.to, search.q, search.field, search.value, fieldColumns, search.flag, search.pendingLayoutVersionId],
   );
 
   // The API answers from > to with 400; such a range is shown as an error at the inputs and not sent.
@@ -135,7 +144,16 @@ function InboxPage() {
       helper.columns([
         helper.accessor("documentNumber", {
           header: t("inbox.columns.documentNumber"),
-          cell: (info) => <span className="font-medium">{info.getValue() ?? t("inbox.noNumber")}</span>,
+          cell: (info) => (
+            <span className="flex items-center gap-2">
+              <span className="font-medium">{info.getValue() ?? t("inbox.noNumber")}</span>
+              {newLayoutFilter && (
+                <Badge variant="warning" data-testid="inbox-new-layout-badge">
+                  {t("inbox.newLayoutBadge")}
+                </Badge>
+              )}
+            </span>
+          ),
         }),
         helper.accessor("supplierName", { header: t("inbox.columns.supplier"), cell: (info) => info.getValue() ?? <span className="text-muted-foreground">—</span> }),
         // A legacy type by its translation, any other (a price list typed in review) by its catalogue name.
@@ -189,11 +207,11 @@ function InboxPage() {
           sortFn: "datetime",
         }),
       ]),
-    [t, i18n.language, fieldColumns, typeChoices],
+    [t, i18n.language, fieldColumns, typeChoices, newLayoutFilter],
   );
   const columns = phone ? phoneColumns : desktopColumns;
 
-  const hasFilters = !!(search.type || search.supplierId || search.from || search.to || search.q || search.field);
+  const hasFilters = !!(search.type || search.supplierId || search.from || search.to || search.q || search.field || search.flag || search.pendingLayoutVersionId);
 
   return (
     <>
@@ -312,6 +330,17 @@ function InboxPage() {
                 )}
               </div>
             )}
+            {(layoutsOn || newLayoutFilter) && (
+              <Toggle
+                variant="outline"
+                pressed={newLayoutFilter}
+                onPressedChange={(on) => setSearch({ flag: on ? "NEW_LAYOUT" : undefined, pendingLayoutVersionId: undefined })}
+                aria-label={t("inbox.filters.newLayouts")}
+                data-testid="inbox-new-layouts"
+              >
+                {search.pendingLayoutVersionId ? t("inbox.filters.pendingLayout") : t("inbox.filters.newLayouts")}
+              </Toggle>
+            )}
             {tenantScope && (
               <div className="flex flex-col gap-1">
                 <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">
@@ -373,7 +402,7 @@ function InboxPage() {
                     onClick={() => {
                       setDraftQ("");
                       setDraftValue("");
-                      setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined, field: undefined, value: undefined });
+                      setSearch({ type: undefined, supplierId: undefined, from: undefined, to: undefined, q: undefined, field: undefined, value: undefined, flag: undefined, pendingLayoutVersionId: undefined });
                     }}
                   >
                     <X aria-hidden />

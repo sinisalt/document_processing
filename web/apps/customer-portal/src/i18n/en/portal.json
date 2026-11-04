@@ -143,7 +143,9 @@
       "clear": "Clear filters",
       "field": "Field",
       "anyField": "Any field",
-      "fieldValue": "{{field}} is"
+      "fieldValue": "{{field}} is",
+      "newLayouts": "New layouts",
+      "pendingLayout": "Waiting for a layout"
     },
     "emptyTitle": "No documents",
     "emptyFiltered": "No document matches these filters.",
@@ -165,7 +167,8 @@
     "priority": {
       "High": "High",
       "Urgent": "Urgent"
-    }
+    },
+    "newLayoutBadge": "New layout"
   },
   "upload": {
     "button": "Upload",
@@ -206,7 +209,8 @@
       "timeline": "Timeline",
       "original": "Original",
       "table": "Table",
-      "deliveries": "Deliveries"
+      "deliveries": "Deliveries",
+      "identify": "Identification"
     },
     "form": {
       "label": "Canonical data"
@@ -274,7 +278,30 @@
       "assignSupplier": "Assign supplier",
       "createSupplier": "Create supplier from this document",
       "split": "Split into documents",
-      "join": "Join parts"
+      "join": "Join parts",
+      "approveAndSave": "Approve and save as layout",
+      "approvedAndSaved": "Document approved and saved as a layout.",
+      "saveAsLayout": "Save as layout",
+      "saveAsLayoutOff": "The document is approved only; NEW_LAYOUT is resolved as approved without a layout.",
+      "saveAsLayoutPending": "Confirms the pending layout with this document (no second layout).",
+      "saveAsLayoutVersion": "Saves a new version of the chosen layout.",
+      "saveAsLayoutNew": "Saves the identifiers and field positions as {{layout}} ({{rule}}).",
+      "ruleMarked_one": "{{count}} identifier marked",
+      "ruleMarked_other": "{{count}} identifiers marked",
+      "ruleProposed": "rule proposed from the title and the VAT id",
+      "layoutRefused": "The layout could not be saved; the document was not approved",
+      "layoutRefusedCode": {
+        "RULE_INVALID": "The identification rule is not valid.",
+        "RULE_DOES_NOT_HOLD": "The identification rule does not hold on this document.",
+        "LAYOUT_EXISTS": "The supplier has a layout with this key for this type already.",
+        "LAYOUT_NOT_RECOGNISED": "The new version no longer recognises documents of the old design; confirm that in the New layout panel.",
+        "NOT_LEARNABLE": "This document cannot be saved as a layout.",
+        "NOTHING_LEARNED": "No value could be learned with its place on the page; map the values from the page first.",
+        "TARGET_NOT_FOUND": "The layout to replace was not found.",
+        "PENDING_NOT_FOUND": "The pending layout was not found."
+      },
+      "markGolden": "Mark as golden",
+      "markedGolden": "Kept as a golden document."
     },
     "viewer": {
       "toolbar": "Page viewer",
@@ -294,7 +321,10 @@
       "map": "Map",
       "tableTool": "Table tool",
       "tableToolHint": "Table tool: draw the table once and apply it to all pages",
-      "table": "Table"
+      "table": "Table",
+      "identifyMode": "Identify mode",
+      "identifyModeHint": "Mark the words that identify this design (I)",
+      "identify": "Identify"
     },
     "overlay": {
       "label_one": "{{count}} highlighted field on this page",
@@ -451,6 +481,105 @@
       "description": "Where this document was delivered: one row per binding that matched its approval or rejection. Open a row for its attempts, the receiver's answers and the payload as sent.",
       "empty": "No deliveries",
       "emptyDescription": "No binding matched this document, or it has not been approved or rejected yet."
+    },
+    "layoutChip": "Layout {{layout}} v{{version}}",
+    "layoutChipHint": "The layout that recognised this document and filled its fields",
+    "newLayoutBadge": "New layout",
+    "identify": {
+      "title": "Identification",
+      "start": "Mark identifiers on the page",
+      "identifiedBy": "Recognised by {{layout}}; the highlighted words are its evidence.",
+      "hint": "Click a word (shift-click adds one) or draw a box around a title or a logo line: it becomes an identifier of this design.",
+      "proposing": "Reading the selection…",
+      "add": "Add identifier",
+      "cancel": "Discard",
+      "connective": "How the identifiers combine",
+      "all": "All of these",
+      "any": "Any of these",
+      "empty": "No identifiers marked yet. Without any, saving proposes a rule: the type keyword in the page-1 title and the supplier's VAT id where it is printed.",
+      "chips": "Identifiers",
+      "must": "Must contain",
+      "mustNot": "Must not contain",
+      "caseSensitive": "Case-sensitive",
+      "widen": "Widen the location",
+      "toggleCase": "Case-sensitive on or off",
+      "toggleNegative": "Must contain or must not contain",
+      "remove": "Remove identifier",
+      "testing": "Testing the rule…",
+      "holds": "Holds for this document",
+      "doesNotHold": "Does not hold for this document: {{failed}}",
+      "recent": "Matches {{matched}} of the supplier's last {{tested}} documents",
+      "noLayout": "no layout",
+      "overlapTitle": "Also matches documents of other layouts",
+      "overlap": "Add an identifier that tells them apart: {{layouts}}",
+      "location": {
+        "area": "this area",
+        "region": "this region of the page",
+        "page": "anywhere on this page",
+        "anyPage": "any page"
+      }
+    },
+    "newLayout": {
+      "title": "New layout",
+      "message": "{{supplier}} sent a document in a design we have not seen. It was not processed with another layout: match it to a type, check the values and save it as a layout.",
+      "ambiguousTitle": "Several layouts recognise this document",
+      "ambiguous": "Layouts of {{supplier}} recognise it equally ({{layouts}}); none was applied. Check the values and approve, or change the layouts' priority in the Suppliers sheet.",
+      "pending": "This matches {{layout}}, a layout saved in review and waiting for activation.",
+      "pendingHint": "Confirming fills the values from the pending layout and adds this document to its replay set; it creates no second layout.",
+      "confirmPending": "Confirm against pending layout",
+      "confirmedPending": "Confirmed against {{layout}}.",
+      "type": "Type",
+      "pickType": "Pick a type",
+      "proposed": "proposed",
+      "typeProposed": "The type was proposed by the classifiers; matching confirms it.",
+      "match": "Match to {{type}}",
+      "matched": "Matched to {{type}}.",
+      "suggestions": "Similar layouts",
+      "suggestionHint": "Seeds the pre-fill with this layout's labels; its positions are not used",
+      "similar": "Similar to {{layout}} ({{percent}} %)",
+      "saveAs": "Save as",
+      "saveAsNew": "A new layout of this supplier (the existing layouts stay active)",
+      "saveAsVersion": "A new version of an existing layout (a redesign that replaces it)",
+      "layoutKey": "Layout key",
+      "layoutKeyInvalid": "Lower-case letters, digits and dashes; at most 64 characters.",
+      "name": "Name",
+      "target": "Layout to replace",
+      "versionWarning": "Documents in the old design will no longer be recognised once the new version is active; they would get NEW_LAYOUT.",
+      "confirmNotRecognised": "I confirm that the old design will no longer be recognised",
+      "prefilled_one": "Pre-filled: {{count}} value",
+      "prefilled_other": "Pre-filled: {{count}} values",
+      "nothingPrefilled": "Nothing could be pre-filled; fill the values from the page in map mode.",
+      "llmSkipped": "No AI filled the rest (none is configured for this tenant, or it could not read the document).",
+      "source": {
+        "pendingLayout": "pending layout",
+        "otherLayout": "other layout's label",
+        "definitionLabel": "type's label",
+        "masterData": "master data",
+        "knownValue": "known value",
+        "llm": "AI"
+      }
+    },
+    "layoutSaved": {
+      "title": "Layout saved",
+      "description": "{{layout}} version {{version}} was saved from this document.",
+      "loading": "Loading the layout…",
+      "warmup_one": "Active: the next document in this design goes to review first (warm-up of {{count}}).",
+      "warmup_other": "Active: the next {{count}} documents in this design go to review first (warm-up), already filled by the layout.",
+      "noWarmup": "Active: the next document in this design is filled and goes to review only when a check fails.",
+      "candidate": "Saved as a candidate: a mapping author activates it after its replay. Documents in this design wait for it.",
+      "identificationPassed": "Identification test passed: the rule holds here and on no document of another layout.",
+      "identificationFailed": "Identification test failed: the rule also holds on documents of another layout.",
+      "replayFields_one": "{{count}} field replayed on {{documents}} documents; lowest agreement {{lowest}} %.",
+      "replayFields_other": "{{count}} fields replayed on {{documents}} documents; lowest agreement {{lowest}} %.",
+      "siblingsActive_one": "{{count}} more document in review matches this layout.",
+      "siblingsActive_other": "{{count}} more documents in review match this layout.",
+      "siblingsCandidate_one": "{{count}} more document in review now waits for this layout.",
+      "siblingsCandidate_other": "{{count}} more documents in review now wait for this layout.",
+      "reprocess_one": "Reprocess {{count}} document",
+      "reprocess_other": "Reprocess {{count}} documents",
+      "reprocessed_one": "{{count}} document sent back from Classify.",
+      "reprocessed_other": "{{count}} documents sent back from Classify.",
+      "notFound": "The saved layout could not be found."
     }
   },
   "queue": {
@@ -519,7 +648,11 @@
     },
     "tabs": {
       "details": "Details",
-      "activity": "Activity"
+      "activity": "Activity",
+      "settings": "Settings",
+      "attributes": "Attributes",
+      "routing": "Routing",
+      "layouts": "Layouts"
     },
     "fields": {
       "name": "Name",
@@ -539,7 +672,187 @@
       "attributesInvalid": "Line {{line}} is not key = value (a key starts with a letter; at most 50 attributes)."
     },
     "platformScopeTitle": "Choose a tenant",
-    "platformScope": "Suppliers belong to a tenant; platform accounts manage a tenant's suppliers in the admin console."
+    "platformScope": "Suppliers belong to a tenant; platform accounts manage a tenant's suppliers in the admin console.",
+    "pageTabs": {
+      "suppliers": "Suppliers",
+      "groups": "Supplier groups"
+    },
+    "settings": {
+      "layoutsRequired": "Layouts required",
+      "layoutsRequiredHint": "A layout-managed supplier's documents are processed only by its layouts; a design none recognises goes to review with NEW_LAYOUT.",
+      "inheritTenant": "Inherit (tenant default: {{value}})",
+      "yes": "Yes",
+      "no": "No",
+      "group": "Supplier group",
+      "noGroup": "No group",
+      "defaultType": "Default type",
+      "noDefaultType": "None",
+      "fixDocumentType": "Pin a single allowed type",
+      "fix": {
+        "whenSourceMatched": "When the source matched (default)",
+        "always": "Always",
+        "never": "Never"
+      },
+      "reviewMode": "Review",
+      "review": {
+        "inherit": "Like the tenant (and group)",
+        "always": "Always review"
+      },
+      "culture": "Locale",
+      "dateOrder": "Date order",
+      "fromCulture": "From the locale",
+      "currency": "Default currency",
+      "requireSenderAuth": "Sender rules need DMARC",
+      "senderAuthDefault": "Default (required)",
+      "allowedTypes": "Allowed types",
+      "allowedTypesHint": "A single allowed type is pinned at ingest as set above."
+    },
+    "attributes": {
+      "none": "None",
+      "noSchemaTitle": "No attribute schema",
+      "noSchema": "Define the typed attributes in Settings > General; until then edit them as lines in Details.",
+      "own": "The supplier's attributes",
+      "save": "Save attributes",
+      "saved": "Attributes saved.",
+      "perEntity": "Per receiving entity",
+      "noEntities": "The tenant has no receiving entities.",
+      "entity": "Receiving entity",
+      "pickEntity": "Pick an entity",
+      "entitySave": "Save for this entity",
+      "entitySaved": "Attributes for the entity saved.",
+      "entityRemove": "Remove the attributes for this entity",
+      "entityRemoved": "Attributes for the entity removed.",
+      "invalid": {
+        "number": "Not a number.",
+        "integer": "Not a whole number."
+      }
+    },
+    "routing": {
+      "description": "Source rules give a document this supplier from where it came from: sender, domain, recipient, channel, folder, subject or file name. All conditions of a rule must hold; sender rules need DMARC unless the rule says otherwise.",
+      "add": "Add source rule",
+      "rules": "Source rules",
+      "empty": "No source rules",
+      "emptyDescription": "Without one the supplier is found by the document's content (VAT id, IBAN, name).",
+      "proposal": "Proposed in review",
+      "off": "Off",
+      "toggle": "Rule on or off",
+      "delete": "Delete rule",
+      "deleteTitle": "Delete this source rule?",
+      "created": "Rule saved: {{rule}}",
+      "enabled": "Rule on.",
+      "disabled": "Rule off.",
+      "deleted": "Rule deleted.",
+      "formHint": "At least a sender, a sender domain, a recipient or a channel; a folder prefix needs its channel.",
+      "fields": {
+        "sender": "Sender",
+        "senderDomain": "Sender domain",
+        "recipient": "Recipient",
+        "folderPrefix": "Folder prefix",
+        "subjectRegex": "Subject (expression)",
+        "fileNameRegex": "File name (expression)",
+        "channelId": "Channel",
+        "mode": "Mode",
+        "pinTypeKey": "Pins the type",
+        "receivingEntityId": "Receiving entity",
+        "priority": "Priority",
+        "requireSenderAuth": "Require sender authentication (DMARC)"
+      },
+      "anyChannel": "Any channel",
+      "noPin": "Does not pin a type",
+      "noEntity": "None",
+      "modes": {
+        "Exclusive": "Exclusive (contrary content blocks)",
+        "DefaultWhenNoContentMatch": "Default (content wins)"
+      },
+      "save": "Save rule"
+    },
+    "layouts": {
+      "empty": "No layouts",
+      "emptyDescription": "Layouts are saved from review (\"Approve and save as layout\").",
+      "typeHeading": "{{type}}: {{layouts}}",
+      "priority": "priority {{priority}}",
+      "lastMatched": "last matched {{when}}",
+      "status": {
+        "Draft": "Draft",
+        "Candidate": "Candidate",
+        "Shadow": "Shadow",
+        "Active": "Active",
+        "Degraded": "Degraded",
+        "Retired": "Retired"
+      },
+      "origin": {
+        "Human": "written by hand",
+        "Review": "learned in review",
+        "NewLayoutReview": "from a new-layout review",
+        "LlmProposed": "proposed by AI",
+        "Imported": "imported"
+      },
+      "warmupLeft": "warm-up: {{seen}} of {{of}} documents reviewed",
+      "noWarmup": "no warm-up",
+      "warmupDone": "warm-up of {{of}} done",
+      "createdBy": "by {{by}}, {{when}}",
+      "stats": {
+        "identified_one": "{{count}} identified",
+        "identified_other": "{{count}} identified",
+        "applied_one": "{{count}} filled",
+        "applied_other": "{{count}} filled",
+        "corrected_one": "{{count}} corrected",
+        "corrected_other": "{{count}} corrected",
+        "failures_one": "{{count}} drifting in a row",
+        "failures_other": "{{count}} drifting in a row"
+      },
+      "identificationPassed": "Identification test passed",
+      "identificationFailed_one": "Identification test failed: {{count}} overlap",
+      "identificationFailed_other": "Identification test failed: {{count}} overlaps",
+      "replaySet_one": "Replay set: {{count}} document; a field needs {{threshold}} %.",
+      "replaySet_other": "Replay set: {{count}} documents; a field needs {{threshold}} %.",
+      "field": "Field",
+      "agreement": "Agreement",
+      "hits": "Hits",
+      "mismatches": "Mismatches",
+      "missing": "Missing",
+      "replay": "Replay",
+      "replayPassed": "Replay passed.",
+      "replayFailed": "Replay did not pass.",
+      "waiting_one": "{{count}} document waits for this candidate",
+      "waiting_other": "{{count}} documents wait for this candidate",
+      "activate": "Activate",
+      "activateAndReprocess_one": "Activate and reprocess {{count}} document",
+      "activateAndReprocess_other": "Activate and reprocess {{count}} documents",
+      "activateTitle": "Activate {{layout}} v{{version}}?",
+      "activateDescription": "The identification test and the field replay run first; the version Active before is retired.",
+      "warmupField": "Review warm-up",
+      "warmupFieldHint": "Empty takes the tenant's value ({{value}}).",
+      "reprocessWaiting_one": "Reprocess the {{count}} waiting document from Classify",
+      "reprocessWaiting_other": "Reprocess the {{count}} waiting documents from Classify",
+      "activated_one": "{{layout}} v{{version}} is active; {{count}} document reprocessed.",
+      "activated_other": "{{layout}} v{{version}} is active; {{count}} documents reprocessed.",
+      "activateRefused": "The version was not activated",
+      "retire": "Retire layout",
+      "retireTitle": "Retire {{layout}}?",
+      "retireDescription": "Documents in this design are no longer recognised by it; they get NEW_LAYOUT.",
+      "retired": "{{layout}} retired."
+    },
+    "groups": {
+      "description": "Members inherit a group's attributes and settings (their own win); a group's layouts serve members without their own.",
+      "add": "Add group",
+      "caption": "Supplier groups",
+      "empty": "No supplier groups",
+      "emptyDescription": "Group suppliers that share attributes or layouts.",
+      "columns": {
+        "name": "Name",
+        "members": "Members",
+        "attributes": "Attributes"
+      },
+      "createTitle": "New supplier group",
+      "editTitle": "Edit supplier group",
+      "dialogDescription": "The name is unique in the tenant.",
+      "saved": "Group {{name}} saved.",
+      "saveFailed": "The group could not be saved",
+      "deleted": "Group deleted.",
+      "delete": "Delete group",
+      "deleteTitle": "Delete {{name}}?"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -557,7 +870,10 @@
       "channels": "Channels",
       "ai": "AI providers",
       "types": "Document types",
-      "integrations": "Integrations"
+      "integrations": "Integrations",
+      "routing": "Routing",
+      "entities": "Receiving entities",
+      "governance": "Governance"
     },
     "general": {
       "identityTitle": "Organisation",
@@ -797,6 +1113,135 @@
         "tableToggle": "Show as table",
         "empty": "No usage yet",
         "emptyDescription": "Usage appears once documents are processed with an AI provider."
+      }
+    },
+    "layouts": {
+      "title": "Layouts and routing",
+      "description": "How learned layouts are activated, and how documents are routed to suppliers.",
+      "warmup": "Review warm-up",
+      "warmupHint": "The first documents under a newly activated layout version go to review, already filled. 5 by default; 0 lets the next one through when every check passes. Active versions on the old value follow.",
+      "agreement": "Field agreement for activation (%)",
+      "agreementHint": "The share of the replay set a field must read correctly before a version is activated.",
+      "requiredByDefault": "Layouts required by default",
+      "requiredByDefaultHint": "A source-routed supplier whose layouts setting is \"inherit\" is layout-managed before its first layout exists.",
+      "trustedForwarders": "Trusted forwarder domains",
+      "trustedForwardersHint": "Forwards from these domains are unwrapped to their original sender. One per line.",
+      "attributeSchema": "Attribute schema (JSON Schema)",
+      "attributeSchemaHint": "Typed attributes of suppliers, groups and entities: properties of type string, number, integer or boolean. Empty removes it.",
+      "schemaInvalid": "Not valid JSON."
+    },
+    "routing": {
+      "title": "Mail and folder channels",
+      "description": "Mailboxes and watched folders the worker reads; each document gets the channel's defaults unless a source rule or its content says otherwise.",
+      "addMailbox": "Add mailbox",
+      "addFolder": "Add watched folder",
+      "editMailbox": "Edit mailbox",
+      "editFolder": "Edit watched folder",
+      "mailboxHint": "Without a server the platform's mail server is read; a server of your own must be public and is reached over TLS.",
+      "folderHint": "A folder below the tenant's drop zone; a file is taken once its size stayed the same, then moved to processed/ or failed/.",
+      "caption": "Mail and folder channels",
+      "empty": "No mail or folder channels",
+      "emptyDescription": "Add a mailbox or a watched folder to receive documents from it.",
+      "columns": {
+        "place": "Address or folder",
+        "defaults": "Defaults"
+      },
+      "edit": "Edit",
+      "editLabel": "Edit {{name}}",
+      "channelSaved": "Channel {{name}} saved.",
+      "fields": {
+        "address": "Mailbox address",
+        "host": "IMAP server",
+        "hostPlaceholder": "the platform's server",
+        "port": "Port",
+        "security": "Security",
+        "securityDefault": "Default (SSL/TLS)",
+        "username": "User name",
+        "secretKept": "unchanged",
+        "folder": "IMAP folder",
+        "trustedForwarderDomains": "Trusted forwarder domains",
+        "unwrapForwards": "Unwrap forwarded messages from trusted forwarders",
+        "path": "Folder below the drop zone",
+        "pattern": "File pattern",
+        "stableSeconds": "Stable for (seconds)",
+        "defaultSupplier": "Default supplier",
+        "noDefault": "None",
+        "defaultType": "Default type",
+        "defaultEntity": "Default receiving entity"
+      }
+    },
+    "entities": {
+      "title": "Receiving entities",
+      "description": "Your own companies or branches that documents are addressed to. Outputs read the document's entity; source rules and channels can name one.",
+      "add": "Add entity",
+      "caption": "Receiving entities",
+      "empty": "No receiving entities",
+      "emptyDescription": "Add the companies or branches your documents are addressed to.",
+      "columns": {
+        "code": "Code",
+        "name": "Name",
+        "vatIds": "VAT ids",
+        "attributes": "Attributes"
+      },
+      "createTitle": "New receiving entity",
+      "editTitle": "Edit receiving entity",
+      "dialogDescription": "The code is unique in the tenant; VAT ids one per line.",
+      "saved": "Entity {{code}} saved.",
+      "saveFailed": "The entity could not be saved",
+      "deleted": "Entity deleted.",
+      "delete": "Delete entity",
+      "deleteTitle": "Delete {{code}}?",
+      "deleteDescription": "Refused while a document, a source rule, a channel or supplier attributes name it."
+    },
+    "governance": {
+      "goldenTitle": "Golden documents",
+      "goldenDescription": "Approved documents whose values are kept as the expected result; replays and regression runs compare against them.",
+      "goldenEmpty": "No golden documents",
+      "goldenEmptyDescription": "Mark an approved document as golden in review.",
+      "goldenRemove": "Remove golden document",
+      "goldenRemoveTitle": "Remove this golden document?",
+      "goldenRemoved": "Golden document removed.",
+      "document": "Document",
+      "type": "Type",
+      "note": "Note",
+      "added": "Added",
+      "runsTitle": "Sandbox and regression runs",
+      "runsDescription": "Run a stored document through a layout version or a draft rule and mapping, or a version through the golden documents. Nothing is written.",
+      "supplier": "Supplier",
+      "pickSupplier": "Pick a supplier",
+      "version": "Layout version",
+      "pickVersion": "Pick a version",
+      "documentId": "Document id",
+      "draftRule": "Draft rule (JSON, optional)",
+      "draftMapping": "Draft mapping (JSON, optional)",
+      "sandbox": "Run in sandbox",
+      "regression": "Run regression",
+      "passed": "Passed",
+      "failed": "Differences found",
+      "jsonInvalid": "Not valid JSON",
+      "bundleTitle": "Configuration bundle",
+      "bundleDescription": "Export types, layouts, source rules, outputs and bindings as signed JSON (no secrets), and import one with a dry run first.",
+      "include": "Include",
+      "parts": {
+        "types": "Types",
+        "layouts": "Layouts",
+        "sourceRules": "Source rules",
+        "outputs": "Output mappings",
+        "bindings": "Bindings"
+      },
+      "export": "Export bundle",
+      "exported": "Bundle exported.",
+      "importFile": "Bundle to import",
+      "dryRun": "Dry run",
+      "apply": "Apply",
+      "importApplied": "Bundle imported.",
+      "signatureValid": "Signature valid.",
+      "signatureInvalid": "Signature not valid.",
+      "actions": {
+        "create": "create",
+        "newVersion": "new version",
+        "skip": "skip",
+        "error": "error"
       }
     }
   },
@@ -1255,6 +1700,38 @@
       "hidePayload": "Hide payload",
       "redeliverSnapshot": "Redeliver",
       "redeliverRerender": "Render again and redeliver"
+    }
+  },
+  "routing": {
+    "test": {
+      "title": "Test routing",
+      "description": "A source as ingest sees it, run against the enabled source rules: which supplier it gets and why.",
+      "sender": "Sender (From)",
+      "recipients": "Recipients (To, Cc)",
+      "dmarc": "DMARC",
+      "spf": "SPF",
+      "auth": {
+        "pass": "pass",
+        "fail": "fail",
+        "none": "none"
+      },
+      "channel": "Channel",
+      "anyChannel": "No channel",
+      "folderPath": "Folder path",
+      "subject": "Subject",
+      "fileName": "File name",
+      "run": "Test",
+      "winner": "Routed to {{supplier}}",
+      "noWinner": "No supplier from the source",
+      "method": {
+        "sourceRule": "source rule",
+        "channelDefault": "channel default"
+      },
+      "pins": "pins {{type}}",
+      "candidates": "Candidate rules",
+      "held": "held: {{conditions}}",
+      "failed": "failed: {{conditions}}",
+      "unverified": "(sender not authenticated)"
     }
   }
 }

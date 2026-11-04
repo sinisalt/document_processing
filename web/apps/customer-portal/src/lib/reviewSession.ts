@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { TableToolState } from "@docproc/review";
+import type { IdentificationDraft, LayoutSaveChoice } from "./layouts";
 
 /**
  * What the review screen keeps for a document while the reviewer stays in this tab: the screen is remounted for every
@@ -15,6 +16,13 @@ export interface ReviewSession {
   /** The field map mode fills (its form path). */
   mapTarget?: string | null;
   table?: TableToolState | null;
+  /** Identify mode (docs/11 §12.9) and the identifiers marked so far. */
+  identifyMode?: boolean;
+  identification?: IdentificationDraft;
+  /** How "Approve and save as layout" saves the document (docs/11 §12.10 steps 2 and 6). */
+  layoutChoice?: LayoutSaveChoice | null;
+  /** The layout an approval just saved, shown once the screen remounts with the approved document. */
+  savedLayout?: { supplierId: string; typeKey: string; layoutKey: string | null; pendingLayoutVersionId: string | null } | null;
 }
 
 const sessions = new Map<string, ReviewSession>();

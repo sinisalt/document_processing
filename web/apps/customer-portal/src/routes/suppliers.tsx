@@ -33,7 +33,14 @@ import {
   Textarea,
 } from "@docproc/ui";
 import { ApiError, DataTable, EmptyState, PageHeader, Policies, StatusBadge, createDataTableColumnHelper, formatDate, formatMoney, queryKeys, relativeTime, unwrap, useApi, useAuth, type DocumentStatus } from "@docproc/app-shell";
-import { EMPTY_ARRAY, useSuppliers, type Supplier } from "@/lib/queries";
+import { useTenantFeatures } from "@docproc/review";
+import { SupplierAttributesTab } from "@/components/suppliers/SupplierAttributesTab";
+import { SupplierGroupsPanel } from "@/components/suppliers/SupplierGroupsPanel";
+import { SupplierLayoutsTab } from "@/components/suppliers/SupplierLayoutsTab";
+import { SupplierRoutingTab } from "@/components/suppliers/SupplierRoutingTab";
+import { SupplierSettingsTab } from "@/components/suppliers/SupplierSettingsTab";
+import { attributeFields } from "@/lib/attributeSchema";
+import { EMPTY_ARRAY, useSuppliers, useTenantSettings, type Supplier } from "@/lib/queries";
 import { attributesText, parseAttributes, type Attributes } from "@/lib/supplierAttributes";
 
 export const Route = createFileRoute("/suppliers")({ component: SuppliersPage });
@@ -100,6 +107,10 @@ function SuppliersScreen() {
   const [editing, setEditing] = useState<Supplier | null | "new">(null);
 
   const list = useSuppliers({ q, limit: 50 });
+  // Supplier groups (docs/11 §19 item 3 "There is also a Supplier groups list") with the tenant's sourceRouting switch.
+  const features = useTenantFeatures();
+  const routing = features.data?.sourceRouting === true;
+  const [pageTab, setPageTab] = useState("suppliers");
 
   const columns = useMemo(
     () =>
@@ -142,6 +153,19 @@ function SuppliersScreen() {
           ) : undefined
         }
       />
+      {routing && (
+        <Tabs value={pageTab} onValueChange={setPageTab}>
+          <TabsList>
+            <TabsTrigger value="suppliers">{t("suppliers.pageTabs.suppliers")}</TabsTrigger>
+            <TabsTrigger value="groups" data-testid="supplier-groups-tab">
+              {t("suppliers.pageTabs.groups")}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+      {routing && pageTab === "groups" ? (
+        <SupplierGroupsPanel canEdit={canManage} />
+      ) : (
       <DataTable
         columns={columns}
         data={list.items.length ? list.items : EMPTY_ARRAY}
@@ -180,6 +204,7 @@ function SuppliersScreen() {
           </>
         }
       />
+      )}
       <SupplierSheet supplier={editing === "new" ? null : editing} open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} canManage={canManage} />
     </>
   );
@@ -199,6 +224,13 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
   const queryClient = useQueryClient();
   const form = useForm<SupplierForm>({ resolver: zodResolver(supplierSchema), defaultValues: toForm(supplier) });
   const [tab, setTab] = useState("details");
+  // The P4 tabs (docs/11 §19 item 3): Settings, Attributes and Routing with sourceRouting, Layouts with supplierLayouts.
+  const features = useTenantFeatures();
+  const routing = features.data?.sourceRouting === true;
+  const layoutsOn = features.data?.supplierLayouts === true;
+  const tenantSettings = useTenantSettings(routing);
+  const schemaFields = attributeFields(tenantSettings.data?.settings?.supplierAttributeSchema);
+  const typedAttributes = routing && schemaFields.length > 0;
 
   useEffect(() => {
     form.reset(toForm(supplier));
@@ -254,14 +286,32 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden sm:max-w-xl">
+      <SheetContent className={routing || layoutsOn ? "flex w-full flex-col gap-0 overflow-hidden sm:max-w-3xl" : "flex w-full flex-col gap-0 overflow-hidden sm:max-w-xl"}>
         <SheetHeader>
           <SheetTitle>{supplier ? supplier.name : t("suppliers.createTitle")}</SheetTitle>
           <SheetDescription>{supplier ? t("suppliers.editDescription") : t("suppliers.createDescription")}</SheetDescription>
         </SheetHeader>
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-4">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="details">{t("suppliers.tabs.details")}</TabsTrigger>
+            {routing && (
+              <>
+                <TabsTrigger value="settings" disabled={!supplier} data-testid="supplier-tab-settings">
+                  {t("suppliers.tabs.settings")}
+                </TabsTrigger>
+                <TabsTrigger value="attributes" disabled={!supplier} data-testid="supplier-tab-attributes">
+                  {t("suppliers.tabs.attributes")}
+                </TabsTrigger>
+                <TabsTrigger value="routing" disabled={!supplier} data-testid="supplier-tab-routing">
+                  {t("suppliers.tabs.routing")}
+                </TabsTrigger>
+              </>
+            )}
+            {layoutsOn && (
+              <TabsTrigger value="layouts" disabled={!supplier} data-testid="supplier-tab-layouts">
+                {t("suppliers.tabs.layouts")}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="activity" disabled={!supplier}>
               {t("suppliers.tabs.activity")}
             </TabsTrigger>
@@ -341,6 +391,7 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
                     )}
                   />
                 ))}
+                {!typedAttributes && (
                 <FormField
                   control={form.control}
                   name="attributes"
@@ -355,6 +406,7 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
                     </FormItem>
                   )}
                 />
+                )}
                 <FormField
                   control={form.control}
                   name="alwaysReview"
@@ -373,6 +425,24 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
               </form>
             </Form>
           </TabsContent>
+          {supplier && routing && (
+            <>
+              <TabsContent value="settings" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "settings" && <SupplierSettingsTab key={supplier.id + supplier.updatedAt} supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+              <TabsContent value="attributes" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "attributes" && <SupplierAttributesTab key={supplier.id + supplier.updatedAt} supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+              <TabsContent value="routing" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "routing" && <SupplierRoutingTab supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+            </>
+          )}
+          {supplier && layoutsOn && (
+            <TabsContent value="layouts" className="min-h-0 flex-1 overflow-y-auto py-4">
+              {tab === "layouts" && <SupplierLayoutsTab supplier={supplier} />}
+            </TabsContent>
+          )}
           <TabsContent value="activity" className="min-h-0 flex-1 overflow-y-auto py-4">
             {activity.isPending ? (
               <div className="flex flex-col gap-2" aria-busy>

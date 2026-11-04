@@ -30,6 +30,10 @@ import {
 } from "@docproc/review";
 import { DeliveriesTab } from "./DeliveriesTab";
 import { FlagsList, sortFlags } from "./FlagsList";
+import { IdentificationCard } from "./IdentificationCard";
+import { LayoutSavedDialog } from "./LayoutSavedDialog";
+import { NewLayoutPanel, defaultLayoutChoice } from "./NewLayoutPanel";
+import { useIdentify } from "./useIdentify";
 import { MapDocumentPanel } from "./MapDocumentPanel";
 import { OriginalTab } from "./OriginalTab";
 import { PageViewer, type PageViewerTools } from "./PageViewer";
@@ -38,6 +42,8 @@ import { Timeline } from "./Timeline";
 import { useMapMode } from "./useMapMode";
 import { useTableTool } from "./useTableTool";
 import { collectProvenanceBoxes } from "@/lib/overlay";
+import { useSupplierLayouts } from "@/lib/layoutQueries";
+import { EMPTY_DRAFT, appliedEvidence, appliedLayout, evidenceBoxes, learnLayoutRequest, openLayoutFlag } from "@/lib/layouts";
 import { useDocumentEvents, type DocumentDetail, type DocumentFlag } from "@/lib/queries";
 import { useSessionState } from "@/lib/reviewSession";
 import { reviewReasonLabels, reviewRequestReason } from "@/lib/reviewReason";
@@ -159,6 +165,32 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
   const targetSpec = useMemo(() => (mapTarget ? (specs.find((s) => s.path === mapTarget) ?? null) : null), [specs, mapTarget]);
   const map = useMapMode(document.id, targetSpec, locale);
   const table = useTableTool(document, formSpec, groupPath, groupPath !== null && pageCount > 0);
+  // Layouts (docs/11 §12.9, §12.10): the New layout panel for a document held with NEW_LAYOUT or LAYOUT_AMBIGUOUS, how
+  // "Approve and save as layout" saves it, and Identify mode with its Identification card. Only documents of a tenant
+  // with supplierLayouts carry these flags or a layout, so every other tenant sees the screen as before.
+  const layoutFlag = useMemo(() => openLayoutFlag(document), [document]);
+  const newLayout = layoutFlag?.code === "NEW_LAYOUT" ? layoutFlag : null;
+  const identifiedLayout = useMemo(() => appliedLayout(document.appliedConfig), [document.appliedConfig]);
+  const learnable = canReview && isCorrectable(document.status) && newLayout !== null && !!document.supplierId;
+  const identifyAvailable = pageCount > 0 && !!document.supplierId && (learnable || (identifiedLayout !== null && !!document.supplierLayoutVersionId));
+  const supplierLayouts = useSupplierLayouts(document.supplierId, newLayout !== null);
+  const [identifyChoice, setIdentifyMode] = useSessionState(document.id, "identifyMode", false);
+  const identifyMode = identifyAvailable && identifyChoice;
+  const [identification, setIdentification] = useSessionState(document.id, "identification", EMPTY_DRAFT);
+  const [storedChoice, setLayoutChoice] = useSessionState(document.id, "layoutChoice", null);
+  const layoutChoice = useMemo(
+    () => storedChoice ?? (newLayout ? defaultLayoutChoice(document, newLayout, (supplierLayouts.data ?? []).map((l) => l.layoutKey)) : null),
+    [storedChoice, newLayout, document, supplierLayouts.data],
+  );
+  const [savedLayout, setSavedLayout] = useSessionState(document.id, "savedLayout", null);
+  const identify = useIdentify(document.id, document.supplierId ?? null, identification, setIdentification, document.definition?.key ?? null);
+  const evidence = useMemo(() => {
+    if (!identifyMode) return [];
+    const tested = identify.here.data?.documents.find((d) => d.documentId === document.id);
+    return evidenceBoxes(tested ? tested.evidence : identify.rule === null ? appliedEvidence(document.appliedConfig) : [], page);
+  }, [identifyMode, identify.here.data, identify.rule, document.id, document.appliedConfig, page]);
+  const layoutRequest = layoutChoice ? learnLayoutRequest(layoutChoice, identification) : null;
+
   // The Table tab: the tool while the document can be corrected, and the stored report (page strip) afterwards.
   const showTableTab = tableAvailable || (groupPath !== null && table.report !== null);
   // The Deliveries tab (docs/11 §19) for a tenant with the outputs switch (principle 6); others see the screen as before.
@@ -289,25 +321,50 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
     if (next) targetField(next.path);
   }, [map, specs, form, mapTarget, targetField]);
 
-  const tools: PageViewerTools | undefined = mapAvailable
+  const changeIdentifyMode = useCallback(
+    (on: boolean) => {
+      setIdentifyMode(on);
+      if (on) {
+        setMapMode(false);
+        setTableMode(false);
+        map.cancel();
+        setTab("identify");
+      } else identify.cancel();
+    },
+    [setIdentifyMode, setMapMode, setTableMode, map, setTab, identify],
+  );
+
+  const tools: PageViewerTools | undefined = mapAvailable || identifyAvailable
     ? {
-        mapMode,
-        onMapModeChange: (on) => {
-          setMapMode(on);
-          if (on) setTableMode(false);
-          else map.cancel();
-        },
+        mapMode: mapMode && !identifyMode,
+        onMapModeChange: mapAvailable
+          ? (on) => {
+              setMapMode(on);
+              if (on) {
+                setTableMode(false);
+                setIdentifyMode(false);
+              } else map.cancel();
+            }
+          : undefined,
+        identifyMode,
+        onIdentifyModeChange: identifyAvailable ? changeIdentifyMode : undefined,
+        evidence,
         tableMode,
         onTableModeChange: tableAvailable
           ? (on) => {
               setTableMode(on);
               if (on) {
                 map.cancel();
+                setIdentifyMode(false);
                 setTab("table");
               }
             }
           : undefined,
         onPick: (onPage, pick) => {
+          if (identifyMode) {
+            if (learnable) identify.pick(onPage, pick);
+            return;
+          }
           if (tableMode) {
             if (pick.kind === "region") table.onRegion(onPage, pick.box);
             return;
@@ -318,9 +375,9 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
           }
           map.pick(onPage, pick);
         },
-        selection: mapMode ? map.selectionBoxes(page) : undefined,
+        selection: identifyMode ? (identify.proposal?.page === page ? (identify.proposal.words.length > 0 ? identify.proposal.words.map((w) => w.box) : [identify.proposal.box]) : undefined) : mapMode ? map.selectionBoxes(page) : undefined,
         table: tableMode || tab === "table" ? table.drawing(page) : null,
-        banner: mapMode ? (
+        banner: identifyMode ? undefined : mapMode ? (
           <MapPreview
             fieldLabel={targetSpec ? (targetSpec.path === targetSpec.fieldPath ? fieldLabel(targetSpec) : `${fieldLabel(targetSpec.fieldPath)} · ${fieldLabel(targetSpec)}`) : null}
             text={map.text}
@@ -354,6 +411,21 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
         else map.cancel();
         return;
       }
+      if ((event.key === "i" || event.key === "I") && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditableTarget(event.target) && !dialogOpen && identifyAvailable) {
+        event.preventDefault();
+        changeIdentifyMode(!identifyMode);
+        return;
+      }
+      if (event.key === "Enter" && !dialogOpen && identifyMode && identify.proposal?.identifier && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        identify.add();
+        return;
+      }
+      if (event.key === "Escape" && !dialogOpen && identifyMode && identify.proposal) {
+        event.preventDefault();
+        identify.cancel();
+        return;
+      }
       if (event.key === "Escape" && !dialogOpen && mapMode && map.selection) {
         event.preventDefault();
         map.cancel();
@@ -382,7 +454,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canReview, document.status, hasChanges, flags, selectedFlag, selectFlag, navigate, mapAvailable, mapMode, map, setMapMode, setTableMode]);
+  }, [canReview, document.status, hasChanges, flags, selectedFlag, selectFlag, navigate, mapAvailable, mapMode, map, setMapMode, setTableMode, identifyAvailable, identifyMode, identify, changeIdentifyMode]);
 
   const title = document.documentNumber ?? t("inbox.noNumber");
   const overlayLabel = useCallback((path: string) => fieldLabel(path, true), [fieldLabel]);
@@ -411,6 +483,17 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                   {t("review.typeVersion", { version: document.definition.version })}
                 </Badge>
               )}
+              {/* The layout that identified and filled the document (docs/11 §19 "the layout and its version with an identification chip"). */}
+              {identifiedLayout && (
+                <Badge variant="outline" data-testid="layout-chip" title={t("review.layoutChipHint")}>
+                  {t("review.layoutChip", { layout: identifiedLayout.layoutKey, version: identifiedLayout.version })}
+                </Badge>
+              )}
+              {newLayout && (
+                <Badge variant="warning" data-testid="new-layout-badge">
+                  {t("review.newLayoutBadge")}
+                </Badge>
+              )}
             </span>
           }
           description={
@@ -431,7 +514,31 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                     {t("review.save.button")}
                   </Button>
                 )}
-                <ReviewActions document={document} approveOpen={approveOpen} onApproveOpenChange={setApproveOpen} hasUnsavedChanges={hasChanges} locale={locale} canManageSuppliers={canManageSuppliers} />
+                <ReviewActions
+                  document={document}
+                  approveOpen={approveOpen}
+                  onApproveOpenChange={setApproveOpen}
+                  hasUnsavedChanges={hasChanges}
+                  locale={locale}
+                  canManageSuppliers={canManageSuppliers}
+                  canMarkGolden={!!document.supplierLayoutVersionId}
+                  layoutSave={
+                    learnable && layoutChoice
+                      ? {
+                          checked: layoutChoice.saveAsLayout,
+                          onCheckedChange: (checked) => setLayoutChoice({ ...layoutChoice, saveAsLayout: checked }),
+                          request: layoutRequest,
+                          summary: layoutChoice.pendingLayoutVersionId
+                            ? t("review.actions.saveAsLayoutPending")
+                            : layoutChoice.saveAs === "newVersion"
+                              ? t("review.actions.saveAsLayoutVersion")
+                              : t("review.actions.saveAsLayoutNew", { layout: layoutChoice.layoutKey, rule: identify.rule ? t("review.actions.ruleMarked", { count: identification.chips.length }) : t("review.actions.ruleProposed") }),
+                          onLearned: () =>
+                            setSavedLayout({ supplierId: document.supplierId!, typeKey: document.definition?.key ?? document.type, layoutKey: layoutChoice.pendingLayoutVersionId ? null : layoutChoice.layoutKey.trim(), pendingLayoutVersionId: layoutChoice.pendingLayoutVersionId }),
+                        }
+                      : undefined
+                  }
+                />
               </>
             ) : undefined
           }
@@ -449,6 +556,8 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
           destructive
           onConfirm={() => leave.proceed?.()}
         />
+
+        {savedLayout && <LayoutSavedDialog saved={savedLayout} documentId={document.id} onClose={() => setSavedLayout(null)} />}
 
         {settled && (
           <Alert>
@@ -509,12 +618,17 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={stacked ? "60%" : pageCount > 0 ? "55%" : "70%"} minSize="30%">
-              <Tabs value={(!showTableTab && tab === "table") || (!showDeliveriesTab && tab === "deliveries") ? "fields" : tab} onValueChange={setTab} className="flex h-full flex-col">
+              <Tabs value={(!showTableTab && tab === "table") || (!showDeliveriesTab && tab === "deliveries") || (!identifyAvailable && tab === "identify") ? "fields" : tab} onValueChange={setTab} className="flex h-full flex-col">
                 <TabsList className="m-2 w-fit">
                   <TabsTrigger value="fields">{t("review.tabs.fields")}</TabsTrigger>
                   {showTableTab && (
                     <TabsTrigger value="table" data-testid="table-tab">
                       {t("review.tabs.table")}
+                    </TabsTrigger>
+                  )}
+                  {identifyAvailable && (
+                    <TabsTrigger value="identify" data-testid="identify-tab">
+                      {t("review.tabs.identify")}
                     </TabsTrigger>
                   )}
                   <TabsTrigger value="timeline">{t("review.tabs.timeline")}</TabsTrigger>
@@ -528,6 +642,16 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                 {/* A plain scroller: Radix ScrollArea sizes its content as a table, so the form grew to its max-content width. */}
                 <div className="@container relative min-h-0 min-w-0 flex-1 overflow-y-auto">
                   <TabsContent value="fields" className="p-4">
+                    {layoutFlag && layoutChoice !== null && isCorrectable(document.status) && (
+                      <div className="mb-6">
+                        <NewLayoutPanel document={document} flag={layoutFlag} locale={locale} choice={layoutChoice} onChoiceChange={setLayoutChoice} fieldLabel={(path) => fieldLabel(path, true)} canReview={canReview} />
+                      </div>
+                    )}
+                    {layoutFlag?.code === "LAYOUT_AMBIGUOUS" && layoutChoice === null && isCorrectable(document.status) && (
+                      <div className="mb-6">
+                        <NewLayoutPanel document={document} flag={layoutFlag} locale={locale} choice={defaultLayoutChoice(document, null, [])} onChoiceChange={() => undefined} fieldLabel={(path) => fieldLabel(path, true)} canReview={false} />
+                      </div>
+                    )}
                     {hasCanonical ? (
                       <form
                         onSubmit={(event) => void onSave(event)}
@@ -602,6 +726,24 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                           {t("review.table.start")}
                         </Button>
                       )}
+                    </TabsContent>
+                  )}
+                  {identifyAvailable && (
+                    <TabsContent value="identify" className="p-4">
+                      <IdentificationCard
+                        draft={identification}
+                        onDraftChange={setIdentification}
+                        proposal={identify.proposal}
+                        onAdd={identify.add}
+                        onCancel={identify.cancel}
+                        onUpdate={identify.update}
+                        here={identify.here}
+                        recent={identify.recent}
+                        documentId={document.id}
+                        active={identifyMode}
+                        onActivate={() => changeIdentifyMode(true)}
+                        identifiedBy={identifiedLayout && !learnable ? `${identifiedLayout.layoutKey} v${identifiedLayout.version}` : null}
+                      />
                     </TabsContent>
                   )}
                   <TabsContent value="timeline" className="p-4">

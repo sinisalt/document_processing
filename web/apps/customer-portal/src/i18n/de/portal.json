@@ -143,7 +143,9 @@
       "clear": "Filter zurücksetzen",
       "field": "Feld",
       "anyField": "Beliebiges Feld",
-      "fieldValue": "{{field}} ist"
+      "fieldValue": "{{field}} ist",
+      "newLayouts": "Neue Layouts",
+      "pendingLayout": "Wartet auf ein Layout"
     },
     "emptyTitle": "Keine Dokumente",
     "emptyFiltered": "Kein Dokument passt zu diesen Filtern.",
@@ -165,7 +167,8 @@
     "priority": {
       "High": "Hoch",
       "Urgent": "Dringend"
-    }
+    },
+    "newLayoutBadge": "Neues Layout"
   },
   "upload": {
     "button": "Hochladen",
@@ -206,7 +209,8 @@
       "timeline": "Verlauf",
       "original": "Original",
       "table": "Tabelle",
-      "deliveries": "Zustellungen"
+      "deliveries": "Zustellungen",
+      "identify": "Erkennung"
     },
     "form": {
       "label": "Kanonische Daten"
@@ -274,7 +278,30 @@
       "assignSupplier": "Lieferant zuordnen",
       "createSupplier": "Lieferant aus diesem Dokument anlegen",
       "split": "In Dokumente aufteilen",
-      "join": "Teile zusammenführen"
+      "join": "Teile zusammenführen",
+      "approveAndSave": "Freigeben und als Layout speichern",
+      "approvedAndSaved": "Dokument freigegeben und als Layout gespeichert.",
+      "saveAsLayout": "Als Layout speichern",
+      "saveAsLayoutOff": "Das Dokument wird nur freigegeben; NEW_LAYOUT wird als ohne Layout freigegeben erledigt.",
+      "saveAsLayoutPending": "Bestätigt das wartende Layout mit diesem Dokument (kein zweites Layout).",
+      "saveAsLayoutVersion": "Speichert eine neue Version des gewählten Layouts.",
+      "saveAsLayoutNew": "Speichert die Merkmale und Feldpositionen als {{layout}} ({{rule}}).",
+      "ruleMarked_one": "{{count}} Merkmal markiert",
+      "ruleMarked_other": "{{count}} Merkmale markiert",
+      "ruleProposed": "Regel aus Titel und USt-IdNr. vorgeschlagen",
+      "layoutRefused": "Das Layout konnte nicht gespeichert werden; das Dokument wurde nicht freigegeben",
+      "layoutRefusedCode": {
+        "RULE_INVALID": "Die Erkennungsregel ist ungültig.",
+        "RULE_DOES_NOT_HOLD": "Die Erkennungsregel trifft auf dieses Dokument nicht zu.",
+        "LAYOUT_EXISTS": "Der Lieferant hat für diesen Typ schon ein Layout mit diesem Schlüssel.",
+        "LAYOUT_NOT_RECOGNISED": "Die neue Version erkennt Dokumente im alten Layout nicht mehr; im Bereich Neues Layout bestätigen.",
+        "NOT_LEARNABLE": "Dieses Dokument kann nicht als Layout gespeichert werden.",
+        "NOTHING_LEARNED": "Kein Wert konnte mit seiner Position gelernt werden; Werte zuerst von der Seite übernehmen.",
+        "TARGET_NOT_FOUND": "Das zu ersetzende Layout wurde nicht gefunden.",
+        "PENDING_NOT_FOUND": "Das wartende Layout wurde nicht gefunden."
+      },
+      "markGolden": "Als Referenz markieren",
+      "markedGolden": "Als Referenzdokument gespeichert."
     },
     "viewer": {
       "toolbar": "Seitenansicht",
@@ -294,7 +321,10 @@
       "map": "Übernehmen",
       "tableTool": "Tabellenwerkzeug",
       "tableToolHint": "Tabellenwerkzeug: die Tabelle einmal einzeichnen und auf alle Seiten anwenden",
-      "table": "Tabelle"
+      "table": "Tabelle",
+      "identifyMode": "Identifizieren",
+      "identifyModeHint": "Wörter markieren, an denen dieses Layout erkannt wird (I)",
+      "identify": "Identifizieren"
     },
     "overlay": {
       "label_one": "{{count}} markiertes Feld auf dieser Seite",
@@ -451,6 +481,105 @@
       "description": "Wohin dieses Dokument zugestellt wurde: eine Zeile je Verknüpfung, die zu seiner Freigabe oder Ablehnung passte. Öffnen Sie eine Zeile für ihre Versuche, die Antworten des Empfängers und die gesendete Nutzlast.",
       "empty": "Keine Zustellungen",
       "emptyDescription": "Keine Verknüpfung passte zu diesem Dokument, oder es wurde noch nicht freigegeben oder abgelehnt."
+    },
+    "layoutChip": "Layout {{layout}} v{{version}}",
+    "layoutChipHint": "Das Layout, das dieses Dokument erkannt und seine Felder gefüllt hat",
+    "newLayoutBadge": "Neues Layout",
+    "identify": {
+      "title": "Erkennung",
+      "start": "Merkmale auf der Seite markieren",
+      "identifiedBy": "Erkannt von {{layout}}; die hervorgehobenen Wörter sind der Nachweis.",
+      "hint": "Wort anklicken (Umschalt+Klick fügt hinzu) oder Rahmen um Titel oder Logozeile ziehen: daraus wird ein Merkmal dieses Layouts.",
+      "proposing": "Auswahl wird gelesen…",
+      "add": "Merkmal hinzufügen",
+      "cancel": "Verwerfen",
+      "connective": "Verknüpfung der Merkmale",
+      "all": "Alle davon",
+      "any": "Eines davon",
+      "empty": "Noch keine Merkmale markiert. Ohne Merkmale wird beim Speichern eine Regel vorgeschlagen: das Typ-Stichwort im Titel von Seite 1 und die USt-IdNr. des Lieferanten, wo sie gedruckt ist.",
+      "chips": "Merkmale",
+      "must": "Muss enthalten",
+      "mustNot": "Darf nicht enthalten",
+      "caseSensitive": "Groß-/Kleinschreibung",
+      "widen": "Ort erweitern",
+      "toggleCase": "Groß-/Kleinschreibung beachten an oder aus",
+      "toggleNegative": "Muss enthalten oder darf nicht enthalten",
+      "remove": "Merkmal entfernen",
+      "testing": "Regel wird geprüft…",
+      "holds": "Trifft auf dieses Dokument zu",
+      "doesNotHold": "Trifft nicht auf dieses Dokument zu: {{failed}}",
+      "recent": "Trifft auf {{matched}} der letzten {{tested}} Dokumente des Lieferanten zu",
+      "noLayout": "kein Layout",
+      "overlapTitle": "Trifft auch auf Dokumente anderer Layouts zu",
+      "overlap": "Ein Merkmal hinzufügen, das sie unterscheidet: {{layouts}}",
+      "location": {
+        "area": "dieser Bereich",
+        "region": "dieser Seitenbereich",
+        "page": "irgendwo auf dieser Seite",
+        "anyPage": "jede Seite"
+      }
+    },
+    "newLayout": {
+      "title": "Neues Layout",
+      "message": "{{supplier}} hat ein Dokument in einem unbekannten Layout geschickt. Es wurde nicht mit einem anderen Layout verarbeitet: Typ zuordnen, Werte prüfen und als Layout speichern.",
+      "ambiguousTitle": "Mehrere Layouts erkennen dieses Dokument",
+      "ambiguous": "Layouts von {{supplier}} erkennen es gleich gut ({{layouts}}); keines wurde angewendet. Werte prüfen und freigeben oder die Priorität der Layouts beim Lieferanten ändern.",
+      "pending": "Das passt zu {{layout}}, einem in der Prüfung gespeicherten Layout, das auf Aktivierung wartet.",
+      "pendingHint": "Bestätigen füllt die Werte aus dem wartenden Layout und nimmt dieses Dokument in seine Testmenge auf; es entsteht kein zweites Layout.",
+      "confirmPending": "Gegen wartendes Layout bestätigen",
+      "confirmedPending": "Gegen {{layout}} bestätigt.",
+      "type": "Typ",
+      "pickType": "Typ wählen",
+      "proposed": "vorgeschlagen",
+      "typeProposed": "Der Typ wurde von der Klassifizierung vorgeschlagen; Zuordnen bestätigt ihn.",
+      "match": "Als {{type}} zuordnen",
+      "matched": "Als {{type}} zugeordnet.",
+      "suggestions": "Ähnliche Layouts",
+      "suggestionHint": "Füllt mit den Beschriftungen dieses Layouts vor; seine Positionen werden nicht verwendet",
+      "similar": "Ähnlich wie {{layout}} ({{percent}} %)",
+      "saveAs": "Speichern als",
+      "saveAsNew": "Neues Layout dieses Lieferanten (die vorhandenen bleiben aktiv)",
+      "saveAsVersion": "Neue Version eines vorhandenen Layouts (eine Umgestaltung, die es ersetzt)",
+      "layoutKey": "Layout-Schlüssel",
+      "layoutKeyInvalid": "Kleinbuchstaben, Ziffern und Bindestriche; höchstens 64 Zeichen.",
+      "name": "Name",
+      "target": "Zu ersetzendes Layout",
+      "versionWarning": "Dokumente im alten Layout werden nach Aktivierung der neuen Version nicht mehr erkannt; sie bekämen NEW_LAYOUT.",
+      "confirmNotRecognised": "Ich bestätige, dass das alte Layout nicht mehr erkannt wird",
+      "prefilled_one": "Vorbefüllt: {{count}} Wert",
+      "prefilled_other": "Vorbefüllt: {{count}} Werte",
+      "nothingPrefilled": "Nichts konnte vorbefüllt werden; Werte im Zuordnungsmodus von der Seite übernehmen.",
+      "llmSkipped": "Keine KI hat den Rest gefüllt (keine konfiguriert oder sie konnte das Dokument nicht lesen).",
+      "source": {
+        "pendingLayout": "wartendes Layout",
+        "otherLayout": "Beschriftung eines anderen Layouts",
+        "definitionLabel": "Beschriftung des Typs",
+        "masterData": "Stammdaten",
+        "knownValue": "bekannter Wert",
+        "llm": "KI"
+      }
+    },
+    "layoutSaved": {
+      "title": "Layout gespeichert",
+      "description": "{{layout}} Version {{version}} wurde aus diesem Dokument gespeichert.",
+      "loading": "Layout wird geladen…",
+      "warmup_one": "Aktiv: das nächste Dokument in diesem Layout geht zuerst in die Prüfung (Einlaufphase {{count}}).",
+      "warmup_other": "Aktiv: die nächsten {{count}} Dokumente in diesem Layout gehen zuerst in die Prüfung (Einlaufphase), bereits vom Layout gefüllt.",
+      "noWarmup": "Aktiv: das nächste Dokument in diesem Layout wird gefüllt und geht nur bei einer fehlgeschlagenen Prüfung in die Prüfung.",
+      "candidate": "Als Kandidat gespeichert: ein Mapping-Autor aktiviert es nach dem Testlauf. Dokumente in diesem Layout warten darauf.",
+      "identificationPassed": "Erkennungstest bestanden: die Regel trifft hier zu und auf kein Dokument eines anderen Layouts.",
+      "identificationFailed": "Erkennungstest nicht bestanden: die Regel trifft auch auf Dokumente eines anderen Layouts zu.",
+      "replayFields_one": "{{count}} Feld an {{documents}} Dokumenten nachgeprüft; niedrigste Übereinstimmung {{lowest}} %.",
+      "replayFields_other": "{{count}} Felder an {{documents}} Dokumenten nachgeprüft; niedrigste Übereinstimmung {{lowest}} %.",
+      "siblingsActive_one": "{{count}} weiteres Dokument in der Prüfung passt zu diesem Layout.",
+      "siblingsActive_other": "{{count}} weitere Dokumente in der Prüfung passen zu diesem Layout.",
+      "siblingsCandidate_one": "{{count}} weiteres Dokument in der Prüfung wartet jetzt auf dieses Layout.",
+      "siblingsCandidate_other": "{{count}} weitere Dokumente in der Prüfung warten jetzt auf dieses Layout.",
+      "reprocess_one": "{{count}} Dokument neu verarbeiten",
+      "reprocess_other": "{{count}} Dokumente neu verarbeiten",
+      "reprocessed_one": "{{count}} Dokument ab Klassifizierung neu gestartet.",
+      "reprocessed_other": "{{count}} Dokumente ab Klassifizierung neu gestartet.",
+      "notFound": "Das gespeicherte Layout wurde nicht gefunden."
     }
   },
   "queue": {
@@ -519,7 +648,11 @@
     },
     "tabs": {
       "details": "Details",
-      "activity": "Aktivität"
+      "activity": "Aktivität",
+      "settings": "Einstellungen",
+      "attributes": "Attribute",
+      "routing": "Zuordnung",
+      "layouts": "Layouts"
     },
     "fields": {
       "name": "Name",
@@ -539,7 +672,187 @@
       "attributesInvalid": "Zeile {{line}} ist nicht Schlüssel = Wert (ein Schlüssel beginnt mit einem Buchstaben; höchstens 50 Attribute)."
     },
     "platformScopeTitle": "Mandant wählen",
-    "platformScope": "Lieferanten gehören zu einem Mandanten; Plattformkonten verwalten die Lieferanten eines Mandanten in der Admin-Konsole."
+    "platformScope": "Lieferanten gehören zu einem Mandanten; Plattformkonten verwalten die Lieferanten eines Mandanten in der Admin-Konsole.",
+    "pageTabs": {
+      "suppliers": "Lieferanten",
+      "groups": "Lieferantengruppen"
+    },
+    "settings": {
+      "layoutsRequired": "Layouts erforderlich",
+      "layoutsRequiredHint": "Dokumente eines layoutgesteuerten Lieferanten werden nur von seinen Layouts verarbeitet; ein Layout, das keines erkennt, geht mit NEW_LAYOUT in die Prüfung.",
+      "inheritTenant": "Erben (Mandantenvorgabe: {{value}})",
+      "yes": "Ja",
+      "no": "Nein",
+      "group": "Lieferantengruppe",
+      "noGroup": "Keine Gruppe",
+      "defaultType": "Standardtyp",
+      "noDefaultType": "Keiner",
+      "fixDocumentType": "Einzigen erlaubten Typ festlegen",
+      "fix": {
+        "whenSourceMatched": "Wenn die Quelle passte (Standard)",
+        "always": "Immer",
+        "never": "Nie"
+      },
+      "reviewMode": "Prüfung",
+      "review": {
+        "inherit": "Wie der Mandant (und die Gruppe)",
+        "always": "Immer prüfen"
+      },
+      "culture": "Gebietsschema",
+      "dateOrder": "Datumsreihenfolge",
+      "fromCulture": "Aus dem Gebietsschema",
+      "currency": "Standardwährung",
+      "requireSenderAuth": "Absenderregeln brauchen DMARC",
+      "senderAuthDefault": "Standard (erforderlich)",
+      "allowedTypes": "Erlaubte Typen",
+      "allowedTypesHint": "Ein einziger erlaubter Typ wird beim Eingang wie oben eingestellt festgelegt."
+    },
+    "attributes": {
+      "none": "Keine",
+      "noSchemaTitle": "Kein Attributschema",
+      "noSchema": "Die typisierten Attribute unter Einstellungen > Allgemein festlegen; bis dahin als Zeilen unter Details bearbeiten.",
+      "own": "Attribute des Lieferanten",
+      "save": "Attribute speichern",
+      "saved": "Attribute gespeichert.",
+      "perEntity": "Je empfangender Gesellschaft",
+      "noEntities": "Der Mandant hat keine empfangenden Gesellschaften.",
+      "entity": "Empfangende Gesellschaft",
+      "pickEntity": "Gesellschaft wählen",
+      "entitySave": "Für diese Gesellschaft speichern",
+      "entitySaved": "Attribute für die Gesellschaft gespeichert.",
+      "entityRemove": "Attribute für diese Gesellschaft entfernen",
+      "entityRemoved": "Attribute für die Gesellschaft entfernt.",
+      "invalid": {
+        "number": "Keine Zahl.",
+        "integer": "Keine ganze Zahl."
+      }
+    },
+    "routing": {
+      "description": "Quellregeln ordnen ein Dokument diesem Lieferanten nach seiner Herkunft zu: Absender, Domain, Empfänger, Kanal, Ordner, Betreff oder Dateiname. Alle Bedingungen einer Regel müssen erfüllt sein; Absenderregeln brauchen DMARC, sofern die Regel nichts anderes sagt.",
+      "add": "Quellregel hinzufügen",
+      "rules": "Quellregeln",
+      "empty": "Keine Quellregeln",
+      "emptyDescription": "Ohne Regel wird der Lieferant über den Inhalt gefunden (USt-IdNr., IBAN, Name).",
+      "proposal": "In der Prüfung vorgeschlagen",
+      "off": "Aus",
+      "toggle": "Regel an oder aus",
+      "delete": "Regel löschen",
+      "deleteTitle": "Diese Quellregel löschen?",
+      "created": "Regel gespeichert: {{rule}}",
+      "enabled": "Regel an.",
+      "disabled": "Regel aus.",
+      "deleted": "Regel gelöscht.",
+      "formHint": "Mindestens ein Absender, eine Absenderdomain, ein Empfänger oder ein Kanal; ein Ordnerpräfix braucht seinen Kanal.",
+      "fields": {
+        "sender": "Absender",
+        "senderDomain": "Absenderdomain",
+        "recipient": "Empfänger",
+        "folderPrefix": "Ordnerpräfix",
+        "subjectRegex": "Betreff (Ausdruck)",
+        "fileNameRegex": "Dateiname (Ausdruck)",
+        "channelId": "Kanal",
+        "mode": "Modus",
+        "pinTypeKey": "Legt den Typ fest",
+        "receivingEntityId": "Empfangende Gesellschaft",
+        "priority": "Priorität",
+        "requireSenderAuth": "Absenderauthentifizierung verlangen (DMARC)"
+      },
+      "anyChannel": "Jeder Kanal",
+      "noPin": "Legt keinen Typ fest",
+      "noEntity": "Keine",
+      "modes": {
+        "Exclusive": "Exklusiv (widersprechender Inhalt blockiert)",
+        "DefaultWhenNoContentMatch": "Vorgabe (Inhalt gewinnt)"
+      },
+      "save": "Regel speichern"
+    },
+    "layouts": {
+      "empty": "Keine Layouts",
+      "emptyDescription": "Layouts werden aus der Prüfung gespeichert („Freigeben und als Layout speichern“).",
+      "typeHeading": "{{type}}: {{layouts}}",
+      "priority": "Priorität {{priority}}",
+      "lastMatched": "zuletzt erkannt {{when}}",
+      "status": {
+        "Draft": "Entwurf",
+        "Candidate": "Kandidat",
+        "Shadow": "Schatten",
+        "Active": "Aktiv",
+        "Degraded": "Beeinträchtigt",
+        "Retired": "Außer Betrieb"
+      },
+      "origin": {
+        "Human": "von Hand geschrieben",
+        "Review": "in der Prüfung gelernt",
+        "NewLayoutReview": "aus der Prüfung eines neuen Layouts",
+        "LlmProposed": "von KI vorgeschlagen",
+        "Imported": "importiert"
+      },
+      "warmupLeft": "Einlaufphase: {{seen}} von {{of}} Dokumenten geprüft",
+      "noWarmup": "keine Einlaufphase",
+      "warmupDone": "Einlaufphase von {{of}} abgeschlossen",
+      "createdBy": "von {{by}}, {{when}}",
+      "stats": {
+        "identified_one": "{{count}} erkannt",
+        "identified_other": "{{count}} erkannt",
+        "applied_one": "{{count}} gefüllt",
+        "applied_other": "{{count}} gefüllt",
+        "corrected_one": "{{count}} korrigiert",
+        "corrected_other": "{{count}} korrigiert",
+        "failures_one": "{{count}} Abweichung in Folge",
+        "failures_other": "{{count}} Abweichungen in Folge"
+      },
+      "identificationPassed": "Erkennungstest bestanden",
+      "identificationFailed_one": "Erkennungstest nicht bestanden: {{count}} Überschneidung",
+      "identificationFailed_other": "Erkennungstest nicht bestanden: {{count}} Überschneidungen",
+      "replaySet_one": "Testmenge: {{count}} Dokument; ein Feld braucht {{threshold}} %.",
+      "replaySet_other": "Testmenge: {{count}} Dokumente; ein Feld braucht {{threshold}} %.",
+      "field": "Feld",
+      "agreement": "Übereinstimmung",
+      "hits": "Treffer",
+      "mismatches": "Abweichungen",
+      "missing": "Fehlend",
+      "replay": "Testlauf",
+      "replayPassed": "Testlauf bestanden.",
+      "replayFailed": "Testlauf nicht bestanden.",
+      "waiting_one": "{{count}} Dokument wartet auf diesen Kandidaten",
+      "waiting_other": "{{count}} Dokumente warten auf diesen Kandidaten",
+      "activate": "Aktivieren",
+      "activateAndReprocess_one": "Aktivieren und {{count}} Dokument neu verarbeiten",
+      "activateAndReprocess_other": "Aktivieren und {{count}} Dokumente neu verarbeiten",
+      "activateTitle": "{{layout}} v{{version}} aktivieren?",
+      "activateDescription": "Erkennungstest und Feld-Testlauf laufen zuerst; die bisher aktive Version wird außer Betrieb genommen.",
+      "warmupField": "Einlaufphase (Prüfung)",
+      "warmupFieldHint": "Leer übernimmt den Wert des Mandanten ({{value}}).",
+      "reprocessWaiting_one": "Das {{count}} wartende Dokument ab Klassifizierung neu verarbeiten",
+      "reprocessWaiting_other": "Die {{count}} wartenden Dokumente ab Klassifizierung neu verarbeiten",
+      "activated_one": "{{layout}} v{{version}} ist aktiv; {{count}} Dokument neu verarbeitet.",
+      "activated_other": "{{layout}} v{{version}} ist aktiv; {{count}} Dokumente neu verarbeitet.",
+      "activateRefused": "Die Version wurde nicht aktiviert",
+      "retire": "Layout außer Betrieb nehmen",
+      "retireTitle": "{{layout}} außer Betrieb nehmen?",
+      "retireDescription": "Dokumente in diesem Layout werden dann nicht mehr erkannt; sie bekommen NEW_LAYOUT.",
+      "retired": "{{layout}} außer Betrieb genommen."
+    },
+    "groups": {
+      "description": "Mitglieder erben Attribute und Einstellungen der Gruppe (eigene gehen vor); Layouts der Gruppe dienen Mitgliedern ohne eigene.",
+      "add": "Gruppe hinzufügen",
+      "caption": "Lieferantengruppen",
+      "empty": "Keine Lieferantengruppen",
+      "emptyDescription": "Lieferanten gruppieren, die Attribute oder Layouts teilen.",
+      "columns": {
+        "name": "Name",
+        "members": "Mitglieder",
+        "attributes": "Attribute"
+      },
+      "createTitle": "Neue Lieferantengruppe",
+      "editTitle": "Lieferantengruppe bearbeiten",
+      "dialogDescription": "Der Name ist im Mandanten eindeutig.",
+      "saved": "Gruppe {{name}} gespeichert.",
+      "saveFailed": "Die Gruppe konnte nicht gespeichert werden",
+      "deleted": "Gruppe gelöscht.",
+      "delete": "Gruppe löschen",
+      "deleteTitle": "{{name}} löschen?"
+    }
   },
   "settings": {
     "title": "Einstellungen",
@@ -557,7 +870,10 @@
       "channels": "Kanäle",
       "ai": "KI-Anbieter",
       "types": "Dokumenttypen",
-      "integrations": "Integrationen"
+      "integrations": "Integrationen",
+      "routing": "Zuordnung",
+      "entities": "Empfangende Gesellschaften",
+      "governance": "Governance"
     },
     "general": {
       "identityTitle": "Organisation",
@@ -797,6 +1113,135 @@
         "tableToggle": "Als Tabelle anzeigen",
         "empty": "Noch keine Nutzung",
         "emptyDescription": "Die Nutzung erscheint, sobald Dokumente mit einem KI-Anbieter verarbeitet wurden."
+      }
+    },
+    "layouts": {
+      "title": "Layouts und Zuordnung",
+      "description": "Wie gelernte Layouts aktiviert und Dokumente Lieferanten zugeordnet werden.",
+      "warmup": "Einlaufphase (Prüfung)",
+      "warmupHint": "Die ersten Dokumente unter einer neu aktivierten Layout-Version gehen in die Prüfung, bereits gefüllt. Standard 5; 0 lässt das nächste durch, wenn alle Prüfungen bestehen. Aktive Versionen mit dem alten Wert folgen.",
+      "agreement": "Feldübereinstimmung für die Aktivierung (%)",
+      "agreementHint": "Der Anteil der Testmenge, den ein Feld richtig lesen muss, bevor eine Version aktiviert wird.",
+      "requiredByDefault": "Layouts standardmäßig erforderlich",
+      "requiredByDefaultHint": "Ein über die Quelle zugeordneter Lieferant mit der Einstellung „erben“ ist schon vor seinem ersten Layout layoutgesteuert.",
+      "trustedForwarders": "Vertrauenswürdige Weiterleitungsdomains",
+      "trustedForwardersHint": "Weiterleitungen von diesen Domains werden auf den ursprünglichen Absender zurückgeführt. Eine pro Zeile.",
+      "attributeSchema": "Attributschema (JSON Schema)",
+      "attributeSchemaHint": "Typisierte Attribute von Lieferanten, Gruppen und Gesellschaften: Eigenschaften vom Typ string, number, integer oder boolean. Leer entfernt es.",
+      "schemaInvalid": "Kein gültiges JSON."
+    },
+    "routing": {
+      "title": "Mail- und Ordnerkanäle",
+      "description": "Postfächer und überwachte Ordner, die der Worker liest; jedes Dokument erhält die Vorgaben des Kanals, sofern keine Quellregel oder sein Inhalt anderes sagt.",
+      "addMailbox": "Postfach hinzufügen",
+      "addFolder": "Überwachten Ordner hinzufügen",
+      "editMailbox": "Postfach bearbeiten",
+      "editFolder": "Überwachten Ordner bearbeiten",
+      "mailboxHint": "Ohne Server wird der Mailserver der Plattform gelesen; ein eigener Server muss öffentlich sein und wird über TLS erreicht.",
+      "folderHint": "Ein Ordner unterhalb der Ablage des Mandanten; eine Datei wird genommen, sobald ihre Größe gleich blieb, und dann nach processed/ oder failed/ verschoben.",
+      "caption": "Mail- und Ordnerkanäle",
+      "empty": "Keine Mail- oder Ordnerkanäle",
+      "emptyDescription": "Postfach oder überwachten Ordner hinzufügen, um Dokumente daraus zu empfangen.",
+      "columns": {
+        "place": "Adresse oder Ordner",
+        "defaults": "Vorgaben"
+      },
+      "edit": "Bearbeiten",
+      "editLabel": "{{name}} bearbeiten",
+      "channelSaved": "Kanal {{name}} gespeichert.",
+      "fields": {
+        "address": "Postfachadresse",
+        "host": "IMAP-Server",
+        "hostPlaceholder": "Server der Plattform",
+        "port": "Port",
+        "security": "Sicherheit",
+        "securityDefault": "Standard (SSL/TLS)",
+        "username": "Benutzername",
+        "secretKept": "unverändert",
+        "folder": "IMAP-Ordner",
+        "trustedForwarderDomains": "Vertrauenswürdige Weiterleitungsdomains",
+        "unwrapForwards": "Weitergeleitete Nachrichten vertrauenswürdiger Absender entpacken",
+        "path": "Ordner unterhalb der Ablage",
+        "pattern": "Dateimuster",
+        "stableSeconds": "Unverändert seit (Sekunden)",
+        "defaultSupplier": "Standardlieferant",
+        "noDefault": "Keine",
+        "defaultType": "Standardtyp",
+        "defaultEntity": "Standard-Gesellschaft"
+      }
+    },
+    "entities": {
+      "title": "Empfangende Gesellschaften",
+      "description": "Ihre eigenen Gesellschaften oder Filialen, an die Dokumente adressiert sind. Ausgaben lesen die Gesellschaft des Dokuments; Quellregeln und Kanäle können eine nennen.",
+      "add": "Gesellschaft hinzufügen",
+      "caption": "Empfangende Gesellschaften",
+      "empty": "Keine empfangenden Gesellschaften",
+      "emptyDescription": "Gesellschaften oder Filialen hinzufügen, an die Ihre Dokumente adressiert sind.",
+      "columns": {
+        "code": "Kürzel",
+        "name": "Name",
+        "vatIds": "USt-IdNrn.",
+        "attributes": "Attribute"
+      },
+      "createTitle": "Neue empfangende Gesellschaft",
+      "editTitle": "Empfangende Gesellschaft bearbeiten",
+      "dialogDescription": "Das Kürzel ist im Mandanten eindeutig; USt-IdNrn. eine pro Zeile.",
+      "saved": "Gesellschaft {{code}} gespeichert.",
+      "saveFailed": "Die Gesellschaft konnte nicht gespeichert werden",
+      "deleted": "Gesellschaft gelöscht.",
+      "delete": "Gesellschaft löschen",
+      "deleteTitle": "{{code}} löschen?",
+      "deleteDescription": "Nicht möglich, solange ein Dokument, eine Quellregel, ein Kanal oder Lieferantenattribute sie nennen."
+    },
+    "governance": {
+      "goldenTitle": "Referenzdokumente",
+      "goldenDescription": "Freigegebene Dokumente, deren Werte als erwartetes Ergebnis gespeichert sind; Testläufe vergleichen damit.",
+      "goldenEmpty": "Keine Referenzdokumente",
+      "goldenEmptyDescription": "Ein freigegebenes Dokument in der Prüfung als Referenz markieren.",
+      "goldenRemove": "Referenzdokument entfernen",
+      "goldenRemoveTitle": "Dieses Referenzdokument entfernen?",
+      "goldenRemoved": "Referenzdokument entfernt.",
+      "document": "Dokument",
+      "type": "Typ",
+      "note": "Notiz",
+      "added": "Hinzugefügt",
+      "runsTitle": "Sandbox- und Regressionsläufe",
+      "runsDescription": "Ein gespeichertes Dokument durch eine Layout-Version oder einen Entwurf laufen lassen, oder eine Version durch die Referenzdokumente. Nichts wird geschrieben.",
+      "supplier": "Lieferant",
+      "pickSupplier": "Lieferant wählen",
+      "version": "Layout-Version",
+      "pickVersion": "Version wählen",
+      "documentId": "Dokument-ID",
+      "draftRule": "Regelentwurf (JSON, optional)",
+      "draftMapping": "Zuordnungsentwurf (JSON, optional)",
+      "sandbox": "In der Sandbox ausführen",
+      "regression": "Regression ausführen",
+      "passed": "Bestanden",
+      "failed": "Abweichungen gefunden",
+      "jsonInvalid": "Kein gültiges JSON",
+      "bundleTitle": "Konfigurationspaket",
+      "bundleDescription": "Typen, Layouts, Quellregeln, Ausgaben und Bindungen als signiertes JSON (ohne Geheimnisse) exportieren und eines nach einem Probelauf importieren.",
+      "include": "Enthalten",
+      "parts": {
+        "types": "Typen",
+        "layouts": "Layouts",
+        "sourceRules": "Quellregeln",
+        "outputs": "Ausgabezuordnungen",
+        "bindings": "Bindungen"
+      },
+      "export": "Paket exportieren",
+      "exported": "Paket exportiert.",
+      "importFile": "Zu importierendes Paket",
+      "dryRun": "Probelauf",
+      "apply": "Anwenden",
+      "importApplied": "Paket importiert.",
+      "signatureValid": "Signatur gültig.",
+      "signatureInvalid": "Signatur ungültig.",
+      "actions": {
+        "create": "anlegen",
+        "newVersion": "neue Version",
+        "skip": "überspringen",
+        "error": "Fehler"
       }
     }
   },
@@ -1255,6 +1700,38 @@
       "hidePayload": "Nutzlast ausblenden",
       "redeliverSnapshot": "Erneut zustellen",
       "redeliverRerender": "Neu erzeugen und zustellen"
+    }
+  },
+  "routing": {
+    "test": {
+      "title": "Zuordnung testen",
+      "description": "Eine Quelle, wie der Eingang sie sieht, gegen die aktiven Quellregeln: welcher Lieferant zugeordnet wird und warum.",
+      "sender": "Absender (From)",
+      "recipients": "Empfänger (To, Cc)",
+      "dmarc": "DMARC",
+      "spf": "SPF",
+      "auth": {
+        "pass": "bestanden",
+        "fail": "fehlgeschlagen",
+        "none": "keins"
+      },
+      "channel": "Kanal",
+      "anyChannel": "Kein Kanal",
+      "folderPath": "Ordnerpfad",
+      "subject": "Betreff",
+      "fileName": "Dateiname",
+      "run": "Testen",
+      "winner": "Zugeordnet zu {{supplier}}",
+      "noWinner": "Kein Lieferant aus der Quelle",
+      "method": {
+        "sourceRule": "Quellregel",
+        "channelDefault": "Kanalvorgabe"
+      },
+      "pins": "legt {{type}} fest",
+      "candidates": "Kandidatenregeln",
+      "held": "erfüllt: {{conditions}}",
+      "failed": "nicht erfüllt: {{conditions}}",
+      "unverified": "(Absender nicht authentifiziert)"
     }
   }
 }

@@ -3,15 +3,18 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@docproc/ui";
 import { EmptyState, PageHeader, Policies, useAuth } from "@docproc/app-shell";
-import { DocumentTypesPanel } from "@docproc/review";
+import { DocumentTypesPanel, useTenantFeatures } from "@docproc/review";
 import { IntegrationsTab, integrationSections } from "@/components/integrations/IntegrationsTab";
 import { AiProvidersTab } from "@/components/settings/AiProvidersTab";
 import { ApiKeysTab } from "@/components/settings/ApiKeysTab";
 import { ChannelsTab } from "@/components/settings/ChannelsTab";
+import { EntitiesTab } from "@/components/settings/EntitiesTab";
+import { GovernanceTab } from "@/components/settings/GovernanceTab";
+import { RoutingTab } from "@/components/settings/RoutingTab";
 import { GeneralTab } from "@/components/settings/GeneralTab";
 import { MembersTab } from "@/components/settings/MembersTab";
 
-export const settingsTabs = ["general", "members", "apiKeys", "channels", "ai", "types", "integrations"] as const;
+export const settingsTabs = ["general", "members", "apiKeys", "channels", "routing", "entities", "ai", "types", "integrations", "governance"] as const;
 type SettingsTab = (typeof settingsTabs)[number];
 
 export const Route = createFileRoute("/settings")({
@@ -38,6 +41,10 @@ function SettingsPage() {
   const { hasPolicy, user } = useAuth();
   const isAdmin = hasPolicy(Policies.TenantAdmin);
   const isConfigAdmin = hasPolicy(Policies.ConfigAdmin);
+  // P4 (docs/11 §19 items 5 and 6): Routing and Receiving entities with sourceRouting, Governance with supplierLayouts.
+  const features = useTenantFeatures();
+  const routing = features.data?.sourceRouting === true;
+  const layouts = features.data?.supplierLayouts === true;
 
   if (user?.scope !== "tenant") {
     return <EmptyState title={t("settings.platformScopeTitle")} description={t("settings.platformScope")} />;
@@ -56,9 +63,24 @@ function SettingsPage() {
           <TabsTrigger value="members">{t("settings.tabs.members")}</TabsTrigger>
           <TabsTrigger value="apiKeys">{t("settings.tabs.apiKeys")}</TabsTrigger>
           <TabsTrigger value="channels">{t("settings.tabs.channels")}</TabsTrigger>
+          {routing && (
+            <>
+              <TabsTrigger value="routing" data-testid="settings-tab-routing">
+                {t("settings.tabs.routing")}
+              </TabsTrigger>
+              <TabsTrigger value="entities" data-testid="settings-tab-entities">
+                {t("settings.tabs.entities")}
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="ai">{t("settings.tabs.ai")}</TabsTrigger>
           <TabsTrigger value="types">{t("settings.tabs.types")}</TabsTrigger>
           <TabsTrigger value="integrations">{t("settings.tabs.integrations")}</TabsTrigger>
+          {layouts && (
+            <TabsTrigger value="governance" data-testid="settings-tab-governance">
+              {t("settings.tabs.governance")}
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="general" className="pt-4">
           <GeneralTab canEdit />
@@ -71,6 +93,15 @@ function SettingsPage() {
         </TabsContent>
         <TabsContent value="channels" className="pt-4">
           <ChannelsTab canEdit />
+        </TabsContent>
+        <TabsContent value="routing" className="pt-4">
+          {tab === "routing" && routing && <RoutingTab canEdit />}
+        </TabsContent>
+        <TabsContent value="entities" className="pt-4">
+          {tab === "entities" && routing && <EntitiesTab canEdit />}
+        </TabsContent>
+        <TabsContent value="governance" className="pt-4">
+          {tab === "governance" && layouts && <GovernanceTab />}
         </TabsContent>
         <TabsContent value="ai" className="pt-4">
           <AiProvidersTab />

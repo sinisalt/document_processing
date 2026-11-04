@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Building2, Check, ChevronDown, Combine, FileType2, Plus, RotateCcw, Scissors, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Combine, FileType2, Plus, RotateCcw, Scissors, Star, X } from "lucide-react";
 import { Button, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from "@docproc/ui";
 import { ApiError, ConfirmDialog, canReprocessFrom, defaultReprocessStage, furthestPipelineStatus, isCorrectable, queryKeys, reprocessStages, unwrap, useApi, type ReprocessStage } from "@docproc/app-shell";
+import type { LearnLayoutRequest } from "@/lib/layouts";
 import { isApplePlatform } from "@/lib/platform";
 import { useDocumentEvents, type DocumentDetail } from "@/lib/queries";
 import { AssignSupplierDialog, CreateSupplierDialog, JoinDialog, SetTypeDialog, SplitDialog } from "./ReviewDialogs";
@@ -41,13 +42,20 @@ export interface ReviewActionsProps {
   locale?: string;
   /** A tenant admin: "create supplier from this document" also sets the e-mail domain (docs/11 §14), which a reviewer leaves to the admin. */
   canManageSuppliers?: boolean;
+  /**
+   * "Approve and save as layout" (docs/11 §12.10 step 6) for a document with an open NEW_LAYOUT: checked by default;
+   * the request is what `learnLayout` of `:approve` carries, and `onLearned` runs once the approval saved it.
+   */
+  layoutSave?: { checked: boolean; onCheckedChange: (checked: boolean) => void; request: LearnLayoutRequest | null; summary: string; onLearned: () => void };
+  /** Golden documents (docs/11 §15.3): "Mark as golden" for an approved document, with supplierLayouts. */
+  canMarkGolden?: boolean;
 }
 
 /** Which of the review actions' dialogs is open (docs/11 §19 "ReviewActions gains"). */
 type ActionDialog = "setType" | "assignSupplier" | "createSupplier" | "split" | "join" | null;
 
 /** Approve, Reject (with a required reason) and Reprocess (from a stage) with their confirmations. */
-export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided, locale = "en", canManageSuppliers = false }: ReviewActionsProps) {
+export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasUnsavedChanges, onDecided, locale = "en", canManageSuppliers = false, layoutSave, canMarkGolden = false }: ReviewActionsProps) {
   const { t } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
@@ -86,16 +94,27 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
     onDecided?.();
   };
 
+  const learning = layoutSave?.checked === true && layoutSave.request !== null;
   const approve = useMutation({
-    mutationFn: async () => unwrap(await client.POST("/api/v1/documents/{id}:approve", { params: { path: { id: document.id } }, body: { comment: null } })),
-    onSuccess: (updated) => settle(updated, t("review.actions.approved")),
+    mutationFn: async () =>
+      unwrap(await client.POST("/api/v1/documents/{id}:approve", { params: { path: { id: document.id } }, body: learning ? { comment: null, learnLayout: layoutSave!.request } : { comment: null } })),
+    onSuccess: (updated) => {
+      if (learning) {
+        layoutSave!.onLearned();
+        void queryClient.invalidateQueries({ queryKey: queryKeys.supplierLayouts.all });
+      }
+      settle(updated, learning ? t("review.actions.approvedAndSaved") : t("review.actions.approved"));
+    },
     // A refusal by the approval gate (docs/11 §11) says why in its code: shown in the UI language, the document reloaded
     // so the reason stays under the button. Any other error goes to the shell's toast.
     onError: (error) => {
       const code = approvalRefusalCode(error);
       if (code === null) {
         if (error instanceof ApiError && error.status === 401) return;
-        if (error instanceof ApiError) toast.error(error.title, { description: error.problem?.detail ?? undefined });
+        // A refusal of the layout save (docs/05 "Learning": RULE_DOES_NOT_HOLD, LAYOUT_EXISTS, LAYOUT_NOT_RECOGNISED, …) refuses the approval too.
+        const learnCode = error instanceof ApiError ? ((error.problem as { code?: unknown } | undefined)?.code as string | undefined) : undefined;
+        if (learning && learnCode) toast.error(t("review.actions.layoutRefused"), { description: t(`review.actions.layoutRefusedCode.${learnCode}`, { defaultValue: (error as ApiError).problem?.detail ?? learnCode }) });
+        else if (error instanceof ApiError) toast.error(error.title, { description: error.problem?.detail ?? undefined });
         else toast.error(error instanceof Error ? error.message : String(error));
         if (error instanceof ApiError && error.status === 409) void queryClient.invalidateQueries({ refetchType: "active" });
         return;
@@ -123,6 +142,14 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
     onSuccess: (updated, fromStage) => settle(updated, t("review.actions.reprocessing", { stage: t(`stages.${fromStage}`) })),
   });
 
+  const golden = useMutation({
+    mutationFn: async () => unwrap(await client.POST("/api/v1/documents/{id}:golden", { params: { path: { id: document.id } }, body: {} })),
+    onSuccess: () => {
+      toast.success(t("review.actions.markedGolden"));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.governance.all });
+    },
+  });
+
   const decidable = canDecide(document.status) && !hasUnsavedChanges;
   // docs/11 §11: the API refuses to approve a document without a definition or captured data, and says why up front.
   const approvalBlocked = document.approvalBlocked ?? null;
@@ -136,9 +163,9 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
         onOpenChange={onApproveOpenChange}
         title={t("review.actions.approveTitle")}
         description={t("review.actions.approveDescription", { number: document.documentNumber ?? document.id })}
-        confirmLabel={t("review.actions.approve")}
         onConfirm={() => approve.mutateAsync().then(() => undefined)}
         isPending={approve.isPending}
+        confirmLabel={learning ? t("review.actions.approveAndSave") : t("review.actions.approve")}
         trigger={
           <Button
             disabled={!decidable || approvalBlocked !== null}
@@ -154,7 +181,17 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
             </kbd>
           </Button>
         }
-      />
+      >
+        {layoutSave && (
+          <div className="flex items-start gap-2" data-testid="approve-save-layout">
+            <Checkbox id="approve-save-layout" checked={layoutSave.checked} onCheckedChange={(checked) => layoutSave.onCheckedChange(checked === true)} className="mt-0.5" data-testid="approve-save-layout-checkbox" />
+            <div className="grid gap-1">
+              <Label htmlFor="approve-save-layout">{t("review.actions.saveAsLayout")}</Label>
+              <p className="text-xs text-muted-foreground">{layoutSave.checked ? layoutSave.summary : t("review.actions.saveAsLayoutOff")}</p>
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={rejectOpen}
         onOpenChange={setRejectOpen}
@@ -224,6 +261,12 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
           </div>
         )}
       </ConfirmDialog>
+      {canMarkGolden && (document.status === "Approved" || document.status === "AutoApproved") && (
+        <Button variant="ghost" onClick={() => golden.mutate()} disabled={golden.isPending} data-testid="mark-golden">
+          <Star aria-hidden />
+          {t("review.actions.markGolden")}
+        </Button>
+      )}
       {/* The review actions of P2 (docs/11 §12.1, §12.7) are new behaviour: offered with configurableTypes only. */}
       {isCorrectable(document.status) && document.configurableTypes === true && (
         <DropdownMenu>

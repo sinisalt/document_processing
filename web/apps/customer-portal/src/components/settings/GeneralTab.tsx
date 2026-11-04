@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Label, Skeleton, Switch } from "@docproc/ui";
 import { ApiError, formatPercent, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import { useSuppliers, useTenantSettings, type TenantSettings } from "@/lib/queries";
+import { LayoutSettingsCard } from "./LayoutSettingsCard";
 
 const schema = z.object({
   autoApproveConfidenceThreshold: z.number().min(0).max(1),
@@ -20,10 +21,10 @@ type SettingsForm = z.infer<typeof schema>;
 
 function toForm(data: TenantSettings | undefined): SettingsForm {
   return {
-    autoApproveConfidenceThreshold: Number(data?.settings.autoApproveConfidenceThreshold ?? 0.8),
-    retentionYears: Number(data?.settings.retentionYears ?? 10),
-    shareExtractorProfiles: data?.settings.shareExtractorProfiles ?? false,
-    alwaysReviewSupplierIds: data?.settings.alwaysReviewSupplierIds ?? [],
+    autoApproveConfidenceThreshold: Number(data?.settings?.autoApproveConfidenceThreshold ?? 0.8),
+    retentionYears: Number(data?.settings?.retentionYears ?? 10),
+    shareExtractorProfiles: data?.settings?.shareExtractorProfiles ?? false,
+    alwaysReviewSupplierIds: data?.settings?.alwaysReviewSupplierIds ?? [],
   };
 }
 
@@ -60,6 +61,8 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
     return <Skeleton className="h-64" aria-busy />;
   }
   const tenant = settings.data?.tenant;
+  // The layout and routing settings (P4) for a tenant with either switch; others see the tab as before.
+  const features = { supplierLayouts: settings.data?.settings?.features?.supplierLayouts === true, sourceRouting: settings.data?.settings?.features?.sourceRouting === true };
 
   return (
     // items-start: each card as tall as its content, so the short identity card leaves no empty block beside the policy.
@@ -191,6 +194,7 @@ export function GeneralTab({ canEdit }: { canEdit: boolean }) {
           </Form>
         </CardContent>
       </Card>
+      {settings.data && (features.supplierLayouts || features.sourceRouting) && <LayoutSettingsCard data={settings.data} features={features} canEdit={canEdit} />}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { boxFromDrag, isClick, wordAt, type Box } from "@docproc/review";
 import { mapBox, toNormalized, type ProvenanceBox, type Size, type TextLayerWord } from "@/lib/overlay";
 
 /** What a pointer on the page does: nothing special (boxes focus their fields), map mode, or the table tool. */
-export type OverlayInteraction = "map" | "table" | null;
+export type OverlayInteraction = "map" | "identify" | "table" | null;
 
 /** A pick on the page in page units: a word (by its index in the page's words) or a dragged box. */
 export type PagePick = { kind: "word"; index: number; box: Box; additive: boolean } | { kind: "region"; box: Box };
@@ -46,6 +46,8 @@ export interface FieldHighlightOverlayProps {
   /** The current selection (map mode), drawn in its own colour. */
   selection?: readonly Box[];
   table?: TableDrawing | null;
+  /** Identification evidence (docs/11 §12.9): the words that make the layout's rule hold, drawn in their own colour in Identify mode. */
+  evidence?: readonly { box: Box; label: string; positive: boolean }[];
 }
 
 const rawPath = (path: string) => path;
@@ -92,7 +94,7 @@ export function boxClassName(active: boolean, historical: boolean): string {
  * is emphasised, and clicking a box focuses that field. In map mode and with the table tool a selection layer on top
  * takes the pointer: clicks pick words, drags draw boxes, and the table's dividers can be moved.
  */
-export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className, interaction = null, onPick, selection = [], table = null }: FieldHighlightOverlayProps) {
+export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords = false, highlightedPath, onHover, onSelect, labelOf = rawPath, className, interaction = null, onPick, selection = [], table = null, evidence = [] }: FieldHighlightOverlayProps) {
   const { t } = useTranslation();
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
@@ -115,7 +117,7 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
     const box = boxFromDrag(drag.from, pointOf(event));
     setDrag(null);
     if (isClick(box)) {
-      if (interaction !== "map") return;
+      if (interaction !== "map" && interaction !== "identify") return;
       const index = wordAt(words, drag.from);
       if (index >= 0) onPick?.({ kind: "word", index, box: words[index]!.box, additive: event.shiftKey });
       return;
@@ -192,6 +194,24 @@ export function FieldHighlightOverlay({ rendered, boxes, words = [], showWords =
             }}
           >
             <title>{label}</title>
+          </rect>
+        );
+      })}
+      {evidence.map((item, index) => {
+        const rect = mapBox(item.box, rendered);
+        return (
+          <rect
+            key={`e-${index}`}
+            x={rect.x - 2}
+            y={rect.y - 2}
+            width={rect.width + 4}
+            height={rect.height + 4}
+            className={item.positive ? "fill-amber-400/20 stroke-amber-600" : "fill-red-500/10 stroke-red-600"}
+            strokeWidth={2}
+            pointerEvents="none"
+            data-testid="identification-evidence"
+          >
+            <title>{item.label}</title>
           </rect>
         );
       })}

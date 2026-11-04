@@ -144,6 +144,38 @@ export const queryKeys = {
     payload: (id: string) => ["deliveries", "detail", id, "payload"] as const,
   },
 
+  /**
+   * Source routing and supplier configuration (docs/11 §6.4, §6.5, §7): a supplier's source rules and entity
+   * attributes (under the supplier, so editing a supplier refreshes them), supplier groups and receiving entities.
+   */
+  routing: {
+    all: ["routing"] as const,
+    sourceRules: (supplierId: string) => ["suppliers", "detail", supplierId, "source-rules"] as const,
+    entityAttributes: (supplierId: string) => ["suppliers", "detail", supplierId, "entity-attributes"] as const,
+    groups: () => ["routing", "supplier-groups"] as const,
+    entities: () => ["routing", "receiving-entities"] as const,
+  },
+
+  /**
+   * Supplier layouts (docs/11 §8, §12.9, §12.10): a supplier's layouts, one version in full, a document's layout
+   * suggestions and the documents matching a version, the MappingAuthors' notifications.
+   */
+  supplierLayouts: {
+    all: ["supplier-layouts"] as const,
+    ofSupplier: (supplierId: string) => ["supplier-layouts", "supplier", supplierId] as const,
+    ofGroup: (groupId: string) => ["supplier-layouts", "group", groupId] as const,
+    version: (layoutId: string, version: number) => ["supplier-layouts", "layout", layoutId, "version", version] as const,
+    matching: (layoutId: string, version: number, state: string) => ["supplier-layouts", "layout", layoutId, "version", version, "matching", state] as const,
+    suggestions: (documentId: string) => ["supplier-layouts", "suggestions", documentId] as const,
+    notifications: () => ["supplier-layouts", "notifications"] as const,
+  },
+
+  /** Governance (docs/11 §15.3, §15.4): golden documents; sandbox and regression runs are mutations. */
+  governance: {
+    all: ["governance"] as const,
+    golden: () => ["governance", "golden-documents"] as const,
+  },
+
   llm: {
     all: ["llm"] as const,
     policy: () => ["llm", "policy"] as const,

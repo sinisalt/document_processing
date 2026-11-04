@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, FileText, MousePointerClick, Table2, Type, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Fingerprint, MousePointerClick, Table2, Type, ZoomIn, ZoomOut } from "lucide-react";
 import { Button, Skeleton, Toggle } from "@docproc/ui";
 import { EmptyState, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import type { Box } from "@docproc/review";
@@ -13,7 +13,8 @@ const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 /** Map mode and the table tool in the viewer's toolbar (docs/11 §12.3, §12.4); absent when the document cannot be mapped. */
 export interface PageViewerTools {
   mapMode: boolean;
-  onMapModeChange: (on: boolean) => void;
+  /** Absent when only Identify mode is offered (a tenant without configurableTypes). */
+  onMapModeChange?: (on: boolean) => void;
   /** The table tool is offered only for a type with a repeating group. */
   tableMode?: boolean;
   onTableModeChange?: (on: boolean) => void;
@@ -24,6 +25,14 @@ export interface PageViewerTools {
   table?: TableDrawing | null;
   /** Shown between the toolbar and the page: map mode's preview. */
   banner?: ReactNode;
+  /**
+   * Identify mode (docs/11 §12.9, shortcut I): the same selection as map mode, but a pick becomes an identifier of the
+   * layout instead of a field value. Offered only where the document can be saved as a layout.
+   */
+  identifyMode?: boolean;
+  onIdentifyModeChange?: (on: boolean) => void;
+  /** The identification evidence on the page shown, drawn while Identify mode is on. */
+  evidence?: readonly { box: Box; label: string; positive: boolean }[];
 }
 
 export interface PageViewerProps {
@@ -146,18 +155,34 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
         </Toggle>
         {tools && (
           <>
-            <Toggle
-              pressed={tools.mapMode}
-              onPressedChange={tools.onMapModeChange}
-              size="sm"
-              aria-label={t("review.viewer.mapMode")}
-              aria-keyshortcuts="M"
-              title={t("review.viewer.mapModeHint")}
-              data-testid="map-mode-toggle"
-            >
-              <MousePointerClick aria-hidden />
-              <span className="hidden lg:inline">{t("review.viewer.map")}</span>
-            </Toggle>
+            {tools.onMapModeChange && (
+              <Toggle
+                pressed={tools.mapMode}
+                onPressedChange={tools.onMapModeChange}
+                size="sm"
+                aria-label={t("review.viewer.mapMode")}
+                aria-keyshortcuts="M"
+                title={t("review.viewer.mapModeHint")}
+                data-testid="map-mode-toggle"
+              >
+                <MousePointerClick aria-hidden />
+                <span className="hidden lg:inline">{t("review.viewer.map")}</span>
+              </Toggle>
+            )}
+            {tools.onIdentifyModeChange && (
+              <Toggle
+                pressed={!!tools.identifyMode}
+                onPressedChange={tools.onIdentifyModeChange}
+                size="sm"
+                aria-label={t("review.viewer.identifyMode")}
+                aria-keyshortcuts="I"
+                title={t("review.viewer.identifyModeHint")}
+                data-testid="identify-mode-toggle"
+              >
+                <Fingerprint aria-hidden />
+                <span className="hidden lg:inline">{t("review.viewer.identify")}</span>
+              </Toggle>
+            )}
             {tools.onTableModeChange && (
               <Toggle pressed={!!tools.tableMode} onPressedChange={tools.onTableModeChange} size="sm" aria-label={t("review.viewer.tableTool")} title={t("review.viewer.tableToolHint")} data-testid="table-tool-toggle">
                 <Table2 aria-hidden />
@@ -182,15 +207,16 @@ export function PageViewer({ documentId, pageCount, boxes, highlightedPath, onHo
               rendered={rendered}
               boxes={pageBoxes}
               words={words}
-              showWords={showWords || !!tools?.mapMode}
+              showWords={showWords || !!tools?.mapMode || !!tools?.identifyMode}
               highlightedPath={highlightedPath}
               onHover={onHover}
               onSelect={onSelect}
               labelOf={fieldLabel}
-              interaction={tools?.tableMode ? "table" : tools?.mapMode ? "map" : null}
+              interaction={tools?.tableMode ? "table" : tools?.identifyMode ? "identify" : tools?.mapMode ? "map" : null}
               onPick={tools ? (pick) => tools.onPick(page, pick) : undefined}
               selection={tools?.selection}
               table={tools?.table}
+              evidence={tools?.identifyMode ? tools.evidence : undefined}
             />
           </div>
         )}
