@@ -574,8 +574,27 @@ field mapping (where each value is printed).
   blocking `NEW_LAYOUT` (the old layout is never applied, the classifiers only propose a type) and goes to review.
 - **Warm-up.** The first `reviewWarmup` documents under a newly activated version go to review with `LAYOUT_WARMUP`
   ("document 1 of the first 5"), already filled by the layout. The default is 5 (decision 2 of docs/11 §24); a tenant
-  admin sets another value for the versions activated from then on with `PUT /api/v1/settings {"layoutReviewWarmup": 0}`
-  (the demo tenant's warm-up of docs/11 §23 P4), or per activation with `{"reviewWarmup": n}`.
+  admin sets another value with `PUT /api/v1/settings {"layoutReviewWarmup": 0}` (the demo tenant's warm-up of docs/11
+  §23 P4): versions activated from then on take it, and Active versions whose warm-up is still the old tenant value
+  follow, so the next document of a version inside its warm-up auto-approves. Per activation: `{"reviewWarmup": n}`.
+- **Learning in review** (P4 part C). A `NEW_LAYOUT` document arrives pre-filled by the `layout-prefill` step
+  (`appliedConfig.prefill.sources`: the pending Candidate's mapping, the supplier's other layouts' labels anywhere, its
+  master data and known values, each Inferred with its place; the LLM fills the rest only when a provider is
+  configured), so without an LLM it waits in review instead of for a provider. The reviewer corrects values on the page
+  and approves with `{"learnLayout": {"layoutKey": "nordwind-invoice-webshop"}}` (or calls `:learn-layout`):
+  `AnchorLearner` turns the confirmed values into the field mapping, the rule is the one marked
+  (`identifiers:propose` turns a selection into an identifier) or a proposed one ("RECHNUNG / INVOICE" in the page-1
+  title area plus `supplierValue: vatId`). A user with the `MappingAuthor` grant (`tenant-a-reviewer` in the dev realm,
+  and every tenant admin) gets the layout Active after its replay, with the tenant's warm-up; anyone else a Candidate,
+  which the next document in that design waits for (`pendingLayoutVersionId`, pre-filled from it) and which
+  `GET /api/v1/notifications` reports to the MappingAuthors. `POST /api/v1/supplier-layouts/{id}/versions/{v}:activate
+  {"reprocessWaiting": true}` activates it and sends the waiting documents back from Classify.
+- **Governance.** `POST /api/v1/documents/{id}:golden` keeps an approved document's values as a golden document;
+  `POST /api/v1/regression-runs {layoutId, version}` runs the golden documents through a version, `POST
+  /api/v1/sandbox/runs` a document through a draft rule and mapping, both without side effects. `GET
+  /api/v1/config/bundle` exports the configuration as a signed JSON bundle and `POST /api/v1/config/bundle:import
+  {"bundle": …, "mode": "dry-run"|"apply"}` checks and imports it (layouts as Candidates, rules and bindings disabled);
+  the signature key is `ConfigBundles:SigningKey` (below).
 
 ### Demo data
 
@@ -1160,6 +1179,12 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Intake:FolderStableFor` | `00:00:05` | How long a file's size and time must stay unchanged before it is taken (a channel's `stableSeconds` overrides it). |
 | `Intake:MaxFilesPerScan` | 50 | The most files one folder scan takes. |
 | `Intake:MaxFileBytes` | 52428800 (50 MB) | The largest file taken; a larger one is moved to `failed/`. |
+
+**Configuration bundles** (read by the API's bundle endpoints, docs/11 §15.4)
+
+| Key | Default | What it does |
+|---|---|---|
+| `ConfigBundles:SigningKey` | unset: a fixed development key | The HMAC-SHA256 key that signs `GET /config/bundle` and verifies `POST /config/bundle:import`. Set the same secret value in the environments a bundle moves between (staging and production); unset, bundles are signed with the built-in development key, which any other unset host accepts, so set it everywhere outside development. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

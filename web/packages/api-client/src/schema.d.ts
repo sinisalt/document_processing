@@ -75,6 +75,40 @@ export interface paths {
         patch: operations["UpdateChannel"];
         trace?: never;
     };
+    "/api/v1/config/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Exports the tenant's configuration as one signed, versioned JSON bundle (docs/11 §15.4): ?include=types,layouts,sourceRules,outputs,bindings; secrets are never in it. */
+        get: operations["ExportConfigBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/bundle:import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks a bundle's signature and contents and reports per item what an import does (dry-run), or does it (apply): types and output mappings as drafts, layouts as Candidates, source rules and bindings disabled. */
+        post: operations["ImportConfigBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/deliveries": {
         parameters: {
             query?: never;
@@ -336,6 +370,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents:bulk-reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends up to 200 documents back through the pipeline from a stage (docs/11 §15.5), for example the siblings of a new layout from Classify with configMode current. */
+        post: operations["BulkReprocessDocuments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}": {
         parameters: {
             query?: never;
@@ -404,6 +455,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}:golden": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keeps an approved document as a golden document (docs/11 §15.3): a snapshot of its values and its outputs' hashes; replays and regression runs read it. */
+        post: operations["MarkGoldenDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}:join": {
         parameters: {
             query?: never;
@@ -415,6 +483,40 @@ export interface paths {
         put?: never;
         /** Joins other parts of the same attachment into this document, pages in attachment order (docs/11 §12.7); the others are cancelled with a link to it, and the joined document is classified again. 202. */
         post: operations["JoinDocuments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:learn-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Saves the reviewed document as a layout (docs/11 §12.6): its identification rule (marked, or proposed) and the field mapping AnchorLearner derives from its confirmed values. A MappingAuthor's save is activated under the condition of §8.3 with the tenant's warm-up; anyone else's is a Candidate the MappingAuthors are notified of. */
+        post: operations["LearnLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:match-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sets the type of a NEW_LAYOUT document (TypeSource Human, a setType correction) and records the basis of its pre-fill (docs/11 §12.10 step 3); the layout-prefill step runs again only when the type or the basis changes (202). */
+        post: operations["MatchLayout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -521,6 +623,23 @@ export interface paths {
         head?: never;
         /** Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction. */
         patch: operations["CorrectDocumentFields"];
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/identifiers:propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turns the words picked or the box drawn on a page into an identifier (docs/11 §12.9): a title-area word becomes {text, page, region: title}, other words a bBox, the supplier's VAT id or IBAN supplierValue (never in tenant scope). */
+        post: operations["ProposeIdentifier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/documents/{id}/layout-suggestions": {
@@ -705,6 +824,40 @@ export interface paths {
         /** Acknowledges feed entries, which marks their deliveries delivered. */
         post: operations["AcknowledgeFeed"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/golden-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The golden documents, optionally of one supplier (?supplierId=) and type (?typeKey=). */
+        get: operations["ListGoldenDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/golden-documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Removes a golden document (the document stays). */
+        delete: operations["DeleteGoldenDocument"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1042,6 +1195,40 @@ export interface paths {
         patch: operations["ChangeMemberRole"];
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The open notifications for the permissions the caller holds (MappingAuthor: Candidate layouts with documents waiting); ?all=true includes resolved ones. */
+        get: operations["ListNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}:dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves a notification the caller may see. */
+        post: operations["DismissNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/output-bindings": {
         parameters: {
             query?: never;
@@ -1238,6 +1425,40 @@ export interface paths {
         patch: operations["UpdateReceivingEntity"];
         trace?: never;
     };
+    "/api/v1/regression-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the golden documents of a layout's supplier and type through one of its versions and compares the values with the snapshots (docs/11 §15.3). */
+        post: operations["CreateRegressionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/regression-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A regression run. */
+        get: operations["GetRegressionRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/review-tasks": {
         parameters: {
             query?: never;
@@ -1300,6 +1521,40 @@ export interface paths {
         put?: never;
         /** Dry-runs the tenant's source rules against a source (channel, sender, recipients, mailbox, folder, subject, file name, sender authentication) and explains the result: winner, runners-up, conflicts and the type (docs/11 §18). */
         post: operations["TestRouting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs a stored document through a draft layout (a version, or a rule and mapping) without side effects (docs/11 §15.3): the identification evidence, or NEW_LAYOUT with the identifiers that failed, the values the mapping reads and its drift. */
+        post: operations["CreateSandboxRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A sandbox run. */
+        get: operations["GetSandboxRun"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1412,6 +1667,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/supplier-layouts/{layoutId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adds a version written by hand to a layout: its identification rule and field mapping, saved as a Candidate. */
+        post: operations["CreateSupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/supplier-layouts/{layoutId}/versions/{version}": {
         parameters: {
             query?: never;
@@ -1438,8 +1710,42 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Activates a version after the identification test (its rule holds on no approved document of the supplier's other layouts), with the tenant's review warm-up; the previous Active version is retired. */
+        /** Activates a version under the condition of docs/11 §8.3 (the identification test passes and the field replay agrees on a non-empty replay set), with the tenant's review warm-up; the previous Active version is retired, and the documents waiting for it can be reprocessed. */
         post: operations["ActivateSupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}:replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the dry-run replay of docs/11 §8.3: the identification test and the field replay over the replay set, stored on the version. */
+        post: operations["ReplaySupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}/matching-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's documents the version's rule holds on (?state=pending: in review with NEW_LAYOUT, the sibling re-test; approved: approved ones; ?holds=false: those it does not hold on). */
+        get: operations["GetLayoutMatchingDocuments"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1698,10 +2004,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when left out. */
+        /**
+         * @description The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when
+         *     left out, and whether the documents waiting for the version (its pending siblings) are reprocessed from Classify at once
+         *     ("Activate and reprocess N documents", docs/11 §19).
+         */
         ActivateLayoutRequest: {
+            reprocessWaiting?: null | boolean;
             /** Format: int32 */
             reviewWarmup?: null | number | string;
+        };
+        /** @description What `:activate` did: the layout, the replay that allowed it, the documents waiting for the version and the ones reprocessed. */
+        ActivateLayoutResponse: {
+            layout: components["schemas"]["SupplierLayoutResponse"];
+            replay: components["schemas"]["ReplayReport"];
+            reprocessed: string[];
+            waiting: string[];
         };
         AddMemberRequest: {
             displayName: null | string;
@@ -1741,8 +2059,14 @@ export interface components {
             code: string;
             message: string;
         };
+        /**
+         * @description `:approve` (docs/05): an optional comment and, for a document of a known supplier, LearnLayoutRequest? ApproveDocumentRequest.LearnLayout
+         *     ("Approve and save as layout", docs/11 §12.10 step 6): the approval and the saved layout commit together. Without it a
+         *     `NEW_LAYOUT` document is approved alone and the flag is resolved as `approvedWithoutLayout`.
+         */
         ApproveDocumentRequest: {
             comment: null | string;
+            learnLayout?: null | components["schemas"]["LearnLayoutRequest"];
         };
         /**
          * @description Remember the assignment as a source rule (docs/11 §12.1): IReadOnlyList&lt;string&gt; AssignSupplierRemember.Conditions names the facts of the document's
@@ -1765,6 +2089,39 @@ export interface components {
             remember?: null | components["schemas"]["AssignSupplierRemember"];
             /** Format: uuid */
             supplierId: string;
+        };
+        /** @description One document of a bulk reprocess: queued, or why not. */
+        BulkReprocessItem: {
+            /** Format: uuid */
+            documentId: string;
+            problem: null | string;
+            queued: boolean;
+        };
+        /** @description `POST /documents:bulk-reprocess` (docs/11 §15.5, §12.10 step 7): the documents, the stage and the configuration mode. */
+        BulkReprocessRequest: {
+            configMode?: null | string;
+            documentIds: string[];
+            fromStage?: null | string;
+        };
+        /** @description One item of an import report: its kind and key, what the import does or did (`create`, `newVersion`, `skip`, `error`) and why. */
+        BundleImportItem: {
+            action: string;
+            detail: null | string;
+            key: string;
+            kind: string;
+        };
+        /** @description `POST /config/bundle:import` (docs/11 §15.4): the bundle as exported and `dry-run` (default) or `apply`. */
+        BundleImportRequest: {
+            bundle: components["schemas"]["JsonElement"];
+            mode?: null | string;
+        };
+        /** @description The import report: whether the signature verified, the mode, and per item what happens. */
+        BundleImportResponse: {
+            items: components["schemas"]["BundleImportItem"][];
+            mode: string;
+            signatureValid: boolean;
+            /** Format: int32 */
+            version: number | string;
         };
         ChangeMemberRoleRequest: {
             role: string;
@@ -1892,6 +2249,11 @@ export interface components {
             priority?: null | number | string;
             /** Format: uuid */
             receivingEntityId?: null | string;
+        };
+        /** @description `POST /supplier-layouts/{id}/versions`: a new version written by hand, its rule and field mapping (saved as a Candidate). */
+        CreateLayoutVersionRequest: {
+            identification: components["schemas"]["JsonElement"];
+            mapping: components["schemas"]["JsonElement"];
         };
         /** @description string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL. */
         CreateLlmProviderRequest: {
@@ -2177,6 +2539,11 @@ export interface components {
             /** Format: int32 */
             pageCount: number | string;
             pageImageUrls: string[];
+            /**
+             * Format: uuid
+             * @description The Candidate layout version the document waits for (docs/11 §12.10); never applied.
+             */
+            pendingLayoutVersionId?: null | string;
             /**
              * Format: uuid
              * @description The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.
@@ -2532,6 +2899,24 @@ export interface components {
         FlagOrigin: "Pipeline" | "Human";
         /** @enum {unknown} */
         FlagSeverity: "Info" | "Warning" | "Blocking";
+        /** @description A golden document (docs/11 §6.9): the document, its type, supplier and layout version, the values it was approved with and its outputs' hashes. */
+        GoldenDocumentDto: {
+            /** Format: date-time */
+            addedAt: string;
+            addedBy: null | string;
+            /** Format: uuid */
+            documentId: string;
+            expectedOutputs: null | components["schemas"]["JsonElement"];
+            expectedValues: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            id: string;
+            note: null | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: uuid */
+            supplierLayoutVersionId: null | string;
+            typeKey: string;
+        };
         HttpValidationProblemDetails: {
             detail?: null | string;
             errors?: {
@@ -2712,6 +3097,7 @@ export interface components {
             documentIds: string[];
         };
         JsonElement: unknown;
+        JsonObject: Record<string, never>;
         /** @enum {unknown} */
         KeyOwner: "Platform" | "Tenant" | null;
         /** @description One layout version as the resolver evaluated it for a document (`layouts:resolve`). */
@@ -2764,6 +3150,69 @@ export interface components {
             similarity: number | string;
             /** Format: uuid */
             versionId: string;
+        };
+        /** @description A field the learner turned into rules: its strategies in order, the label and value pattern, and whether the rules read the confirmed value back. */
+        LearnedFieldDto: {
+            label: null | string;
+            path: string;
+            pattern: null | string;
+            strategies: string[];
+            verified: boolean;
+        };
+        /**
+         * @description `POST /documents/{id}:learn-layout` (docs/11 §12.6, §18): string? LearnLayoutRequest.SaveAs `newLayout` (default) or
+         *     `newVersion` of Guid? LearnLayoutRequest.TargetLayoutId; string? LearnLayoutRequest.LayoutKey and string? LearnLayoutRequest.Name for a new layout
+         *     (a free key is derived otherwise); JsonElement? LearnLayoutRequest.Identification, the rule the reviewer marked (else one is proposed,
+         *     or the target's for a new version); IReadOnlyList&lt;string&gt;? LearnLayoutRequest.Fields, the paths to learn (every value by default);
+         *     bool? LearnLayoutRequest.ConfirmNotRecognised, the confirmation that the target's current design will no longer be recognised;
+         *     Guid? LearnLayoutRequest.PendingLayoutVersionId, "confirm against pending layout" instead of a new one; AssignSupplierRemember? LearnLayoutRequest.SourceRules,
+         *     the source rule to save with it (as `:assign-supplier`'s `remember`).
+         */
+        LearnLayoutRequest: {
+            confirmNotRecognised?: null | boolean;
+            fields?: null | string[];
+            identification?: unknown;
+            layoutKey?: null | string;
+            name?: null | string;
+            /** Format: uuid */
+            pendingLayoutVersionId?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            saveAs?: null | string;
+            sourceRules?: null | components["schemas"]["AssignSupplierRemember"];
+            /** Format: uuid */
+            targetLayoutId?: null | string;
+        };
+        /**
+         * @description The answer of `:learn-layout` (docs/11 §12.6, §12.10): the layout with the version saved and its status
+         *     (Active when a `MappingAuthor` saved it and the activation condition held, else Candidate), the rule (proposed or
+         *     marked) and its sentence, the learned fields and the ones left out, the replay, why the version was not activated,
+         *     the pending siblings (attached to a Candidate, or to reprocess for an Active version), the documents of the target
+         *     layout its new rule no longer recognises, the proposed source rules and the source rule saved with it.
+         */
+        LearnLayoutResponse: {
+            describe: string;
+            fields: components["schemas"]["LearnedFieldDto"][];
+            identification: components["schemas"]["JsonElement"];
+            layout: components["schemas"]["SupplierLayoutResponse"];
+            noLongerRecognised: string[];
+            notActivated: null | string;
+            notes: string[];
+            proposedSourceRules: components["schemas"]["ProposedSourceRuleDto"][];
+            replay: null | components["schemas"]["ReplayReport"];
+            ruleProposed: boolean;
+            siblings: string[];
+            skipped: components["schemas"]["LearnSkipDto"][];
+            /** Format: uuid */
+            sourceRuleId: null | string;
+            status: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description A field the learner left out, and why. */
+        LearnSkipDto: {
+            path: string;
+            reason: string;
         };
         LlmPolicyResponse: {
             allowPlatformKeyAtAll: boolean;
@@ -2866,6 +3315,38 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description `POST /documents/{id}:golden`: an optional note. */
+        MarkGoldenRequest: {
+            note?: null | string;
+        };
+        /** @description A document a version's rule holds on (or, for the "no longer recognised" check, does not hold on). */
+        MatchingDocumentDto: {
+            /** Format: uuid */
+            documentId: string;
+            failed: string[];
+            fileName: null | string;
+            holds: boolean;
+            /** Format: uuid */
+            pendingLayoutVersionId: null | string;
+            status: string;
+            /** Format: uuid */
+            supplierLayoutVersionId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description `POST /documents/{id}:match-layout` (docs/11 §12.10 step 3): the type of a `NEW_LAYOUT` document, a layout
+         *     whose labels seed the pre-fill, how it will be saved, and a pending Candidate to confirm against.
+         */
+        MatchLayoutRequest: {
+            /** Format: uuid */
+            basedOnLayoutId?: null | string;
+            /** Format: uuid */
+            pendingLayoutVersionId?: null | string;
+            saveAs?: null | string;
+            /** Format: uuid */
+            targetLayoutId?: null | string;
+            typeKey: string;
+        };
         MemberResponse: {
             /** Format: date-time */
             createdAt: string;
@@ -2886,6 +3367,27 @@ export interface components {
             subject: string;
             /** Format: uuid */
             tenantId: null | string;
+        };
+        /** @description A notification (docs/11 §12.10 step 6): documents waiting for a Candidate layout. */
+        NotificationDto: {
+            audience: string;
+            /** Format: int32 */
+            count: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            entityId: null | string;
+            entityType: null | string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            message: string;
+            payload: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            resolvedAt: null | string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         /** @description A binding as the API shows it: events, scope, the mapping (by key) and the destination. */
         OutputBindingResponse: {
@@ -3199,6 +3701,27 @@ export interface components {
             status: null | string;
             vatId: null | string;
         };
+        /** @description A source rule `:learn-layout` proposes from the document's ingestion (docs/11 §12.6): the conditions (as `remember` names them), a sentence, and whether the supplier has it already. */
+        ProposedSourceRuleDto: {
+            conditions: string[];
+            describe: string;
+            exists: boolean;
+        };
+        /** @description `POST /documents/{id}/identifiers:propose` (docs/11 §12.9 step 2): the page and either the box drawn or the words picked (indexes in the page's text layer), and the scope. */
+        ProposeIdentifierRequest: {
+            bBox?: null | components["schemas"]["SourceBox"];
+            /** Format: int32 */
+            page: number | string;
+            scope?: null | string;
+            words?: null | (number | string)[];
+        };
+        /** @description The proposed identifier, its sentence, whether it holds on the document, and warnings for the Identification card. */
+        ProposeIdentifierResponse: {
+            describe: string;
+            holds: boolean;
+            identifier: components["schemas"]["JsonElement"];
+            warnings: string[];
+        };
         /** @description The publish-time checks' report (docs/11 §5.7): what blocks, what to know, which fields changed. */
         PublishReportDto: {
             blockingDependents: components["schemas"]["DependentReferenceDto"][];
@@ -3316,6 +3839,28 @@ export interface components {
             mappingVersion: null | number | string;
             mode: null | string;
         };
+        /** @description A sandbox or regression run as stored: what ran, whether it passed, and its trace or report. */
+        RegressionRunDto: {
+            candidateConfig: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            /** Format: uuid */
+            documentId: null | string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            passed: boolean;
+            result: components["schemas"]["JsonElement"];
+            trigger: string;
+        };
+        /** @description `POST /regression-runs` (docs/11 §15.3): the golden documents of a layout's supplier and type through one of its versions. */
+        RegressionRunRequest: {
+            /** Format: uuid */
+            layoutId: string;
+            /** Format: int32 */
+            version: number | string;
+        };
         RejectDocumentRequest: {
             reason: string;
         };
@@ -3326,6 +3871,65 @@ export interface components {
             message: string;
             /** Format: int32 */
             position: null | number | string;
+        };
+        /** @description One document of the replay set: whether the rule holds, and per covered field `hit`, `mismatch`, `missing` or `skipped`. */
+        ReplayDocument: {
+            /** Format: uuid */
+            documentId: string;
+            fields: {
+                [key: string]: string;
+            };
+            fileName: null | string;
+            holds: boolean;
+            status: string;
+        };
+        /** @description Per field of the replay (docs/11 §8.3): hits, mismatches and misses on the replay set, and the agreement. */
+        ReplayFieldStat: {
+            /** Format: double */
+            agreement: number | string;
+            /** Format: int32 */
+            hits: number | string;
+            /** Format: int32 */
+            mismatches: number | string;
+            /** Format: int32 */
+            missing: number | string;
+            path: string;
+        };
+        /** @description `…/versions/{v}:replay`: more documents for the replay set, and how many of the supplier's approved documents of the type (50 by default). */
+        ReplayLayoutRequest: {
+            documentIds?: null | string[];
+            /** Format: int32 */
+            lastN?: null | number | string;
+        };
+        /** @description A document of another layout (or a pending Candidate) the rule under test holds on: an overlap that blocks activation. */
+        ReplayOverlap: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            layoutId: null | string;
+            layoutKey: null | string;
+            reason: string;
+        };
+        /**
+         * @description The dry-run replay of a layout version (docs/11 §8.3, stored in `ReplayJson`): the identification test (the rule
+         *     holds on the documents it was built from, and on no approved document of the owner's other layouts nor a pending
+         *     document of another Candidate), and the field replay over the replay set (the approved documents of the supplier and
+         *     type, golden documents and the version's own documents on which the rule holds), with the per-field matrix and the
+         *     activation condition: identification passes and every field agrees on at least double ReplayReport.Threshold of a
+         *     non-empty set.
+         */
+        ReplayReport: {
+            /** Format: date-time */
+            at: string;
+            documents: components["schemas"]["ReplayDocument"][];
+            fields: components["schemas"]["ReplayFieldStat"][];
+            fieldsPassed: boolean;
+            identificationPassed: boolean;
+            overlaps: components["schemas"]["ReplayOverlap"][];
+            passed?: boolean;
+            sourceNotMatched: string[];
+            /** Format: double */
+            threshold: number | string;
         };
         /**
          * @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
@@ -3426,6 +4030,20 @@ export interface components {
             dkimDomains?: null | string[];
             dmarc?: null | string;
             spf?: null | string;
+        };
+        /**
+         * @description `POST /sandbox/runs` (docs/11 §15.3): a stored document run through a draft configuration without side effects:
+         *     a layout version (Guid? SandboxRunRequest.LayoutVersionId), or a draft rule and field mapping of string? SandboxRunRequest.TypeKey (the
+         *     document's type by default).
+         */
+        SandboxRunRequest: {
+            /** Format: uuid */
+            documentId: string;
+            identification?: unknown;
+            /** Format: uuid */
+            layoutVersionId?: null | string;
+            mapping?: unknown;
+            typeKey?: null | string;
         };
         /** @description A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision). */
         SaveOutputMappingDraftRequest: {
@@ -3896,13 +4514,18 @@ export interface components {
          *     removes it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)
          *     and IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).
          *     int? TenantSettingsDto.LayoutReviewWarmup (docs/11 §8.3 `layoutActivation`, decision 2 of §24) is how many documents
-         *     under a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`.
+         *     under a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`, and the
+         *     Active versions whose warm-up is the tenant's old one take the new one (the settled P4 demo sets 0).
+         *     int? TenantSettingsDto.LayoutAgreementPercent is the field agreement a version needs on its replay set to be activated (docs/11
+         *     §8.3, 90 % by default).
          */
         TenantSettingsDto: {
             alwaysReviewSupplierIds: string[];
             /** Format: double */
             autoApproveConfidenceThreshold: number | string;
             features?: null | components["schemas"]["TenantFeaturesDto"];
+            /** Format: int32 */
+            layoutAgreementPercent?: null | number | string;
             /** Format: int32 */
             layoutReviewWarmup?: null | number | string;
             layoutsRequiredByDefault?: null | boolean;
@@ -3931,6 +4554,7 @@ export interface components {
     pathItems: never;
 }
 export type SchemaActivateLayoutRequest = components['schemas']['ActivateLayoutRequest'];
+export type SchemaActivateLayoutResponse = components['schemas']['ActivateLayoutResponse'];
 export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
@@ -3938,6 +4562,11 @@ export type SchemaApprovalBlock = components['schemas']['ApprovalBlock'];
 export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
 export type SchemaAssignSupplierRemember = components['schemas']['AssignSupplierRemember'];
 export type SchemaAssignSupplierRequest = components['schemas']['AssignSupplierRequest'];
+export type SchemaBulkReprocessItem = components['schemas']['BulkReprocessItem'];
+export type SchemaBulkReprocessRequest = components['schemas']['BulkReprocessRequest'];
+export type SchemaBundleImportItem = components['schemas']['BundleImportItem'];
+export type SchemaBundleImportRequest = components['schemas']['BundleImportRequest'];
+export type SchemaBundleImportResponse = components['schemas']['BundleImportResponse'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
@@ -3948,6 +4577,7 @@ export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
 export type SchemaCreateDestinationRequest = components['schemas']['CreateDestinationRequest'];
 export type SchemaCreateDocumentTypeRequest = components['schemas']['CreateDocumentTypeRequest'];
 export type SchemaCreateLayoutRequest = components['schemas']['CreateLayoutRequest'];
+export type SchemaCreateLayoutVersionRequest = components['schemas']['CreateLayoutVersionRequest'];
 export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
 export type SchemaCreateLookupTableRequest = components['schemas']['CreateLookupTableRequest'];
 export type SchemaCreateOutputBindingRequest = components['schemas']['CreateOutputBindingRequest'];
@@ -3988,6 +4618,7 @@ export type SchemaFieldChangeDto = components['schemas']['FieldChangeDto'];
 export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
 export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
+export type SchemaGoldenDocumentDto = components['schemas']['GoldenDocumentDto'];
 export type SchemaHttpValidationProblemDetails = components['schemas']['HttpValidationProblemDetails'];
 export type SchemaIdentificationEvidenceDto = components['schemas']['IdentificationEvidenceDto'];
 export type SchemaIdentificationOverlap = components['schemas']['IdentificationOverlap'];
@@ -4008,10 +4639,15 @@ export type SchemaItemDisposition = components['schemas']['ItemDisposition'];
 export type SchemaItemKind = components['schemas']['ItemKind'];
 export type SchemaJoinDocumentsRequest = components['schemas']['JoinDocumentsRequest'];
 export type SchemaJsonElement = components['schemas']['JsonElement'];
+export type SchemaJsonObject = components['schemas']['JsonObject'];
 export type SchemaKeyOwner = components['schemas']['KeyOwner'];
 export type SchemaLayoutEvaluationDto = components['schemas']['LayoutEvaluationDto'];
 export type SchemaLayoutResolveResponse = components['schemas']['LayoutResolveResponse'];
 export type SchemaLayoutSuggestionDto = components['schemas']['LayoutSuggestionDto'];
+export type SchemaLearnedFieldDto = components['schemas']['LearnedFieldDto'];
+export type SchemaLearnLayoutRequest = components['schemas']['LearnLayoutRequest'];
+export type SchemaLearnLayoutResponse = components['schemas']['LearnLayoutResponse'];
+export type SchemaLearnSkipDto = components['schemas']['LearnSkipDto'];
 export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
 export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
 export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
@@ -4019,8 +4655,12 @@ export type SchemaLlmUsageResponse = components['schemas']['LlmUsageResponse'];
 export type SchemaLookupEntryDto = components['schemas']['LookupEntryDto'];
 export type SchemaLookupTableDetail = components['schemas']['LookupTableDetail'];
 export type SchemaLookupTableSummary = components['schemas']['LookupTableSummary'];
+export type SchemaMarkGoldenRequest = components['schemas']['MarkGoldenRequest'];
+export type SchemaMatchingDocumentDto = components['schemas']['MatchingDocumentDto'];
+export type SchemaMatchLayoutRequest = components['schemas']['MatchLayoutRequest'];
 export type SchemaMemberResponse = components['schemas']['MemberResponse'];
 export type SchemaMeResponse = components['schemas']['MeResponse'];
+export type SchemaNotificationDto = components['schemas']['NotificationDto'];
 export type SchemaOutputBindingResponse = components['schemas']['OutputBindingResponse'];
 export type SchemaOutputMappingCheckReport = components['schemas']['OutputMappingCheckReport'];
 export type SchemaOutputMappingDetail = components['schemas']['OutputMappingDetail'];
@@ -4047,6 +4687,9 @@ export type SchemaPatchReceivingEntityRequest = components['schemas']['PatchRece
 export type SchemaPatchSupplierGroupRequest = components['schemas']['PatchSupplierGroupRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaProposedSourceRuleDto = components['schemas']['ProposedSourceRuleDto'];
+export type SchemaProposeIdentifierRequest = components['schemas']['ProposeIdentifierRequest'];
+export type SchemaProposeIdentifierResponse = components['schemas']['ProposeIdentifierResponse'];
 export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
 export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntriesRequest'];
@@ -4055,8 +4698,15 @@ export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
 export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
 export type SchemaReceivingEntityResponse = components['schemas']['ReceivingEntityResponse'];
 export type SchemaRedeliverRequest = components['schemas']['RedeliverRequest'];
+export type SchemaRegressionRunDto = components['schemas']['RegressionRunDto'];
+export type SchemaRegressionRunRequest = components['schemas']['RegressionRunRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
 export type SchemaRenderErrorDto = components['schemas']['RenderErrorDto'];
+export type SchemaReplayDocument = components['schemas']['ReplayDocument'];
+export type SchemaReplayFieldStat = components['schemas']['ReplayFieldStat'];
+export type SchemaReplayLayoutRequest = components['schemas']['ReplayLayoutRequest'];
+export type SchemaReplayOverlap = components['schemas']['ReplayOverlap'];
+export type SchemaReplayReport = components['schemas']['ReplayReport'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
@@ -4065,6 +4715,7 @@ export type SchemaRoutingTestCandidate = components['schemas']['RoutingTestCandi
 export type SchemaRoutingTestRequest = components['schemas']['RoutingTestRequest'];
 export type SchemaRoutingTestResponse = components['schemas']['RoutingTestResponse'];
 export type SchemaRoutingTestSenderAuth = components['schemas']['RoutingTestSenderAuth'];
+export type SchemaSandboxRunRequest = components['schemas']['SandboxRunRequest'];
 export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
 export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
 export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
@@ -4308,6 +4959,70 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ExportConfigBundle: {
+        parameters: {
+            query?: {
+                include?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonObject"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ImportConfigBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundleImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleImportResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
             };
         };
     };
@@ -4887,6 +5602,7 @@ export interface operations {
                 flag?: string;
                 from?: string;
                 limit?: number | string;
+                pendingLayoutVersionId?: string;
                 q?: string;
                 status?: string;
                 supplierId?: string;
@@ -4906,6 +5622,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageOfDocumentSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    BulkReprocessDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkReprocessRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkReprocessItem"][];
                 };
             };
             /** @description Bad Request */
@@ -4991,6 +5740,15 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentDetail"];
                 };
             };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
             /** @description Bad Request */
             400: {
                 headers: {
@@ -5037,6 +5795,32 @@ export interface operations {
             };
         };
     };
+    MarkGoldenDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MarkGoldenRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoldenDocumentDto"];
+                };
+            };
+        };
+    };
     JoinDocuments: {
         parameters: {
             query?: never;
@@ -5049,6 +5833,67 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["JoinDocumentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    LearnLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearnLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearnLayoutResponse"];
+                };
+            };
+        };
+    };
+    MatchLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MatchLayoutRequest"];
             };
         };
         responses: {
@@ -5274,6 +6119,32 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ProposeIdentifier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposeIdentifierRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposeIdentifierResponse"];
                 };
             };
         };
@@ -5576,6 +6447,49 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
+            };
+        };
+    };
+    ListGoldenDocuments: {
+        parameters: {
+            query?: {
+                supplierId?: string;
+                typeKey?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoldenDocumentDto"][];
+                };
+            };
+        };
+    };
+    DeleteGoldenDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -6385,6 +7299,50 @@ export interface operations {
             };
         };
     };
+    ListNotifications: {
+        parameters: {
+            query?: {
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationDto"][];
+                };
+            };
+        };
+    };
+    DismissNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationDto"];
+                };
+            };
+        };
+    };
     ListOutputBindings: {
         parameters: {
             query?: never;
@@ -6930,6 +7888,52 @@ export interface operations {
             };
         };
     };
+    CreateRegressionRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegressionRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+        };
+    };
+    GetRegressionRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+        };
+    };
     ListReviewTasks: {
         parameters: {
             query?: {
@@ -7037,6 +8041,61 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateSandboxRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SandboxRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSandboxRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
                 };
             };
         };
@@ -7290,6 +8349,41 @@ export interface operations {
             };
         };
     };
+    CreateSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLayoutVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetSupplierLayoutVersion: {
         parameters: {
             query?: never;
@@ -7335,7 +8429,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                    "application/json": components["schemas"]["ActivateLayoutResponse"];
+                };
+            };
+        };
+    };
+    ReplaySupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ReplayLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayReport"];
+                };
+            };
+        };
+    };
+    GetLayoutMatchingDocuments: {
+        parameters: {
+            query?: {
+                holds?: boolean;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchingDocumentDto"][];
                 };
             };
         };

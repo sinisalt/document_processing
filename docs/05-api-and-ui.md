@@ -26,6 +26,7 @@
 | TenantAdmin | one tenant | manage members, suppliers, channels of the tenant, review policy, API keys, webhooks |
 | Reviewer | one tenant | review/correct/approve documents |
 | Viewer | one tenant | read documents and exports |
+| MappingAuthor (grant) | one tenant, besides a role | activate and retire supplier layouts; a layout it saves from review is Active at once (docs/11 §16, decision 2) |
 
 Authentication: OpenID Connect against an external identity provider (Entra ID / Keycloak /
 Auth0, decision deferred to the roadmap). Machine clients use per-tenant API keys scoped to
@@ -221,8 +222,9 @@ A tenant without the switch sees the API as before: the new response members are
 ### Layout endpoints as built (docs/11 §6.6, §8, P4 part B)
 
 Every route needs the tenant's `supplierLayouts` switch (403 without it; a tenant without it is never identified by a
-layout and its documents run as before). Reads and the rule test need `Read`, writes `ConfigAdmin` (there is no
-`MappingAuthor` role yet).
+layout and its documents run as before). Reads and the rule test need `Read`, writing a layout by hand `ConfigAdmin`,
+activating and retiring the `MappingAuthor` policy (tenant admins, and members holding the `MappingAuthor` grant; P4
+part C).
 
 - **Layouts.** `GET /suppliers/{id}/layouts?type=` and `GET /supplier-groups/{id}/layouts` list the layouts of a
   supplier or a group with their versions (newest first): status, origin, the rule's hash and sentence (`describe`),
@@ -233,11 +235,13 @@ layout and its documents run as before). Reads and the rule test need `Read`, wr
 - **Writing a layout.** `POST /suppliers/{id}/layouts {layoutKey, name, documentTypeKey, identification, mapping,
   priority?, itemKinds?, receivingEntityId?}` saves version 1 as a Candidate (the rule passes the checks at save, the
   mapping reads; a key the supplier has for that type already is `409 Layout exists`).
-  `POST /supplier-layouts/{id}/versions/{v}:activate {reviewWarmup?}` runs the identification test (the rule must not
-  hold on an approved document another layout of the supplier identified: `409` with `code: LAYOUT_OVERLAP` and the
-  `documentIds`), makes the version Active with the given warm-up or the tenant's `layoutReviewWarmup` (5 by default),
-  and retires the version Active before. `POST /supplier-layouts/{id}:retire` retires a layout. The field replay over
-  the replay set and learning from review (`:learn-layout`) are not built.
+  `POST /supplier-layouts/{id}/versions/{v}:activate {reviewWarmup?, reprocessWaiting?}` runs the replay of docs/11 §8.3
+  (the identification test: `409` with `code: LAYOUT_OVERLAP` and the `documentIds`; the field replay: `409` with
+  `code: LAYOUT_REPLAY_FAILED` and the `fields` below the tenant's agreement), makes the version Active with the given
+  warm-up or the tenant's `layoutReviewWarmup` (5 by default), retires the version Active before, resolves the
+  version's notifications, and answers `{layout, replay, waiting, reprocessed}`: the documents waiting for it, sent back
+  from Classify with `reprocessWaiting: true`. `POST /supplier-layouts/{id}:retire` retires a layout. Learning from
+  review: see "Layout learning, review flows and governance endpoints as built".
 - **Testing.** `POST /identification-rules:test {rule, scope: {supplierId}|{groupId}|{tenant: true}, documentIds? (at
   most 100) | lastN? (50, at most 200), typeKey?}` checks the rule (400 naming the place, `rule.all[1]`) and evaluates
   it on the documents: per document `matched`, the `evidence` (identifier, page, `bBox`, words) and what `failed`, the
@@ -252,7 +256,82 @@ layout and its documents run as before). Reads and the rule test need `Read`, wr
   the rule that filled each field (`hits`) and the drift report. The flags `NEW_LAYOUT`, `LAYOUT_AMBIGUOUS`,
   `MAPPING_DRIFT` and `LAYOUT_WARMUP` are in the catalogue.
 - **Settings.** `GET`/`PUT /settings` carry `layoutReviewWarmup` (0 to 100; `GET` gives the effective value, 5 by
-  default); changing it needs `supplierLayouts`. It is read when a version is activated.
+  default); changing it needs `supplierLayouts`. It is read when a version is activated, and (P4 part C) a change is
+  applied to the Active versions whose warm-up is still the tenant's old value; `layoutAgreementPercent` (50 to 100, 90
+  by default) is the field agreement the replay needs.
+
+### Layout learning, review flows and governance endpoints as built (docs/11 §8.3, §12.6 to §12.10, §15.3, §15.4, P4 part C)
+
+Every layout route needs `supplierLayouts` (403 without it). A tenant without the switch approves, assigns suppliers and
+reprocesses exactly as before.
+
+- **Learning.** `POST /documents/{id}:learn-layout {saveAs?: newLayout|newVersion, targetLayoutId?, layoutKey?, name?,
+  identification?, fields?, confirmNotRecognised?, pendingLayoutVersionId?, priority?, sourceRules?}` (`Review`) saves
+  the reviewed document as a layout: the rule the reviewer marked (else one is proposed: the type keyword of the page-1
+  title area plus the supplier's VAT id where it is printed; for a new version the target's rule) and the field
+  mapping `AnchorLearner` derives from the document's confirmed values (labels to the left or above, value patterns from
+  the printed shape, region fallbacks, constants for currencies and codes, a `column-table` from the rows' places or the
+  table tool's specification). The answer names the version and its status, the rule and its sentence
+  (`ruleProposed`), the learned fields and the ones left out with why, the `replay`, why it was not activated, the
+  pending `siblings`, the documents of the target the new rule no longer recognises, the `proposedSourceRules` of the
+  document's ingestion, and the source rule saved with `sourceRules` (as `:assign-supplier`'s `remember`). A
+  `MappingAuthor`'s save is activated when the condition of §8.3 holds (Active, warm-up from the tenant, 5 by default);
+  anyone else's stays a Candidate, the pending `NEW_LAYOUT` documents its rule holds on are attached to it
+  (`pendingLayoutVersionId`) and the `MappingAuthor`s are notified. Refusals: `400` (`RULE_INVALID`), `404`
+  (`TARGET_NOT_FOUND`, `PENDING_NOT_FOUND`), `409` (`LAYOUT_EXISTS`, `LAYOUT_NOT_RECOGNISED` with the `documentIds` of a
+  new version's target its rule no longer holds on, `NOT_LEARNABLE`), `422` (`RULE_DOES_NOT_HOLD` with what `failed`,
+  `NOTHING_LEARNED`). `pendingLayoutVersionId` confirms the document against a Candidate (its replay set grows, no second
+  layout).
+- **Approve and save.** `POST /documents/{id}:approve {comment?, learnLayout?}` runs the learning in the approval's
+  transaction (a refusal refuses the approval) and resolves `NEW_LAYOUT` with `resolution: learned` and the
+  `layoutKey`; approved without `learnLayout`, the flag is resolved as `approvedWithoutLayout`.
+- **Identify mode.** `POST /documents/{id}/identifiers:propose {page, bBox?|words?, scope?: layout|tenant}` (`Review`)
+  answers `{identifier, describe, holds, warnings}`: a title-band selection becomes `{text, page, region: title}`,
+  others a `bBox`, the supplier's VAT id, tax id, IBAN or a scalar attribute `supplierValue` (never in tenant scope,
+  where it stays text with a warning); a selection over several lines takes the first. `400` for no selection, `422`
+  when no word lies in it.
+- **New layout.** `POST /documents/{id}:match-layout {typeKey, basedOnLayoutId?, saveAs?, targetLayoutId?,
+  pendingLayoutVersionId?}` (`Review`, a document in review with an open `NEW_LAYOUT`) sets the type (`TypeSource`
+  Human, a `setType` correction), records the basis and how it will be saved on the flag, and answers `202`; it sends
+  the document back to Extract (the `layout-prefill` step) only when the type or the basis changed. With
+  `supplierLayouts`, `:assign-supplier` re-runs identification for the assigned supplier through the reprocess path from
+  Classify and answers `202` (a document that never reached Classify, or an e-invoice, is rechecked inline, `200`).
+- **Lifecycle.** `POST /supplier-layouts/{id}/versions {identification, mapping}` (`ConfigAdmin`) adds a Candidate
+  version written by hand. `POST /supplier-layouts/{id}/versions/{v}:replay {documentIds?, lastN?}` (`Review`) runs and
+  stores the replay (`identificationPassed`, `sourceNotMatched`, `overlaps`, the replay set's `documents` with a
+  hit/mismatch/missing per field, `fields` with their agreement, `threshold`, `fieldsPassed`, `passed`).
+  `GET /supplier-layouts/{id}/versions/{v}/matching-documents?state=pending|approved&holds=` (`Read`) lists the
+  supplier's documents the version's rule holds on (pending: in review with `NEW_LAYOUT`, the sibling re-test) or, with
+  `state=approved&holds=false`, the layout's approved documents it no longer holds on.
+- **Bulk reprocessing.** `POST /documents:bulk-reprocess {documentIds (1 to 200), fromStage? (Classify), configMode?
+  (current)}` (`Review`) answers per document whether it was queued, or why not; it runs in the request, not as a
+  background job.
+- **Inbox and notifications.** `GET /documents?pendingLayoutVersionId=` lists the documents waiting for a Candidate
+  (with `flag=NEW_LAYOUT&supplierId=` the queue grouped per supplier); `DocumentDetail.pendingLayoutVersionId` names it.
+  `GET /notifications?all=` (`Read`) lists the open notifications of the policies the caller holds (`MappingAuthor`:
+  `layout.candidate_waiting`, one per Candidate, its `count` the documents waiting); `POST /notifications/{id}:dismiss`
+  resolves one the caller may see (404 otherwise).
+- **Golden documents.** `POST /documents/{id}:golden {note?}` (`Review`, an approved document; `409` otherwise or when it
+  is golden already) keeps a snapshot of its values (per field path, composite member and row) and its deliveries'
+  payload hashes; `GET /golden-documents?supplierId=&typeKey=` (`Read`), `DELETE /golden-documents/{id}` (`Review`).
+  The replay adds the golden documents of the supplier and type to the replay set.
+- **Sandbox and regression runs.** `POST /sandbox/runs {documentId, layoutVersionId? | identification + mapping,
+  typeKey?}` (`ConfigAdmin`) runs a stored document through a draft layout without writing anything: `resolution`
+  (`identified` or `newLayout`), the evidence or the identifiers that failed, the values read and the drift.
+  `POST /regression-runs {layoutId, version}` (`ConfigAdmin`) runs the supplier's golden documents of the type through
+  the version and reports per document whether the rule holds and the differences from the snapshot. Both are stored
+  (`GET /sandbox/runs/{id}`, `GET /regression-runs/{id}`).
+- **Configuration bundles.** `GET /config/bundle?include=types,layouts,sourceRules,outputs,bindings` (`ConfigAdmin`)
+  answers `{format: "docproc.config-bundle", version: 1, exportedAt, sourceTenantId, include, types, layouts,
+  sourceRules, outputs, bindings, signature}`: published type definitions, the Active (else latest) version of each
+  supplier layout with its supplier's name and VAT id, source rules with theirs, output mappings with their published
+  (else latest) version, bindings with their destination's name, transport and config (never a secret: a placeholder
+  says where to set it); `signature` is HMAC-SHA256 over the bundle without it, keyed by `ConfigBundles:SigningKey`.
+  `POST /config/bundle:import {bundle, mode?: dry-run|apply}` (`ConfigAdmin`) refuses a bundle whose signature does not
+  verify (`400 BUNDLE_SIGNATURE_INVALID`) or of another version, and answers per item `{kind, key, action: create |
+  newVersion | skip | error, detail}`; `apply` creates new types (or draft versions of existing ones) through the
+  catalogue, layouts as Imported Candidates matched to a supplier by VAT id then name, source rules disabled, output
+  mappings with a draft version, and bindings disabled to destinations of the same name.
 
 ## React applications
 

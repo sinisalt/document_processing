@@ -137,7 +137,7 @@ public class AppModelTests
         var realm = doc.RootElement;
         realm.GetProperty("realm").GetString().ShouldBe("docproc");
         realm.GetProperty("roles").GetProperty("realm").EnumerateArray().Select(r => r.GetProperty("name").GetString())
-            .ShouldBe(["SuperAdmin", "Operator", "TenantAdmin", "Reviewer", "Viewer"], ignoreOrder: true);
+            .ShouldBe(["SuperAdmin", "Operator", "TenantAdmin", "Reviewer", "Viewer", "MappingAuthor"], ignoreOrder: true);
         realm.GetProperty("clients").EnumerateArray().Select(c => c.GetProperty("clientId").GetString())
             .ShouldBe(["docproc-api", "docproc-portal", "docproc-admin"], ignoreOrder: true);
 

@@ -55,6 +55,7 @@ public sealed class SettingsReferenceTests
         PersistenceHostExtensions.MigrateOnStartupKey,
         $"ConnectionStrings:{PersistenceHostExtensions.ConnectionStringName}",
         "Llm:Secrets:<secretRef>",
+        DocProc.Api.Endpoints.GovernanceEndpoints.SigningKeySetting,
     };
 
     [Theory]

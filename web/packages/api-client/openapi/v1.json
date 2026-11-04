@@ -379,7 +379,7 @@
         "tags": [
           "Layouts"
         ],
-        "summary": "Activates a version after the identification test (its rule holds on no approved document of the supplier's other layouts), with the tenant's review warm-up; the previous Active version is retired.",
+        "summary": "Activates a version under the condition of docs/11 §8.3 (the identification test passes and the field replay agrees on a non-empty replay set), with the tenant's review warm-up; the previous Active version is retired, and the documents waiting for it can be reprocessed.",
         "operationId": "ActivateSupplierLayoutVersion",
         "parameters": [
           {
@@ -424,7 +424,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SupplierLayoutResponse"
+                  "$ref": "#/components/schemas/ActivateLayoutResponse"
                 }
               }
             }
@@ -488,6 +488,751 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IdentificationTestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:learn-layout": {
+      "post": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "Saves the reviewed document as a layout (docs/11 §12.6): its identification rule (marked, or proposed) and the field mapping AnchorLearner derives from its confirmed values. A MappingAuthor's save is activated under the condition of §8.3 with the tenant's warm-up; anyone else's is a Candidate the MappingAuthors are notified of.",
+        "operationId": "LearnLayout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearnLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearnLayoutResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}/identifiers:propose": {
+      "post": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "Turns the words picked or the box drawn on a page into an identifier (docs/11 §12.9): a title-area word becomes {text, page, region: title}, other words a bBox, the supplier's VAT id or IBAN supplierValue (never in tenant scope).",
+        "operationId": "ProposeIdentifier",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeIdentifierRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposeIdentifierResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:match-layout": {
+      "post": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "Sets the type of a NEW_LAYOUT document (TypeSource Human, a setType correction) and records the basis of its pre-fill (docs/11 §12.10 step 3); the layout-prefill step runs again only when the type or the basis changes (202).",
+        "operationId": "MatchLayout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supplier-layouts/{layoutId}/versions": {
+      "post": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "Adds a version written by hand to a layout: its identification rule and field mapping, saved as a Candidate.",
+        "operationId": "CreateSupplierLayoutVersion",
+        "parameters": [
+          {
+            "name": "layoutId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLayoutVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierLayoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}:replay": {
+      "post": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "Runs the dry-run replay of docs/11 §8.3: the identification test and the field replay over the replay set, stored on the version.",
+        "operationId": "ReplaySupplierLayoutVersion",
+        "parameters": [
+          {
+            "name": "layoutId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReplayLayoutRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}/matching-documents": {
+      "get": {
+        "tags": [
+          "Layouts"
+        ],
+        "summary": "The supplier's documents the version's rule holds on (?state=pending: in review with NEW_LAYOUT, the sibling re-test; approved: approved ones; ?holds=false: those it does not hold on).",
+        "operationId": "GetLayoutMatchingDocuments",
+        "parameters": [
+          {
+            "name": "layoutId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "holds",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MatchingDocumentDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents:bulk-reprocess": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Sends up to 200 documents back through the pipeline from a stage (docs/11 §15.5), for example the siblings of a new layout from Classify with configMode current.",
+        "operationId": "BulkReprocessDocuments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkReprocessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BulkReprocessItem"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "The open notifications for the permissions the caller holds (MappingAuthor: Candidate layouts with documents waiting); ?all=true includes resolved ones.",
+        "operationId": "ListNotifications",
+        "parameters": [
+          {
+            "name": "all",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/{id}:dismiss": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Resolves a notification the caller may see.",
+        "operationId": "DismissNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:golden": {
+      "post": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Keeps an approved document as a golden document (docs/11 §15.3): a snapshot of its values and its outputs' hashes; replays and regression runs read it.",
+        "operationId": "MarkGoldenDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MarkGoldenRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoldenDocumentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/golden-documents": {
+      "get": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "The golden documents, optionally of one supplier (?supplierId=) and type (?typeKey=).",
+        "operationId": "ListGoldenDocuments",
+        "parameters": [
+          {
+            "name": "supplierId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "typeKey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GoldenDocumentDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/golden-documents/{id}": {
+      "delete": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Removes a golden document (the document stays).",
+        "operationId": "DeleteGoldenDocument",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/sandbox/runs": {
+      "post": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Runs a stored document through a draft layout (a version, or a rule and mapping) without side effects (docs/11 §15.3): the identification evidence, or NEW_LAYOUT with the identifiers that failed, the values the mapping reads and its drift.",
+        "operationId": "CreateSandboxRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegressionRunDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sandbox/runs/{id}": {
+      "get": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "A sandbox run.",
+        "operationId": "GetSandboxRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegressionRunDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/regression-runs": {
+      "post": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Runs the golden documents of a layout's supplier and type through one of its versions and compares the values with the snapshots (docs/11 §15.3).",
+        "operationId": "CreateRegressionRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegressionRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegressionRunDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/regression-runs/{id}": {
+      "get": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "A regression run.",
+        "operationId": "GetRegressionRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegressionRunDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/config/bundle": {
+      "get": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Exports the tenant's configuration as one signed, versioned JSON bundle (docs/11 §15.4): ?include=types,layouts,sourceRules,outputs,bindings; secrets are never in it.",
+        "operationId": "ExportConfigBundle",
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/config/bundle:import": {
+      "post": {
+        "tags": [
+          "Governance"
+        ],
+        "summary": "Checks a bundle's signature and contents and reports per item what an import does (dry-run), or does it (apply): types and output mappings as drafts, layouts as Candidates, source rules and bindings disabled.",
+        "operationId": "ImportConfigBundle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundleImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleImportResponse"
                 }
               }
             }
@@ -984,6 +1729,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "pendingLayoutVersionId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -1465,6 +2218,16 @@
         "responses": {
           "200": {
             "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -5619,9 +6382,47 @@
               "string"
             ],
             "format": "int32"
+          },
+          "reprocessWaiting": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
-        "description": "The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when left out."
+        "description": "The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when\nleft out, and whether the documents waiting for the version (its pending siblings) are reprocessed from Classify at once\n(\"Activate and reprocess N documents\", docs/11 §19)."
+      },
+      "ActivateLayoutResponse": {
+        "required": [
+          "layout",
+          "replay",
+          "waiting",
+          "reprocessed"
+        ],
+        "type": "object",
+        "properties": {
+          "layout": {
+            "$ref": "#/components/schemas/SupplierLayoutResponse"
+          },
+          "replay": {
+            "$ref": "#/components/schemas/ReplayReport"
+          },
+          "waiting": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "reprocessed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "description": "What `:activate` did: the layout, the replay that allowed it, the documents waiting for the version and the ones reprocessed."
       },
       "AddMemberRequest": {
         "required": [
@@ -5759,8 +6560,19 @@
               "null",
               "string"
             ]
+          },
+          "learnLayout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LearnLayoutRequest"
+              }
+            ]
           }
-        }
+        },
+        "description": "`:approve` (docs/05): an optional comment and, for a document of a known supplier, LearnLayoutRequest? ApproveDocumentRequest.LearnLayout\n(\"Approve and save as layout\", docs/11 §12.10 step 6): the approval and the saved layout commit together. Without it a\n`NEW_LAYOUT` document is approved alone and the flag is resolved as `approvedWithoutLayout`."
       },
       "AssignSupplierRemember": {
         "required": [
@@ -5817,6 +6629,135 @@
           }
         },
         "description": "`POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant, and optionally\nAssignSupplierRemember? AssignSupplierRequest.Remember: a source rule made from the document's own source (docs/11 §18, needs `sourceRouting`)."
+      },
+      "BulkReprocessItem": {
+        "required": [
+          "documentId",
+          "queued",
+          "problem"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "queued": {
+            "type": "boolean"
+          },
+          "problem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One document of a bulk reprocess: queued, or why not."
+      },
+      "BulkReprocessRequest": {
+        "required": [
+          "documentIds"
+        ],
+        "type": "object",
+        "properties": {
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "fromStage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "configMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents:bulk-reprocess` (docs/11 §15.5, §12.10 step 7): the documents, the stage and the configuration mode."
+      },
+      "BundleImportItem": {
+        "required": [
+          "kind",
+          "key",
+          "action",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One item of an import report: its kind and key, what the import does or did (`create`, `newVersion`, `skip`, `error`) and why."
+      },
+      "BundleImportRequest": {
+        "required": [
+          "bundle"
+        ],
+        "type": "object",
+        "properties": {
+          "bundle": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /config/bundle:import` (docs/11 §15.4): the bundle as exported and `dry-run` (default) or `apply`."
+      },
+      "BundleImportResponse": {
+        "required": [
+          "mode",
+          "signatureValid",
+          "version",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "signatureValid": {
+            "type": "boolean"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BundleImportItem"
+            }
+          }
+        },
+        "description": "The import report: whether the signature verified, the mode, and per item what happens."
       },
       "ChangeMemberRoleRequest": {
         "required": [
@@ -6198,6 +7139,22 @@
           }
         },
         "description": "The body of `POST /suppliers/{id}/layouts` (docs/11 §18): a layout written by hand or imported, version 1 with its\nidentification rule (`schemas/identification-rule.v1.json`) and field mapping (§8.1), saved as a Candidate."
+      },
+      "CreateLayoutVersionRequest": {
+        "required": [
+          "identification",
+          "mapping"
+        ],
+        "type": "object",
+        "properties": {
+          "identification": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "mapping": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "`POST /supplier-layouts/{id}/versions`: a new version written by hand, its rule and field mapping (saved as a Candidate)."
       },
       "CreateLlmProviderRequest": {
         "required": [
@@ -7516,6 +8473,14 @@
             "description": "The supplier layout version whose identification rule identified the document (docs/11 §8.4); its layout, the\nevidence and the rule that filled each field are in `appliedConfig.layout`.",
             "format": "uuid"
           },
+          "pendingLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The Candidate layout version the document waits for (docs/11 §12.10); never applied.",
+            "format": "uuid"
+          },
           "approvalBlocked": {
             "oneOf": [
               {
@@ -8647,6 +9612,78 @@
           "Blocking"
         ]
       },
+      "GoldenDocumentDto": {
+        "required": [
+          "id",
+          "documentId",
+          "typeKey",
+          "supplierId",
+          "supplierLayoutVersionId",
+          "expectedValues",
+          "expectedOutputs",
+          "note",
+          "addedBy",
+          "addedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "supplierLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "expectedValues": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "expectedOutputs": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "addedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A golden document (docs/11 §6.9): the document, its type, supplier and layout version, the values it was approved with and its outputs' hashes."
+      },
       "HttpValidationProblemDetails": {
         "type": "object",
         "properties": {
@@ -9338,6 +10375,9 @@
         "description": "`POST /documents/{id}:join` (docs/11 §12.7): the other parts of the same attachment to join into this one."
       },
       "JsonElement": { },
+      "JsonObject": {
+        "type": "object"
+      },
       "KeyOwner": {
         "enum": [
           "Platform",
@@ -9534,6 +10574,239 @@
           }
         },
         "description": "A layout a reviewer may look at for a document no layout identified (docs/11 §8.4 step 5): shown, never applied."
+      },
+      "LearnLayoutRequest": {
+        "type": "object",
+        "properties": {
+          "saveAs": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetLayoutId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "layoutKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "identification": { },
+          "fields": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "confirmNotRecognised": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "pendingLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sourceRules": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssignSupplierRemember"
+              }
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}:learn-layout` (docs/11 §12.6, §18): string? LearnLayoutRequest.SaveAs `newLayout` (default) or\n`newVersion` of Guid? LearnLayoutRequest.TargetLayoutId; string? LearnLayoutRequest.LayoutKey and string? LearnLayoutRequest.Name for a new layout\n(a free key is derived otherwise); JsonElement? LearnLayoutRequest.Identification, the rule the reviewer marked (else one is proposed,\nor the target's for a new version); IReadOnlyList&lt;string&gt;? LearnLayoutRequest.Fields, the paths to learn (every value by default);\nbool? LearnLayoutRequest.ConfirmNotRecognised, the confirmation that the target's current design will no longer be recognised;\nGuid? LearnLayoutRequest.PendingLayoutVersionId, \"confirm against pending layout\" instead of a new one; AssignSupplierRemember? LearnLayoutRequest.SourceRules,\nthe source rule to save with it (as `:assign-supplier`'s `remember`)."
+      },
+      "LearnLayoutResponse": {
+        "required": [
+          "layout",
+          "version",
+          "status",
+          "ruleProposed",
+          "describe",
+          "identification",
+          "fields",
+          "skipped",
+          "replay",
+          "notActivated",
+          "siblings",
+          "noLongerRecognised",
+          "proposedSourceRules",
+          "sourceRuleId",
+          "notes"
+        ],
+        "type": "object",
+        "properties": {
+          "layout": {
+            "$ref": "#/components/schemas/SupplierLayoutResponse"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ruleProposed": {
+            "type": "boolean"
+          },
+          "describe": {
+            "type": "string"
+          },
+          "identification": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LearnedFieldDto"
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LearnSkipDto"
+            }
+          },
+          "replay": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReplayReport"
+              }
+            ]
+          },
+          "notActivated": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "siblings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "noLongerRecognised": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "proposedSourceRules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposedSourceRuleDto"
+            }
+          },
+          "sourceRuleId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The answer of `:learn-layout` (docs/11 §12.6, §12.10): the layout with the version saved and its status\n(Active when a `MappingAuthor` saved it and the activation condition held, else Candidate), the rule (proposed or\nmarked) and its sentence, the learned fields and the ones left out, the replay, why the version was not activated,\nthe pending siblings (attached to a Candidate, or to reprocess for an Active version), the documents of the target\nlayout its new rule no longer recognises, the proposed source rules and the source rule saved with it."
+      },
+      "LearnSkipDto": {
+        "required": [
+          "path",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "description": "A field the learner left out, and why."
+      },
+      "LearnedFieldDto": {
+        "required": [
+          "path",
+          "strategies",
+          "label",
+          "pattern",
+          "verified"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "strategies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "description": "A field the learner turned into rules: its strategies in order, the label and value pattern, and whether the rules read the confirmed value back."
       },
       "LlmPolicyResponse": {
         "required": [
@@ -9908,6 +11181,112 @@
         },
         "description": "A lookup table without its entries: the tenant's (`Platform` false) or a platform code list."
       },
+      "MarkGoldenRequest": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}:golden`: an optional note."
+      },
+      "MatchLayoutRequest": {
+        "required": [
+          "typeKey"
+        ],
+        "type": "object",
+        "properties": {
+          "typeKey": {
+            "type": "string"
+          },
+          "basedOnLayoutId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "saveAs": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetLayoutId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "pendingLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        },
+        "description": "`POST /documents/{id}:match-layout` (docs/11 §12.10 step 3): the type of a `NEW_LAYOUT` document, a layout\nwhose labels seed the pre-fill, how it will be saved, and a pending Candidate to confirm against."
+      },
+      "MatchingDocumentDto": {
+        "required": [
+          "documentId",
+          "fileName",
+          "status",
+          "typeKey",
+          "supplierLayoutVersionId",
+          "pendingLayoutVersionId",
+          "holds",
+          "failed"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "supplierLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "pendingLayoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "holds": {
+            "type": "boolean"
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "A document a version's rule holds on (or, for the \"no longer recognised\" check, does not hold on)."
+      },
       "MeResponse": {
         "required": [
           "subject",
@@ -10004,6 +11383,88 @@
             "format": "date-time"
           }
         }
+      },
+      "NotificationDto": {
+        "required": [
+          "id",
+          "audience",
+          "kind",
+          "title",
+          "message",
+          "entityType",
+          "entityId",
+          "count",
+          "payload",
+          "createdAt",
+          "updatedAt",
+          "resolvedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "entityType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "entityId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "description": "A notification (docs/11 §12.10 step 6): documents waiting for a Candidate layout."
       },
       "OutputBindingResponse": {
         "required": [
@@ -11328,6 +12789,103 @@
         },
         "description": "Every field optional; absent fields are left as they are. string? PatchTenantRequest.VatId set to an empty string clears it."
       },
+      "ProposeIdentifierRequest": {
+        "required": [
+          "page"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bBox": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceBox"
+              }
+            ]
+          },
+          "words": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "scope": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}/identifiers:propose` (docs/11 §12.9 step 2): the page and either the box drawn or the words picked (indexes in the page's text layer), and the scope."
+      },
+      "ProposeIdentifierResponse": {
+        "required": [
+          "identifier",
+          "describe",
+          "holds",
+          "warnings"
+        ],
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "describe": {
+            "type": "string"
+          },
+          "holds": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The proposed identifier, its sentence, whether it holds on the document, and warnings for the Identification card."
+      },
+      "ProposedSourceRuleDto": {
+        "required": [
+          "conditions",
+          "describe",
+          "exists"
+        ],
+        "type": "object",
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "describe": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          }
+        },
+        "description": "A source rule `:learn-layout` proposes from the document's ingestion (docs/11 §12.6): the conditions (as `remember` names them), a sentence, and whether the supplier has it already."
+      },
       "PublishReportDto": {
         "required": [
           "canPublish",
@@ -11766,6 +13324,81 @@
         },
         "description": "`POST /deliveries/{id}:redeliver` (docs/11 §13.6): `snapshot` (the default) sends the stored payload\nagain; `rerender` renders the document again, with int? RedeliverRequest.MappingVersion of the binding's mapping or the\nversion the binding follows now."
       },
+      "RegressionRunDto": {
+        "required": [
+          "id",
+          "kind",
+          "trigger",
+          "documentId",
+          "passed",
+          "candidateConfig",
+          "result",
+          "createdBy",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "candidateConfig": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "result": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "createdBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A sandbox or regression run as stored: what ran, whether it passed, and its trace or report."
+      },
+      "RegressionRunRequest": {
+        "required": [
+          "layoutId",
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "layoutId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "`POST /regression-runs` (docs/11 §15.3): the golden documents of a layout's supplier and type through one of its versions."
+      },
       "RejectDocumentRequest": {
         "required": [
           "reason"
@@ -11809,6 +13442,208 @@
           }
         },
         "description": "A render error as the API shows it: its kind (`syntax`, `runtime`, `required`, `timeLimit`, ...), the engine's code, the message and the position in the expression."
+      },
+      "ReplayDocument": {
+        "required": [
+          "documentId",
+          "fileName",
+          "status",
+          "holds",
+          "fields"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "holds": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "One document of the replay set: whether the rule holds, and per covered field `hit`, `mismatch`, `missing` or `skipped`."
+      },
+      "ReplayFieldStat": {
+        "required": [
+          "path",
+          "hits",
+          "mismatches",
+          "missing",
+          "agreement"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "hits": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "mismatches": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "missing": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "agreement": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "Per field of the replay (docs/11 §8.3): hits, mismatches and misses on the replay set, and the agreement."
+      },
+      "ReplayLayoutRequest": {
+        "type": "object",
+        "properties": {
+          "documentIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "lastN": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "`…/versions/{v}:replay`: more documents for the replay set, and how many of the supplier's approved documents of the type (50 by default)."
+      },
+      "ReplayOverlap": {
+        "required": [
+          "documentId",
+          "layoutId",
+          "layoutKey",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "layoutId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "layoutKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "description": "A document of another layout (or a pending Candidate) the rule under test holds on: an overlap that blocks activation."
+      },
+      "ReplayReport": {
+        "required": [
+          "identificationPassed",
+          "sourceNotMatched",
+          "overlaps",
+          "documents",
+          "fields",
+          "threshold",
+          "fieldsPassed",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "identificationPassed": {
+            "type": "boolean"
+          },
+          "sourceNotMatched": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "overlaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplayOverlap"
+            }
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplayDocument"
+            }
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplayFieldStat"
+            }
+          },
+          "threshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "fieldsPassed": {
+            "type": "boolean"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "description": "The dry-run replay of a layout version (docs/11 §8.3, stored in `ReplayJson`): the identification test (the rule\nholds on the documents it was built from, and on no approved document of the owner's other layouts nor a pending\ndocument of another Candidate), and the field replay over the replay set (the approved documents of the supplier and\ntype, golden documents and the version's own documents on which the rule holds), with the per-field matrix and the\nactivation condition: identification passes and every field agrees on at least double ReplayReport.Threshold of a\nnon-empty set."
       },
       "ReprocessDocumentRequest": {
         "required": [
@@ -12214,6 +14049,34 @@
           }
         },
         "description": "The sender authentication a routing test assumes: the SPF, DKIM and DMARC results and the DKIM signing domains."
+      },
+      "SandboxRunRequest": {
+        "required": [
+          "documentId"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "layoutVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "identification": { },
+          "mapping": { },
+          "typeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /sandbox/runs` (docs/11 §15.3): a stored document run through a draft configuration without side effects:\na layout version (Guid? SandboxRunRequest.LayoutVersionId), or a draft rule and field mapping of string? SandboxRunRequest.TypeKey (the\ndocument's type by default)."
       },
       "SaveOutputMappingDraftRequest": {
         "required": [
@@ -14034,9 +15897,18 @@
               "string"
             ],
             "format": "int32"
+          },
+          "layoutAgreementPercent": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         },
-        "description": "Review policy, retention and the feature switches (docs/02 §1 \"settings\", docs/11 §18 \"Settings\"); the body of PUT\nand the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.\nThe supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs\n`sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`\nremoves it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)\nand IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).\nint? TenantSettingsDto.LayoutReviewWarmup (docs/11 §8.3 `layoutActivation`, decision 2 of §24) is how many documents\nunder a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`."
+        "description": "Review policy, retention and the feature switches (docs/02 §1 \"settings\", docs/11 §18 \"Settings\"); the body of PUT\nand the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.\nThe supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs\n`sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`\nremoves it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)\nand IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).\nint? TenantSettingsDto.LayoutReviewWarmup (docs/11 §8.3 `layoutActivation`, decision 2 of §24) is how many documents\nunder a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`, and the\nActive versions whose warm-up is the tenant's old one take the new one (the settled P4 demo sets 0).\nint? TenantSettingsDto.LayoutAgreementPercent is the field agreement a version needs on its replay set to be activated (docs/11\n§8.3, 90 % by default)."
       },
       "TenantSettingsResponse": {
         "required": [
@@ -14116,6 +15988,15 @@
       "name": "Layouts"
     },
     {
+      "name": "Documents"
+    },
+    {
+      "name": "Notifications"
+    },
+    {
+      "name": "Governance"
+    },
+    {
       "name": "Document types"
     },
     {
@@ -14129,9 +16010,6 @@
     },
     {
       "name": "Ingestions"
-    },
-    {
-      "name": "Documents"
     },
     {
       "name": "Review"

@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 parts A and B done
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 parts A, B and C done
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1234,8 +1234,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the time limit polls the child's processor time every 25 ms, so a render may run up to that much over; a render
       that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
 - **P4, routing, supplier configuration, layouts and identification – part A done (sources, routing, supplier
-  configuration), part B done (the mapping engine with layouts, identification rules); the rest (learning layouts in
-  review, the new-layout flow, golden documents, sandbox, config bundles, the supplier sheet tabs) not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
+  configuration), part B done (the mapping engine with layouts, identification rules), part C done (learning layouts in
+  review, the new-layout flow, golden documents, sandbox runs, config bundles, as API); the UI of P4 (the supplier sheet
+  tabs, the New layout panel, the Identification card) and its compose demo not started.** Everything of part A is behind the tenant's `sourceRouting` switch;
   a tenant without it behaves exactly as before: its channels are not polled and keep their free config, ingest
   assigns no supplier and pins no type, Match, Classify and Split run as before, and the new API routes answer 403
   (docs/05 "Routing and supplier configuration endpoints as built").
@@ -1375,28 +1376,81 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       and priority, a pending Candidate, drift and degradation, a tenant without the switch, and the 14-page price list
       kept whole by the split prefilter and read entirely by one `column-table` (412 rows, its table report,
       `PriceListLayoutTests`); the API (`LayoutEndpointsTests`); RLS and the migrate down and up on SQL Server.
+  - Part C (learning, lifecycle, review flows, golden documents, bundles) is behind `supplierLayouts` too; a tenant
+    without it approves, assigns suppliers and reprocesses exactly as before (docs/05 "Layout learning, review flows and
+    governance endpoints as built", docs/09 "Supplier layouts").
+  - Decided (part C, recorded as "Correction (P4, part C)" in docs/11 §6.6, §8.3, §9.3, §12.6, §12.9, §12.10, §15.4,
+    §16 and §18):
+    - `MappingAuthor` is a grant the identity provider issues besides a role (the dev realm gives it to
+      `tenant-a-reviewer`); its policy is satisfied by the grant, `TenantAdmin` and `SuperAdmin`. Activating and retiring
+      need it; a `MappingAuthor`'s save from review is activated at once when the replay passes (decision 2), anyone
+      else's is a Candidate; `MappingEditor` is the `Review` policy;
+    - the replay set holds the version's own documents whatever their status (a layout saved in the approval's
+      transaction is replayed before its document is Approved), plus the supplier's approved documents of the type (the
+      last 50) and golden documents, each only when the rule holds; field agreement per covered field, 90 % by default
+      (`layoutAgreementPercent`), on a non-empty set;
+    - a change of the tenant's warm-up applies to the Active versions that carry the old tenant value, so the settled
+      P4 demo (warm-up 1 of 5, then the tenant set to 0, then delivered without review) works;
+    - notifications are a table (`Notifications`, one row per Candidate with documents waiting), and a document waiting
+      for a Candidate names it (`Documents.PendingLayoutVersionId`);
+    - the sandbox runs a stored document in memory (no `IsSandbox` documents); the bundle is HMAC-signed with
+      `ConfigBundles:SigningKey` and imported as drafts, Candidates and disabled rules and bindings;
+    - with `supplierLayouts`, `:assign-supplier` answers 202 and re-runs identification from Classify.
+  - Done (part C):
+    - `DocProc.Mapping/Learning`: `AnchorLearner` (label-right, label-below, region fallback with a tolerance from the
+      neighbours, value patterns from the printed shape, constants where allowed, reuse of an equal learned value's
+      rules, `column-table` from the rows' places or the review tool's specification, every rule checked to read the
+      confirmed value back), `IdentifierProposer` (selections to identifiers, the proposed rule), `LayoutPrefill` and
+      `ValueComparison`;
+    - the data model (migration `LayoutLearningAndGovernance`, policy `PolicyV10` with `GoldenDocuments`,
+      `RegressionRuns` and `Notifications` strict; its Down runs on SQL Server with part C rows in place,
+      `TypeCatalogueSqlTests`): `Documents.PendingLayoutVersionId`, `TenantSettings.LayoutAgreementPercent`;
+    - the pipeline: the `layout-prefill` step in Extract for `NEW_LAYOUT` documents (the pending Candidate as a basis,
+      other layouts' labels without positions, master data and known values; the LLM fills the rest only when
+      configured, so without one the document waits in review), the pending Candidate named on the document with a
+      notification; `LayoutLearning` (draft, replay with the identification test and the field matrix, activation,
+      matching documents, attach) and `LayoutLearningSave` (new layout, new version with the "no longer recognised"
+      check, confirm against a pending Candidate);
+    - the API: `:learn-layout`, `:approve {learnLayout}` (NEW_LAYOUT resolved as `learned` or `approvedWithoutLayout`),
+      `identifiers:propose`, `:match-layout`, hand-written versions, `:replay`, `matching-documents`, activation with the
+      replay and `reprocessWaiting`, retirement, `documents:bulk-reprocess`, notifications, `?pendingLayoutVersionId=`,
+      `:assign-supplier` through Classify, the warm-up applied to Active versions, golden documents, sandbox and
+      regression runs, the configuration bundle with export and import; `DocumentDetail.pendingLayoutVersionId`;
+    - the `MappingAuthor` grant in the Keycloak realm, the dev users, both apps' policy table (`policies.ts`) and the
+      README;
+    - tests: the learner's golden cases and the proposer (`AnchorLearnerTests`); the P4 demo as a pipeline test on the
+      committed Nordwind PDFs (a web-shop invoice pre-filled without an LLM, learned by a `MappingAuthor`, the next one
+      filled by the learned layout as warm-up 1 of 5, the tenant set to 0, the following one auto-approved, the ERP
+      design unchanged), the Candidate path (the next document waits, pre-filled from the Candidate, notified,
+      activation offers it), refusals and an overlapping rule (`LayoutLearningPipelineTests`); the API
+      (`LayoutLearningEndpointsTests`, `GovernanceEndpointsTests`, the updated `LayoutEndpointsTests`); RLS, the
+      idempotent script and the migrate down and up on SQL Server.
   - Left for later (the rest of P4):
-    - learning layouts in review: `AnchorLearner`, `:learn-layout` (with the source rules it proposes), the replay over
-      the replay set and its field matrix (activation runs only the identification test), the `MappingAuthor` role and
-      the activation policy by role (a ConfigAdmin activates), the Candidate path's notifications and the sibling re-test
-      (`matching-documents`, `bulk-reprocess`);
-    - the Identify mode and `identifiers:propose`, the New layout panel, `:match-layout` and the `layout-prefill` step: a
-      `NEW_LAYOUT` document is extracted as before (the LLM for an invoice; without a provider it waits with
-      `LLM_PROVIDER_UNAVAILABLE`), never with the old layout;
-    - `:assign-supplier` still assigns inline (200) and does not re-run `classify.identification` through the reprocess
-      path; a reprocess from Classify does;
+    - no UI for parts A to C: the supplier sheet tabs (Routing, Settings, Attributes, Layouts with the replay matrix and
+      "Activate and reprocess N documents"), the supplier groups and receiving entities screens, the typed channel
+      forms, the New layout panel and its sibling dialog, the Identify mode and Identification card, the inbox's "New
+      layout" badge, the warm-up and agreement fields of the settings page, Settings > Governance; the API serves them;
+    - the compose demo of P4 and its Playwright run (it needs the UI); its scenario runs as
+      `LayoutLearningPipelineTests` instead, and the second demo tenant "where the reviewer is not a MappingAuthor" has
+      no reviewer in the dev realm (the Candidate path runs as a test);
+    - the learner does not use `LlmStage.Synthesize`, definition labels as synonyms, or structured sources; the
+      pre-fill does not seed the table tool's dividers from other layouts' column headers; corrections on mapped fields
+      do not count against a version's `Corrected`;
+    - the sandbox takes no uploaded file and runs no routing, validation or output rendering; regression runs are
+      started by hand for layout versions only (no publish hook, no output hash comparison, no
+      `RequireGreenRegression`); golden documents are not marked automatically;
+    - `documents:bulk-reprocess` runs in the request (at most 200), not as a background job with progress;
+    - the bundle does not carry lookups, flows or tenant identification rules (P5), nor the channels and receiving
+      entities of rules and bindings; its import does not run a regression suite;
     - the tenant fallback rules (`TypeIdentificationRule`, P5) and therefore their part of the split prefilter;
     - the structured strategies (`xml-path`, `json-path`, `cell`, `source`), `label-row` and `key-value-block`, the
       `parseNumber`, `parseDate`, `table` and `sign` transforms, `extFields`, `llmHints`, `ruleOverrides` and
       `pipelineOverrides` of a mapping; the e-invoice extras are still not bound to fields; Shadow runs are counted, not
       compared; the reduced LLM schema per layout version (`CoverageJson` is stored);
-    - layouts for a group written through the API (the resolver reads them; `POST` writes supplier layouts only),
-      `PATCH /supplier-layouts/{id}`, new versions of a layout (`POST …/versions`, `PUT` of a draft), `:replay`,
-      `:shadow`, and the `?flag=NEW_LAYOUT&supplierId=` and `?pendingLayoutVersionId=` filters of the inbox;
-    - no UI beyond the flag labels: the layouts of the supplier sheet, the warm-up in the settings page and the
-      Identification card are §19 work of the later items; the API is ready for the reads and the rule test;
-    - golden documents, sandbox runs, config bundles, the supplier sheet tabs, and the compose demo of P4 (it needs the
-      new-layout flow): no Playwright run was done for part B; its scenarios run as pipeline and API tests.
+    - layouts for a group written through the API, `PATCH /supplier-layouts/{id}`, draft `PUT`, `:shadow`;
+    - part A's and part B's other open items (hints on `POST /ingestions`, the Graph mail source, `ROUTE_DIFFERS`,
+      `:clone-config`, `POST /suppliers:import`, indexed supplier candidates, receiving entities from the customer VAT
+      id, the warm-up slot taken outside the stage's save) stay as listed above.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

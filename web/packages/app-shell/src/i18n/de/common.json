@@ -48,7 +48,8 @@
     "Operator": "Operator",
     "TenantAdmin": "Mandanten-Admin",
     "Reviewer": "Prüfer",
-    "Viewer": "Betrachter"
+    "Viewer": "Betrachter",
+    "MappingAuthor": "Layout-Freigabe"
   },
   "scope": {
     "platform": "Plattformbereich",

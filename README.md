@@ -329,7 +329,8 @@ src/
   DocProc.Llm.OpenAi/         OpenAI, Azure OpenAI and OpenAI-compatible adapter
   DocProc.Mapping/            mapping engine over the positioned text layer (docs/11 §8, §12.4): the table tool's
                               column-table, value readers by kind and locale; identification rules, the layout
-                              resolver and suggester, and the layouts' field mapping engine (P4)
+                              resolver and suggester, the layouts' field mapping engine, and learning layouts from a
+                              reviewed document (AnchorLearner, identifier proposals, the position-free pre-fill; P4)
   DocProc.Outputs.Renderer/   the sandboxed JSONata renderer of output mappings (docs/11 §13.1): a child process the
                               API and the worker start and kill (time, memory, output and depth limits, no I/O)
   DocProc.Extraction.EInvoice/ UBL 2.1 and CII (Factur-X / ZUGFeRD / XRechnung) parsers to the canonical model
@@ -343,7 +344,7 @@ tests/
   DocProc.Llm.Tests/          schema portability and snapshots, config resolution, gateway, both adapters, LLM stages
   DocProc.EInvoice.Tests/     UBL / CII / XRechnung mapping, detection, resource limits
   DocProc.Pipeline.Tests/     stage handlers, runner, retries, duplicate handling, demo data and its replay fixtures
-  DocProc.Mapping.Tests/      the table engine, value readers, identification rules, resolver and layout engine on synthetic word layouts
+  DocProc.Mapping.Tests/      the table engine, value readers, identification rules, resolver, layout engine and learner on synthetic word layouts
   DocProc.Api.Tests/          in-process API tests (minted tokens, in-memory SQLite): endpoints, auth, roles, tenant
                               scope, API keys, dev mode; the documentation checks under Docs/
   DocProc.Worker.Tests/       the worker host as Program.cs composes it

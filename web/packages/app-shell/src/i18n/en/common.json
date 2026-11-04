@@ -48,7 +48,8 @@
     "Operator": "Operator",
     "TenantAdmin": "Tenant admin",
     "Reviewer": "Reviewer",
-    "Viewer": "Viewer"
+    "Viewer": "Viewer",
+    "MappingAuthor": "Mapping author"
   },
   "scope": {
     "platform": "Platform scope",
