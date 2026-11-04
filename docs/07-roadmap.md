@@ -1507,18 +1507,21 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       sender is unauthenticated, and a trusted server's header that does not parse fails closed. Compose and the AppHost
       list `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers `send-invoice.sh` writes;
     - decided: a mailbox message's id is a hash of its `Message-ID` and sender (`imap:mid:`), or of its bytes
-      (`imap:sha:`), so a folder renumbered by its server (a new UIDVALIDITY) ingests nothing twice;
+      (`imap:sha:`), so a folder renumbered by its server (a new UIDVALIDITY) ingests nothing twice (the second review
+      fixes below add the bytes' digest to `imap:mid:`);
     - done: the review gate refuses auto-approval while `SUPPLIER_AMBIGUOUS` is open (docs/11 §11 layer 3);
     - done: the files of an attached `message/rfc822` are items whoever sent the mail, for every attached message; only
       the sender facts are unwrapped from a trusted forwarder;
     - done: free-mail domains are refused as trusted forwarders (tenant settings, mailbox config) and ignored if stored;
     - done: a watched-folder channel whose folder, or a folder on the way to it, or its `processed/` or `failed/`, is a
       link is not read, and no file is moved through a link;
-    - done: the message body is read up to `Mail:MaxMessageBytes` whatever size the server reports, and copied once;
+    - done: the message body is read up to `Mail:MaxMessageBytes` whatever size the server reports, and copied once
+      (the second review fixes below make the fetch itself bounded: before, MailKit buffered the whole body first);
     - done: a document counts once per layout version towards its statistics and drift (`document.layout_applied`),
       so reprocessing one drifting document does not degrade its layout;
     - done: `supplierValue` holds only for the whole value (edges at word boundaries, punctuation or a letter/digit
-      change); the rule in words names the keys by their labels ("VAT id", "IBAN", "attribute customerNo");
+      change; the second review fixes below close the spaced-digit-group gap); the rule in words names the keys by
+      their labels ("VAT id", "IBAN", "attribute customerNo");
     - done: `match.layout` runs only when VAT or IBAN named the supplier; a supplier found by its name or mail domain
       gets no `NEW_LAYOUT`;
     - done: with `allowedTypeKeys`, the keyword classification of a document whose supplier is known before Classify
@@ -1538,6 +1541,54 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       unwrapped from the inline `From:` block still count for a trusted forwarder (only the attached form carries the
       original headers); the UIDVALIDITY change is tested by resetting the cursor to another validity, not on a server
       that renumbers its folder.
+  - Second review fixes (recorded as "Correction (P4, second review fixes)" in docs/11 §6.6, §7.1, §8.5 and §15.4):
+    - done: a mailbox message's body is fetched as a partial, `BODY.PEEK[]<0.N>` with N one byte past
+      `Mail:MaxMessageBytes`, so a server that under-reports or omits `RFC822.SIZE` can make the worker hold at most
+      the limit plus one byte; a body that fills the partial is skipped with its reason in the channel's last error
+      (a GreenMail test reads the IMAP conversation for the partial fetch);
+    - done: a mailbox message's id (`imap:mid:`) also hashes the raw message's SHA-256: a mailer that reuses a
+      `Message-ID` for another mail has that mail ingested, not dropped as already seen, while the same stored message
+      read again (a lost cursor, a new UIDVALIDITY, a second host) still has the same id; a message or file that is
+      already ingested is logged ("already ingested"), and its blobs are content-addressed, so storing them again adds
+      nothing;
+    - done: `supplierValue` treats a gap (a space between words, or a `.`, `-` or `/` that compacting removes) as a
+      value's edge unless digits are on both sides of it: a value printed in groups no longer holds inside a longer,
+      different number (`12345` in `Tel 040 12345 67890`, `DE811111111` in `DE 811 111 111 9`), and a label glued on
+      with a dot (`USt-IdNr.DE811111111`) is an edge;
+    - done: `POST /config/bundle:import` imports a part only where its feature is on for the tenant (types:
+      `configurableTypes`, plus `customTypes` for a new or own type; layouts: `supplierLayouts`; source rules:
+      `sourceRouting`; output mappings and bindings: `outputs`), else an `error` item; output mappings pass the checks of
+      `POST /output-mappings` (key pattern and length, `std.` keys, name, engine, expression and target-schema limits),
+      bindings their name, events, type key, group and condition length; an `apply` runs in one transaction, so a member
+      of the wrong JSON type is a 400 with nothing written (a binding's `destination` is read as an object like the
+      other members);
+    - done: the import compares a layout's mapping, and a type's definition with its latest published version, as JSON
+      (member order, whitespace and escaping aside), so re-importing an unchanged export skips a hand-posted layout and
+      an unchanged type instead of proposing a new version;
+    - done: the bundle carries a source rule's channel by name, type and `sourceKey`; the import finds the tenant's
+      channel by its source key, else its name and type, and names the channel to create when there is none;
+    - done: outside Development and Testing, an unset `ConfigBundles:SigningKey` is `503 BUNDLE_SIGNING_KEY_MISSING` on
+      export and import, never the public development key;
+    - done: the warm-up place is taken by a compare-and-set (`UPDATE … SET WarmupSeen = n + 1 WHERE WarmupSeen = n`), so
+      documents validated at once each get their own place ("Document 1 of the first 5"); a SQL Server test runs 24
+      workers at once against a warm-up of 5;
+    - done: a channel's `sourceKey` is computed on every create and config change whatever `sourceRouting` (kept only
+      while no other channel holds it, so a tenant without the switch still sees no 409 and keeps its free config), and
+      the poller reads a channel only under the key its config gives: a channel without one (from before P4, or saved
+      while another held the source) or whose key no longer matches claims its key on its next poll, and is put in
+      `Error` when another channel of any tenant holds it. So two tenants never poll one mailbox, also after a switch
+      toggled off and on;
+    - done: the folder watcher reads a file from a handle checked to be the file itself: the way from the tenant's root
+      is checked for links right before opening, and on Linux the opened handle's real path (`/proc/self/fd`) must be
+      the tenant root's real path plus the file's relative path; a file or folder swapped for a link after the scan is
+      neither read nor moved, and the read is bounded by `Intake:MaxFileBytes`; a move checks its source path too;
+    - done: `MailOptions.TrustedAuthServIds`' own documentation says what the code does (empty: no header believed);
+      docs/09 step 7 and 12 quote the warm-up flag as the UI shows it, step 17 says the sandbox run needs a document id
+      and what the dry run of the tenant's own export reports;
+    - left for later: on a host other than Linux the folder watcher re-checks the path for links right before opening
+      but cannot check the opened handle (a narrower window, not none); a move (`rename`) of a file whose folder is
+      swapped for a link between its check and the rename is not bound to a handle; two channels without a source key
+      that read the same source are resolved by poll order (the first claims it), not by which was created first.
 - **P5 to P6** – not started.
 
 ## Risks and open questions

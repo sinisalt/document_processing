@@ -212,7 +212,12 @@ A tenant without the switch sees the API as before: the new response members are
   root, no `..`), pattern? (*), stableSeconds?}`; unknown members are refused. Such a channel gets `sourceKey`, unique
   across tenants (`409 Source in use`). `defaultSupplierId`, `defaultDocumentTypeKey` and `defaultReceivingEntityId`
   are set on `POST`/`PATCH` (the empty id or type key clears one). Without the switch the config stays free, as before,
-  and no channel is polled. Delete is refused while source rules name the channel.
+  and no channel is polled; `sourceKey` is still computed from a config that reads as its connector's shape and kept
+  when no other channel holds it (null when one does, never a 409), so the source is claimed before the channel can
+  ever be read. The poller reads a channel only under its own key: one without a key (written before P4 or while the
+  switch was off), or whose key no longer matches its config, claims the key of its config on its next poll, and when
+  another channel of any tenant holds it the channel is put in `Error` ("Another channel already reads this mailbox or
+  folder"). Delete is refused while source rules name the channel.
 - **Documents.** `DocumentDetail` carries `supplierMatchConfidence`, `supplierSourceRuleId` and `receivingEntityId`;
   `supplierMatchMethod` adds `SourceRule`, `ChannelDefault` and `Hint`. `:reprocess` takes `fromStage: Match` (from
   Classified). `:assign-supplier` takes `remember: {conditions: [sender, senderDomain, recipient, folder, channel],
@@ -329,12 +334,22 @@ reprocesses exactly as before.
   sourceRules, outputs, bindings, signature}`: published type definitions, the Active (else latest) version of each
   supplier layout with its supplier's name and VAT id, source rules with theirs, output mappings with their published
   (else latest) version, bindings with their destination's name, transport and config (never a secret: a placeholder
-  says where to set it); `signature` is HMAC-SHA256 over the bundle without it, keyed by `ConfigBundles:SigningKey`.
+  says where to set it), source rules with their channel's name, type and `sourceKey` (a channel is never in a bundle);
+  `signature` is HMAC-SHA256 over the bundle without it, keyed by `ConfigBundles:SigningKey`. Outside Development and
+  Testing an unset key is `503 BUNDLE_SIGNING_KEY_MISSING` on both endpoints (the built-in development key is public).
   `POST /config/bundle:import {bundle, mode?: dry-run|apply}` (`ConfigAdmin`) refuses a bundle whose signature does not
   verify (`400 BUNDLE_SIGNATURE_INVALID`) or of another version, and answers per item `{kind, key, action: create |
   newVersion | skip | error, detail}`; `apply` creates new types (or draft versions of existing ones) through the
-  catalogue, layouts as Imported Candidates matched to a supplier by VAT id then name, source rules disabled, output
-  mappings with a draft version, and bindings disabled to destinations of the same name.
+  catalogue, layouts as Imported Candidates matched to a supplier by VAT id then name, source rules disabled (a rule's
+  channel found by its `sourceKey`, else by name and type; an error that names it when the tenant has none), output
+  mappings with a draft version, and bindings disabled to destinations of the same name. Each part needs its feature
+  for the tenant, as its own endpoints do (`configurableTypes` for types, and `customTypes` for a new or own type;
+  `supplierLayouts` for layouts; `sourceRouting` for source rules; `outputs` for output mappings and bindings): a part
+  that is off is an `error` item ("The 'outputs' feature is off for this tenant"), never written. Each member runs the
+  checks of its endpoint (output mappings those of `POST /output-mappings`: key, name, engine, expression and target
+  schema limits; bindings their name, events, type key, group and condition length). An unchanged type (the same
+  definition as its latest published version) or layout version (the same rule hash and mapping, compared as JSON, not
+  as text) is a `skip`. An `apply` is one transaction: a member of the wrong JSON type is `400` with nothing written.
 
 ## React applications
 

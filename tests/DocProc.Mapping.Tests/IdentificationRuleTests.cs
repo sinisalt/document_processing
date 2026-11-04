@@ -142,6 +142,34 @@ public sealed class IdentificationRuleTests
     }
 
     [Fact]
+    public void A_number_printed_in_groups_goes_on_across_its_gaps_and_a_removed_separator_after_a_label_is_an_edge()
+    {
+        var supplier = new SupplierValues(VatId: NordwindVat, Ibans: ["DE02120300000000202051"], Attributes: new Dictionary<string, string>(StringComparer.Ordinal) { ["customerNo"] = "12345" });
+        static DocumentWords Line(string line) => Words(new PageBuilder(1).Text(60, 60, line));
+        const string Vat = """{ "all": [ { "supplierValue": "vatId" } ] }""";
+        const string Customer = """{ "all": [ { "supplierValue": "attributes.customerNo" } ] }""";
+        const string Iban = """{ "all": [ { "supplierValue": "iban" } ] }""";
+
+        Eval(Customer, Line("Tel 040 12345 67890"), supplier).Holds.ShouldBeFalse("a group of a spaced phone number");
+        Eval(Customer, Line("Konto 99 12345 BLZ"), supplier).Holds.ShouldBeFalse("the end of a spaced longer number");
+        Eval(Customer, Line("Tel 040-12345-67"), supplier).Holds.ShouldBeFalse("a group of a number with dashes");
+        Eval(Customer, Line("Betrag 1.12345"), supplier).Holds.ShouldBeFalse("digits across a removed dot");
+        Eval(Vat, Line("USt-IdNr. DE 811 111 111 9"), supplier).Holds.ShouldBeFalse("a longer, different VAT id printed in groups");
+        Eval(Vat, Line("USt-IdNr. DE 811 111 111 98"), supplier).Holds.ShouldBeFalse();
+
+        Eval(Vat, Line("USt-IdNr.DE811111111"), supplier).Holds.ShouldBeTrue("a label glued on with a dot");
+        Eval(Vat, Line("USt-IdNr.-DE811111111"), supplier).Holds.ShouldBeTrue("a label glued on with a dash");
+        Eval(Vat, Line("UStId/DE 811 111 111"), supplier).Holds.ShouldBeTrue("a label glued on with a slash");
+        Eval(Vat, Line("USt-IdNr. DE 811 111 111 / Steuernr."), supplier).Holds.ShouldBeTrue();
+        Eval(Customer, Line("Kunden-Nr. 12345 / Auftrag A-77"), supplier).Holds.ShouldBeTrue();
+        Eval(Customer, Line("Kunden-Nr.12345"), supplier).Holds.ShouldBeTrue("letters, a dot, then digits");
+        var iban = Eval(Iban, Line("IBAN DE02 1203 0000 0000 2020 51 BIC BYLADEM1001"), supplier);
+        iban.Holds.ShouldBeTrue("an IBAN in groups, between its label and the next one");
+        iban.Evidence[0].Text.ShouldBe("DE02 1203 0000 0000 2020 51");
+        Eval(Iban, Line("IBAN DE02 1203 0000 0000 2020 51 7"), supplier).Holds.ShouldBeFalse("a longer account number");
+    }
+
+    [Fact]
     public void The_rule_in_words_names_supplier_values_by_their_labels()
     {
         IdentificationRule.Parse("""{ "all": [ { "text": "Rechnung", "page": 1, "region": "title" }, { "supplierValue": "vatId", "page": "last" }, { "supplierValue": "attributes.customerNo" }, { "supplierValue": "iban" } ] }""")

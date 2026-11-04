@@ -524,7 +524,7 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
     }
 
     /// <summary>The return slip of docs/11 §5.4 (with the return number indexed, as its duplicate key needs nothing else).</summary>
-    private static string ReturnSlip(int version = 1) => $$$"""
+    internal static string ReturnSlip(int version = 1) => $$$"""
         {"key":"return-slip","version":{{{version}}},"base":{"template":"std.generic","version":1,"mode":"copy"},
          "name":{"en":"Return slip","de":"Retourenschein"},
          "roles":{"documentNumber":"returnNumber","documentDate":"returnDate","supplierParty":"supplier","lineItems":"items","duplicateKey":["$supplierId","returnNumber"]},

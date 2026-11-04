@@ -9,6 +9,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Catalogue;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -61,7 +62,10 @@ public static class GovernanceEndpoints
     public const int BundleVersion = 1;
     public const string SigningKeySetting = "ConfigBundles:SigningKey";
 
-    /// <summary>The key bundles are signed with when <see cref="SigningKeySetting"/> is not set (development only).</summary>
+    /// <summary>
+    /// The key bundles are signed with when <see cref="SigningKeySetting"/> is not set, in the Development and Testing
+    /// environments only; anywhere else export and import answer 503 until the key is set.
+    /// </summary>
     public const string DevelopmentSigningKey = "docproc-development-bundle-key";
 
     public static readonly IReadOnlyList<string> BundleParts = ["types", "layouts", "sourceRules", "outputs", "bindings"];
@@ -385,20 +389,38 @@ public static class GovernanceEndpoints
         return Convert.ToHexStringLower(hash);
     }
 
-    private static string KeyOf(IConfiguration configuration) =>
-        configuration[SigningKeySetting] is { Length: > 0 } configured ? configured : DevelopmentSigningKey;
+    /// <summary>
+    /// The signing key: <see cref="SigningKeySetting"/>, or <see cref="DevelopmentSigningKey"/> in Development and
+    /// Testing; null elsewhere, where a published key would let anyone forge a bundle that verifies.
+    /// </summary>
+    internal static string? KeyOf(IConfiguration configuration, IHostEnvironment environment) =>
+        configuration[SigningKeySetting] is { Length: > 0 } configured ? configured
+        : environment.IsDevelopment() || environment.IsEnvironment("Testing") ? DevelopmentSigningKey
+        : null;
+
+    private static ProblemHttpResult SigningKeyMissing() => TypedResults.Problem(
+        statusCode: StatusCodes.Status503ServiceUnavailable,
+        title: "Signing key not set",
+        detail: $"{SigningKeySetting} is not set in this environment, so bundles can be neither signed nor verified (the development key is used in Development only).",
+        extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "BUNDLE_SIGNING_KEY_MISSING" });
 
     private static async Task<Results<Ok<JsonObject>, ValidationProblem, ProblemHttpResult>> ExportAsync(
         string? include,
         ITenantContext tenant,
         [FromServices] DocProcDbContext db,
         IConfiguration configuration,
+        IHostEnvironment environment,
         TimeProvider clock,
         CancellationToken ct)
     {
         if (RequireTenant(tenant, "Configuration bundles") is { } scope)
         {
             return scope;
+        }
+
+        if (KeyOf(configuration, environment) is not { } signingKey)
+        {
+            return SigningKeyMissing();
         }
 
         var parts = (include ?? string.Join(',', BundleParts)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToList();
@@ -450,9 +472,13 @@ public static class GovernanceEndpoints
         if (parts.Contains("sourceRules"))
         {
             var rules = await db.SupplierSourceRules.AsNoTracking().ToListAsync(ct);
+            var channels = await db.IngestionChannels.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
             bundle["sourceRules"] = new JsonArray([.. rules.OrderBy(r => r.ConditionHash, StringComparer.Ordinal).Select(r => (JsonNode?)new JsonObject
             {
                 ["supplier"] = SupplierRef(r.SupplierId),
+                ["channel"] = r.ChannelId is { } cid && channels.TryGetValue(cid, out var channel)
+                    ? new JsonObject { ["name"] = channel.Name, ["type"] = channel.Type.ToString(), ["sourceKey"] = channel.SourceKey }
+                    : null,
                 ["recipient"] = r.Recipient,
                 ["sender"] = r.Sender,
                 ["senderDomain"] = r.SenderDomain,
@@ -511,7 +537,7 @@ public static class GovernanceEndpoints
             })]);
         }
 
-        bundle["signature"] = Sign(bundle, KeyOf(configuration));
+        bundle["signature"] = Sign(bundle, signingKey);
         return TypedResults.Ok(bundle);
     }
 
@@ -522,12 +548,18 @@ public static class GovernanceEndpoints
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
         IConfiguration configuration,
+        IHostEnvironment environment,
         TimeProvider clock,
         CancellationToken ct)
     {
         if (RequireTenant(tenant, "Configuration bundles") is { } scope)
         {
             return scope;
+        }
+
+        if (KeyOf(configuration, environment) is not { } signingKey)
+        {
+            return SigningKeyMissing();
         }
 
         var mode = string.IsNullOrWhiteSpace(request.Mode) ? "dry-run" : request.Mode.Trim();
@@ -548,19 +580,73 @@ public static class GovernanceEndpoints
         }
 
         var signature = bundle["signature"] is JsonValue s && s.TryGetValue<string>(out var given) ? given : null;
-        var signatureValid = signature is not null && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(signature), Encoding.ASCII.GetBytes(Sign(bundle, KeyOf(configuration))));
+        var signatureValid = signature is not null && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(signature), Encoding.ASCII.GetBytes(Sign(bundle, signingKey)));
         if (!signatureValid)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Signature invalid", detail: "The bundle's signature does not verify with this environment's ConfigBundles:SigningKey: it was changed after export, or exported where another key is set.", extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = "BUNDLE_SIGNATURE_INVALID" });
         }
 
+        // The parts whose feature is off for the tenant are reported, not imported, as their own endpoints refuse them.
+        var tenantId = tenant.TenantId!.Value;
+        var enabled = new HashSet<TenantFeature>();
+        foreach (var feature in new[] { TenantFeature.ConfigurableTypes, TenantFeature.CustomTypes, TenantFeature.SupplierLayouts, TenantFeature.SourceRouting, TenantFeature.Outputs })
+        {
+            if (await features.IsEnabledAsync(tenantId, feature, ct))
+            {
+                enabled.Add(feature);
+            }
+        }
+
+        // An apply runs in one transaction: a member that throws part-way (a value of the wrong JSON type) rolls back
+        // what the members before it wrote, so a refused bundle leaves nothing behind.
         try
         {
-            return await ImportItemsAsync(bundle, mode, signatureValid, version, tenant, user, db, clock, ct);
+            if (mode != "apply")
+            {
+                return await ImportItemsAsync(bundle, mode, signatureValid, version, enabled, tenant, user, db, clock, ct);
+            }
+
+            return await db.Database.CreateExecutionStrategy().ExecuteAsync(
+                async cancel =>
+                {
+                    db.ChangeTracker.Clear();
+                    await using var transaction = await db.Database.BeginTransactionAsync(cancel);
+                    var result = await ImportItemsAsync(bundle, mode, signatureValid, version, enabled, tenant, user, db, clock, cancel);
+                    await transaction.CommitAsync(cancel);
+                    return result;
+                },
+                ct);
         }
         catch (Exception exception) when (exception is InvalidOperationException or FormatException or JsonException)
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["bundle"] = ["The bundle has a member of the wrong JSON type (an object where a value is expected, or the reverse)."] });
+            db.ChangeTracker.Clear();
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["bundle"] = ["The bundle has a member of the wrong JSON type (an object where a value is expected, or the reverse); nothing was imported."] });
+        }
+    }
+
+    /// <summary>The item of a bundle member whose feature is off for the tenant.</summary>
+    private static BundleImportItem FeatureOff(string kind, string key, TenantFeature feature)
+    {
+        var name = JsonNamingPolicy.CamelCase.ConvertName(feature.ToString());
+        return new BundleImportItem(kind, key, "error", $"The '{name}' feature is off for this tenant; a tenant admin switches it on in the settings (features.{name}).");
+    }
+
+    /// <summary>The messages of a validation problem, as one line of an import item.</summary>
+    private static string Messages(ValidationProblem problem) => string.Join(" ", problem.ProblemDetails.Errors.SelectMany(e => e.Value));
+
+    /// <summary>A JSON member as a <see cref="JsonElement"/>, or null when it is absent.</summary>
+    private static JsonElement? Element(JsonNode? node) => node is null ? null : JsonSerializer.SerializeToElement(node);
+
+    /// <summary>Whether two mappings are the same JSON (member order, whitespace and escaping aside).</summary>
+    private static bool SameJson(string stored, JsonNode given)
+    {
+        try
+        {
+            return JsonNode.DeepEquals(JsonNode.Parse(stored), given);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -569,6 +655,7 @@ public static class GovernanceEndpoints
         string mode,
         bool signatureValid,
         int version,
+        HashSet<TenantFeature> enabled,
         ITenantContext tenant,
         ClaimsPrincipal user,
         DocProcDbContext db,
@@ -595,14 +682,43 @@ public static class GovernanceEndpoints
         foreach (var type in (bundle["types"] as JsonArray ?? []).OfType<JsonObject>())
         {
             var key = Str(type["key"]) ?? "?";
-            var definition = type["definition"]?.ToJsonString();
-            if (definition is null)
+            if (!enabled.Contains(TenantFeature.ConfigurableTypes))
             {
-                items.Add(new BundleImportItem("type", key, "error", "No definition."));
+                items.Add(FeatureOff("type", key, TenantFeature.ConfigurableTypes));
                 continue;
             }
 
-            var exists = await catalogue.FindAsync(tenantId, key, ct) is not null;
+            var definition = (type["definition"] as JsonObject)?.ToJsonString();
+            if (definition is null)
+            {
+                items.Add(new BundleImportItem("type", key, "error", "No definition (a JSON object)."));
+                continue;
+            }
+
+            var found = await catalogue.FindKeyAsync(tenantId, key, ct);
+            var exists = found is not null;
+
+            // The type's latest published definition, as the export writes it: the same again is nothing new.
+            var published = exists
+                ? await db.DocumentTypeVersions.AsNoTracking()
+                    .Where(x => x.TenantId == tenantId && x.Definition!.Key == key && x.State == DocumentTypeVersionState.Published)
+                    .OrderByDescending(x => x.Version)
+                    .Select(x => x.DefinitionJson)
+                    .FirstOrDefaultAsync(ct)
+                : null;
+            if (published is not null && SameJson(published, type["definition"]!))
+            {
+                items.Add(new BundleImportItem("type", key, "skip", "The type's published version has this definition already."));
+                continue;
+            }
+
+            // As POST /document-types and PUT .../draft: a type of the tenant's own needs customTypes as well.
+            if ((!exists || found!.Origin == DefinitionOrigin.Custom) && !enabled.Contains(TenantFeature.CustomTypes))
+            {
+                items.Add(FeatureOff("type", key, TenantFeature.CustomTypes));
+                continue;
+            }
+
             if (!apply)
             {
                 items.Add(new BundleImportItem("type", key, exists ? "newVersion" : "create", exists ? "A draft version with the bundle's definition." : "A new tenant type."));
@@ -626,13 +742,20 @@ public static class GovernanceEndpoints
         foreach (var layout in (bundle["layouts"] as JsonArray ?? []).OfType<JsonObject>())
         {
             var key = Str(layout["layoutKey"])?.Trim() ?? "?";
+            if (!enabled.Contains(TenantFeature.SupplierLayouts))
+            {
+                items.Add(FeatureOff("layout", key.Length > SupplierLayout.MaxKeyLength ? key[..SupplierLayout.MaxKeyLength] : key, TenantFeature.SupplierLayouts));
+                continue;
+            }
+
             var supplier = Match(layout["supplier"]);
             var typeKey = Str(layout["documentTypeKey"]) ?? "Invoice";
             var layoutName = Str(layout["name"])?.Trim() is { Length: > 0 } givenName ? givenName : key;
             int? layoutPriority = layout["priority"] is JsonValue p && p.TryGetValue<int>(out var priority) ? priority : null;
             var itemKinds = (layout["itemKinds"] as JsonArray ?? []).Select(k => Str(k)).ToList();
             var ruleJson = layout["identification"] is JsonObject identification ? identification.ToJsonString() : null;
-            var mappingJson = layout["mapping"] is JsonObject mappingObject ? mappingObject.ToJsonString() : null;
+            var mappingNode = layout["mapping"] as JsonObject;
+            var mappingJson = mappingNode?.ToJsonString();
             if (supplier is null)
             {
                 items.Add(new BundleImportItem("layout", key, "error", "No supplier of this tenant has the layout's supplier VAT id or name."));
@@ -672,7 +795,8 @@ public static class GovernanceEndpoints
             }
 
             var existing = await db.SupplierLayouts.Include(l => l.Versions).SingleOrDefaultAsync(l => l.Scope == SupplierLayoutScope.Supplier && l.OwnerId == supplier.Id && l.DocumentTypeKey == typeKey && l.LayoutKey == key, ct);
-            if (existing?.Versions.Any(x => x.IdentificationHash == rule.Hash && x.MappingJson == mappingJson) == true)
+            // The mapping compared as JSON: a layout posted by hand keeps the sender's whitespace and member order.
+            if (existing?.Versions.Any(x => x.IdentificationHash == rule.Hash && SameJson(x.MappingJson, mappingNode!)) == true)
             {
                 items.Add(new BundleImportItem("layout", key, "skip", "The layout has this rule and mapping already."));
                 continue;
@@ -728,18 +852,48 @@ public static class GovernanceEndpoints
         }
 
         // Source rules: the conditions checked as POST /suppliers/{id}/source-rules checks them, saved disabled.
+        var tenantChannels = await db.IngestionChannels.AsNoTracking().ToListAsync(ct);
         foreach (var rule in (bundle["sourceRules"] as JsonArray ?? []).OfType<JsonObject>())
         {
             var supplier = Match(rule["supplier"]);
             var describe = Str(rule["sender"]) ?? Str(rule["senderDomain"]) ?? Str(rule["folderPrefix"]) ?? Str(rule["recipient"]) ?? "rule";
+            if (!enabled.Contains(TenantFeature.SourceRouting))
+            {
+                items.Add(FeatureOff("sourceRule", describe, TenantFeature.SourceRouting));
+                continue;
+            }
+
             if (supplier is null)
             {
                 items.Add(new BundleImportItem("sourceRule", describe, "error", "No supplier of this tenant has the rule's supplier VAT id or name."));
                 continue;
             }
 
+            // The rule's channel: the one that reads the same source (same tenant), else the one of the same name and type.
+            Guid? channelId = null;
+            if (rule["channel"] is JsonObject channelRef)
+            {
+                var sourceKey = Str(channelRef["sourceKey"]);
+                var channelName = Str(channelRef["name"]);
+                var channelType = Str(channelRef["type"]);
+                var channel = (sourceKey is null ? null : tenantChannels.FirstOrDefault(c => string.Equals(c.SourceKey, sourceKey, StringComparison.Ordinal)))
+                              ?? tenantChannels.FirstOrDefault(c => string.Equals(c.Name, channelName, StringComparison.Ordinal) && (channelType is null || string.Equals(c.Type.ToString(), channelType, StringComparison.Ordinal)));
+                if (channel is null)
+                {
+                    items.Add(new BundleImportItem("sourceRule", describe, "error", $"The rule names the channel '{channelName}' ({channelType}), which this tenant does not have: create the channel first (its credential is never in a bundle), then import again."));
+                    continue;
+                }
+
+                channelId = channel.Id;
+            }
+            else if (rule["channel"] is not null)
+            {
+                throw new InvalidOperationException("channel is an object.");
+            }
+
             var entity = new SupplierSourceRule { Id = Guid.CreateVersion7(), TenantId = tenantId, SupplierId = supplier.Id, ConditionHash = string.Empty, CreatedBy = actor, CreatedAt = now, UpdatedAt = now };
             var refusal = await SourceRuleEndpoints.ApplyAsync(db, entity, new SourceRuleRequest(
+                ChannelId: channelId,
                 Recipient: Str(rule["recipient"]),
                 Sender: Str(rule["sender"]),
                 SenderDomain: Str(rule["senderDomain"]),
@@ -753,7 +907,7 @@ public static class GovernanceEndpoints
                 Enabled: false), supplier, ct);
             if (refusal is not null)
             {
-                items.Add(new BundleImportItem("sourceRule", describe, refusal.Problem is not null ? "skip" : "error", refusal.Problem?.ProblemDetails.Detail ?? "The rule's conditions do not pass the checks."));
+                items.Add(new BundleImportItem("sourceRule", describe, refusal.Problem is not null ? "skip" : "error", refusal.Problem?.ProblemDetails.Detail ?? (refusal.Invalid is { } invalid ? "The rule's conditions do not pass the checks: " + Messages(invalid) : "The rule's conditions do not pass the checks.")));
                 continue;
             }
 
@@ -769,9 +923,30 @@ public static class GovernanceEndpoints
         foreach (var output in (bundle["outputs"] as JsonArray ?? []).OfType<JsonObject>())
         {
             var key = Str(output["key"]) ?? "?";
+            var shownKey = key.Length > 64 ? key[..64] : key;
+            if (!enabled.Contains(TenantFeature.Outputs))
+            {
+                items.Add(FeatureOff("output", shownKey, TenantFeature.Outputs));
+                continue;
+            }
+
             if (mappingIds.ContainsKey(key))
             {
                 items.Add(new BundleImportItem("output", key, "skip", "The tenant has an output mapping with this key; edit it there."));
+                continue;
+            }
+
+            // The checks of POST /output-mappings: key (pattern, length, not std.), name, type key, engine, expression,
+            // content type, file name template and target schema limits.
+            var outputName = Str(output["name"]) ?? key;
+            var engine = Str(output["engine"]) ?? OutputEngines.Jsonata;
+            var expression = Str(output["expression"]);
+            var contentType = Str(output["contentType"]);
+            var fileNameTemplate = Str(output["fileNameTemplate"]);
+            var targetSchema = Element(output["targetSchema"]);
+            if ((OutputMappingEndpoints.Problems(key, outputName, null, Str(output["sourceTypeKey"])) ?? OutputMappingEndpoints.ContentProblems(engine, expression, contentType, fileNameTemplate, targetSchema, null)) is { } outputInvalid)
+            {
+                items.Add(new BundleImportItem("output", shownKey, "error", Messages(outputInvalid)));
                 continue;
             }
 
@@ -781,18 +956,18 @@ public static class GovernanceEndpoints
                 continue;
             }
 
-            var mapping = new OutputMapping { Id = Guid.CreateVersion7(), TenantId = tenantId, Key = key, Name = Str(output["name"]) ?? key, SourceTypeKey = Str(output["sourceTypeKey"]), Origin = OutputMappingOrigin.Custom, CreatedAt = now, CreatedBy = actor, UpdatedAt = now };
+            var mapping = new OutputMapping { Id = Guid.CreateVersion7(), TenantId = tenantId, Key = key, Name = outputName.Trim(), SourceTypeKey = Str(output["sourceTypeKey"]), Origin = OutputMappingOrigin.Custom, CreatedAt = now, CreatedBy = actor, UpdatedAt = now };
             mapping.Versions.Add(new OutputMappingVersion
             {
                 Id = Guid.CreateVersion7(),
                 MappingId = mapping.Id,
                 TenantId = tenantId,
                 Version = 1,
-                Engine = Str(output["engine"]) ?? OutputEngines.Jsonata,
-                Expression = Str(output["expression"]) ?? string.Empty,
-                ContentType = Str(output["contentType"]) ?? "application/json",
-                FileNameTemplate = Str(output["fileNameTemplate"]),
-                TargetSchemaJson = output["targetSchema"]?.ToJsonString(),
+                Engine = engine,
+                Expression = expression ?? string.Empty,
+                ContentType = OutputContentTypes.Normalize(contentType) ?? OutputContentTypes.Default,
+                FileNameTemplate = fileNameTemplate,
+                TargetSchemaJson = targetSchema is { ValueKind: JsonValueKind.Object } schema ? schema.GetRawText() : null,
                 ChangeNote = "Imported from a configuration bundle.",
                 CreatedAt = now,
                 CreatedBy = actor,
@@ -806,9 +981,23 @@ public static class GovernanceEndpoints
         var bindingNames = await db.OutputBindings.AsNoTracking().Select(b => b.Name).ToListAsync(ct);
         foreach (var binding in (bundle["bindings"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            var name = Str(binding["name"]) ?? "?";
-            var destinationName = Str(binding["destination"]?["name"]);
+            var name = Str(binding["name"])?.Trim() ?? "?";
+            if (!enabled.Contains(TenantFeature.Outputs))
+            {
+                items.Add(FeatureOff("binding", name.Length > 200 ? name[..200] : name, TenantFeature.Outputs));
+                continue;
+            }
+
+            var destinationName = Str((binding["destination"] as JsonObject)?["name"]);
             var mappingKey = Str(binding["mappingKey"]);
+            var events = (binding["events"] as JsonArray ?? []).Select(e => Str(e)).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+            var bindingProblems = OutputBindingEndpoints.ShapeProblems(Str(binding["name"]), events, Str(binding["documentTypeKey"]), Str(binding["exclusiveGroup"]), Str(binding["condition"]));
+            if (bindingProblems.Count > 0)
+            {
+                items.Add(new BundleImportItem("binding", name.Length > 200 ? name[..200] : name, "error", string.Join(" ", bindingProblems)));
+                continue;
+            }
+
             if (bindingNames.Contains(name, StringComparer.Ordinal))
             {
                 items.Add(new BundleImportItem("binding", name, "skip", "The tenant has a binding with this name."));
@@ -835,7 +1024,7 @@ public static class GovernanceEndpoints
                     Id = Guid.CreateVersion7(),
                     TenantId = tenantId,
                     Name = name,
-                    Events = [.. (binding["events"] as JsonArray ?? []).Select(e => Str(e)).OfType<string>()],
+                    Events = events,
                     DocumentTypeKey = Str(binding["documentTypeKey"]),
                     SupplierId = binding["supplier"] is JsonObject sref ? Match(sref)?.Id : null,
                     Condition = Str(binding["condition"]),

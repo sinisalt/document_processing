@@ -11,7 +11,9 @@ using DocProc.Infrastructure.Catalogue;
 using DocProc.Infrastructure.Configuration;
 using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Pipeline.Intake;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace DocProc.Api.Tests;
@@ -298,6 +300,53 @@ public sealed class SupplierRoutingEndpointsTests : IClassFixture<ApiFactory>
 
         var folder = await admin.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Drop"), "WatchedFolder", JsonDocument.Parse("""{"path":"../tenant-b"}""").RootElement, null), Ct);
         folder.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_tenant_without_sourceRouting_cannot_claim_a_mailbox_another_tenant_reads_by_create_or_patch()
+    {
+        // Tenant A (routing on) reads the mailbox; tenant B has sourceRouting off.
+        using var a = Admin();
+        using var b = Admin(ApiFactory.TenantB);
+        var address = $"{Unique("shared")}@tenant-a.local";
+        var config = JsonDocument.Parse($$"""{"address":"{{address}}"}""").RootElement;
+        var owner = (await (await a.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Mail"), "Mailbox", config, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        owner.SourceKey.ShouldBe($"imap:platform/{address}/inbox");
+
+        // Without the switch a channel is saved as before P4 (a free config, no 409), but it gets no key it cannot have.
+        var twin = await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Twin"), "Mailbox", config, null), Ct);
+        twin.StatusCode.ShouldBe(HttpStatusCode.Created, await twin.Content.ReadAsStringAsync(Ct));
+        var twinChannel = (await twin.Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        twinChannel.SourceKey.ShouldBeNull("the mailbox is tenant A's");
+        var free = $"{Unique("own")}@tenant-b.local";
+        var own = (await (await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Own"), "Mailbox", JsonDocument.Parse($$"""{"address":"{{free}}"}""").RootElement, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        own.SourceKey.ShouldBe($"imap:platform/{free}/inbox", "a free source is claimed whatever the switch");
+        (await b.PostAsJsonAsync("/api/v1/channels", new CreateChannelRequest(Unique("Loose"), "Mailbox", JsonDocument.Parse("""{"provider":"imap"}""").RootElement, null), Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.Created, "a config that is not a mailbox's shape is still accepted without the switch");
+
+        // A patch to another tenant's mailbox drops the key it had; a patch back to its own claims it again.
+        var moved = (await (await b.PatchAsJsonAsync($"/api/v1/channels/{own.Id}", new PatchChannelRequest(null, null, config, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        moved.SourceKey.ShouldBeNull();
+        var back = (await (await b.PatchAsJsonAsync($"/api/v1/channels/{own.Id}", new PatchChannelRequest(null, null, JsonDocument.Parse($$"""{"address":"{{free}}"}""").RootElement, null), Ct)).Content.ReadFromJsonAsync<ChannelResponse>(ApiFactory.Json, Ct))!;
+        back.SourceKey.ShouldBe($"imap:platform/{free}/inbox");
+        (await b.PatchAsJsonAsync($"/api/v1/channels/{twinChannel.Id}", new PatchChannelRequest("renamed", null, null, null), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "a rename is no 409 without the switch");
+
+        // Switched on, the poller claims the empty key first and stops the channel: only tenant A's channel is read.
+        _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantB).Settings.Features!.SourceRouting = true);
+        try
+        {
+            var poller = ActivatorUtilities.CreateInstance<ChannelPollerHostedService>(_factory.Services);
+            (await poller.PollChannelAsync(ApiFactory.TenantB, twinChannel.Id, Ct)).ShouldBe(0);
+            var stopped = _factory.Query(db => db.IngestionChannels.Single(c => c.Id == twinChannel.Id));
+            stopped.Status.ShouldBe(ChannelStatus.Error);
+            stopped.SourceKey.ShouldBeNull();
+            stopped.LastError.ShouldNotBeNull().ShouldContain("Another channel already reads");
+            _factory.Query(db => db.IngestionChannels.Single(c => c.Id == owner.Id)).Status.ShouldBe(ChannelStatus.Active);
+        }
+        finally
+        {
+            _factory.Run(db => db.Tenants.Single(t => t.Id == ApiFactory.TenantB).Settings.Features!.SourceRouting = false);
+        }
     }
 
     [Fact]

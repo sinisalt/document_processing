@@ -601,8 +601,9 @@ field mapping (where each value is printed).
   `POST /api/v1/regression-runs {layoutId, version}` runs the golden documents through a version, `POST
   /api/v1/sandbox/runs` a document through a draft rule and mapping, both without side effects. `GET
   /api/v1/config/bundle` exports the configuration as a signed JSON bundle and `POST /api/v1/config/bundle:import
-  {"bundle": …, "mode": "dry-run"|"apply"}` checks and imports it (layouts as Candidates, rules and bindings disabled);
-  the signature key is `ConfigBundles:SigningKey` (below).
+  {"bundle": …, "mode": "dry-run"|"apply"}` checks and imports it (layouts as Candidates, rules and bindings disabled;
+  each part only where its feature is on, with the checks of its own endpoint, and an apply all or nothing); the
+  signature key is `ConfigBundles:SigningKey` (below), which only Development and Testing may leave unset.
 
 ### Demo data
 
@@ -1073,7 +1074,8 @@ writes the `Authentication-Results` header the receiving server would (`dmarc=pa
    Layout saved dialog shows nordwind-invoice-erp version 1 Active, "the next 5 documents in this design go to review
    first (warm-up)".
 7. **The second ERP invoice is identified.** Mail `Nordwind_Rechnung_NW-RE-2026-1077.pdf` the same way. It arrives
-   filled by the layout, with only the info flag `LAYOUT_WARMUP` ("warm-up 1 of 5"); the header shows the layout
+   filled by the layout, with only the info flag `LAYOUT_WARMUP` ("Document 1 of the first 5 under layout
+   nordwind-invoice-erp"); the header shows the layout
    chip. Identify (key I) draws the evidence: "Rechnung" in the title and the VAT id. Approve: both ERP invoices are
    now in the mock ERP's journal (`POST /api/ap/invoices`).
 8. **A web-shop invoice: NEW_LAYOUT, pre-filled.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000318.pdf` with subject
@@ -1099,7 +1101,8 @@ writes the `Authentication-Results` header the receiving server would (`dmarc=pa
     the field agreement on its replay set) and Active at once with the tenant's warm-up 5; the Layout saved dialog
     shows the version, its rule in words and the other documents in review it holds on (none here).
 12. **Warm-up 1 of 5.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000342.pdf`. It is identified by
-    nordwind-invoice-webshop and goes to review with only `LAYOUT_WARMUP` (ordinal 1, warm-up 5), filled correctly:
+    nordwind-invoice-webshop and goes to review with only `LAYOUT_WARMUP` ("Document 1 of the first 5 under layout
+    nordwind-invoice-webshop"), filled correctly:
     number `WS-2026-000342`, total 128.88, three lines, customer number 401187. Approve.
 13. **Warm-up 0.** As `tenant-a-admin`: Settings > General > Layouts and routing: Review warm-up `0` > Save. The Active
     versions whose warm-up was the tenant's old value follow: Suppliers > Nordwind > Layouts shows "no warm-up" on both.
@@ -1129,7 +1132,13 @@ writes the `Authentication-Results` header the receiving server would (`dmarc=pa
     makes Suppliers > Nordwind > Attributes a form; Settings > Receiving entities > Add entity (code `1000`, Gasthaus
     zur Post GmbH); Suppliers > Supplier groups > Add group. As `tenant-a-reviewer`, an approved web-shop invoice >
     Mark as golden; as `tenant-a-admin`, Settings > Governance: pick Nordwind and nordwind-invoice-webshop v1 > Run
-    regression ("Passed", one golden document), Sandbox run, Export bundle (a signed JSON file), Import with a dry run.
+    regression ("Passed", one golden document). Sandbox run: paste the id of a document into Document id (for example
+    the approved web-shop invoice WS-2026-000377, its id is in the address bar of its review screen) > Run in sandbox
+    ("identified", with the evidence). Export bundle (a signed JSON file), then Import with a dry run of that file:
+    everything in it is already there, so every item is a skip (the layouts "has this rule and mapping already", the
+    folder rule found with its channel Scanner, by the channel's source or name, "already exists"). A bundle carries a
+    folder rule's channel by name and source, never the channel itself: imported into a tenant without a channel of
+    that name, the rule is an error that names the channel to create first.
 
 The same through the API and SMTP, with `$H` tenant A's admin token, `$R` its reviewer's (Keycloak password grant
 as above) and `$B` tenant B's admin token; the review steps 9 to 11 are the review endpoints of docs/05 "Learning"
@@ -1368,7 +1377,7 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 
 | Key | Default | What it does |
 |---|---|---|
-| `ConfigBundles:SigningKey` | unset: a fixed development key | The HMAC-SHA256 key that signs `GET /config/bundle` and verifies `POST /config/bundle:import`. Set the same secret value in the environments a bundle moves between (staging and production); unset, bundles are signed with the built-in development key, which any other unset host accepts, so set it everywhere outside development. |
+| `ConfigBundles:SigningKey` | unset: a fixed development key in Development and Testing; elsewhere none | The HMAC-SHA256 key that signs `GET /config/bundle` and verifies `POST /config/bundle:import`. Set the same secret value in the environments a bundle moves between (staging and production). Unset, Development and Testing sign with the built-in development key; any other environment answers both endpoints with 503 `BUNDLE_SIGNING_KEY_MISSING`, since a published key would let anyone forge a bundle that verifies. |
 
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).

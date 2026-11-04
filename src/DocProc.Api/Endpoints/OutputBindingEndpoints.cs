@@ -329,6 +329,42 @@ public static class OutputBindingEndpoints
     }
 
     /// <summary>
+    /// The checks of a binding's own members, without the database or the renderer (a configuration bundle's binding,
+    /// docs/11 §15.4; the condition's syntax is checked when the binding is enabled): name, events, type key, exclusive
+    /// group and the condition's length. The messages, none when the binding passes.
+    /// </summary>
+    internal static List<string> ShapeProblems(string? name, IReadOnlyList<string> events, string? documentTypeKey, string? exclusiveGroup, string? condition)
+    {
+        var problems = new List<string>();
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200)
+        {
+            problems.Add("name is required, at most 200 characters.");
+        }
+
+        if (events.Count == 0 || events.Any(e => !OutputEvents.Fired.Contains(e, StringComparer.Ordinal)))
+        {
+            problems.Add($"events is a non-empty list of {string.Join(" and ", OutputEvents.Fired)}.");
+        }
+
+        if (documentTypeKey is not null && !DocumentTypeKey.TryParse(documentTypeKey, out _))
+        {
+            problems.Add("documentTypeKey is a document type key.");
+        }
+
+        if (exclusiveGroup is { Length: > 64 })
+        {
+            problems.Add("exclusiveGroup is at most 64 characters.");
+        }
+
+        if (condition is { Length: > MaxConditionLength })
+        {
+            problems.Add($"condition is at most {MaxConditionLength} characters.");
+        }
+
+        return problems;
+    }
+
+    /// <summary>
     /// The checks every write runs on the binding as it would be stored: events, type key, the supplier, channel and
     /// destination of the tenant, the mapping (the tenant's or a platform template) and its pinned version, the update
     /// mapping, and the condition's syntax.

@@ -851,6 +851,12 @@ Correction (P4, part B), as built (`Entities/Layouts.cs`, migration `SupplierLay
   supplier's or the group's id (SQL Server and SQLite treat nulls in a unique index differently).
 - The warm-up is counted on the version (`WarmupSeen`, taken with an atomic increment while below `ReviewWarmup`) and on
   the document (a `document.layout_warmup` event), so a document validated again keeps its place.
+
+  Correction (P4, second review fixes): the increment and the read of the new count were two statements, so two
+  documents validated at once could both read the count after both increments and show the same place ("2 of 5", and
+  no "1 of 5"). The place is taken by a compare-and-set (`UPDATE … SET WarmupSeen = n + 1 WHERE WarmupSeen = n AND n <
+  ReviewWarmup`, read again on a lost race; `LayoutWarmup.TakePlaceAsync`), so each caller's place is the one its own
+  update wrote.
 - `TenantSettings.LayoutActivation` is stored flat as `TenantSettings.LayoutReviewWarmup` (nullable, null for the
   default 5 of decision 2), as `LayoutsRequiredByDefault` is.
 
@@ -1006,6 +1012,24 @@ Correction (P4, review fixes):
   another tenant's root.
 - The `document.supplier_identified_by_source` event names the channel, the folder path and the rule in words; the
   Timeline shows them under its title.
+
+Correction (P4, second review fixes):
+- The body limit above was not enforced: MailKit's `GetStreamAsync(uid)` buffers the whole message before it returns,
+  so the limit only bounded a copy. The body is fetched as a partial (`BODY.PEEK[]<0.N>`, N one byte past
+  `Mail:MaxMessageBytes`), and one that fills it is skipped as over the limit.
+- A message id of `Message-ID` and sender alone dropped, silently, a second mail whose mailer reused a `Message-ID`.
+  `imap:mid:` also hashes the raw message's SHA-256: the bytes the server stores are the bytes a re-read sends, so a
+  folder read again still ingests nothing twice. A message or file found already ingested is logged.
+- `SourceKey` is the only guard against two channels reading one source, so it is computed on every create and config
+  change whatever `sourceRouting` (without the switch a key another channel holds is left empty instead of a 409, so
+  the config stays free as before P4), and the poller reads a channel only under the key its config gives: a channel
+  without one, or with one its config no longer gives, claims it on its next poll under the unique index, and is put in
+  `Error` when another channel of any tenant holds it. Rows from before P4 are fixed up this way, not by a data step.
+- The folder watcher checked for links while it scanned and read the bytes later, through a path that follows links:
+  a file or folder swapped for a link in between was read through it. A file is now read from a handle opened right
+  after the path was checked again, and on Linux the handle's real path (`/proc/self/fd`) must be the real path of
+  the tenant's root plus the file's relative path; anything else is neither read nor moved. On other hosts only the
+  re-check right before the open remains.
 
 ### 7.2 Resolution at ingest
 
@@ -1355,6 +1379,13 @@ and ends at a word's edge, next to a character that is neither a letter nor a di
 or where letters turn into digits or back. A longer VAT id (`DE8111111119` for `DE811111111`) or a short attribute value
 inside a longer number (`12345` in the phone number `0401234567890`) does not hold. The rule in words names the keys by
 their labels ("the supplier's VAT id (last page)", "IBAN", "attribute customerNo").
+
+Correction (P4, second review fixes): "a word's edge" above was any edge between words, so a value printed in spaced
+groups still held inside a longer, different number (`12345` in `Tel 040 12345 67890`, `DE811111111` in `DE 811 111
+111 9`), and a label glued on with a dot (`USt-IdNr.DE811111111`) was no edge, since compacting removes the dot. A
+value's edge is now: the line's start or end; a character that is neither a letter nor a digit; a gap (a space between
+words, or a `.`, `-` or `/` that compacting removes) unless digits are on both sides of it; or, with no gap, where
+letters turn into digits or back.
 - `xmlPath` and `cell` are in the meta-schema but refused at save until the structured layers exist (P6).
 - The meta-schema checks the shape; nesting, the 20 identifiers, a positive identifier, `allowOcrErrors`, patterns
   (NonBacktracking, at most 500 unrolled atoms) and the scope are the checks at save.
@@ -2424,6 +2455,21 @@ Correction (P4, part C), as built (`GovernanceEndpoints`):
   VAT id, then name, creates types through the catalogue (a draft version for an existing key), layouts as Imported
   Candidates, source rules and bindings disabled, output mappings with a draft version; it does not carry a rule's or
   binding's channel or receiving entity (environment-specific ids) and does not run a regression suite.
+
+Correction (P4, second review fixes):
+- The import checked no feature switch and skipped the checks of the regular endpoints, so a tenant with every switch
+  off got output mappings (any key, engine and expression), Candidate layouts and source rules written. Each part now
+  needs its feature (types `configurableTypes`, plus `customTypes` for a new or own type; layouts `supplierLayouts`;
+  source rules `sourceRouting`; output mappings and bindings `outputs`), else it is an `error` item; output mappings run
+  the checks of `POST /output-mappings`, bindings those of their own members.
+- An `apply` that failed part-way answered 400 while the members before it were saved; it now runs in one transaction.
+- A layout's mapping was compared as text, so a hand-posted layout (stored as sent) was proposed as a new version on
+  every re-import of an unchanged export; mappings, and a type's definition with its latest published version, are
+  compared as JSON, and the same again is a `skip`.
+- A source rule's channel is carried by name, type and `SourceKey` (the channel itself is not), and the import finds the
+  tenant's channel by its source key, else its name and type; a folder rule without its channel is an error naming it.
+- Outside Development and Testing an unset `ConfigBundles:SigningKey` refuses export and import (503
+  `BUNDLE_SIGNING_KEY_MISSING`): the built-in development key is public, so a bundle signed with it proves nothing.
 
 ### 15.5 In-flight behaviour
 

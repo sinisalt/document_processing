@@ -184,6 +184,57 @@ public sealed class ImapPollerTests(GreenMailFixture mail) : IClassFixture<Green
     }
 
     [Fact]
+    public async Task A_second_mail_that_reuses_a_Message_ID_with_other_content_is_ingested_too()
+    {
+        SkipUnlessAvailable();
+        await using var host = await StartAsync();
+        var mailbox = $"mid-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
+        var channel = await FolderWatcherTests.AddChannelAsync(host, PipelineTestHost.TenantA, $$"""{"address":"{{mailbox}}"}""", ChannelType.Mailbox);
+        var first = MailMessageReaderTests.Message("erp@nordwind.example", "Rechnung 1", files: ("1.pdf", "application/pdf", "%PDF-1.4 eins"u8.ToArray()));
+        var second = MailMessageReaderTests.Message("erp@nordwind.example", "Rechnung 2", files: ("2.pdf", "application/pdf", "%PDF-1.4 zwei"u8.ToArray()));
+        first.MessageId = second.MessageId = "fixed-by-the-erp@nordwind.example";
+        await mail.AppendAsync(mailbox, first);
+        await mail.AppendAsync(mailbox, second);
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(2, "the same Message-ID, but another mail");
+        var ingestions = await host.WithDbAsync(db => db.Ingestions.AsNoTracking().Where(i => i.ChannelId == channel).ToListAsync());
+        ingestions.Select(i => i.SourceSubject).Order().ShouldBe(["Rechnung 1", "Rechnung 2"]);
+        ingestions.Select(i => i.SourceMessageId).Distinct().Count().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_body_is_fetched_as_a_partial_bounded_by_the_limit_and_one_over_it_is_skipped()
+    {
+        SkipUnlessAvailable();
+        var mailbox = $"big-{Guid.NewGuid():N}"[..16] + "@tenant-a.local";
+        var small = MailMessageReaderTests.Message("a@nordwind.example", "klein", files: ("1.pdf", "application/pdf", MailMessageReaderTests.Pdf));
+        var large = MailMessageReaderTests.Message("a@nordwind.example", "gross", files: ("2.pdf", "application/pdf", new byte[64 * 1024]));
+        await mail.AppendAsync(mailbox, small);
+        await mail.AppendAsync(mailbox, large);
+        var options = new MailOptions { MaxMessageBytes = 16 * 1024, Timeout = TimeSpan.FromSeconds(10) };
+        using var log = new MemoryStream();
+        var source = new MailKitImapMailSource(new ImapEndpoint(mail.Host, mail.Port, SecureSocketOptions.None, PlatformServer: true, mailbox, "invoices", "INBOX"), options, 10, new ProtocolLogger(log, leaveOpen: true));
+
+        var messages = new List<InboundMessage>();
+        await foreach (var message in source.FetchAsync(null, Ct))
+        {
+            messages.Add(message);
+        }
+
+        messages.Count.ShouldBe(2);
+        messages[0].SkippedReason.ShouldBeNull();
+        MimeMessage.Load(new MemoryStream(messages[0].RawEml.ToArray()), Ct).Subject.ShouldBe("klein", "a body under the limit arrives whole");
+        messages[0].MessageId.ShouldStartWith("imap:mid:", Case.Sensitive);
+
+        messages[1].SkippedReason.ShouldNotBeNull().ShouldContain("over the limit");
+        messages[1].RawEml.Length.ShouldBe(0);
+        var conversation = System.Text.Encoding.ASCII.GetString(log.ToArray());
+        conversation.ShouldContain($"BODY.PEEK[]<0.{MailKitImapMailSource.FetchLength(options.MaxMessageBytes)}>", Case.Sensitive, "the body is never fetched whole");
+        conversation.ShouldNotContain("BODY.PEEK[])", Case.Sensitive);
+    }
+
+    [Fact]
     public async Task The_invoice_of_an_untrusted_forward_attached_as_a_message_becomes_a_document()
     {
         SkipUnlessAvailable();

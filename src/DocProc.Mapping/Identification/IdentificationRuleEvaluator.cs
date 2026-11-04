@@ -484,11 +484,12 @@ public static class IdentificationRuleEvaluator
 
     /// <summary>
     /// A master-data value printed on one line, compared compacted (<see cref="Identifiers.NormalizeCompact"/>): the
-    /// consecutive words whose compacted text holds the value as a whole, so <c>DE 811 111 111</c> and
-    /// <c>USt-IdNr.: DE811111111</c> both hold for the VAT id <c>DE811111111</c>. "As a whole" (docs/11 §8.5, nothing
-    /// nearly matched): the value begins and ends at a word's edge, at a character that is neither a letter nor a digit
-    /// (the <c>:</c> of a label glued to it), or where letters turn into digits or back; so the longer VAT id
-    /// <c>DE8111111119</c>, or a customer number <c>12345</c> inside the phone number <c>0401234567890</c>, does not hold.
+    /// consecutive words whose compacted text holds the value as a whole, so <c>DE 811 111 111</c>,
+    /// <c>USt-IdNr.: DE811111111</c> and <c>USt-IdNr.DE811111111</c> all hold for the VAT id <c>DE811111111</c>. "As a
+    /// whole" (docs/11 §8.5, nothing nearly matched) is decided at both ends of the value by <see cref="Edge"/>: a digit
+    /// run that goes on, glued or across a space or a removed separator, is a longer, different number; so the longer
+    /// VAT id <c>DE 811 111 111 9</c>, or a customer number <c>12345</c> inside <c>040 12345 67890</c> or
+    /// <c>0401234567890</c>, does not hold.
     /// </summary>
     private static List<IndexedWord>? FindSupplierValue(string key, List<IndexedWord> words, SupplierValues supplier)
     {
@@ -500,32 +501,37 @@ public static class IdentificationRuleEvaluator
 
         foreach (var line in PageGeometry.Lines(words))
         {
-            // The line's compacted text, and for each of its characters the word it came from.
+            // The line's compacted text, for each of its characters the word it came from, and where a gap (between two
+            // words, or a separator NormalizeCompact removes) lies before it.
             var text = new StringBuilder();
             var owner = new List<int>();
-            var wordStarts = new HashSet<int>();
-            var wordEnds = new HashSet<int>();
+            var gapBefore = new List<bool>();
             for (var w = 0; w < line.Words.Count; w++)
             {
-                var compact = Identifiers.NormalizeCompact(line.Words[w].Text) ?? string.Empty;
-                if (compact.Length == 0)
+                var gap = text.Length > 0;
+                foreach (var c in line.Words[w].Text)
                 {
-                    continue;
-                }
+                    if (IsCompactSeparator(c))
+                    {
+                        gap = text.Length > 0;
+                        continue;
+                    }
 
-                wordStarts.Add(text.Length);
-                text.Append(compact);
-                owner.AddRange(Enumerable.Repeat(w, compact.Length));
-                wordEnds.Add(text.Length);
+                    text.Append(char.ToUpperInvariant(c));
+                    owner.Add(w);
+                    gapBefore.Add(gap);
+                    gap = false;
+                }
             }
 
+            gapBefore.Add(true); // past the line's end
             var joined = text.ToString();
             foreach (var value in values)
             {
                 for (var at = joined.IndexOf(value, StringComparison.Ordinal); at >= 0; at = joined.IndexOf(value, at + 1, StringComparison.Ordinal))
                 {
                     var after = at + value.Length;
-                    if (!Edge(joined, at, wordStarts, before: true) || !Edge(joined, after, wordEnds, before: false))
+                    if (!Edge(joined, at, gapBefore) || !Edge(joined, after, gapBefore))
                     {
                         continue;
                     }
@@ -540,24 +546,32 @@ public static class IdentificationRuleEvaluator
         return null;
     }
 
+    /// <summary>The characters <see cref="Identifiers.NormalizeCompact"/> removes: whitespace, dots, dashes and slashes.</summary>
+    private static bool IsCompactSeparator(char c) => char.IsWhiteSpace(c) || c is '.' or '-' or '/';
+
     /// <summary>
-    /// Whether a value may begin (<paramref name="before"/>) or end at <paramref name="index"/> of the compacted line:
-    /// at a word's edge, next to a character that is neither a letter nor a digit, or where letters and digits meet.
+    /// Whether a value may begin or end at <paramref name="index"/> of the compacted line (between the characters
+    /// <c>index - 1</c> and <c>index</c>): at the line's start or end; next to a character that is neither a letter nor a
+    /// digit (the <c>:</c> of a label glued to it); across a gap (a space between words, or a removed <c>.</c>, <c>-</c>
+    /// or <c>/</c>) unless digits are on both sides of it, since a number printed in groups goes on across its gaps; and,
+    /// with no gap, where letters turn into digits or back.
     /// </summary>
-    private static bool Edge(string text, int index, HashSet<int> wordEdges, bool before)
+    private static bool Edge(string text, int index, List<bool> gapBefore)
     {
-        if (index <= 0 || index >= text.Length || wordEdges.Contains(index))
+        if (index <= 0 || index >= text.Length)
         {
             return true;
         }
 
-        var outside = before ? text[index - 1] : text[index];
-        var inside = before ? text[index] : text[index - 1];
-        if (!char.IsLetterOrDigit(outside) || !char.IsLetterOrDigit(inside))
+        var left = text[index - 1];
+        var right = text[index];
+        if (!char.IsLetterOrDigit(left) || !char.IsLetterOrDigit(right))
         {
             return true;
         }
 
-        return char.IsDigit(outside) != char.IsDigit(inside);
+        return gapBefore[index]
+            ? !(char.IsDigit(left) && char.IsDigit(right))
+            : char.IsDigit(left) != char.IsDigit(right);
     }
 }

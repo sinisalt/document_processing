@@ -39,10 +39,12 @@ namespace DocProc.Pipeline.Intake;
 /// lead into another tenant's root), and a file is not moved through a link. A file taken is moved to
 /// <c>processed/</c> (one that cannot be read or is too large to <c>failed/</c>), keeping its relative path.</item>
 /// </list>
-/// Each message or file is ingested once per channel: its id (a hash of the RFC <c>Message-ID</c> and sender, or of the
-/// raw message, see <see cref="MailKitImapMailSource.ContentMessageId"/>; a hash of the file's relative path, size and
-/// time) is unique per channel in the database, so a second host polling the same channel, a retry after a crash before
-/// the cursor moved, or a folder read again after its UIDVALIDITY changed finds it there and moves on.
+/// Each message or file is ingested once per channel: its id (a hash of the RFC <c>Message-ID</c>, sender and raw
+/// message, or of the raw message alone, see <see cref="MailKitImapMailSource.ContentMessageId"/>; a hash of the file's
+/// relative path, size and time) is unique per channel in the database, so a second host polling the same channel, a
+/// retry after a crash before the cursor moved, or a folder read again after its UIDVALIDITY changed finds it there and
+/// moves on. A channel is read only under the source key its config gives (docs/11 §6.3), claimed on its first poll
+/// when the row has none, so two channels never read one mailbox or folder.
 /// </summary>
 public sealed class ChannelPollerHostedService(
     IServiceProvider services,
@@ -160,6 +162,11 @@ public sealed class ChannelPollerHostedService(
             return await FailAsync(db, channel, "The mailbox config is not valid: " + string.Join(" ", errors), cancellationToken).ConfigureAwait(false);
         }
 
+        if (!await OwnsSourceAsync(db, channel, config.SourceKey, cancellationToken).ConfigureAwait(false))
+        {
+            return 0;
+        }
+
         var reference = ChannelSecrets.Reference(channel.TenantId, channel.Id);
         var password = string.Equals(channel.SecretRef, reference, StringComparison.Ordinal)
             ? await scoped.GetRequiredService<ISecretStore>().GetAsync(reference, cancellationToken).ConfigureAwait(false)
@@ -229,6 +236,12 @@ public sealed class ChannelPollerHostedService(
                 created++;
                 await queue.EnqueueAsync(new ProcessIngestion(channel.TenantId, ingestion.Id), cancellationToken).ConfigureAwait(false);
             }
+            else if (logger.IsEnabled(LogLevel.Information))
+            {
+                // The same stored message (same Message-ID, sender and bytes; its blobs are content-addressed, so storing
+                // them again added nothing): read again after a lost cursor, a UIDVALIDITY change or by another host.
+                logger.LogInformation("Channel {ChannelId}: message {MessageId} ({Subject}) is already ingested; the cursor moves past it.", channel.Id, message.MessageId, parsed.Subject);
+            }
         }
 
         channel.LastPolledAt = clock.GetUtcNow();
@@ -246,6 +259,11 @@ public sealed class ChannelPollerHostedService(
         }
 
         var slug = await db.Tenants.AsNoTracking().Where(t => t.Id == channel.TenantId).Select(t => t.Slug).SingleAsync(cancellationToken).ConfigureAwait(false);
+        if (!await OwnsSourceAsync(db, channel, config.SourceKey(slug), cancellationToken).ConfigureAwait(false))
+        {
+            return 0;
+        }
+
         var tenantRoot = TenantRoot(slug);
         var channelRoot = Path.GetFullPath(Path.Combine(tenantRoot, config.RelativePath));
         if (!Inside(channelRoot, tenantRoot))
@@ -350,7 +368,22 @@ public sealed class ChannelPollerHostedService(
                     continue;
                 }
 
-                var bytes = await File.ReadAllBytesAsync(file.FullName, cancellationToken).ConfigureAwait(false);
+                // The scan saw no link, but the file or a folder on the way may have been swapped for one since: the file
+                // is opened and what was opened is checked, and only those bytes are read.
+                var (bytes, refusal) = await ReadInsideAsync(tenantRoot, file.FullName, _options.MaxFileBytes, cancellationToken).ConfigureAwait(false);
+                if (refusal == FolderReadRefusal.Link)
+                {
+                    logger.LogWarning("Channel {ChannelId}: {File} is, or lies below, a link now; it is not read and not moved.", channel.Id, relative);
+                    continue;
+                }
+
+                if (bytes is null)
+                {
+                    logger.LogWarning("Channel {ChannelId}: {File} is over the limit of {Limit} bytes or not a regular file; moved to failed/.", channel.Id, relative, _options.MaxFileBytes);
+                    Move(channelRoot, file.FullName, Path.Combine(channelRoot, "failed", relative));
+                    continue;
+                }
+
                 var name = file.Name;
                 var contentType = ItemKinds.MimeTypeFor(name);
                 var stored = await UploadIntake.StoreAsync(blobs, channel.TenantId, [new UploadFile(UploadIntake.FitFileName(name), contentType, ItemKinds.Detect(contentType, name), () => new MemoryStream(bytes, writable: false))], cancellationToken).ConfigureAwait(false);
@@ -369,6 +402,10 @@ public sealed class ChannelPollerHostedService(
                     created++;
                     await queue.EnqueueAsync(new ProcessIngestion(channel.TenantId, ingestion.Id), cancellationToken).ConfigureAwait(false);
                 }
+                else if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("Channel {ChannelId}: {File} is already ingested (same path, size and time); it is moved to processed/.", channel.Id, relative);
+                }
 
                 Move(channelRoot, file.FullName, Path.Combine(channelRoot, "processed", relative));
             }
@@ -382,6 +419,170 @@ public sealed class ChannelPollerHostedService(
         channel.LastPolledAt = now;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return created;
+    }
+
+    /// <summary>
+    /// Whether the channel may read its source (docs/11 §6.3): its stored <c>SourceKey</c> is the key its config gives.
+    /// A row without one (written before P4, or while <c>sourceRouting</c> was off by a build that did not compute it),
+    /// or with one its config no longer gives, gets the config's key now; when another channel (of any tenant) already
+    /// holds that key, the unique index refuses it and the channel is put in Error, so two channels never read one
+    /// mailbox or folder.
+    /// </summary>
+    private async Task<bool> OwnsSourceAsync(DocProcDbContext db, IngestionChannel channel, string key, CancellationToken cancellationToken)
+    {
+        if (string.Equals(channel.SourceKey, key, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var stored = channel.SourceKey;
+        channel.SourceKey = key;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Channel {ChannelId} of tenant {TenantId} reads {SourceKey} (was {Stored}).", channel.Id, channel.TenantId, key, stored ?? "none");
+            }
+
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            channel.SourceKey = stored;
+            await StopAsync(db, channel, "Another channel already reads this mailbox or folder; this one is not read.", cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+    }
+
+    private async Task StopAsync(DocProcDbContext db, IngestionChannel channel, string error, CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Channel {ChannelId} of tenant {TenantId} is put in Error: {Error}", channel.Id, channel.TenantId, error);
+        channel.Status = ChannelStatus.Error;
+        channel.LastError = Truncate(error);
+        channel.LastPolledAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Why a file of a watched folder was not read.</summary>
+    internal enum FolderReadRefusal
+    {
+        None,
+        Link,
+        TooLarge,
+    }
+
+    /// <summary>
+    /// The bytes of a file of the tenant's drop zone, read from a handle that is checked to be the file itself: no link
+    /// on the way from the tenant's root (checked right before opening), and on Linux the opened handle's real path
+    /// (<c>/proc/self/fd</c>) is the real path of the tenant's root followed by the file's relative path, so a file or
+    /// folder swapped for a link between the check and the open is refused rather than read through. A file that is
+    /// over <paramref name="maxBytes"/> or cannot be measured (not a regular file) is <see cref="FolderReadRefusal.TooLarge"/>.
+    /// </summary>
+    internal static async Task<(byte[]? Bytes, FolderReadRefusal Refusal)> ReadInsideAsync(string tenantRoot, string path, long maxBytes, CancellationToken cancellationToken)
+    {
+        if (LinkOnPath(tenantRoot, path) is not null)
+        {
+            return (null, FolderReadRefusal.Link);
+        }
+
+        var stream = new FileStream(path, new FileStreamOptions { Mode = FileMode.Open, Access = FileAccess.Read, Share = FileShare.Read, Options = FileOptions.Asynchronous | FileOptions.SequentialScan });
+        await using (stream.ConfigureAwait(false))
+        {
+            if (OpenedPath(stream) is { } opened)
+            {
+                var expected = Path.Combine(RealPath(tenantRoot), Path.GetRelativePath(tenantRoot, path));
+                if (!string.Equals(opened, expected, StringComparison.Ordinal))
+                {
+                    return (null, FolderReadRefusal.Link);
+                }
+            }
+            else if (LinkOnPath(tenantRoot, path) is not null)
+            {
+                return (null, FolderReadRefusal.Link);
+            }
+
+            if (!stream.CanSeek || stream.Length > maxBytes)
+            {
+                return (null, FolderReadRefusal.TooLarge);
+            }
+
+            using var buffer = new MemoryStream((int)Math.Min(stream.Length, int.MaxValue));
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > maxBytes)
+                {
+                    return (null, FolderReadRefusal.TooLarge);
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            return (buffer.ToArray(), FolderReadRefusal.None);
+        }
+    }
+
+    /// <summary>The real path of what an open file handle refers to (Linux, <c>/proc/self/fd</c>), or null where that cannot be read.</summary>
+    private static string? OpenedPath(FileStream stream)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return null;
+        }
+
+        try
+        {
+            var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt64();
+            return new FileInfo($"/proc/self/fd/{descriptor.ToString(System.Globalization.CultureInfo.InvariantCulture)}").LinkTarget;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A full path with every link on it resolved (as <c>realpath(3)</c>); a part that does not exist is kept as it is.</summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        var parts = new List<string>(full[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries));
+        var current = root;
+        var hops = 0;
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var next = Path.Combine(current, parts[i]);
+            string? target;
+            try
+            {
+                target = new FileInfo(next).LinkTarget;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                target = null;
+            }
+
+            if (target is null)
+            {
+                current = next;
+                continue;
+            }
+
+            if (++hops > 40)
+            {
+                throw new IOException($"Too many links on the way to {path}.");
+            }
+
+            var resolved = Path.GetFullPath(Path.IsPathRooted(target) ? target : Path.Combine(current, target));
+            var resolvedRoot = Path.GetPathRoot(resolved) ?? string.Empty;
+            parts = [.. resolved[resolvedRoot.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries), .. parts.Skip(i + 1)];
+            current = resolvedRoot;
+            i = -1;
+        }
+
+        return current;
     }
 
     /// <summary>The tenant's own root of the drop zone, <c>{Intake:FolderRoot}/{slug}</c>, as a full path.</summary>
@@ -530,7 +731,7 @@ public sealed class ChannelPollerHostedService(
                 return;
             }
 
-            if (LinkOnPath(channelRoot, Path.GetDirectoryName(to)!) is { } link)
+            if ((LinkOnPath(channelRoot, from) ?? LinkOnPath(channelRoot, Path.GetDirectoryName(to)!)) is { } link)
             {
                 logger.LogWarning("{File} was not moved to {Target}: {Link} is a link.", from, to, link);
                 return;

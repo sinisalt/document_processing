@@ -27,8 +27,10 @@ public sealed class MailOptions
     public List<string> AllowedHosts { get; set; } = [];
 
     /// <summary>
-    /// The <c>authserv-id</c>s of the receiving servers whose <c>Authentication-Results</c> header is believed. Empty:
-    /// the topmost header is read (the one the last hop, the receiving server, adds).
+    /// The <c>authserv-id</c>s of the receiving servers whose <c>Authentication-Results</c> header is believed (with a
+    /// channel's own <c>authServId</c>). Empty: no <c>Authentication-Results</c> header is believed and no sender counts as
+    /// authenticated, so every source rule that needs sender authentication (the default for mail rules) is skipped
+    /// with <c>SUPPLIER_SOURCE_UNVERIFIED</c>; a header any sender could have written is never taken as proof.
     /// </summary>
     public List<string> TrustedAuthServIds { get; set; } = [];
 

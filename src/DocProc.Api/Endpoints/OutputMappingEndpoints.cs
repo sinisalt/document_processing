@@ -823,7 +823,7 @@ public static partial class OutputMappingEndpoints
         UpdatedAt = now,
     };
 
-    private static ValidationProblem? Problems(string? key, string? name, string? description, string? sourceTypeKey)
+    internal static ValidationProblem? Problems(string? key, string? name, string? description, string? sourceTypeKey)
     {
         var errors = new Errors().Optional("name", name, 200).Optional("description", description, 2000);
         if (name is not null && string.IsNullOrWhiteSpace(name))
@@ -848,7 +848,7 @@ public static partial class OutputMappingEndpoints
         return errors.ToProblem();
     }
 
-    private static ValidationProblem? ContentProblems(string engine, string? expression, string? contentType, string? fileNameTemplate, JsonElement? targetSchema, IReadOnlyList<Guid>? samples)
+    internal static ValidationProblem? ContentProblems(string engine, string? expression, string? contentType, string? fileNameTemplate, JsonElement? targetSchema, IReadOnlyList<Guid>? samples)
     {
         var errors = new Errors().Optional("contentType", contentType, 100).Optional("fileNameTemplate", fileNameTemplate, 400);
         if (!errors.Has("contentType") && contentType is not null && !OutputContentTypes.IsAllowed(contentType))

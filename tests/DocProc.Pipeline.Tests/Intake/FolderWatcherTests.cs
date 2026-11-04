@@ -1,4 +1,6 @@
+using DocProc.Application.Abstractions;
 using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Blobs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Pipeline.Intake;
@@ -158,6 +160,121 @@ public sealed class FolderWatcherTests
     }
 
     [Fact]
+    public async Task A_file_swapped_for_a_link_after_the_scan_is_not_read_through_it()
+    {
+        var root = NewRoot();
+        var blobs = Path.Combine(root, ".blobs");
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(root, "tenant-a")).FullName;
+        var secret = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "tenant-b", "private")).FullName, "secret.pdf");
+        await File.WriteAllTextAsync(secret, "TENANT-B-SECRET", Ct);
+        await File.WriteAllBytesAsync(Path.Combine(tenantRoot, "a.pdf"), TestPdfs.GermanInvoice(), Ct);
+        await File.WriteAllTextAsync(Path.Combine(tenantRoot, "b.pdf"), "tenant A's own b", Ct);
+
+        // The first blob written (a.pdf's, after the scan saw both files) swaps b.pdf for a link to tenant B's file.
+        var swap = new SwapOnFirstPut(blobs, () =>
+        {
+            File.Delete(Path.Combine(tenantRoot, "b.pdf"));
+            File.CreateSymbolicLink(Path.Combine(tenantRoot, "b.pdf"), secret);
+        });
+        await using var host = await StartAsync(root, blobs, swap);
+        var channel = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(1, "a.pdf only");
+
+        swap.Swapped.ShouldBeTrue();
+        swap.Stored.ShouldNotContain(bytes => System.Text.Encoding.UTF8.GetString(bytes).Contains("TENANT-B-SECRET", StringComparison.Ordinal), "nothing was read through the link");
+        File.ReadAllText(secret).ShouldBe("TENANT-B-SECRET");
+        new FileInfo(Path.Combine(tenantRoot, "b.pdf")).LinkTarget.ShouldBe(secret, "the link is neither read nor moved");
+        File.Exists(Path.Combine(tenantRoot, "processed", "b.pdf")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_folder_swapped_for_a_link_after_the_scan_is_not_read_through_it()
+    {
+        var root = NewRoot();
+        var blobs = Path.Combine(root, ".blobs");
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(root, "tenant-a")).FullName;
+        var privateB = Directory.CreateDirectory(Path.Combine(root, "tenant-b", "private")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(privateB, "c.pdf"), "TENANT-B-SECRET", Ct);
+        await File.WriteAllBytesAsync(Path.Combine(tenantRoot, "a.pdf"), TestPdfs.GermanInvoice(), Ct);
+        var sub = Directory.CreateDirectory(Path.Combine(tenantRoot, "sub")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(sub, "c.pdf"), "tenant A's own c", Ct);
+        var swap = new SwapOnFirstPut(blobs, () =>
+        {
+            Directory.Move(sub, sub + "-old");
+            Directory.CreateSymbolicLink(sub, privateB);
+        });
+        await using var host = await StartAsync(root, blobs, swap);
+        var channel = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollChannelAsync(PipelineTestHost.TenantA, channel, Ct)).ShouldBe(1);
+
+        swap.Swapped.ShouldBeTrue();
+        swap.Stored.ShouldNotContain(bytes => System.Text.Encoding.UTF8.GetString(bytes).Contains("TENANT-B-SECRET", StringComparison.Ordinal));
+        File.Exists(Path.Combine(privateB, "c.pdf")).ShouldBeTrue("tenant B's file is not moved through the link either");
+        Directory.Exists(Path.Combine(privateB, "processed")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_file_is_read_from_a_handle_checked_against_the_real_path_of_the_tenants_root()
+    {
+        // The drop zone itself may be reached through a link (a mounted volume): that is the platform's, not the tenant's.
+        var real = NewRoot();
+        var linked = Path.Combine(NewRoot(), "zone");
+        Directory.CreateSymbolicLink(linked, real);
+        var tenantRoot = Directory.CreateDirectory(Path.Combine(linked, "tenant-a", "scans")).Parent!.FullName;
+        var file = Path.Combine(tenantRoot, "scans", "a.pdf");
+        await File.WriteAllTextAsync(file, "%PDF-1.4 a", Ct);
+
+        ChannelPollerHostedService.RealPath(file).ShouldBe(Path.Combine(real, "tenant-a", "scans", "a.pdf"));
+        ChannelPollerHostedService.RealPath(Path.Combine(linked, "tenant-a", "missing", "x")).ShouldBe(Path.Combine(real, "tenant-a", "missing", "x"));
+        var (bytes, refusal) = await ChannelPollerHostedService.ReadInsideAsync(tenantRoot, file, 1024, Ct);
+        refusal.ShouldBe(ChannelPollerHostedService.FolderReadRefusal.None);
+        bytes.ShouldNotBeNull().Length.ShouldBe(10);
+        (await ChannelPollerHostedService.ReadInsideAsync(tenantRoot, file, 5, Ct)).Refusal.ShouldBe(ChannelPollerHostedService.FolderReadRefusal.TooLarge);
+
+        File.CreateSymbolicLink(Path.Combine(tenantRoot, "scans", "l.pdf"), file);
+        (await ChannelPollerHostedService.ReadInsideAsync(tenantRoot, Path.Combine(tenantRoot, "scans", "l.pdf"), 1024, Ct)).Refusal.ShouldBe(ChannelPollerHostedService.FolderReadRefusal.Link);
+    }
+
+    [Fact]
+    public async Task Two_channels_of_one_folder_are_never_both_read_and_a_key_is_backfilled_on_the_first_poll()
+    {
+        var root = NewRoot();
+        await using var host = await StartAsync(root);
+        Directory.CreateDirectory(Path.Combine(root, "tenant-a", "scans"));
+        await File.WriteAllBytesAsync(Path.Combine(root, "tenant-a", "scans", "a.pdf"), TestPdfs.GermanInvoice(), Ct);
+
+        // Rows written without a source key (before P4, or while sourceRouting was off), reading the same folder.
+        var first = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+        var second = await AddChannelAsync(host, PipelineTestHost.TenantA, """{"path":"scans","stableSeconds":0}""");
+        var poller = host.Services.GetRequiredService<ChannelPollerHostedService>();
+
+        (await poller.PollOnceAsync(Ct)).ShouldBe(1);
+        var channels = await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().Where(c => c.Id == first || c.Id == second).ToListAsync());
+        channels.Single(c => c.Id == first).SourceKey.ShouldBe("folder:tenant-a/scans/");
+        channels.Single(c => c.Id == first).Status.ShouldBe(ChannelStatus.Active);
+        var loser = channels.Single(c => c.Id == second);
+        loser.Status.ShouldBe(ChannelStatus.Error);
+        loser.SourceKey.ShouldBeNull();
+        loser.LastError.ShouldNotBeNull().ShouldContain("Another channel already reads");
+        (await host.WithDbAsync(db => db.Ingestions.AsNoTracking().CountAsync(i => i.ChannelId == second))).ShouldBe(0);
+
+        // A key that no longer matches the config (changed outside the API) is recomputed, under the same check.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.IngestionChannels.SingleAsync(c => c.Id == first);
+            row.ConfigJson = """{"path":"other","stableSeconds":0}""";
+            await db.SaveChangesAsync();
+        });
+        Directory.CreateDirectory(Path.Combine(root, "tenant-a", "other"));
+        await poller.PollChannelAsync(PipelineTestHost.TenantA, first, Ct);
+        (await host.WithDbAsync(db => db.IngestionChannels.AsNoTracking().SingleAsync(c => c.Id == first))).SourceKey.ShouldBe("folder:tenant-a/other/");
+    }
+
+    [Fact]
     public void A_link_anywhere_on_the_way_is_found()
     {
         var root = NewRoot();
@@ -189,15 +306,59 @@ public sealed class FolderWatcherTests
 
     private static string NewRoot() => Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "docproc-dropzone-tests", Guid.NewGuid().ToString("N"))).FullName;
 
-    private static async Task<PipelineTestHost> StartAsync(string root)
+    private static async Task<PipelineTestHost> StartAsync(string root, string? blobRoot = null, IBlobStore? blobs = null)
     {
-        var host = await PipelineTestHost.StartAsync(settings =>
-        {
-            settings["Intake:PollersEnabled"] = "false";
-            settings["Intake:FolderRoot"] = root;
-        });
+        var host = await PipelineTestHost.StartAsync(
+            settings =>
+            {
+                settings["Intake:PollersEnabled"] = "false";
+                settings["Intake:FolderRoot"] = root;
+                if (blobRoot is not null)
+                {
+                    settings["Blobs:RootPath"] = blobRoot;
+                }
+            },
+            services =>
+            {
+                if (blobs is not null)
+                {
+                    services.AddSingleton(blobs);
+                }
+            });
         await SourceRoutingPipelineTests.EnableRoutingAsync(host, PipelineTestHost.TenantA);
         return host;
+    }
+
+    /// <summary>A blob store that runs an action when the first blob is written: a deterministic window after the scan.</summary>
+    private sealed class SwapOnFirstPut(string root, Action swap) : IBlobStore
+    {
+        private readonly FileSystemBlobStore _inner = new(root);
+
+        public bool Swapped { get; private set; }
+
+        public List<byte[]> Stored { get; } = [];
+
+        public async Task<BlobRef> PutAsync(Guid tenantId, Stream content, string contentType, CancellationToken cancellationToken)
+        {
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(copy, cancellationToken);
+            Stored.Add(copy.ToArray());
+            copy.Position = 0;
+            var stored = await _inner.PutAsync(tenantId, copy, contentType, cancellationToken);
+            if (!Swapped)
+            {
+                Swapped = true;
+                swap();
+            }
+
+            return stored;
+        }
+
+        public Task<Stream> OpenReadAsync(BlobRef reference, CancellationToken cancellationToken) => _inner.OpenReadAsync(reference, cancellationToken);
+
+        public Task<bool> ExistsAsync(BlobRef reference, CancellationToken cancellationToken) => _inner.ExistsAsync(reference, cancellationToken);
+
+        public Task<Uri> GetReadUrlAsync(BlobRef reference, TimeSpan validFor, CancellationToken cancellationToken) => _inner.GetReadUrlAsync(reference, validFor, cancellationToken);
     }
 
     internal static Task<Guid> AddChannelAsync(PipelineTestHost host, Guid tenantId, string config, ChannelType type = ChannelType.WatchedFolder, string? secretRef = null) => host.WithDbAsync(async db =>

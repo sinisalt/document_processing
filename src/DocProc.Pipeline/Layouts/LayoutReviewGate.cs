@@ -73,8 +73,8 @@ internal sealed class LayoutReviewGate(DocProcDbContext db, LayoutIdentification
 
     /// <summary>
     /// The document's place in the version's warm-up (1-based), or null when it is past it: a document counted before
-    /// keeps its place; otherwise it takes the next one while places are left (an atomic increment, so two documents
-    /// validated at once never take the same place, and none over the warm-up).
+    /// keeps its place; otherwise it takes the next one while places are left (<see cref="LayoutWarmup.TakePlaceAsync"/>,
+    /// a compare-and-set, so two documents validated at once never take the same place, and none over the warm-up).
     /// </summary>
     private async Task<int?> WarmupOrdinalAsync(Document document, SupplierLayoutVersion version, CancellationToken cancellationToken)
     {
@@ -97,17 +97,11 @@ internal sealed class LayoutReviewGate(DocProcDbContext db, LayoutIdentification
             return null;
         }
 
-        var taken = await db.SupplierLayoutVersions
-            .Where(v => v.Id == version.Id && v.WarmupSeen < v.ReviewWarmup)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.WarmupSeen, v => v.WarmupSeen + 1), cancellationToken)
-            .ConfigureAwait(false);
-        if (taken == 0)
+        if (await LayoutWarmup.TakePlaceAsync(db, version.Id, cancellationToken).ConfigureAwait(false) is not { } ordinal)
         {
             return null;
         }
 
-        var seen = await db.SupplierLayoutVersions.AsNoTracking().Where(v => v.Id == version.Id).Select(v => v.WarmupSeen).SingleAsync(cancellationToken).ConfigureAwait(false);
-        var ordinal = Math.Min(seen, version.ReviewWarmup);
         timeline.Record(document, LayoutEventTypes.Warmup, null, null, new { versionId = version.Id, layoutKey = version.Layout!.LayoutKey, version = version.Version, ordinal, warmup = version.ReviewWarmup });
         return ordinal;
     }

@@ -182,17 +182,26 @@ public sealed class MailMessageReaderTests
     }
 
     [Fact]
-    public void A_messages_id_is_its_Message_ID_and_sender_or_its_bytes_not_its_place_in_the_folder()
+    public void A_messages_id_is_its_Message_ID_sender_and_bytes_not_its_place_in_the_folder()
     {
         var a = MailKitImapMailSource.ContentMessageId("<4711@nordwind.example>", "Rechnung@Nordwind.example", "x"u8);
         a.ShouldStartWith("imap:mid:");
-        MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "rechnung@nordwind.example", "other bytes"u8).ShouldBe(a, "the same Message-ID and sender, whatever the bytes");
+        MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "rechnung@nordwind.example", "x"u8).ShouldBe(a, "the same stored message read again");
+        MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "rechnung@nordwind.example", "other bytes"u8).ShouldNotBe(a, "a mailer that reuses a Message-ID for another mail");
         MailKitImapMailSource.ContentMessageId("4711@nordwind.example", "someone@else.example", "x"u8).ShouldNotBe(a);
         var raw = MailKitImapMailSource.ContentMessageId(null, "a@b.example", "raw"u8);
         raw.ShouldStartWith("imap:sha:");
         MailKitImapMailSource.ContentMessageId("  ", "a@b.example", "raw"u8).ShouldBe(raw);
         MailKitImapMailSource.ContentMessageId(null, "a@b.example", "other"u8).ShouldNotBe(raw);
         a.Length.ShouldBeLessThan(998, "fits Ingestions.SourceMessageId");
+    }
+
+    [Fact]
+    public void A_body_is_fetched_up_to_one_byte_past_the_limit()
+    {
+        MailKitImapMailSource.FetchLength(50L * 1024 * 1024).ShouldBe((50 * 1024 * 1024) + 1);
+        MailKitImapMailSource.FetchLength(0).ShouldBe(1);
+        MailKitImapMailSource.FetchLength(long.MaxValue - 1).ShouldBe(int.MaxValue);
     }
 
     [Fact]
