@@ -362,11 +362,36 @@ public static class DeliveryEndpoints
         {
             return EndpointSupport.Conflict("Delivery changed", "The delivery changed while it was being redelivered; read it again.");
         }
+        catch (DbUpdateException exception) when (IsDeliveryKeyViolation(exception))
+        {
+            // A second redelivery of the same delivery saved first (a double click): both counted the same redeliveries
+            // and chose the same key. The original is not always changed (a delivered one is not), so its row version
+            // does not tell them apart; the unique key does.
+            return EndpointSupport.Conflict("Delivery changed", "The delivery was redelivered at the same time by another request; read it again.");
+        }
 
         await queue.EnqueueAsync(new ProcessDelivery(redelivery.TenantId, redelivery.Id, redelivery.DestinationId, redelivery.DocumentId), TimeSpan.Zero, ct);
         redelivery.Binding = original.Binding;
         redelivery.Destination = original.Destination;
         return TypedResults.Accepted($"/api/v1/deliveries/{redelivery.Id}", Summary(redelivery));
+    }
+
+    /// <summary>
+    /// True only when the save failed on the unique index of <c>OutboxDeliveries.IdempotencyKey</c> (SQL Server names the
+    /// index, SQLite the column); any other failure surfaces as the error it is.
+    /// </summary>
+    internal static bool IsDeliveryKeyViolation(DbUpdateException exception)
+    {
+        for (Exception? inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner.Message.Contains("IX_OutboxDeliveries_IdempotencyKey", StringComparison.OrdinalIgnoreCase)
+                || inner.Message.Contains("OutboxDeliveries.IdempotencyKey", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<Results<Ok<FeedPage>, ValidationProblem, ProblemHttpResult>> FeedAsync(

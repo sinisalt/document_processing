@@ -80,6 +80,10 @@ public sealed class DeliveryHttpClient : IDisposable
         ArgumentNullException.ThrowIfNull(policy);
         Policy = policy;
         Client = TenantEndpointGuard.CreateExemptingClient(resolve: null, exempt: policy.IsExempt);
+
+        // Every read of the delivery path is bounded by its caller (ResponseHeadersRead and a bounded reader); this is
+        // the backstop for one that buffers a whole answer.
+        Client.MaxResponseContentBufferSize = 1024 * 1024;
     }
 
     public DeliveryEndpointPolicy Policy { get; }

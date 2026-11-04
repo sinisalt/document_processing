@@ -102,18 +102,28 @@ export function useLookupTable(key: string | null) {
 /** Deliveries still on their way: the list is polled while one is. */
 export const inFlightStatuses = new Set(["Pending", "Sending", "Failed"]);
 
+/** How long an empty list of a just-settled document is polled: the publish stage fans out after the approval. */
+export const awaitFanOutMs = 60_000;
+
 /**
  * `GET /deliveries` with filters (a document's deliveries, or the log), newest first, one page of up to 200; polled
- * every few seconds while a delivery is pending, being sent or waiting for its retry.
+ * every few seconds while a delivery is pending, being sent or waiting for its retry, and, with `awaitingSince` (when
+ * the document was approved or rejected), every second and a half while the list is still empty for
+ * {@link awaitFanOutMs} after it: the worker's publish stage creates the deliveries a moment after the decision.
  */
-export function useDeliveries(query: { documentId?: string; destinationId?: string; status?: string }, enabled = true) {
+export function useDeliveries(query: { documentId?: string; destinationId?: string; status?: string }, enabled = true, awaitingSince?: string | null) {
   const { client } = useApi();
   const params = Object.fromEntries(Object.entries({ ...query, limit: 200 }).filter(([, value]) => value !== undefined && value !== ""));
+  const awaitUntil = awaitingSince ? Date.parse(awaitingSince) + awaitFanOutMs : Number.NaN;
   return useQuery({
     queryKey: queryKeys.deliveries.list(params),
     queryFn: async () => unwrap(await client.GET("/api/v1/deliveries", { params: { query: params } })),
     enabled,
-    refetchInterval: (query) => (query.state.data?.items.some((d) => inFlightStatuses.has(d.status)) ? 3000 : false),
+    refetchInterval: (query) => {
+      const items = query.state.data?.items;
+      if (items?.some((d) => inFlightStatuses.has(d.status))) return 3000;
+      return items !== undefined && items.length === 0 && Date.now() < awaitUntil ? 1500 : false;
+    },
   });
 }
 

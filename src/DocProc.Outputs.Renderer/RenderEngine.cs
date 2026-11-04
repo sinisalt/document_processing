@@ -11,14 +11,16 @@ namespace DocProc.Outputs.Renderer;
 /// <c>JsonataRenderer</c> and this process, docs/11 §13.1).
 /// <para>
 /// Request: <c>{"id", "expression", "input", "fields"?, "today", "lookups"? {key: {"caseSensitive", "entries":
-/// [{"from", "to", "validFrom"?, "validTo"?}]}}, "maxOutputBytes", "maxDepth", "maxTailRecursion", "check"?}</c>;
-/// <c>check: true</c> compiles and scans the expression without running it.
+/// [{"from", "to", "validFrom"?, "validTo"?}]}}, "maxOutputBytes", "maxOutputDepth", "maxDepth", "maxTailRecursion",
+/// "check"?}</c>; <c>check: true</c> compiles and scans the expression without running it.
 /// </para>
 /// <para>
 /// Response: <c>{"id", "ok": true, "undefined", "output", "outputBytes", "referencedPaths", "tables", "elapsedMs"}</c>
 /// or <c>{"id", "ok": false, "error": {"kind", "code", "message", "position"}, "referencedPaths", "tables"}</c>, where
 /// <c>kind</c> is <c>syntax</c>, <c>runtime</c>, <c>required</c>, <c>function</c>, <c>depthLimit</c>, <c>sizeLimit</c>,
-/// <c>memoryLimit</c> or <c>request</c>. The time limit is the host's: it kills this process.
+/// <c>memoryLimit</c> or <c>request</c>. The time limit is the host's: it kills this process. An error message is at
+/// most <see cref="MaxMessageLength"/> characters (<c>$error</c> of a long text is cut), and an output nests at most
+/// <c>maxOutputDepth</c> levels (default <see cref="DefaultMaxOutputDepth"/>), so every answer is one the host can read.
 /// </para>
 /// </summary>
 public static class RenderEngine
@@ -28,6 +30,15 @@ public static class RenderEngine
     /// the host's time limit starts there, so reading a large values view is not counted against the render.
     /// </summary>
     public const string StartedLine = """{"started":true}""";
+
+    /// <summary>The longest error message an answer carries (the host's <c>RenderLimits.MaxErrorMessageLength</c>).</summary>
+    public const int MaxMessageLength = 2000;
+
+    /// <summary>The output depth when the request names none (the host's <c>RenderLimits.MaxOutputDepth</c>).</summary>
+    public const int DefaultMaxOutputDepth = 48;
+
+    /// <summary>The longest path or message of one target-schema error.</summary>
+    public const int MaxSchemaErrorTextLength = 500;
 
     /// <summary>One request line to its response line; <paramref name="started"/> runs once the request is read.</summary>
     public static string Handle(string line, Action? started = null)
@@ -98,6 +109,7 @@ public static class RenderEngine
 
         var input = request.Properties.TryGetValue("input", out var data) ? data : JValue.CreateUndefined();
         var maxOutput = IntOf(request, "maxOutputBytes", 5 * 1024 * 1024);
+        var maxOutputDepth = IntOf(request, "maxOutputDepth", DefaultMaxOutputDepth);
         var environment = RenderFunctions.CreateEnvironment(IntOf(request, "maxDepth", 250), IntOf(request, "maxTailRecursion", 10_000));
         JToken result;
         using (RenderFunctions.Use(context))
@@ -127,6 +139,13 @@ public static class RenderEngine
             return Success(id, null, 0, scan, watch.ElapsedMilliseconds, schema is null ? null : TargetSchemaCheck.Check(schema, "null"));
         }
 
+        // Before serialising: a value built by iteration ($reduce) can nest far deeper than the evaluation depth cap,
+        // which neither the hosts (System.Text.Json reads 64 levels) nor the recursive serialiser should meet.
+        if (NestsDeeperThan(result, maxOutputDepth))
+        {
+            return Error(id, "depthLimit", "OUTPUT_DEPTH", $"The output nests more than {maxOutputDepth} levels deep (objects and arrays).", null, scan);
+        }
+
         var text = result.ToFlatString(new SerializationSettings { SerializeNullProperties = true });
         var bytes = Encoding.UTF8.GetByteCount(text);
         if (bytes > maxOutput)
@@ -137,9 +156,68 @@ public static class RenderEngine
         return Success(id, text, bytes, scan, watch.ElapsedMilliseconds, schema is null ? null : TargetSchemaCheck.Check(schema, text));
     }
 
+    /// <summary>
+    /// The stack of the thread that serves the requests: 256 MB of address space, used only as deep as a render
+    /// recurses. The host refuses expressions nesting brackets deeper than its limit, so this is for the shapes it does
+    /// not count (long operator chains), deep enough that the library's own caps answer before the stack runs out.
+    /// </summary>
+    public const int StackBytes = 256 * 1024 * 1024;
+
+    /// <summary>An error answer outside a request's own handling (the request's id is not known there).</summary>
+    public static string Failure(string kind, string code, string message) => Error(0, kind, code, message, null, null);
+
     /// <summary>The answer for a render that ran out of memory: the process exits after writing it.</summary>
     public static string MemoryLimit(string? line) =>
         Error(0, "memoryLimit", "MEMORY", "The render needed more memory than the renderer may use.", null, null);
+
+    /// <summary>
+    /// Whether <paramref name="root"/> has objects or arrays nested more than <paramref name="max"/> levels deep,
+    /// without recursion. A value can share a container in several places (<c>{"a": $x, "b": $x}</c>), so each
+    /// container is walked again only when it is reached at a greater depth than before.
+    /// </summary>
+    internal static bool NestsDeeperThan(JToken root, int max)
+    {
+        var deepest = new Dictionary<JToken, int>(ReferenceEqualityComparer.Instance);
+        var pending = new Stack<(JToken Token, int Depth)>();
+        pending.Push((root, 0));
+        while (pending.TryPop(out var item))
+        {
+            IEnumerable<JToken> children;
+            switch (item.Token)
+            {
+                case JObject o:
+                    children = o.Properties.Values;
+                    break;
+                case JArray a:
+                    children = a.ChildrenTokens;
+                    break;
+                default:
+                    continue;
+            }
+
+            var depth = item.Depth + 1;
+            if (depth > max)
+            {
+                return true;
+            }
+
+            if (deepest.TryGetValue(item.Token, out var seen) && seen >= depth)
+            {
+                continue;
+            }
+
+            deepest[item.Token] = depth;
+            foreach (var child in children)
+            {
+                if (child is JObject or JArray)
+                {
+                    pending.Push((child, depth));
+                }
+            }
+        }
+
+        return false;
+    }
 
     private static Dictionary<string, LookupTableData> Lookups(JObject request)
     {
@@ -212,13 +290,13 @@ public static class RenderEngine
         {
             var error = schemaErrors![i];
             builder.Append(i > 0 ? ",{\"path\":" : "{\"path\":");
-            AppendString(builder, error.Path);
+            AppendString(builder, Shorten(error.Path, MaxSchemaErrorTextLength));
             builder.Append(",\"location\":");
-            AppendString(builder, error.Location);
+            AppendString(builder, Shorten(error.Location, MaxSchemaErrorTextLength));
             builder.Append(",\"keyword\":");
-            AppendString(builder, error.Keyword);
+            AppendString(builder, Shorten(error.Keyword, MaxSchemaErrorTextLength));
             builder.Append(",\"message\":");
-            AppendString(builder, error.Message);
+            AppendString(builder, Shorten(error.Message, MaxSchemaErrorTextLength));
             builder.Append('}');
         }
 
@@ -243,7 +321,7 @@ public static class RenderEngine
         }
 
         builder.Append(",\"message\":");
-        AppendString(builder, message);
+        AppendString(builder, Shorten(message, MaxMessageLength));
         builder.Append(",\"position\":").Append(position is { } p && p >= 0 ? p.ToString(CultureInfo.InvariantCulture) : "null").Append('}');
         if (scan is not null)
         {
@@ -278,6 +356,23 @@ public static class RenderEngine
         }
 
         builder.Append(']');
+    }
+
+    /// <summary>At most <paramref name="max"/> characters, cut with an ellipsis (never inside a surrogate pair).</summary>
+    internal static string Shorten(string text, int max)
+    {
+        if (text.Length <= max)
+        {
+            return text;
+        }
+
+        var keep = max - 1;
+        if (keep > 0 && char.IsHighSurrogate(text[keep - 1]))
+        {
+            keep--;
+        }
+
+        return string.Concat(text.AsSpan(0, keep), "\u2026");
     }
 
     private static void AppendString(StringBuilder builder, string value)

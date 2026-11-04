@@ -280,6 +280,144 @@ public sealed class DeliveryPipelineTests
         }
     }
 
+    [Theory]
+    [InlineData(OnReapproval.Update)]
+    [InlineData(OnReapproval.Skip)]
+    public async Task A_redelivery_that_reached_the_receiver_stands_for_the_dead_letter_it_replaced_at_a_reapproval(OnReapproval mode)
+    {
+        using var receiver = new FakeReceiver { Respond = r => new ReceiverAnswer(r.Method == "PUT" ? 200 : 201) };
+        var refuseFirst = true;
+        receiver.Respond = r =>
+        {
+            if (refuseFirst)
+            {
+                refuseFirst = false;
+                return new ReceiverAnswer(422, """{"error":"vendor blocked"}""");
+            }
+
+            return new ReceiverAnswer(r.Method == "PUT" ? 200 : 201);
+        };
+        await using var host = await StartAsync(receiver);
+        var config = new JsonObject
+        {
+            ["urlTemplate"] = receiver.BaseUrl + "/api/x",
+            ["updateUrlTemplate"] = receiver.BaseUrl + "/api/x/{{output.docNo}}",
+        };
+        await BindAsync(host, receiver, ApExpression, config: config, configure: b => b.OnReapproval = mode, updateExpression: """{"docNo": roles.documentNumber, "event": meta.event}""");
+        var document = await AutoApproveAsync(host);
+        var dead = (await DeliveriesAsync(host, document.Id)).ShouldHaveSingleItem();
+        dead.Status.ShouldBe(DeliveryStatus.DeadLettered);
+
+        // The redelivery as POST /deliveries/{id}:redeliver {mode: snapshot} writes it: the original Cancelled, ':r1' Pending.
+        var redelivery = await RedeliverAsync(host, dead.Id);
+        await host.RunUntilIdleAsync();
+        (await DeliveriesAsync(host, document.Id)).Single(d => d.Id == redelivery).Status.ShouldBe(DeliveryStatus.Delivered);
+
+        var reapproved = await ReapproveAsync(host, document.Id);
+
+        var latest = (await DeliveriesAsync(host, document.Id)).Single(d => d.DocumentVersion == reapproved);
+        if (mode == OnReapproval.Update)
+        {
+            latest.Status.ShouldBe(DeliveryStatus.Delivered);
+            latest.Event.ShouldBe(OutputEvents.Updated, "the redelivery reached the receiver, so it has the document to update");
+            receiver.Requests.Select(r => r.Method).ShouldBe(["POST", "POST", "PUT"]);
+        }
+        else
+        {
+            latest.Status.ShouldBe(DeliveryStatus.Skipped, "the redelivery was sent");
+            latest.LastError.ShouldNotBeNull().ShouldContain("Skip");
+            receiver.Requests.Select(r => r.Method).ShouldBe(["POST", "POST"]);
+        }
+    }
+
+    [Fact]
+    public async Task Under_Skip_a_reapproval_after_a_dead_letter_is_sent_and_the_superseded_dead_letter_resolves_DELIVERY_FAILED()
+    {
+        using var receiver = new FakeReceiver();
+        receiver.Script(new ReceiverAnswer(422, """{"error":"vendor blocked"}"""));
+        await using var host = await StartAsync(receiver);
+        var binding = await BindAsync(host, receiver, ApExpression, configure: b => b.OnReapproval = OnReapproval.Skip);
+        var document = await AutoApproveAsync(host);
+        var dead = (await DeliveriesAsync(host, document.Id)).ShouldHaveSingleItem();
+        dead.Status.ShouldBe(DeliveryStatus.DeadLettered);
+        (await host.DocumentAsync(document.Id)).Flags.Single(f => f.Code == FlagCodes.DeliveryFailed).ResolvedAt.ShouldBeNull();
+
+        // The recovery of docs/11 §13.8: correct the data, reprocess, approve again.
+        var reapproved = await ReapproveAsync(host, document.Id);
+
+        var deliveries = await DeliveriesAsync(host, document.Id);
+        var latest = deliveries.Single(d => d.DocumentVersion == reapproved);
+        latest.Status.ShouldBe(DeliveryStatus.Delivered, "a dead letter was never sent, so Skip has nothing it skips for");
+        receiver.Requests.Count.ShouldBe(2);
+        var superseded = deliveries.Single(d => d.Id == dead.Id);
+        superseded.Status.ShouldBe(DeliveryStatus.Cancelled);
+        superseded.LastError.ShouldNotBeNull().ShouldContain($"Superseded by revision {reapproved}");
+        (await host.DocumentAsync(document.Id)).Flags.Single(f => f.Code == FlagCodes.DeliveryFailed).ResolvedAt.ShouldNotBeNull("the receiver has the corrected revision");
+        (await host.EventsAsync(document.Id)).ShouldContain(e => e.EventType == DocumentEventTypes.DeliverySkipped && e.DetailsJson!.Contains(dead.Id.ToString("D")));
+        binding.BindingId.ShouldBe(latest.BindingId);
+    }
+
+    [Fact]
+    public async Task A_dead_letter_of_another_destination_keeps_DELIVERY_FAILED_open()
+    {
+        using var receiver = new FakeReceiver { Respond = r => new ReceiverAnswer(r.PathAndQuery.StartsWith("/api/blocked", StringComparison.Ordinal) ? 422 : 201) };
+        await using var host = await StartAsync(receiver);
+        await BindAsync(host, receiver, ApExpression);
+        await BindAsync(host, receiver, ApExpression, name: "blocked", config: new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/api/blocked" });
+        var document = await AutoApproveAsync(host);
+
+        await ReapproveAsync(host, document.Id);
+
+        var deliveries = await DeliveriesAsync(host, document.Id);
+        deliveries.Count(d => d.Status == DeliveryStatus.Delivered).ShouldBe(2);
+        deliveries.Count(d => d.Status == DeliveryStatus.DeadLettered).ShouldBe(2, "a delivery to another destination supersedes nothing, and neither blocked revision reached its receiver");
+        (await host.DocumentAsync(document.Id)).Flags.Single(f => f.Code == FlagCodes.DeliveryFailed).ResolvedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task An_output_nested_too_deeply_dead_letters_its_delivery_and_the_other_bindings_still_deliver()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver);
+        var ap = await BindAsync(host, receiver, ApExpression);
+        var deep = await BindAsync(host, receiver, """$reduce([1..600], function($acc, $v){ {"a": $acc} }, {})""", name: "deep");
+        var condition = await BindAsync(host, receiver, ApExpression, name: "deep-condition", configure: b => b.Condition = """$reduce([1..600], function($acc, $v){ {"a": $acc} }, {}) ~> $exists()""");
+
+        var document = await AutoApproveAsync(host);
+
+        var deliveries = await DeliveriesAsync(host, document.Id);
+        deliveries.Single(d => d.BindingId == ap.BindingId).Status.ShouldBe(DeliveryStatus.Delivered);
+        var failed = deliveries.Single(d => d.BindingId == deep.BindingId);
+        failed.Status.ShouldBe(DeliveryStatus.DeadLettered);
+        failed.LastError.ShouldNotBeNull().ShouldContain("depthLimit");
+        deliveries.Single(d => d.BindingId == condition.BindingId).Status.ShouldBe(DeliveryStatus.Delivered, "the condition's value is true; the deep value is never an answer");
+        receiver.Requests.Count.ShouldBe(2);
+        (await host.DocumentAsync(document.Id)).Flags.ShouldContain(f => f.Code == FlagCodes.DeliveryFailed);
+        (await host.WithDbAsync(db => db.OutboxMessages.Where(m => m.DocumentId == document.Id).Select(m => m.FannedOutAt).SingleAsync())).ShouldNotBeNull();
+        (await host.EventsAsync(document.Id)).ShouldNotContain(e => e.EventType == DocumentEventTypes.StageFailed);
+    }
+
+    [Fact]
+    public async Task A_huge_error_message_is_cut_before_it_reaches_the_delivery_and_the_timeline()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver);
+        var huge = await BindAsync(host, receiver, """$error($join([1..400000].("x" & $string($))))""");
+        var condition = await BindAsync(host, receiver, ApExpression, name: "bad-condition", configure: b => b.Condition = """$error($join([1..400000].("y" & $string($))))""");
+
+        var document = await AutoApproveAsync(host);
+
+        var delivery = (await DeliveriesAsync(host, document.Id)).Single(d => d.BindingId == huge.BindingId);
+        delivery.Status.ShouldBe(DeliveryStatus.DeadLettered);
+        delivery.LastError!.Length.ShouldBeLessThanOrEqualTo(2000);
+        var events = await host.EventsAsync(document.Id);
+        events.ShouldAllBe(e => e.DetailsJson == null || e.DetailsJson.Length < 16 * 1024, "no timeline event carries the whole message");
+        var publish = events.Last(e => e.EventType == DocumentEventTypes.StageCompleted);
+        Details(publish).GetProperty("deliveries").EnumerateArray().ShouldContain(e => e.GetProperty("binding").GetString() == "bad-condition" && e.GetProperty("reason").GetString()!.Length <= 2000);
+        condition.BindingId.ShouldNotBe(huge.BindingId);
+        (await host.DocumentAsync(document.Id)).Flags.Single(f => f.Code == FlagCodes.DeliveryFailed).Message.Length.ShouldBeLessThan(4000);
+    }
+
     [Fact]
     public async Task A_false_condition_lists_the_binding_as_not_applicable_and_an_exclusive_group_sends_only_the_most_specific()
     {
@@ -543,6 +681,43 @@ public sealed class DeliveryPipelineTests
             await db.SaveChangesAsync();
             return row.Id;
         });
+
+    /// <summary>A redelivery written as <c>POST /deliveries/{id}:redeliver {mode: snapshot}</c> writes it, and its nudge.</summary>
+    private static async Task<Guid> RedeliverAsync(PipelineTestHost host, Guid deliveryId)
+    {
+        var redelivery = await host.WithDbAsync(async db =>
+        {
+            var original = await db.OutboxDeliveries.SingleAsync(d => d.Id == deliveryId);
+            var now = host.Clock.GetUtcNow();
+            var row = new OutboxDelivery
+            {
+                Id = Guid.CreateVersion7(),
+                TenantId = original.TenantId,
+                OutboxMessageId = original.OutboxMessageId,
+                DocumentId = original.DocumentId,
+                DocumentVersion = original.DocumentVersion,
+                BindingId = original.BindingId,
+                DestinationId = original.DestinationId,
+                MappingVersionId = original.MappingVersionId,
+                IdempotencyKey = original.IdempotencyKey + ":r1",
+                Event = original.Event,
+                RedeliveryOfId = original.Id,
+                PayloadBlobKey = original.PayloadBlobKey,
+                PayloadSha256 = original.PayloadSha256,
+                ContentType = original.ContentType,
+                Status = DeliveryStatus.Pending,
+                NextAttemptAt = now,
+                CreatedAt = now,
+            };
+            db.OutboxDeliveries.Add(row);
+            original.Status = DeliveryStatus.Cancelled;
+            original.NextAttemptAt = null;
+            await db.SaveChangesAsync();
+            return row;
+        });
+        await host.PipelineQueue.EnqueueAsync(new ProcessDelivery(TenantA, redelivery.Id, redelivery.DestinationId, redelivery.DocumentId), TimeSpan.Zero, Ct);
+        return redelivery.Id;
+    }
 
     private static Task<List<OutboxDelivery>> DeliveriesAsync(PipelineTestHost host, Guid documentId) =>
         host.WithDbAsync(async db => (await db.OutboxDeliveries.AsNoTracking().Where(d => d.DocumentId == documentId).ToListAsync()).OrderBy(d => d.CreatedAt).ThenBy(d => d.DocumentVersion).ToList());

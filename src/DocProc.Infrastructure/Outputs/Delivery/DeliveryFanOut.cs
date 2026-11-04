@@ -42,7 +42,8 @@ public sealed record FanOutResult(IReadOnlyList<OutboxDelivery> ToSend, IReadOnl
 /// <see cref="OutputBinding.OnReapproval"/>: <c>Resend</c> renders as usual (new revision, new key); <c>Skip</c> adds
 /// it skipped; <c>Update</c> renders with <see cref="OutputBinding.UpdateMappingId"/> (else the binding's mapping)
 /// and <c>meta.event = document.updated</c>, which an http destination sends with its update method and URL. Without
-/// an earlier delivery that reached the receiver, <c>Update</c> sends a plain approval.</description></item>
+/// an earlier delivery that reached the receiver, <c>Update</c> sends a plain approval. A redelivery stands for the
+/// delivery it replaced (whose row is <c>Cancelled</c>); a dead letter was not sent and will not be.</description></item>
 /// <item><description>Older revisions still waiting (Pending, Failed) for the same binding and destination are set
 /// to <c>Skipped</c>: the receiver gets the newest (docs/11 §13.6 "Ordering").</description></item>
 /// <item><description>The renderer being unavailable throws <see cref="RendererUnavailableException"/>: nothing is
@@ -126,7 +127,7 @@ public sealed class DeliveryFanOut(
 
                 if (result.Error is { } error)
                 {
-                    entries.Add(new FanOutEntry(binding.Id, binding.Name, "notApplicable", Reason: $"The condition failed ({error.Kind}): {error.Message}"));
+                    entries.Add(new FanOutEntry(binding.Id, binding.Name, "notApplicable", Reason: RenderLimits.Shorten($"The condition failed ({error.Kind}): {error.Message}")));
                     continue;
                 }
 
@@ -154,7 +155,9 @@ public sealed class DeliveryFanOut(
             }
 
             var destination = binding.Destination!;
-            var earlier = existing.Where(d => d.BindingId == binding.Id && d.DocumentVersion < document.Version && d.RedeliveryOfId == null).ToList();
+            // The re-approval mode counts redeliveries (one stands for the delivery it replaced); superseding does not
+            // touch them: an operator's redelivery is never skipped.
+            var earlier = existing.Where(d => d.BindingId == binding.Id && d.DocumentVersion < document.Version).ToList();
             var mode = ReapprovalMode(binding, eventType, earlier);
             var mappingId = mode == OnReapproval.Update ? binding.UpdateMappingId ?? binding.MappingId : binding.MappingId;
             var version = await MappingVersionAsync(mappingId, mappingId == binding.MappingId ? binding.PinnedMappingVersion : null, cancellationToken).ConfigureAwait(false);
@@ -191,13 +194,13 @@ public sealed class DeliveryFanOut(
 
             if (mode == OnReapproval.Skip)
             {
-                Skip(delivery, "onReapproval: Skip (an earlier revision was delivered).", binding, destination, now);
+                Skip(delivery, "onReapproval: Skip (an earlier revision was delivered or is being sent).", binding, destination, now);
                 entries.Add(new FanOutEntry(binding.Id, binding.Name, "skipped", delivery.Id, destination.Name, "OnReapproval Skip."));
                 continue;
             }
 
             // The newest revision goes; older ones still waiting for this binding and destination do not.
-            foreach (var older in earlier.Where(d => d.DestinationId == destination.Id && d.Status is DeliveryStatus.Pending or DeliveryStatus.Failed))
+            foreach (var older in earlier.Where(d => d.RedeliveryOfId == null && d.DestinationId == destination.Id && d.Status is DeliveryStatus.Pending or DeliveryStatus.Failed))
             {
                 older.Status = DeliveryStatus.Skipped;
                 older.NextAttemptAt = null;
@@ -228,7 +231,8 @@ public sealed class DeliveryFanOut(
 
     /// <summary>
     /// Renders the payload of <paramref name="delivery"/> with <paramref name="version"/> and stores the snapshot;
-    /// returns the permanent failure, or null when the delivery has its payload. Throws when the renderer is unavailable.
+    /// returns the permanent failure (at most <see cref="RenderLimits.MaxErrorMessageLength"/> characters), or null when
+    /// the delivery has its payload. Throws when the renderer is unavailable (it cannot be started or take the request).
     /// </summary>
     public async Task<string?> RenderAsync(OutboxDelivery delivery, OutputMappingVersion version, string deliveryEvent, Func<string, bool, Task<DocumentDataViewResult>> view, CancellationToken cancellationToken)
     {
@@ -250,13 +254,13 @@ public sealed class DeliveryFanOut(
 
         if (result.Error is { } error)
         {
-            return $"The mapping failed ({error.Kind}): {error.Message}";
+            return RenderLimits.Shorten($"The mapping failed ({error.Kind}): {error.Message}");
         }
 
         if (result.SchemaErrors.Count > 0)
         {
             var first = result.SchemaErrors.Take(3).Select(e => $"{e.Path}: {e.Message}");
-            return $"The output does not fit the target schema ({result.SchemaErrors.Count.ToString(CultureInfo.InvariantCulture)} errors): {string.Join("; ", first)}";
+            return RenderLimits.Shorten($"The output does not fit the target schema ({result.SchemaErrors.Count.ToString(CultureInfo.InvariantCulture)} errors): {string.Join("; ", first)}");
         }
 
         if (result.Undefined || result.Output is null)
@@ -290,6 +294,7 @@ public sealed class DeliveryFanOut(
 
     private async Task DeadLetterAsync(OutboxDelivery delivery, string error, OutputBinding binding, OutputDestination destination, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        error = RenderLimits.Shorten(error);
         delivery.Status = DeliveryStatus.DeadLettered;
         delivery.LastError = Truncate(error, 2000);
         delivery.NextAttemptAt = null;
@@ -368,8 +373,11 @@ public sealed class DeliveryFanOut(
 
     /// <summary>
     /// How a re-approval of the binding goes: <see cref="OnReapproval.Resend"/> for a first approval and for a
-    /// rejection. <c>Skip</c> needs an earlier revision that was or will be sent; <c>Update</c> one that reached the
+    /// rejection. <c>Skip</c> needs an earlier revision that was or will be sent (delivered, being sent, waiting or
+    /// waiting for its retry; not a dead letter, which the receiver never got); <c>Update</c> one that reached the
     /// receiver (or is being sent), else the receiver has nothing to update and gets a plain approval.
+    /// <paramref name="earlier"/> holds redeliveries too: a redelivered dead letter is <c>Cancelled</c>, and its
+    /// redelivery is what reached the receiver.
     /// </summary>
     internal static OnReapproval ReapprovalMode(OutputBinding binding, string eventType, IReadOnlyList<OutboxDelivery> earlier)
     {
@@ -381,11 +389,11 @@ public sealed class DeliveryFanOut(
         var approvals = earlier.Where(d => d.Event is OutputEvents.Approved or OutputEvents.Updated).ToList();
         return binding.OnReapproval switch
         {
-            OnReapproval.Skip when approvals.Any(d => d.Status is not (DeliveryStatus.Skipped or DeliveryStatus.Cancelled)) => OnReapproval.Skip,
+            OnReapproval.Skip when approvals.Any(d => d.Status is DeliveryStatus.Delivered or DeliveryStatus.Sending or DeliveryStatus.Pending or DeliveryStatus.Failed) => OnReapproval.Skip,
             OnReapproval.Update when approvals.Any(d => d.Status is DeliveryStatus.Delivered or DeliveryStatus.Sending) => OnReapproval.Update,
             _ => OnReapproval.Resend,
         };
     }
 
-    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
+    private static string Truncate(string text, int length) => RenderLimits.Shorten(text, length);
 }

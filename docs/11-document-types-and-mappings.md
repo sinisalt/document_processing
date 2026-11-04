@@ -1565,6 +1565,31 @@ Follow-up F3: a known supplier sends a design that none of its layouts recognise
   date-times; `$fmtNum` rounds half away from zero; `$field(path)` answers from the document's envelopes (sent only
   when the expression calls it); `$required` fails on undefined, null, blank text and an empty list. Numbers keep the
   text they were read with (`50.00`), arithmetic yields JSON numbers (`-119`).
+- Correction (P3, review fixes): the limits above left out what the expression can do to its own answer and to the
+  renderer, and two custom functions strayed from what this section says.
+  - Only a renderer that cannot be started or cannot take the request is "unavailable" (retryable, 13.5). What the
+    expression causes is a permanent error of that render: an output nesting objects and arrays more than 48 levels
+    (`RenderLimits.MaxOutputDepth`, checked in the child before it serialises; the evaluation cap does not see a value
+    built by iteration such as `$reduce`, and the hosts read a payload with System.Text.Json's default depth of 64) is
+    `depthLimit`; an answer the host cannot read is `runtime` (`ANSWER`); a child that stops while it runs the
+    expression (an uncatchable stack overflow in the engine's parser or optimiser) is tried once more on a fresh
+    process and then fails as `depthLimit` (`CRASH`). An expression nesting brackets, parentheses and braces, or
+    chaining minus signs, more than 1000 deep (outside strings and comments) is refused before it reaches the child;
+    the child serves requests on a thread with a 256 MB stack, so long operator chains reach the engine's own caps.
+  - Error messages are cut to 2000 characters (with an ellipsis) in the child and again in the host: `$error` of a long
+    text no longer carries megabytes into the delivery, the timeline and the preview. Schema error paths and messages
+    are cut to 500.
+  - The processor time the 2 s limit counts is the whole child's: the child runs without concurrent GC and without
+    tiered compilation, so no background collector or JIT thread adds to the render's own time (with them a render was
+    stopped at 1.7 s of wall-clock time when the test suite ran beside it).
+  - The lookup tables one render receives are bounded in total, 100,000 entries or 16 M characters
+    (`RenderLimits.MaxLookupEntriesPerRender`, `MaxLookupCharactersPerRender`), besides 50,000 entries per table; a
+    render naming more fails with a `function` error (`LOOKUPS`) before anything is sent to the child.
+  - `$fmtDate` reads a one-character pattern as a custom one (`"d"` is the day, `"M"` the month; .NET would take them
+    as its short-date and month-day standard formats), and reads only `yyyy-MM-dd` and ISO 8601 date-times
+    (`yyyy-MM-ddTHH:mm[:ss[.fffffff]][Z|±hh:mm]`, no offset read as UTC), not culture-style dates such as `11/03/2026`.
+    `$table` matches a number by its value when its text matches no entry: `10.0` from the values view finds the
+    entry `10`, and the entry `19.00` is found by `19`.
 
 ### 13.2 Example: "erp-ap-import" v2
 
@@ -1657,6 +1682,15 @@ When `TargetSchemaJson` is set, every render is validated with JsonSchema.Net at
     starts at the oldest entry not acknowledged; `:ack` takes `{upTo}` and/or `{deliveryIds}` and is idempotent. Both
     routes also accept an integration admin's token. `retentionDays` is stored but not enforced yet.
   - `Delivery:DevelopmentHosts` entries are `host` or `host:port`.
+- Correction (P3, review fixes): what a tenant's endpoint may send back is bounded everywhere, and credentials are
+  masked as they travel.
+  - The OAuth token endpoint (the tenant chooses `tokenUrl`) is read up to 64 KB like a delivery's answer (256 KB),
+    never whole; a larger answer is a permanent `token` failure. The delivery client buffers at most 1 MB as a backstop.
+  - The response excerpt masks the secret, its URL-encoded form, `base64(username:secret)` for `basic`, and the OAuth
+    token, of any length: a receiver echoing the request's headers in an error page left the Basic credential readable
+    by every role that reads deliveries.
+  - `responseMapping` is compiled when the destination is saved (refused as 400 under `config.responseMapping`), as a
+    binding's condition is; before, any text up to 8000 characters was stored and failed after every delivery.
 
 ### 13.4 Multi-call recipes
 
@@ -1700,6 +1734,12 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
   - A render that fails for good (`$required`, a schema violation, an empty output) adds the delivery dead-lettered,
     with an attempt of class `permanent:render`, `DELIVERY_FAILED` and a timeline event; nothing is sent. The renderer
     being unavailable fails the publish stage, nothing saved, which the runner retries and then the publish sweeper.
+  - Correction (P3, review fixes): "unavailable" is only a renderer that cannot be started or cannot take the
+    request (13.1). As first built, an output nested more than 512 levels, or an expression that crashed the child,
+    also counted as unavailable, so one binding's mapping stopped the publish of every document it fired on, for every
+    binding, until the sweeper's lookback; those are now permanent render errors of that one delivery (or the
+    condition's "not applicable" entry). Every message a render failure leaves (the delivery's `LastError`, the
+    `document.delivery_failed` event, the publish stage's `deliveries` entries, the flag) is at most 2000 characters.
   - The nudge `ProcessDelivery(TenantId, DeliveryId, DestinationId, DocumentId, Attempt)` carries the destination and
     document, the key the runner serialises deliveries on, and the attempt it expects to make, so copies are dropped.
 
@@ -1737,6 +1777,17 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
   - `DELIVERY_FAILED` is raised once per document and resolved when no delivery of the document is dead-lettered any
     more (a redelivery cancels the dead letter and then succeeds). Redelivery creates a new delivery
     (`RedeliveryOfId`); `mode: rerender` renders in the API and answers 422 or 503 when that fails.
+- Correction (P3, review fixes): three gaps of the rules above.
+  - A redelivery stands for the delivery it replaced (whose row is `Cancelled`) when a re-approval decides its mode:
+    after a dead letter that was redelivered and delivered, `Update` sends the update and `Skip` skips. A dead letter
+    is neither sent nor to be sent, so `Skip` does not skip for it: 13.8's recovery (correct, reprocess, re-approve)
+    reaches the receiver under every mode. "Was or will be sent" is Delivered, Sending, Pending or Failed.
+  - The rule for `DELIVERY_FAILED` left the flag open forever after that recovery: the older revision's dead letter
+    stayed, and nothing could cancel it. When a newer revision is delivered for the same binding and destination, the
+    older dead letters it supersedes are `Cancelled` ("Superseded by revision N, which was delivered.", a
+    `document.delivery_skipped` event), and the flag resolves once no dead letter is left.
+  - Two redeliveries of one delivery at the same moment (a double click) chose the same key `:r<n>`; the second now
+    answers 409 "Delivery changed" instead of a 500 from the unique index.
 
 ### 13.7 Batches
 

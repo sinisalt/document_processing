@@ -25,6 +25,46 @@ public static class RenderLimits
 
     /// <summary>The managed heap the renderer process may use (its <c>DOTNET_GCHeapHardLimit</c>).</summary>
     public const long HeapHardLimitBytes = 1L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// How deeply an output may nest (objects and arrays; a scalar is 0, <c>{}</c> is 1). The renderer refuses a deeper
+    /// one as <see cref="RenderErrorKinds.DepthLimit"/>: the hosts read a payload with System.Text.Json's default depth
+    /// of 64, and the API embeds it a few levels down in its answers (the preview, the pull feed).
+    /// </summary>
+    public const int MaxOutputDepth = 48;
+
+    /// <summary>
+    /// How deeply an expression may nest brackets, parentheses and braces, and the longest run of unary minus signs:
+    /// a deeper one is refused before it reaches the renderer, whose parser would run out of stack.
+    /// </summary>
+    public const int MaxExpressionNesting = 1000;
+
+    /// <summary>The longest render error message kept (the renderer's <c>$error</c> text and the like); longer ones are cut with an ellipsis.</summary>
+    public const int MaxErrorMessageLength = 2000;
+
+    /// <summary>The most lookup entries one render receives, over all the tables it names.</summary>
+    public const int MaxLookupEntriesPerRender = 100_000;
+
+    /// <summary>The most characters of lookup entries (from, to) one render receives, over all the tables it names.</summary>
+    public const long MaxLookupCharactersPerRender = 16L * 1024 * 1024;
+
+    /// <summary>A message of at most <see cref="MaxErrorMessageLength"/> characters, cut with an ellipsis.</summary>
+    public static string Shorten(string message, int max = MaxErrorMessageLength)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        if (message.Length <= max)
+        {
+            return message;
+        }
+
+        var keep = max - 1;
+        if (keep > 0 && char.IsHighSurrogate(message[keep - 1]))
+        {
+            keep--;
+        }
+
+        return string.Concat(message.AsSpan(0, keep), "\u2026");
+    }
 }
 
 /// <summary>What went wrong in a render, by kind (each kind is a permanent failure but <see cref="Unavailable"/>, docs/11 §13.6).</summary>

@@ -303,6 +303,24 @@ describe("the document's Deliveries tab", () => {
     expect(callsTo("POST /api/v1/deliveries/{id}:redeliver")[0]!.options).toMatchObject({ params: { path: { id: "del-1" } }, body: { mode: "snapshot", mappingVersion: null } });
   });
 
+  it("keeps reading an empty list for a while after the decision, until the fan-out shows up", async () => {
+    let fannedOut = false;
+    api.handlers.set("GET /api/v1/deliveries", () => ({ body: { items: fannedOut ? [delivery({})] : [], nextCursor: null } }));
+    renderWith(<DeliveriesTab documentId="doc-1" enabled canRedeliver settledAt={new Date().toISOString()} />);
+    expect(await screen.findByText("No deliveries")).toBeInTheDocument();
+
+    fannedOut = true;
+    expect(await screen.findByText("erp-articles", undefined, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it("does not poll an empty list of a document decided long ago", async () => {
+    api.handlers.set("GET /api/v1/deliveries", () => ({ body: { items: [], nextCursor: null } }));
+    renderWith(<DeliveriesTab documentId="doc-1" enabled canRedeliver settledAt="2026-01-01T00:00:00Z" />);
+    expect(await screen.findByText("No deliveries")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(callsTo("GET /api/v1/deliveries")).toHaveLength(1);
+  });
+
   it("offers no redelivery to a reviewer", async () => {
     auth.roles = ["Reviewer"];
     api.handlers.set("GET /api/v1/deliveries", () => ({ body: { items: [delivery({ status: "DeadLettered", lastStatusCode: 422, lastError: "422 from the receiver" })], nextCursor: null } }));

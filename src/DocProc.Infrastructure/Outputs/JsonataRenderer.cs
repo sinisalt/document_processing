@@ -56,6 +56,12 @@ public sealed class JsonataRendererOptions
 /// process's GC heap is capped (<c>DOTNET_GCHeapHardLimit</c>), the output by <see cref="RenderLimits.MaxOutputBytes"/>,
 /// the depth by the library's caps. The child starts with an empty environment (no connection strings or keys).
 /// A process serves one render at a time and is reused; a killed or crashed one is replaced on the next render.
+/// <para>
+/// Only a renderer that cannot be started, or that cannot take the request, is <see cref="RenderErrorKinds.Unavailable"/>
+/// (retryable). What the expression itself causes is a permanent error of that render: an answer the host cannot read
+/// (the renderer bounds the output's depth and its messages so that none should occur), and a process that stops while
+/// it runs the expression, once more on a fresh process (an uncatchable stack overflow in the engine).
+/// </para>
 /// </summary>
 public sealed class JsonataRenderer : IOutputRenderer, IDisposable
 {
@@ -63,6 +69,15 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
 
     /// <summary>What the renderer writes once it has read a request (<c>RenderEngine.StartedLine</c>).</summary>
     private const string StartedLine = """{"started":true}""";
+
+    /// <summary>
+    /// The depth the host reads an answer with: the output's limit plus the answer's own levels, so every answer the
+    /// renderer may give is read.
+    /// </summary>
+    internal const int AnswerMaxDepth = RenderLimits.MaxOutputDepth + 16;
+
+    /// <summary>The lines of a renderer process's standard error logged (a stack overflow writes thousands); the rest are counted.</summary>
+    internal const int MaxLoggedErrorLines = 20;
 
     private readonly JsonataRendererOptions _options;
     private readonly ILogger<JsonataRenderer> _logger;
@@ -93,6 +108,7 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
             ["expression"] = request.Expression,
             ["today"] = request.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             ["maxOutputBytes"] = RenderLimits.MaxOutputBytes,
+            ["maxOutputDepth"] = RenderLimits.MaxOutputDepth,
             ["maxDepth"] = RenderLimits.MaxDepth,
             ["maxTailRecursion"] = RenderLimits.MaxTailRecursion,
         };
@@ -134,7 +150,7 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
             large.Add(("fields", request.Fields));
         }
 
-        var answer = await SendAsync(line, large, cancellationToken).ConfigureAwait(false);
+        var answer = await SendOnceMoreAfterCrashAsync(line, large, cancellationToken).ConfigureAwait(false);
         watch.Stop();
         return answer switch
         {
@@ -157,7 +173,7 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
             line["targetSchema"] = targetSchema.DeepClone();
         }
 
-        var answer = await SendAsync(line, [], cancellationToken).ConfigureAwait(false);
+        var answer = await SendOnceMoreAfterCrashAsync(line, [], cancellationToken).ConfigureAwait(false);
         if (answer.Error is { } error)
         {
             return new ExpressionCheck(error, [], []);
@@ -183,16 +199,81 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
         _slots.Dispose();
     }
 
-    private static RenderError? Refuse(string? expression)
+    internal static RenderError? Refuse(string? expression)
     {
         if (string.IsNullOrWhiteSpace(expression))
         {
             return new RenderError(RenderErrorKinds.Request, null, "The expression is empty.");
         }
 
-        return expression.Length > RenderLimits.MaxExpressionLength
-            ? new RenderError(RenderErrorKinds.Request, null, $"The expression has more than {RenderLimits.MaxExpressionLength} characters.")
-            : null;
+        if (expression.Length > RenderLimits.MaxExpressionLength)
+        {
+            return new RenderError(RenderErrorKinds.Request, null, $"The expression has more than {RenderLimits.MaxExpressionLength} characters.");
+        }
+
+        return Nesting(expression);
+    }
+
+    /// <summary>
+    /// The refusal of an expression that nests brackets, parentheses and braces, or chains unary minus signs, more than
+    /// <see cref="RenderLimits.MaxExpressionNesting"/> deep (outside string literals, quoted names and comments): the
+    /// engine's parser recurses once per level and would overflow the renderer's stack, which no handler can catch.
+    /// </summary>
+    internal static RenderError? Nesting(string expression)
+    {
+        var depth = 0;
+        var minus = 0;
+        for (var i = 0; i < expression.Length; i++)
+        {
+            var c = expression[i];
+            switch (c)
+            {
+                case '"' or '\'' or '`':
+                    // A string literal or a quoted name, with backslash escapes (none in a quoted name).
+                    for (i++; i < expression.Length && expression[i] != c; i++)
+                    {
+                        if (expression[i] == '\\' && c != '`')
+                        {
+                            i++;
+                        }
+                    }
+
+                    minus = 0;
+                    continue;
+                case '/' when i + 1 < expression.Length && expression[i + 1] == '*':
+                    var end = expression.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = end < 0 ? expression.Length : end + 1;
+                    continue;
+                case '(' or '[' or '{':
+                    if (++depth > RenderLimits.MaxExpressionNesting)
+                    {
+                        return new RenderError(RenderErrorKinds.DepthLimit, "NESTING", $"The expression nests brackets, parentheses and braces more than {RenderLimits.MaxExpressionNesting} levels deep.", i);
+                    }
+
+                    minus = 0;
+                    continue;
+                case ')' or ']' or '}':
+                    depth = Math.Max(0, depth - 1);
+                    minus = 0;
+                    continue;
+                case '-':
+                    if (++minus > RenderLimits.MaxExpressionNesting)
+                    {
+                        return new RenderError(RenderErrorKinds.DepthLimit, "NESTING", $"The expression chains more than {RenderLimits.MaxExpressionNesting} minus signs.", i);
+                    }
+
+                    continue;
+                default:
+                    if (!char.IsWhiteSpace(c))
+                    {
+                        minus = 0;
+                    }
+
+                    continue;
+            }
+        }
+
+        return null;
     }
 
     private static RenderResult ToResult(JsonObject response, TimeSpan elapsed)
@@ -206,7 +287,7 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
                 new RenderError(
                     error?["kind"]?.GetValue<string>() ?? RenderErrorKinds.Runtime,
                     error?["code"]?.GetValue<string>(),
-                    error?["message"]?.GetValue<string>() ?? "The render failed.",
+                    RenderLimits.Shorten(error?["message"]?.GetValue<string>() ?? "The render failed."),
                     error?["position"]?.GetValue<int>()),
                 elapsed,
                 paths,
@@ -233,11 +314,13 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
     private static IReadOnlyList<string> Strings(JsonNode? node) =>
         node is JsonArray array ? [.. array.Select(n => n?.GetValue<string>()).OfType<string>()] : [];
 
-    private async Task<Answer> SendAsync(JsonObject request, IReadOnlyList<(string Name, JsonNode Value)> large, CancellationToken cancellationToken)
+    /// <summary>
+    /// <see cref="SendAsync"/>, and once more on a fresh process when the renderer stopped while it ran the expression;
+    /// a second stop is the expression's doing (the engine overflowed its stack on it), a permanent error.
+    /// </summary>
+    private async Task<Answer> SendOnceMoreAfterCrashAsync(JsonObject request, IReadOnlyList<(string Name, JsonNode Value)> large, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var id = Interlocked.Increment(ref _nextId);
-        request["id"] = id;
         var head = request.ToJsonString();
         var builder = new StringBuilder(head, 0, head.Length - 1, head.Length + 1024);
         foreach (var (name, value) in large)
@@ -246,6 +329,25 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
         }
 
         var text = builder.Append('}').ToString();
+        var answer = await SendAsync(text, cancellationToken).ConfigureAwait(false);
+        if (!answer.Crashed)
+        {
+            return answer;
+        }
+
+        _logger.LogWarning("The output renderer stopped while it ran an expression; trying it once more on a fresh process.");
+        answer = await SendAsync(text, cancellationToken).ConfigureAwait(false);
+        return answer.Crashed
+            ? new Answer(null, new RenderError(RenderErrorKinds.DepthLimit, "CRASH", "The renderer stopped while it ran this expression, twice: the expression most likely nests too deeply for the engine."))
+            : answer;
+    }
+
+    /// <summary>One request (a JSON object without its <c>id</c>, which this adds) to the renderer's answer.</summary>
+    private async Task<Answer> SendAsync(string request, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var id = Interlocked.Increment(ref _nextId);
+        var text = "{\"id\":" + id.ToString(CultureInfo.InvariantCulture) + "," + request[1..];
 
         await _slots.WaitAsync(cancellationToken).ConfigureAwait(false);
         RendererProcess? process = null;
@@ -307,26 +409,29 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
             {
                 process.Dispose();
                 process = null;
-                return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, null, "The output renderer stopped: " + e.Message));
+                return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, null, "The output renderer stopped: " + e.Message)) { Crashed = started };
             }
 
             if (line is null)
             {
+                // Before it read the request the renderer is unavailable; after, the expression stopped it.
                 process.Dispose();
                 process = null;
-                return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, null, "The output renderer stopped without an answer."));
+                return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, null, "The output renderer stopped without an answer.")) { Crashed = started };
             }
 
             JsonObject response;
             try
             {
-                response = JsonNode.Parse(line, documentOptions: new JsonDocumentOptions { MaxDepth = 512 }) as JsonObject ?? throw new JsonException("not an object");
+                response = JsonNode.Parse(line, documentOptions: new JsonDocumentOptions { MaxDepth = AnswerMaxDepth }) as JsonObject ?? throw new JsonException("The answer is not a JSON object.");
             }
             catch (JsonException e)
             {
+                // The renderer bounds what it answers, so this is the answer to this expression, not a renderer that is down:
+                // retrying it would fail the same way.
                 process.Dispose();
                 process = null;
-                return new Answer(null, new RenderError(RenderErrorKinds.Unavailable, null, "The output renderer gave an answer that is not JSON: " + e.Message));
+                return new Answer(null, new RenderError(RenderErrorKinds.Runtime, "ANSWER", RenderLimits.Shorten("The renderer's answer for this expression cannot be read: " + e.Message)));
             }
 
             if (response["error"]?["kind"]?.GetValue<string>() == RenderErrorKinds.MemoryLimit)
@@ -411,6 +516,11 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
         start.Environment.Clear();
         start.Environment["DOTNET_GCHeapHardLimit"] = "0x" + _options.HeapHardLimitBytes.ToString("X", CultureInfo.InvariantCulture);
         start.Environment["DOTNET_gcServer"] = "0";
+        // No background GC or JIT thread (concurrent GC, tiered compilation's re-JIT): the processor time the time limit
+        // counts is the whole process's, so with them a render was stopped early while a collector or the JIT ran beside
+        // it on another core. Without tiered compilation the start takes about 0.25 s longer, outside the limit.
+        start.Environment["DOTNET_gcConcurrent"] = "0";
+        start.Environment["DOTNET_TieredCompilation"] = "0";
         start.Environment["DOTNET_NOLOGO"] = "1";
         start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
         if (Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } root)
@@ -441,7 +551,39 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
         return Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } hostPath ? hostPath : name;
     }
 
-    private sealed record Answer(JsonObject? Response, RenderError? Error);
+    /// <summary>The renderer's answer, or the error instead of one; <see cref="Crashed"/> when the process stopped after it read the request.</summary>
+    private sealed record Answer(JsonObject? Response, RenderError? Error)
+    {
+        public bool Crashed { get; init; }
+    }
+
+    /// <summary>
+    /// The standard error of one renderer process, logged as warnings: the first <see cref="MaxLoggedErrorLines"/>
+    /// lines, then one note. A stack overflow writes a frame per line, thousands of them; the first lines say what
+    /// happened.
+    /// </summary>
+    internal sealed class ErrorOutputLog(ILogger logger)
+    {
+        private int _lines;
+
+        public void Line(string? data)
+        {
+            if (string.IsNullOrEmpty(data))
+            {
+                return;
+            }
+
+            var count = Interlocked.Increment(ref _lines);
+            if (count <= MaxLoggedErrorLines)
+            {
+                logger.LogWarning("Output renderer: {Line}", data);
+            }
+            else if (count == MaxLoggedErrorLines + 1)
+            {
+                logger.LogWarning("Output renderer: further lines of this process's error output are not logged.");
+            }
+        }
+    }
 
     /// <summary>One renderer child process with its two streams.</summary>
     private sealed class RendererProcess : IDisposable
@@ -470,8 +612,9 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
                     _process.Refresh();
                     return _process.TotalProcessorTime;
                 }
-                catch (InvalidOperationException)
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
+                    // Gone: on Linux reading /proc of an exited process throws Win32Exception. The answer read sees the end.
                     return TimeSpan.Zero;
                 }
             }
@@ -501,13 +644,8 @@ public sealed class JsonataRenderer : IOutputRenderer, IDisposable
                 throw new InvalidOperationException("The renderer process did not start.");
             }
 
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                {
-                    logger.LogWarning("Output renderer: {Line}", e.Data);
-                }
-            };
+            var errors = new ErrorOutputLog(logger);
+            process.ErrorDataReceived += (_, e) => errors.Line(e.Data);
             process.BeginErrorReadLine();
             var renderer = new RendererProcess(process);
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

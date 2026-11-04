@@ -43,6 +43,9 @@ import { useSessionState } from "@/lib/reviewSession";
 import { reviewReasonLabels, reviewRequestReason } from "@/lib/reviewReason";
 import { validationState } from "@/lib/validation";
 
+/** The decisions an approval or rejection leaves, which fan out to the tenant's bindings (docs/11 §13.5). */
+const decidedStatuses: ReadonlySet<DocumentDetail["status"]> = new Set(["Approved", "AutoApproved", "Rejected"]);
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.getAttribute("role") === "combobox";
@@ -160,6 +163,8 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
   const showTableTab = tableAvailable || (groupPath !== null && table.report !== null);
   // The Deliveries tab (docs/11 §19) for a tenant with the outputs switch (principle 6); others see the screen as before.
   const showDeliveriesTab = document.outputs === true;
+  // When the decision the deliveries fan out from was taken (approvals keep their time; a rejection is the last update).
+  const settledAt = showDeliveriesTab && decidedStatuses.has(document.status) ? (document.approvedAt ?? document.updatedAt) : null;
 
   /** Hover and focus in the form highlight the field's box; focus also turns to its page, so the box is in sight. */
   const highlightField = useCallback(
@@ -604,7 +609,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                   </TabsContent>
                   {showDeliveriesTab && (
                     <TabsContent value="deliveries" className="p-4">
-                      <DeliveriesTab documentId={document.id} enabled={tab === "deliveries"} canRedeliver={canRedeliver} />
+                      <DeliveriesTab documentId={document.id} enabled={tab === "deliveries"} canRedeliver={canRedeliver} settledAt={settledAt} />
                     </TabsContent>
                   )}
                   <TabsContent value="original" className="p-4">

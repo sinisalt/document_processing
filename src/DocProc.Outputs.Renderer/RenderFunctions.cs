@@ -20,28 +20,55 @@ internal sealed class LookupTableData
 {
     private readonly Dictionary<string, List<LookupEntryData>> _entries;
 
+    /// <summary>The entries whose <c>from</c> is a number, by its canonical text (<c>10.0</c> and <c>10</c> are both <c>10</c>).</summary>
+    private readonly Dictionary<string, List<LookupEntryData>> _numbers = new(StringComparer.Ordinal);
+
     public LookupTableData(bool caseSensitive, IEnumerable<LookupEntryData> entries)
     {
         _entries = new Dictionary<string, List<LookupEntryData>>(caseSensitive ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)
         {
-            if (!_entries.TryGetValue(entry.From.Trim(), out var list))
+            var key = entry.From.Trim();
+            Add(_entries, key, entry);
+            if (RenderFunctions.CanonicalNumber(key) is { } number)
             {
-                _entries[entry.From.Trim()] = list = [];
+                Add(_numbers, number, entry);
             }
-
-            list.Add(entry);
         }
     }
 
-    /// <summary>The value an entry maps <paramref name="from"/> to on <paramref name="asOf"/>: of the entries valid that day, the one valid from the latest date.</summary>
-    public string? Resolve(string from, DateOnly asOf) =>
-        _entries.TryGetValue(from.Trim(), out var list)
-            ? list.Where(e => (e.ValidFrom is null || e.ValidFrom <= asOf) && (e.ValidTo is null || e.ValidTo >= asOf))
-                .OrderByDescending(e => e.ValidFrom ?? DateOnly.MinValue)
-                .Select(e => e.To)
-                .FirstOrDefault()
+    /// <summary>
+    /// The value an entry maps <paramref name="from"/> to on <paramref name="asOf"/>: of the entries valid that day, the
+    /// one valid from the latest date. A number (<paramref name="number"/>) that matches no entry's text exactly matches
+    /// an entry of the same value: the values view keeps a number's text (<c>10.0</c>), the table may say <c>10</c>.
+    /// </summary>
+    public string? Resolve(string from, DateOnly asOf, bool number = false)
+    {
+        if (_entries.TryGetValue(from.Trim(), out var list) && Valid(list, asOf) is { } exact)
+        {
+            return exact;
+        }
+
+        return number && RenderFunctions.CanonicalNumber(from.Trim()) is { } canonical && _numbers.TryGetValue(canonical, out var same)
+            ? Valid(same, asOf)
             : null;
+    }
+
+    private static string? Valid(List<LookupEntryData> list, DateOnly asOf) =>
+        list.Where(e => (e.ValidFrom is null || e.ValidFrom <= asOf) && (e.ValidTo is null || e.ValidTo >= asOf))
+            .OrderByDescending(e => e.ValidFrom ?? DateOnly.MinValue)
+            .Select(e => e.To)
+            .FirstOrDefault();
+
+    private static void Add(Dictionary<string, List<LookupEntryData>> index, string key, LookupEntryData entry)
+    {
+        if (!index.TryGetValue(key, out var list))
+        {
+            index[key] = list = [];
+        }
+
+        list.Add(entry);
+    }
 }
 
 /// <summary>What one render's custom functions read: the date, the lookup tables and the field envelopes.</summary>
@@ -100,7 +127,7 @@ public static class RenderFunctions
         }
 
         var from = TextOf(value);
-        if (from is not null && lookup.Resolve(from, Current.Today) is { } to)
+        if (from is not null && lookup.Resolve(from, Current.Today, number: value.Type is JTokenType.Integer or JTokenType.Float) is { } to)
         {
             return new JValue(to);
         }
@@ -108,7 +135,24 @@ public static class RenderFunctions
         return fallback is null || fallback.Type == JTokenType.Undefined ? JValue.CreateUndefined() : fallback;
     }
 
-    /// <summary><c>$fmtDate(date, pattern)</c>: a <c>yyyy-MM-dd</c> date or an ISO date-time in a .NET custom pattern (invariant culture).</summary>
+    /// <summary>
+    /// The ISO 8601 date-times <c>$fmtDate</c> reads: <c>T</c> between date and time, seconds and fractions optional,
+    /// an offset or <c>Z</c> optional (none is read as UTC).
+    /// </summary>
+    private static readonly string[] IsoDateTimes =
+    [
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF",
+        "yyyy-MM-dd'T'HH:mmzzz",
+        "yyyy-MM-dd'T'HH:mm'Z'",
+        "yyyy-MM-dd'T'HH:mm",
+    ];
+
+    /// <summary>
+    /// <c>$fmtDate(date, pattern)</c>: a <c>yyyy-MM-dd</c> date or an ISO 8601 date-time in a .NET custom pattern
+    /// (invariant culture). A one-character pattern is a custom one too (<c>"d"</c> is the day, not .NET's short date).
+    /// </summary>
     public static JToken fmtDate(JToken date, JToken pattern)
     {
         var text = TextOf(date);
@@ -123,6 +167,12 @@ public static class RenderFunctions
             throw new RenderFunctionException($"$fmtDate: the pattern has more than {MaxPatternLength} characters.");
         }
 
+        // .NET reads a single character as a standard format ("d" the short date, "M" month and day); "%d" is the custom one.
+        if (format.Length == 1)
+        {
+            format = "%" + format;
+        }
+
         try
         {
             if (DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day))
@@ -130,7 +180,7 @@ public static class RenderFunctions
                 return new JValue(day.ToDateTime(TimeOnly.MinValue).ToString(format, CultureInfo.InvariantCulture));
             }
 
-            if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var moment))
+            if (DateTimeOffset.TryParseExact(text, IsoDateTimes, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var moment))
             {
                 return new JValue(moment.ToString(format, CultureInfo.InvariantCulture));
             }
@@ -228,6 +278,17 @@ public static class RenderFunctions
         token.Type is JTokenType.Integer or JTokenType.Float
         && decimal.TryParse(token.ToFlatString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
             ? value
+            : null;
+
+    /// <summary>
+    /// A number's canonical text (invariant, no exponent, no trailing zeros: <c>10.0</c> and <c>1E1</c> are <c>10</c>),
+    /// or null when <paramref name="text"/> is not a number.
+    /// </summary>
+    internal static string? CanonicalNumber(string text) =>
+        text.Length is > 0 and <= 64
+        && (char.IsAsciiDigit(text[0]) || text[0] is '-' or '+' or '.')
+        && decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            ? (value / 1.0000000000000000000000000000m).ToString(CultureInfo.InvariantCulture)
             : null;
 
     private static string Shorten(string text, int max = 80) => text.Length <= max ? text : text[..max] + "…";

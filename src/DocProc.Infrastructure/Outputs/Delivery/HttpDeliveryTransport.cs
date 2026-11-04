@@ -30,7 +30,7 @@ namespace DocProc.Infrastructure.Outputs.Delivery;
 /// <item><description><c>responseMapping</c>: a JSONata expression over the response body, in the renderer, whose
 /// string or number becomes the document's external id at this destination.</description></item>
 /// </list>
-/// The response excerpt keeps 4 KB with the destination's secret and token masked.
+/// The response excerpt keeps 4 KB with the destination's credentials masked as they travel (<see cref="Masked"/>).
 /// </summary>
 public sealed class HttpDeliveryTransport(
     DeliveryHttpClient http,
@@ -41,6 +41,9 @@ public sealed class HttpDeliveryTransport(
 {
     /// <summary>The most of a response read (for the excerpt and the response mapping).</summary>
     public const int MaxResponseBytes = 256 * 1024;
+
+    /// <summary>The most of a token endpoint's answer read: an OAuth token answer is a few kilobytes.</summary>
+    public const int MaxTokenResponseBytes = 64 * 1024;
 
     public const int DefaultTimeoutSeconds = 30;
 
@@ -170,7 +173,7 @@ public sealed class HttpDeliveryTransport(
             }
 
             var status = (int)response.StatusCode;
-            var excerpt = Excerpt(responseBytes, secret, token);
+            var excerpt = Excerpt(responseBytes, Masked(authType, auth, secret, token));
             if (status == 401 && token is not null)
             {
                 tokens.Forget(context.Destination);
@@ -297,13 +300,14 @@ public sealed class HttpDeliveryTransport(
         return id is { Length: > 0 and <= 400 } ? (id, null) : (null, "responseMapping gave no string or number of at most 400 characters.");
     }
 
-    private static async Task<byte[]> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken)
+    /// <summary>At most <paramref name="max"/> bytes of a response body (default <see cref="MaxResponseBytes"/>); the rest is never read.</summary>
+    internal static async Task<byte[]> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken, int max = MaxResponseBytes)
     {
         await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var buffer = new MemoryStream();
         var chunk = new byte[16 * 1024];
         int read;
-        while (buffer.Length < MaxResponseBytes && (read = await stream.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, MaxResponseBytes - buffer.Length)), cancellationToken).ConfigureAwait(false)) > 0)
+        while (buffer.Length < max && (read = await stream.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, max - buffer.Length)), cancellationToken).ConfigureAwait(false)) > 0)
         {
             buffer.Write(chunk, 0, read);
         }
@@ -311,19 +315,48 @@ public sealed class HttpDeliveryTransport(
         return buffer.ToArray();
     }
 
-    /// <summary>The first 4 KB of a response as text, with the secret and token masked.</summary>
-    public static string? Excerpt(byte[] bytes, params string?[] masked)
+    /// <summary>
+    /// The credentials of a destination as a receiver may echo them in an error page: the secret itself (an API key
+    /// header's value, a bearer token, the HMAC key), its URL-encoded form (the token request's <c>client_secret</c>),
+    /// for <c>basic</c> the <c>base64(username:secret)</c> on the wire, and the OAuth access token.
+    /// </summary>
+    public static IReadOnlyList<string> Masked(string authType, JsonObject? auth, string? secret, string? token)
+    {
+        var masked = new List<string>();
+        if (!string.IsNullOrEmpty(secret))
+        {
+            masked.Add(secret);
+            masked.Add(Uri.EscapeDataString(secret));
+            masked.Add(System.Net.WebUtility.UrlEncode(secret));
+            if (authType == HttpAuthTypes.Basic && auth?["username"] is JsonValue user && user.TryGetValue<string>(out var username))
+            {
+                masked.Add(Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{secret}")));
+            }
+        }
+
+        if (!string.IsNullOrEmpty(token))
+        {
+            masked.Add(token);
+        }
+
+        // The longest first, so a value that contains another is masked whole.
+        return [.. masked.Distinct(StringComparer.Ordinal).OrderByDescending(m => m.Length)];
+    }
+
+    /// <summary>The first 4 KB of a response as text, with every value of <paramref name="masked"/> (of any length) replaced by <c>***</c>.</summary>
+    public static string? Excerpt(byte[] bytes, IReadOnlyList<string> masked)
     {
         ArgumentNullException.ThrowIfNull(bytes);
+        ArgumentNullException.ThrowIfNull(masked);
         if (bytes.Length == 0)
         {
             return null;
         }
 
         var text = Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, DeliveryAttempt.MaxExcerptLength * 2));
-        foreach (var value in masked)
+        foreach (var value in masked.OrderByDescending(m => m.Length))
         {
-            if (value is { Length: >= 4 })
+            if (value.Length > 0)
             {
                 text = text.Replace(value, "***", StringComparison.Ordinal);
             }
@@ -403,18 +436,24 @@ public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
         timer.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
-            using var response = await http.Client.SendAsync(request, timer.Token).ConfigureAwait(false);
-            var text = await response.Content.ReadAsStringAsync(timer.Token).ConfigureAwait(false);
+            // The tenant chooses the token URL: its answer is read up to a bound, as a delivery's is, never whole.
+            using var response = await http.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timer.Token).ConfigureAwait(false);
+            var bytes = await HttpDeliveryTransport.ReadBoundedAsync(response.Content, timer.Token, HttpDeliveryTransport.MaxTokenResponseBytes + 1).ConfigureAwait(false);
             var status = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
-                var excerpt = HttpDeliveryTransport.Excerpt(Encoding.UTF8.GetBytes(text), secret);
+                var excerpt = HttpDeliveryTransport.Excerpt(bytes, HttpDeliveryTransport.Masked(HttpAuthTypes.OAuth2ClientCredentials, auth, secret, null));
                 return (null, DeliveryClassifier.Classify(status, null) == DeliveryOutcomeKind.Retryable
                     ? DeliveryOutcome.Retryable("token", $"The token endpoint answered {status}.", status, excerpt)
                     : DeliveryOutcome.Permanent("token", $"The token endpoint answered {status} (check clientId and the secret).", status, excerpt));
             }
 
-            var json = JsonNode.Parse(text) as JsonObject;
+            if (bytes.Length > HttpDeliveryTransport.MaxTokenResponseBytes)
+            {
+                return (null, DeliveryOutcome.Permanent("token", $"The token endpoint's answer is larger than {HttpDeliveryTransport.MaxTokenResponseBytes / 1024} KB."));
+            }
+
+            var json = JsonNode.Parse(bytes) as JsonObject;
             if (json?["access_token"] is not JsonValue accessToken || !accessToken.TryGetValue<string>(out var token) || token.Length == 0)
             {
                 return (null, DeliveryOutcome.Permanent("token", "The token endpoint's answer has no access_token."));
@@ -433,7 +472,7 @@ public sealed class OAuthTokenCache(DeliveryHttpClient http, TimeProvider clock)
         {
             return (null, DeliveryOutcome.Permanent("blocked", "The token URL is not allowed: https to a public host only."));
         }
-        catch (HttpRequestException exception)
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
         {
             return (null, DeliveryOutcome.Retryable("token", $"The token endpoint could not be reached: {exception.Message}"));
         }

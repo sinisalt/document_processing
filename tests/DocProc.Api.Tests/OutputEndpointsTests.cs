@@ -266,6 +266,30 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     [Fact]
+    public async Task A_response_mapping_is_compiled_when_the_destination_is_saved()
+    {
+        var tenant = OutputsTenant("Response mapping");
+        using var admin = factory.TenantAdminOf(tenant);
+        object Config(string mapping) => new { urlTemplate = "https://erp.example/x", responseMapping = mapping };
+
+        foreach (var bad in new[] { "this is ((( not jsonata", new string('-', 7999) + "1", new string('[', 3000) + "1" + new string(']', 3000) })
+        {
+            var refused = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "d", transport = "http", config = Config(bad) }, Ct);
+            refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest, bad[..Math.Min(bad.Length, 30)]);
+            (await refused.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors["config.responseMapping"].ShouldHaveSingleItem().ShouldContain("not a JSONata expression");
+        }
+
+        var created = await admin.PostAsJsonAsync("/api/v1/destinations", new { name = "d", transport = "http", config = Config("erpId") }, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var destination = (await created.Content.ReadFromJsonAsync<DestinationResponse>(ApiFactory.Json, Ct))!;
+
+        var patched = await admin.PatchAsJsonAsync($"/api/v1/destinations/{destination.Id}", new { config = Config("{ ") }, Ct);
+        patched.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await patched.Content.ReadFromJsonAsync<ValidationProblemDetails>(Ct))!.Errors.Keys.ShouldContain("config.responseMapping");
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{destination.Id}", new { config = Config("id.value") }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task A_binding_refers_to_the_tenants_mapping_destination_and_scope()
     {
         var tenant = OutputsTenant("Bindings");

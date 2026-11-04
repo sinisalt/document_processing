@@ -476,7 +476,12 @@ curl -s -X PATCH "http://localhost:5100/api/v1/suppliers/$SUPPLIER" -H "$H" -H '
 ```
 
 A render that takes more than 2 s of processor time, allocates past its 1 GB heap or writes more than 5 MB fails with
-`timeLimit`, `memoryLimit` or `sizeLimit` in `errors`, and the host starts a fresh renderer for the next one.
+`timeLimit`, `memoryLimit` or `sizeLimit` in `errors`, and the host starts a fresh renderer for the next one. An
+output nesting objects and arrays more than 48 levels deep, and an expression nesting brackets or minus signs more than
+1000 deep, fail with `depthLimit`; an error message (`$error` of a long text) is cut to 2000 characters. A renderer
+that stops while it runs an expression is tried once more on a fresh process, then the render fails with `depthLimit`
+(`CRASH`), and the host logs the first 20 lines of the renderer's standard error. Only a renderer that cannot be
+started or cannot take the request is `unavailable`, the one error a delivery's publish stage retries.
 
 **Delivery (P3 part B).** With the switch on, every approval, auto-approval and rejection the publish stage hands on
 is fanned out to the tenant's bindings (docs/11 §13.5): each binding whose scope and condition hold renders its
@@ -810,14 +815,15 @@ http://localhost:8086/__admin/requests.
    table that does not exist is a render error, not the default.
 5. **Destinations.** Integrations > Destinations > New destination: `erp-articles`, HTTP (JSON), POST,
    URL `http://mock-erp:8080/api/article-prices`, response mapping `importId`, update URL
-   `http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}` (method default PUT) > Create; and `erp-ap`,
-   POST `http://mock-erp:8080/api/ap/invoices`, response mapping `erpId`. Plain http to `mock-erp` is allowed only by
+   `http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}` (method default PUT) > New destination; and
+   `erp-ap`, POST `http://mock-erp:8080/api/ap/invoices`, response mapping `erpId`. The response mapping is compiled
+   when the destination is saved: one that is not JSONata is refused under the field. Plain http to `mock-erp` is allowed only by
    the Development setting `Delivery:DevelopmentHosts` (compose sets it); anywhere else the URL must be https and public.
 6. **The invoice mapping.** Output mappings > Integration templates > Generic AP JSON > Copy, key `erp-ap-import` >
    Copy; the editor opens on draft v1 in code mode (the template is written in code) > Publish ("Version 1
    published.").
 7. **The article-price mapping, in the visual map.** Output mappings > New mapping: key `article-price-import`, name
-   "Article price import", document type `price-list` > Create. The editor has three panes: the values view of the
+   "Article price import", document type `price-list` > New mapping. The editor has three panes: the values view of the
    preview document (the Nordwind list is chosen; `doc`, `roles`, `supplier`, `entity`, `source`, `meta`, `links`, with
    `doc.lines · 412 rows`), the visual map, and the server-rendered preview. Add field rows (Target field ← Source;
    the gear opens the options: when empty use another field, lookup table and its default, format, constant when
@@ -856,11 +862,13 @@ http://localhost:8086/__admin/requests.
    ("Draft v1 saved."), then Publish ("Version 1 published."); a published version is read-only, New version starts v2.
 8. **Bindings.** Integrations > Bindings > New binding: `article-prices`, when Approved, document type `price-list`,
    output mapping Article price import, version Published, destination `erp-articles`, on re-approval Send as update
-   with the same mapping > Create; and `ap-invoices`, type `Invoice`, mapping `erp-ap-import`, destination `erp-ap`.
+   with the same mapping > New binding; and `ap-invoices`, type `Invoice`, mapping `erp-ap-import`, destination `erp-ap`.
 9. **A 503, then approve.** Make the article-price stub fail once:
    `curl -X POST http://localhost:8086/__control/article-prices/fail-next`. As `tenant-a-reviewer`, open the price list
    and Approve. The Deliveries tab lists `erp-articles · article-prices · v1` as Retry pending (last answer 503); about
-   a second later (the stub's `Retry-After: 1`) it is Delivered after 2 attempts. Open the row: the idempotency key
+   a second later (the stub's `Retry-After: 1`) it is Delivered after 2 attempts. This holds with the tab open before
+   the approval too: the decision makes the tab read again, and it keeps reading an empty list for a minute after the
+   decision, until the worker's publish stage has fanned out. Open the row: the idempotency key
    (the same for both calls), the external id `AP-IMP-…` (Accepted, from the response mapping), the attempts
    `503 Will be retried · status` and `202 Delivered` with the first 4 KB of each answer, Show payload, and for an
    integration admin Redeliver (from the snapshot) and Render again and redeliver. The Timeline shows

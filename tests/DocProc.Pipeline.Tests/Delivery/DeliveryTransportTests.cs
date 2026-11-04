@@ -228,6 +228,76 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         noJson.Note.ShouldNotBeNull().ShouldContain("not JSON");
     }
 
+    [Theory]
+    [InlineData(HttpAuthTypes.Basic, "S3cretPassw0rd")]
+    [InlineData(HttpAuthTypes.Bearer, "abc")]
+    [InlineData(HttpAuthTypes.ApiKeyHeader, "k&y=1/2")]
+    public async Task The_excerpt_masks_the_credential_as_it_travels_whatever_its_length(string type, string secret)
+    {
+        // A receiver whose error page echoes the request's headers (a debugging proxy, say).
+        using var receiver = new FakeReceiver
+        {
+            Respond = r => new ReceiverAnswer(400, $$"""{"error":"bad","authorization":"{{r.Header("Authorization")}}","key":"{{r.Header("X-Erp-Key")}}","form":"{{Uri.EscapeDataString(secret)}}"}"""),
+        };
+        var (transport, secrets) = Http(receiver);
+        var auth = new JsonObject { ["type"] = type };
+        if (type == HttpAuthTypes.Basic)
+        {
+            auth["username"] = "erpuser";
+        }
+
+        if (type == HttpAuthTypes.ApiKeyHeader)
+        {
+            auth["headerName"] = "X-Erp-Key";
+        }
+
+        var context = Context(receiver, new JsonObject { ["urlTemplate"] = receiver.BaseUrl + "/x", ["auth"] = auth });
+        await secrets.SetAsync(context.Destination.SecretRef!, secret, Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Permanent);
+        var excerpt = outcome.ResponseExcerpt.ShouldNotBeNull();
+        excerpt.ShouldNotContain(secret);
+        excerpt.ShouldNotContain(Uri.EscapeDataString(secret));
+        excerpt.ShouldNotContain(Convert.ToBase64String(Encoding.UTF8.GetBytes("erpuser:" + secret)));
+        excerpt.ShouldContain("\"error\":\"bad\"");
+    }
+
+    [Fact]
+    public async Task A_token_endpoint_answer_is_read_up_to_its_bound_never_whole()
+    {
+        // A token endpoint that announces 300 MB and streams it: the delivery reads 64 KB of it and stops.
+        using var endless = new StreamingServer(contentLength: 300L * 1024 * 1024, status: 200);
+        using var failing = new StreamingServer(contentLength: 300L * 1024 * 1024, status: 500);
+        var secrets = new InMemorySecretStore();
+        var transport = Transport(new DeliveryEndpointPolicy([endless.Host, failing.Host]), secrets);
+        var context = Context(null, new JsonObject
+        {
+            ["urlTemplate"] = endless.BaseUrl + "/api/x",
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = endless.BaseUrl + "/oauth/token", ["clientId"] = "docproc" },
+        });
+        await secrets.SetAsync(context.Destination.SecretRef!, "client-secret", Ct);
+
+        var outcome = await transport.SendAsync(context, Ct);
+
+        outcome.Kind.ShouldBe(DeliveryOutcomeKind.Permanent);
+        outcome.ErrorClass.ShouldBe("permanent:token");
+        outcome.Error.ShouldNotBeNull().ShouldContain("larger than 64 KB");
+        endless.BytesSent.ShouldBeLessThan(32L * 1024 * 1024, "the client stops reading and hangs up; the old read took all 300 MB");
+
+        var failed = Context(null, new JsonObject
+        {
+            ["urlTemplate"] = failing.BaseUrl + "/api/x",
+            ["auth"] = new JsonObject { ["type"] = "oauth2ClientCredentials", ["tokenUrl"] = failing.BaseUrl + "/oauth/token", ["clientId"] = "docproc" },
+        });
+        await secrets.SetAsync(failed.Destination.SecretRef!, "client-secret", Ct);
+        var refused = await transport.SendAsync(failed, Ct);
+        refused.ErrorClass.ShouldBe("retryable:token");
+        refused.ResponseExcerpt!.Length.ShouldBeLessThanOrEqualTo(DeliveryAttempt.MaxExcerptLength);
+        failing.BytesSent.ShouldBeLessThan(32L * 1024 * 1024);
+    }
+
     [Fact]
     public async Task A_multipart_body_carries_the_payload_and_the_original_file()
     {
@@ -417,5 +487,101 @@ public sealed class DeliveryTransportTests(DeliveryRendererFixture fixture) : IC
         config ??= new JsonObject { ["urlTemplate"] = (receiver?.BaseUrl ?? "http://unused") + "/api/ap/invoices" };
         var values = new DeliveryTemplateValues(documentId, 7, eventType, "Invoice", delivery.Id, JsonNode.Parse(Payload));
         return new DeliveryContext(delivery, destination, config, Payload, "application/json", values, null, _ => Task.FromResult(original));
+    }
+}
+
+/// <summary>
+/// A raw HTTP/1.1 server on loopback that answers every request with <c>Content-Length</c> bytes of <c>x</c>, written
+/// from one small buffer until the length is reached or the client hangs up, and counts what it sent.
+/// </summary>
+internal sealed class StreamingServer : IDisposable
+{
+    private readonly System.Net.Sockets.TcpListener _listener = new(System.Net.IPAddress.Loopback, 0);
+    private readonly CancellationTokenSource _stop = new();
+    private readonly Task _loop;
+    private long _sent;
+
+    public StreamingServer(long contentLength, int status)
+    {
+        _listener.Start();
+        Port = ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
+        _loop = Task.Run(async () =>
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                System.Net.Sockets.TcpClient client;
+                try
+                {
+                    client = await _listener.AcceptTcpClientAsync(_stop.Token);
+                }
+                catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or System.Net.Sockets.SocketException)
+                {
+                    return;
+                }
+
+                _ = Task.Run(() => ServeAsync(client, contentLength, status));
+            }
+        });
+    }
+
+    public int Port { get; }
+
+    public string Host => $"127.0.0.1:{Port}";
+
+    public string BaseUrl => $"http://127.0.0.1:{Port}";
+
+    public long BytesSent => Interlocked.Read(ref _sent);
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _listener.Stop();
+        try
+        {
+            _loop.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            // stopped
+        }
+
+        _stop.Dispose();
+    }
+
+    private async Task ServeAsync(System.Net.Sockets.TcpClient client, long contentLength, int status)
+    {
+        using (client)
+        {
+            try
+            {
+                var stream = client.GetStream();
+                var request = new byte[64 * 1024];
+                var seen = new StringBuilder();
+                while (!seen.ToString().Contains("\r\n\r\n", StringComparison.Ordinal))
+                {
+                    var read = await stream.ReadAsync(request, _stop.Token);
+                    if (read == 0)
+                    {
+                        return;
+                    }
+
+                    seen.Append(Encoding.ASCII.GetString(request, 0, read));
+                }
+
+                var head = Encoding.ASCII.GetBytes($"HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {contentLength}\r\nConnection: close\r\n\r\n");
+                await stream.WriteAsync(head, _stop.Token);
+                var chunk = Enumerable.Repeat((byte)'x', 64 * 1024).ToArray();
+                for (long left = contentLength; left > 0; left -= chunk.Length)
+                {
+                    var size = (int)Math.Min(chunk.Length, left);
+                    await stream.WriteAsync(chunk.AsMemory(0, size), _stop.Token);
+                    Interlocked.Add(ref _sent, size);
+                }
+            }
+            catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException or System.Net.Sockets.SocketException)
+            {
+                // the client hung up
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DocProc.Application.Abstractions;
 using DocProc.Domain.Flags;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -10,9 +11,10 @@ namespace DocProc.Infrastructure.Outputs.Delivery;
 /// <summary>
 /// What a delivery leaves on its document (docs/11 §13.6): the timeline events (<c>document.delivery_succeeded</c>,
 /// <c>document.delivery_failed</c>, <c>document.delivery_skipped</c>, <c>document.redelivery_requested</c>) and the
-/// <c>DELIVERY_FAILED</c> flag of a dead letter, resolved again once the document has no dead letter left. Nothing
-/// here touches the document row itself: a delivery never changes the document's version or its settled time.
-/// Rows are added to the context, unsaved.
+/// <c>DELIVERY_FAILED</c> flag of a dead letter, resolved again once the document has no dead letter left (a newer
+/// revision delivered for the same binding and destination supersedes an older dead letter). Nothing here touches the
+/// document row itself: a delivery never changes the document's version or its settled time. Rows are added to the
+/// context, unsaved.
 /// </summary>
 public static class DeliveryJournal
 {
@@ -59,14 +61,39 @@ public static class DeliveryJournal
     }
 
     /// <summary>
-    /// Resolves the open <c>DELIVERY_FAILED</c> flags of the delivery's document once none of its deliveries is
-    /// dead-lettered any more (a redelivery cancels the dead letter it replaces).
+    /// After a delivery of the document reached its receiver: cancels the dead letters it supersedes (older revisions
+    /// of the document for the same binding and destination, which the receiver now has a newer one of), then resolves
+    /// the open <c>DELIVERY_FAILED</c> flags once none of the document's deliveries is dead-lettered any more (a
+    /// redelivery cancels the dead letter it replaces). The deliveries delivered in this unit of work (an
+    /// acknowledgement of several feed entries) all count.
     /// </summary>
     public static async Task ResolveFailedAsync(DocProcDbContext db, OutboxDelivery delivery, DateTimeOffset at, string resolvedBy, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(delivery);
-        var stillDead = await db.OutboxDeliveries.AnyAsync(d => d.DocumentId == delivery.DocumentId && d.Id != delivery.Id && d.Status == DeliveryStatus.DeadLettered, cancellationToken).ConfigureAwait(false);
+
+        // Tracked rows come back with their unsaved changes (this delivery, and the others delivered beside it).
+        var deliveries = await db.OutboxDeliveries.Where(d => d.DocumentId == delivery.DocumentId).ToListAsync(cancellationToken).ConfigureAwait(false);
+        var delivered = deliveries.Where(d => d.Status == DeliveryStatus.Delivered).ToList();
+        var stillDead = false;
+        foreach (var dead in deliveries.Where(d => d.Status == DeliveryStatus.DeadLettered && d.Id != delivery.Id))
+        {
+            var newer = delivered
+                .Where(d => d.BindingId == dead.BindingId && d.DestinationId == dead.DestinationId && d.DocumentVersion > dead.DocumentVersion)
+                .OrderByDescending(d => d.DocumentVersion)
+                .FirstOrDefault();
+            if (newer is null)
+            {
+                stillDead = true;
+                continue;
+            }
+
+            dead.Status = DeliveryStatus.Cancelled;
+            dead.NextAttemptAt = null;
+            dead.LastError = $"Superseded by revision {newer.DocumentVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}, which was delivered.";
+            Record(db, dead, DocumentEventTypes.DeliverySkipped, new { deliveryId = dead.Id, revision = dead.DocumentVersion, supersededBy = newer.Id, reason = dead.LastError }, at, resolvedBy);
+        }
+
         if (stillDead)
         {
             return;

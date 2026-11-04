@@ -137,6 +137,57 @@ describe("review screen of a definition-driven document", () => {
     expect(client.GET.mock.calls.map((call: unknown[]) => call[0])).toContain("/api/v1/deliveries");
   });
 
+  it("reads the deliveries again when the document is approved with the Deliveries tab open", async () => {
+    const sent = {
+      id: "del-1",
+      documentId: "6f1c1d2e-0000-4000-8000-000000000009",
+      documentVersion: 2,
+      event: "document.approved",
+      bindingId: "b1",
+      bindingName: "dn-events",
+      destinationId: "dest-1",
+      destinationName: "erp-dn",
+      transport: "http",
+      mappingVersionId: "v1",
+      mappingVersion: 1,
+      idempotencyKey: "k",
+      status: "Delivered",
+      attempts: 1,
+      nextAttemptAt: null,
+      lastStatusCode: 201,
+      lastError: null,
+      contentType: "application/json",
+      payloadSha256: "abc",
+      feedSequence: null,
+      redeliveryOfId: null,
+      createdAt: "2026-11-03T10:02:00Z",
+      deliveredAt: "2026-11-03T10:02:01Z",
+    };
+    let approved = false;
+    client.GET.mockImplementation((async (...args: unknown[]) => {
+      const path = String(args[0]);
+      const data = path === "/api/v1/deliveries" ? { items: approved ? [sent] : [], nextCursor: null } : path.endsWith("/events") ? reviewTimeline : [];
+      return { data, error: undefined, response: new Response(null, { status: 200 }) };
+    }) as never);
+    client.POST.mockReset();
+    client.POST.mockImplementation((async () => {
+      approved = true;
+      return { data: documentOf({ outputs: true, status: "Approved", approvedAt: "2026-11-03T10:02:00Z" }), error: undefined, response: new Response(null, { status: 200 }) };
+    }) as never);
+    renderScreen(documentOf({ outputs: true, status: "NeedsReview" }));
+    const tab = screen.getByRole("tab", { name: "Deliveries" });
+    fireEvent.mouseDown(tab);
+    fireEvent.click(tab);
+    expect(await screen.findByText("No deliveries")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("approve-button"));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByText("erp-dn")).toBeInTheDocument();
+    expect(screen.queryByText("No deliveries")).not.toBeInTheDocument();
+  });
+
   it("renders a delivery note from its form spec, with type and version in the header", () => {
     renderScreen(documentOf());
     expect(screen.getByTestId("document-type")).toHaveTextContent("Delivery note");

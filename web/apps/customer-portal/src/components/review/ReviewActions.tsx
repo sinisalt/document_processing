@@ -80,6 +80,8 @@ export function ReviewActions({ document, approveOpen, onApproveOpenChange, hasU
     queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
     void queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
     void queryClient.invalidateQueries({ queryKey: queryKeys.reviewTasks.all });
+    // An approval or rejection fans out to the tenant's bindings (docs/11 §13.5): the Deliveries tab reads again.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.deliveries.all });
     toast.success(message);
     onDecided?.();
   };

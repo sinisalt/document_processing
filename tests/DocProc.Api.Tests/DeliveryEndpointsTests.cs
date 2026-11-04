@@ -123,6 +123,40 @@ public sealed class DeliveryEndpointsTests(ApiFactory factory) : IClassFixture<A
     }
 
     [Fact]
+    public async Task A_redelivery_that_loses_the_race_for_its_key_is_a_409_not_a_500()
+    {
+        var setup = await SetupAsync("Redeliver race", OutputTransports.Http);
+        var delivered = await AddDeliveryAsync(setup, DeliveryStatus.Delivered, """{"docNo":"RE-1"}""");
+        var original = factory.Query(db => db.OutboxDeliveries.Single(d => d.Id == delivered));
+
+        // A second request (a double click) counted the same redeliveries and saved ':r1' first; a delivered original
+        // is not changed by a redelivery, so its row version does not catch the race, the unique key does. The row
+        // stands in for the other request's insert, which this request's count did not see.
+        factory.Run(db => db.OutboxDeliveries.Add(new OutboxDelivery
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = setup.Tenant,
+            OutboxMessageId = setup.Outbox,
+            DocumentId = setup.Document,
+            DocumentVersion = 1,
+            BindingId = setup.Binding,
+            DestinationId = setup.Destination,
+            MappingVersionId = setup.MappingVersion,
+            IdempotencyKey = original.IdempotencyKey + ":r1",
+            Status = DeliveryStatus.Pending,
+            CreatedAt = factory.Clock.GetUtcNow(),
+        }));
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+
+        var response = await admin.PostAsJsonAsync($"/api/v1/deliveries/{delivered}:redeliver", new { mode = "snapshot" }, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("Delivery changed");
+        factory.Query(db => db.OutboxDeliveries.Count(d => d.RedeliveryOfId == delivered)).ShouldBe(0);
+        factory.Query(db => db.DocumentEvents.Count(e => e.DocumentId == setup.Document && e.EventType == DocumentEventTypes.RedeliveryRequested)).ShouldBe(0, "nothing of the refused request was saved");
+    }
+
+    [Fact]
     public async Task A_redelivery_renders_again_with_the_bindings_mapping_on_request()
     {
         var setup = await SetupAsync("Rerender", OutputTransports.Http);

@@ -98,6 +98,19 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     }
 
     [Theory]
+    [InlineData("""$fmtDate("2026-11-03", "d")""", "3")]
+    [InlineData("""$fmtDate("2026-11-03", "M")""", "11")]
+    [InlineData("""$fmtDate("2026-11-03", "yy")""", "26")]
+    [InlineData("""$fmtDate("2026-10-29T09:12:00.1234567+01:00", "yyyy-MM-dd HH:mm zzz")""", "2026-10-29 09:12 +01:00")]
+    [InlineData("""$fmtDate("2026-10-29T09:12", "HH:mm")""", "09:12")]
+    [InlineData("""$fmtDate("2026-10-29T09:12:30Z", "ss")""", "30")]
+    public async Task A_one_character_pattern_is_a_custom_pattern_and_ISO_date_times_are_read(string expression, string expected) =>
+        (await OutputAsync(expression))!.GetValue<string>().ShouldBe(expected);
+
+    [Theory]
+    [InlineData("""$fmtDate("11/03/2026", "yyyy-MM-dd")""", "not a date")]
+    [InlineData("""$fmtDate("2026-11-03 09:12", "yyyy-MM-dd")""", "not a date")]
+    [InlineData("""$fmtDate("Nov 3, 2026", "yyyy-MM-dd")""", "not a date")]
     [InlineData("""$fmtDate("28.10.2026", "yyyyMMdd")""", "not a date")]
     [InlineData("""$fmtNum(1, 11)""", "decimals")]
     [InlineData("""$fmtNum("x", 2)""", "number")]
@@ -148,6 +161,21 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
         output["exact"]!.GetValue<string>().ShouldBe("lower");
         output["wrongCase"]!.GetValue<string>().ShouldBe("-");
         output["number"]!.GetValue<string>().ShouldBe("n");
+    }
+
+    [Fact]
+    public async Task Table_matches_a_number_by_its_value_whatever_its_text()
+    {
+        LookupTableSnapshot[] lookups = [new("vat", CaseSensitive: false, [new("10", "ten"), new("19.00", "nineteen"), new("7", "seven")])];
+        const string Expression = """{ "a": $table("vat", a, "def"), "b": $table("vat", b, "def"), "c": $table("vat", c, "def"), "lit": $table("vat", 10.0, "def"), "text": $table("vat", "10.0", "def") }""";
+
+        var output = await OutputAsync(Expression, """{"a": 10.0, "b": 19, "c": 7.10}""", lookups);
+
+        output!["a"]!.GetValue<string>().ShouldBe("ten", "10.0 from the values view keeps its text, and is the number 10");
+        output["b"]!.GetValue<string>().ShouldBe("nineteen", "the entry 19.00 is the number 19");
+        output["c"]!.GetValue<string>().ShouldBe("def", "7.10 is not 7");
+        output["lit"]!.GetValue<string>().ShouldBe("ten");
+        output["text"]!.GetValue<string>().ShouldBe("def", "a string is matched by its text");
     }
 
     [Fact]
@@ -271,6 +299,163 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
     }
 
     [Fact]
+    public async Task An_output_nested_deeper_than_the_limit_is_a_permanent_depth_error_and_the_limit_itself_renders()
+    {
+        // Built by iteration, so the evaluation depth cap does not see it; the host reads 64 levels at most.
+        var deep = await RenderAsync("""$reduce([1..600], function($acc, $v){ {"a": $acc} }, {})""");
+        deep.Error!.Kind.ShouldBe(RenderErrorKinds.DepthLimit);
+        deep.Error.Code.ShouldBe("OUTPUT_DEPTH");
+        deep.Error.IsPermanent.ShouldBeTrue();
+
+        var over = await RenderAsync($$"""$reduce([1..{{RenderLimits.MaxOutputDepth}}], function($acc, $v){ {"a": $acc} }, {})""");
+        over.Error!.Code.ShouldBe("OUTPUT_DEPTH", "one more level than the limit (the innermost {} is a level too)");
+
+        var limit = await RenderAsync($$"""$reduce([1..{{RenderLimits.MaxOutputDepth - 1}}], function($acc, $v){ {"a": $acc} }, {})""");
+        limit.Error.ShouldBeNull();
+        limit.OutputText!.Count(c => c == '{').ShouldBe(RenderLimits.MaxOutputDepth);
+
+        // A container shared in many places is walked once per depth, not once per path.
+        var shared = await RenderAsync("""$reduce([1..30], function($acc, $v){ {"l": $acc, "r": $acc} }, 1) ~> $type()""");
+        shared.Error.ShouldBeNull();
+        (await OutputAsync("1 + 1"))!.GetValue<int>().ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData('(', ')', "1")]
+    [InlineData('[', ']', "1")]
+    [InlineData('{', '}', "")]
+    public async Task An_expression_nesting_past_the_limit_is_refused_before_the_renderer_parses_it(char open, char close, string inner)
+    {
+        var expression = new string(open, 5000) + inner + new string(close, 5000);
+
+        var result = await RenderAsync(expression);
+        result.Error!.Kind.ShouldBe(RenderErrorKinds.DepthLimit);
+        result.Error.Code.ShouldBe("NESTING");
+        result.Error.IsPermanent.ShouldBeTrue();
+        (await Renderer.CheckAsync(expression, null, TestContext.Current.CancellationToken)).Error!.Code.ShouldBe("NESTING");
+    }
+
+    [Fact]
+    public async Task A_long_run_of_minus_signs_is_refused_and_brackets_in_strings_and_comments_do_not_count()
+    {
+        (await RenderAsync(new string('-', 8000) + "1")).Error!.Code.ShouldBe("NESTING");
+        (await RenderAsync(string.Join(" ", Enumerable.Repeat("-", 1500)) + " 1")).Error!.Code.ShouldBe("NESTING");
+
+        var brackets = new string('(', 3000);
+        (await OutputAsync($"\"{brackets}\" & '{brackets}' & /* {brackets} */ \"x\""))!.GetValue<string>().ShouldBe(brackets + brackets + "x");
+        (await OutputAsync("1 - 1 - (-1) - -1"))!.GetValue<int>().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_long_operator_chain_is_answered_rather_than_crashing_the_renderer()
+    {
+        // Not bracket nesting, so not refused up front: the renderer's large stack keeps the engine from overflowing.
+        var chain = "1" + string.Concat(Enumerable.Repeat(" + 1", 50_000));
+
+        var result = await RenderAsync(chain);
+
+        (result.Error?.Kind).ShouldNotBe(RenderErrorKinds.Unavailable, result.Error?.Message);
+        (await OutputAsync("1 + 1"))!.GetValue<int>().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task An_error_message_is_cut_to_the_limit_in_the_renderer()
+    {
+        var result = await RenderAsync("""$error($join([1..100000].("x" & $string($))))""");
+
+        result.Error!.Kind.ShouldBe(RenderErrorKinds.Runtime);
+        result.Error.Message.Length.ShouldBeLessThanOrEqualTo(RenderLimits.MaxErrorMessageLength);
+        result.Error.Message.ShouldEndWith("\u2026");
+        result.Error.Message.ShouldStartWith("x1x2x3");
+    }
+
+    [Fact]
+    public async Task A_renderer_that_stops_while_running_an_expression_is_tried_once_more_and_then_fails_the_render_for_good()
+    {
+        var folder = Directory.CreateTempSubdirectory("docproc-renderer-crash").FullName;
+        try
+        {
+            // A stand-in renderer that reports ready, reads the request, says it started and exits: what an uncatchable
+            // stack overflow in the engine looks like to the host.
+            var crashing = Script(folder, "crash.sh", """
+                echo '{"ready":true}'
+                read line
+                echo '{"started":true}'
+                exit 134
+                """);
+            using (var renderer = Stub(crashing))
+            {
+                var result = await renderer.RenderAsync(new RenderRequest("1", null, Today), TestContext.Current.CancellationToken);
+                result.Error!.Kind.ShouldBe(RenderErrorKinds.DepthLimit);
+                result.Error.Code.ShouldBe("CRASH");
+                result.Error.IsPermanent.ShouldBeTrue();
+                (await renderer.CheckAsync("1", null, TestContext.Current.CancellationToken)).Error!.Code.ShouldBe("CRASH");
+            }
+
+            // Stopping once (the process was killed under it) and answering on the fresh process is no error.
+            var marker = Path.Combine(folder, "crashed-once");
+            var once = Script(folder, "once.sh", $$"""
+                echo '{"ready":true}'
+                read line
+                echo '{"started":true}'
+                if [ ! -f '{{marker}}' ]; then : > '{{marker}}'; exit 137; fi
+                echo '{"id":0,"ok":true,"undefined":false,"output":7,"outputBytes":1,"elapsedMs":0,"schemaChecked":false,"schemaErrors":[],"referencedPaths":[],"tables":[]}'
+                read line
+                """);
+            using (var renderer = Stub(once))
+            {
+                var result = await renderer.RenderAsync(new RenderRequest("7", null, Today), TestContext.Current.CancellationToken);
+                result.Error.ShouldBeNull();
+                result.Output!.GetValue<int>().ShouldBe(7);
+            }
+
+            // A renderer that stops before it has read the request is unavailable, which is retried later.
+            var down = Script(folder, "down.sh", """
+                echo '{"ready":true}'
+                exit 1
+                """);
+            using (var renderer = Stub(down))
+            {
+                var result = await renderer.RenderAsync(new RenderRequest("1", null, Today), TestContext.Current.CancellationToken);
+                result.Error!.Kind.ShouldBe(RenderErrorKinds.Unavailable);
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+
+        static string Script(string folder, string name, string text)
+        {
+            var path = Path.Combine(folder, name);
+            File.WriteAllText(path, text.Replace("\r\n", "\n", StringComparison.Ordinal) + "\n");
+            return path;
+        }
+
+        static JsonataRenderer Stub(string script) =>
+            new(Options.Create(new JsonataRendererOptions { PoolSize = 1, RendererPath = script, DotnetHostPath = "/bin/sh" }));
+    }
+
+    [Fact]
+    public void A_renderer_that_writes_thousands_of_error_lines_logs_the_first_ones()
+    {
+        // What a stack overflow looks like on standard error: a frame per line.
+        var logger = new CollectingLogger();
+        var log = new JsonataRenderer.ErrorOutputLog(logger);
+
+        log.Line(null);
+        log.Line(string.Empty);
+        for (var i = 0; i < 5000; i++)
+        {
+            log.Line($"   at Jsonata.Net.Native.Impl.Parser.Frame{i}");
+        }
+
+        logger.Count(_ => true).ShouldBe(JsonataRenderer.MaxLoggedErrorLines + 1);
+        logger.Count(m => m.Contains("Frame0", StringComparison.Ordinal)).ShouldBe(1);
+        logger.Count(m => m.Contains("further lines", StringComparison.Ordinal)).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task A_render_that_allocates_past_the_heap_limit_is_stopped()
     {
         using var small = new JsonataRenderer(Options.Create(new JsonataRendererOptions { PoolSize = 1, HeapHardLimitBytes = 256L * 1024 * 1024, TimeLimit = TimeSpan.FromSeconds(20), WallClockLimit = TimeSpan.FromSeconds(60) }));
@@ -358,4 +543,20 @@ public sealed class JsonataRendererTests(RendererFixture fixture) : IClassFixtur
         result.Error!.Kind.ShouldBe(RenderErrorKinds.Unavailable);
         result.Error.IsPermanent.ShouldBeFalse();
     }
+}
+
+/// <summary>The messages a <see cref="JsonataRenderer"/> logs.</summary>
+internal sealed class CollectingLogger : Microsoft.Extensions.Logging.ILogger<JsonataRenderer>
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
+
+    public int Count(Func<string, bool> predicate) => _messages.Count(predicate);
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        _messages.Enqueue(formatter(state, exception));
 }

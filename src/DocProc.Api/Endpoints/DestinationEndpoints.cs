@@ -5,6 +5,7 @@ using DocProc.Api.Auth;
 using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
 using DocProc.Application.Configuration;
+using DocProc.Application.Outputs;
 using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -126,6 +127,7 @@ public static class DestinationEndpoints
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
         [FromServices] ISecretStore secrets,
+        [FromServices] IOutputRenderer renderer,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -142,6 +144,11 @@ public static class DestinationEndpoints
             foreach (var (field, message) in DestinationConfig.Validate(transport, config))
             {
                 errors.Add(field, message);
+            }
+
+            if (await CheckResponseMappingAsync(errors, config, renderer, ct) is { } unavailable)
+            {
+                return unavailable;
             }
         }
 
@@ -192,6 +199,7 @@ public static class DestinationEndpoints
         ITenantContext tenant,
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
+        [FromServices] IOutputRenderer renderer,
         TimeProvider clock,
         CancellationToken ct)
     {
@@ -235,6 +243,11 @@ public static class DestinationEndpoints
                 {
                     errors.Add(field, message);
                 }
+
+                if (await CheckResponseMappingAsync(errors, config, renderer, ct) is { } unavailable)
+                {
+                    return unavailable;
+                }
             }
         }
 
@@ -262,6 +275,32 @@ public static class DestinationEndpoints
         }
 
         return TypedResults.Ok(DestinationResponse.From(destination));
+    }
+
+    /// <summary>
+    /// Compiles an http destination's <c>responseMapping</c> in the renderer, as a binding's condition is: one that does
+    /// not compile (or nests too deeply) is refused now rather than failing after every delivery. Answers 503 when the
+    /// renderer is unavailable.
+    /// </summary>
+    private static async Task<ProblemHttpResult?> CheckResponseMappingAsync(Errors errors, JsonObject config, IOutputRenderer renderer, CancellationToken ct)
+    {
+        if (errors.Has("config.responseMapping") || config["responseMapping"] is not JsonValue value || !value.TryGetValue<string>(out var expression) || string.IsNullOrWhiteSpace(expression))
+        {
+            return null;
+        }
+
+        var check = await renderer.CheckAsync(expression, null, ct);
+        if (check.Error is { Kind: RenderErrorKinds.Unavailable } unavailable)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Renderer unavailable", detail: unavailable.Message);
+        }
+
+        if (check.Error is { } error)
+        {
+            errors.Add("config.responseMapping", $"responseMapping is not a JSONata expression ({error.Kind}): {error.Message}");
+        }
+
+        return null;
     }
 
     private static async Task<Results<Ok<DestinationResponse>, ValidationProblem, ProblemHttpResult>> SetSecretAsync(

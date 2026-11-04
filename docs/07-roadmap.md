@@ -1100,6 +1100,32 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       code mode for a template, read-only for a reviewer), the Deliveries tab (attempts, external id, redelivery, none
       for a reviewer), the review screen's tab gate, the outputs switch in the admin console, supplier attributes,
       query keys; API `DocumentDetail.outputs` on and off.
+  - Done (review fixes, recorded as "Correction (P3, review fixes)" in docs/11 §13.1, §13.3, §13.5 and §13.6):
+    - a render failure the expression causes is permanent for that delivery, not "renderer unavailable" for the whole
+      publish: an output nested more than 48 levels (`depthLimit`, checked in the child), an answer the host cannot
+      read, a child that stops twice on one expression (`CRASH`); expressions nesting brackets or minus signs more
+      than 1000 deep are refused up front, and the child serves renders on a 256 MB stack; the host logs the first 20
+      lines of a child's standard error, not a stack overflow's thousands;
+    - render error messages are cut to 2000 characters in the child, in the host and wherever the fan-out writes them
+      (delivery, attempt, timeline, publish entry, flag);
+    - lookup data per render is bounded in total (100,000 entries, 16 M characters);
+    - re-approval counts a redelivery for the dead letter it replaced (`Update` updates, `Skip` skips), and `Skip`
+      no longer skips for a dead letter; a delivered newer revision cancels the older dead letters of its binding and
+      destination ("Superseded by revision N"), so `DELIVERY_FAILED` resolves after the usual recovery;
+    - concurrent redeliveries of one delivery answer 409 instead of 500;
+    - `$fmtDate` reads one-character patterns as custom ones and only ISO 8601 date-times; `$table` matches numbers
+      by value (`10.0` finds `10`);
+    - the review screen's Deliveries tab reads again after an approval or rejection, and polls an empty list for a
+      minute after the decision until the fan-out shows up;
+    - the OAuth token answer is read up to 64 KB (the delivery client buffers at most 1 MB); the response excerpt
+      masks the URL-encoded secret and `base64(username:secret)` too, of any length; a destination's
+      `responseMapping` is compiled when it is saved;
+    - docs/09's demo names the dialogs' buttons as they read (New destination, New mapping, New binding);
+    - the cause of `A_render_past_the_time_limit_is_stopped_and_the_next_render_works` failing now and then: the time
+      limit counts the child's processor time, and a background JIT (tiered compilation) or GC thread in the child
+      added to it, so a render was stopped after 1.7 s of wall-clock time while other tests ran; the child runs with
+      `DOTNET_TieredCompilation=0` and `DOTNET_gcConcurrent=0` now (startup about 0.25 s longer, outside the limit).
+      The host also read an exited child's processor time without catching the `Win32Exception` Linux throws there.
   - Left for later:
     - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
       (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
@@ -1111,7 +1137,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads `GET /deliveries?documentId=`), the API key
       UI for `deliveries:read` (keys with that scope are made through the API);
     - the pull destination's `retentionDays` (stored, not enforced); masking of a type's
-      `sensitive` fields in response excerpts (§16; only the destination's secret and token are masked);
+      `sensitive` fields in response excerpts (§16; only the destination's credentials are masked: the secret, its
+      URL-encoded and Basic forms, and the token);
+    - a cap on the number of lookup tables per tenant (a render's lookup data is bounded in total instead);
     - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
       them later; `RecipeJson` stays unused;
     - `document.needs_review` bindings; group and receiving-entity scopes (P4);
