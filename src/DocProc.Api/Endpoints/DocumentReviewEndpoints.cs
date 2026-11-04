@@ -272,10 +272,11 @@ public static partial class DocumentEndpoints
         return TypedResults.Ok(await FreshDetailAsync(db, id, configs, features, ct));
     }
 
-    private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> AssignSupplierAsync(
+    private static async Task<Results<Ok<DocumentDetail>, Accepted<DocumentDetail>, ValidationProblem, ProblemHttpResult>> AssignSupplierAsync(
         Guid id,
         AssignSupplierRequest request,
         [FromServices] DocProcDbContext db,
+        IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
         [FromServices] IEffectiveConfigResolver configs,
@@ -332,6 +333,19 @@ public static partial class DocumentEndpoints
         if (!await TrySaveAsync(db, ct))
         {
             return ConcurrentChange(id);
+        }
+
+        // docs/11 §12.1: with supplierLayouts, the assignment re-runs classify.identification for the supplier through the
+        // reprocess path (from Classify, 202), so the document takes the same identification path as a routed one: one
+        // of its layouts applied with evidence, NEW_LAYOUT, or the Unknown panel. A document that never reached
+        // Classify (or an e-invoice, whose XML decides) is rechecked inline as before.
+        if (await features.IsEnabledAsync(tenantId, TenantFeature.SupplierLayouts, ct) && document.TypeSource != TypeSource.Structured && document.EmbeddedXmlBlob is null)
+        {
+            var current = await db.Documents.AsNoTracking().SingleAsync(d => d.Id == id, ct);
+            if (await ReprocessCoreAsync(db, queue, current, PipelineStage.Classify, unpin: false, actor, now, ReprocessConfigModes.Pinned, ct) is null)
+            {
+                return TypedResults.Accepted($"/api/v1/documents/{id}", await FreshDetailAsync(db, id, configs, features, ct));
+            }
         }
 
         await RecheckAsync(db, document, configs, validator, now, ct);

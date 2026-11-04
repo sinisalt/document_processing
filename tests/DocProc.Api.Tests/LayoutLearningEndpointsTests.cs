@@ -373,6 +373,22 @@ public sealed class LayoutLearningEndpointsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Assigning_a_supplier_reruns_identification_through_the_reprocess_path_from_Classify()
+    {
+        var name = $"Nordwind {Guid.NewGuid():N}";
+        var supplier = Supplier(name);
+        var document = await SeedAsync(name, WebShop(), newLayout: false);
+        using var reviewer = Reviewer();
+
+        var response = await reviewer.PostAsJsonAsync($"/api/v1/documents/{document}:assign-supplier", new AssignSupplierRequest(supplier), ApiFactory.Json, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted, await response.Content.ReadAsStringAsync(Ct));
+        var detail = (await response.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!;
+        detail.SupplierMatchMethod.ShouldBe(SupplierMatchMethod.Human);
+        _factory.Queue.Documents.ShouldContain(m => m.DocumentId == document && m.Stage == PipelineStage.Classify);
+    }
+
+    [Fact]
     public async Task A_notification_is_dismissed_by_a_member_who_may_see_it()
     {
         var name = $"Nordwind {Guid.NewGuid():N}";
