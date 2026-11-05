@@ -176,8 +176,39 @@ export const queryKeys = {
     golden: () => ["governance", "golden-documents"] as const,
   },
 
+  /**
+   * Configurable steps (docs/11 §10, P5): the step and rule kinds of the deployment and the pipeline a type runs for a
+   * supplier (under the type, so a published version refreshes it; under `pipelines.all` too, for a supplier's save).
+   */
+  pipelines: {
+    all: ["pipelines"] as const,
+    stepKinds: () => ["pipelines", "step-kinds"] as const,
+    ruleKinds: () => ["pipelines", "rule-kinds"] as const,
+    resolved: (typeKey: string, supplierId?: string | null) => ["pipelines", "resolved", typeKey, supplierId ?? null] as const,
+  },
+
+  /** Tenant fallback identification rules of a type (docs/11 §8.5): the list per type and one rule with its versions. */
+  identificationRules: {
+    all: ["identification-rules"] as const,
+    ofType: (typeKey: string) => ["identification-rules", "type", typeKey] as const,
+  },
+
+  /** Master data (docs/11 §6.8, §14): the sources and the runs of one source. */
+  masterData: {
+    all: ["master-data"] as const,
+    sources: () => ["master-data", "sources"] as const,
+    runs: (sourceId: string) => ["master-data", "sources", sourceId, "runs"] as const,
+  },
+
+  /** Insights > Onboarding (docs/11 §17), per window. */
+  insights: {
+    all: ["insights"] as const,
+    automation: (from: string, to: string) => ["insights", "automation", from, to] as const,
+  },
+
   llm: {
     all: ["llm"] as const,
+    budgets: () => ["llm", "budgets"] as const,
     policy: () => ["llm", "policy"] as const,
     providers: () => ["llm", "providers"] as const,
     usage: (query?: LlmUsageQuery) => ["llm", "usage", plainKey(query)] as const,

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Ban, CaseSensitive, Check, CircleAlert, Expand, Loader2, Plus, Trash2, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle, Badge, Button, ToggleGroup, ToggleGroupItem } from "@docproc/ui";
@@ -22,6 +23,8 @@ export interface IdentificationCardProps {
   identifiedBy?: string | null;
   /** Identifiers can be marked (a document held with NEW_LAYOUT); otherwise the card only explains the evidence. */
   canMark?: boolean;
+  /** Below the test: "use for all suppliers without own layouts" for a ConfigAdmin (docs/11 §12.10 step 5). */
+  footer?: ReactNode;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface IdentificationCardProps {
  * these" or "Any of these", per chip widen the location, case-sensitive, "must not contain" and remove; the rule's
  * live test on this document and on the supplier's recent documents, with the overlaps with other layouts in red.
  */
-export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy, canMark = true }: IdentificationCardProps) {
+export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy, canMark = true, footer }: IdentificationCardProps) {
   const { t } = useTranslation();
   const holds = here.data?.documents.find((d) => d.documentId === documentId);
   const others = (recent.data?.documents ?? []).filter((d) => d.documentId !== documentId);
@@ -188,6 +191,7 @@ export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCa
           )}
         </div>
       )}
+      {footer}
     </section>
   );
 }

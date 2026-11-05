@@ -27,6 +27,7 @@ import {
   type FormSpec,
   type HighlightReason,
   type MappedSources,
+  useTenantFeatures,
 } from "@docproc/review";
 import { DeliveriesTab } from "./DeliveriesTab";
 import { FlagsList, sortFlags } from "./FlagsList";
@@ -34,6 +35,7 @@ import { IdentificationCard } from "./IdentificationCard";
 import { LayoutSavedDialog } from "./LayoutSavedDialog";
 import { NewLayoutPanel, defaultLayoutChoice } from "./NewLayoutPanel";
 import { IntegrationIssuePanel, RevisionPanel, openFlag } from "./RevisionPanel";
+import { TenantRuleAction } from "./TenantRuleAction";
 import { useIdentify } from "./useIdentify";
 import { MapDocumentPanel } from "./MapDocumentPanel";
 import { OriginalTab } from "./OriginalTab";
@@ -80,10 +82,12 @@ export interface ReviewScreenProps {
   canManageSuppliers?: boolean;
   /** An integration admin (redelivery in the Deliveries tab). */
   canRedeliver?: boolean;
+  /** A ConfigAdmin ("use for all suppliers without own layouts", the tenant fallback rules of docs/11 §8.5). */
+  canConfigure?: boolean;
 }
 
 /** Remounted (by key) whenever the server's version of the document changes, so the form always starts from it. */
-export function ReviewScreen({ document, canReview, threshold, locale, canManageSuppliers = false, canRedeliver = false }: ReviewScreenProps) {
+export function ReviewScreen({ document, canReview, threshold, locale, canManageSuppliers = false, canRedeliver = false, canConfigure = false }: ReviewScreenProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { client } = useApi();
@@ -173,7 +177,13 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
   const newLayout = layoutFlag?.code === "NEW_LAYOUT" ? layoutFlag : null;
   const identifiedLayout = useMemo(() => appliedLayout(document.appliedConfig), [document.appliedConfig]);
   const learnable = canReview && isCorrectable(document.status) && newLayout !== null && !!document.supplierId;
-  const identifyAvailable = pageCount > 0 && !!document.supplierId && (learnable || (identifiedLayout !== null && !!document.supplierLayoutVersionId));
+  // A tenant fallback rule (docs/11 §8.5, §12.10 step 5, P5): a ConfigAdmin marks identifiers on a typed document no
+  // layout filled (a supplier without own layouts, or none known) and offers them for every supplier without layouts.
+  const tenantFeatures = useTenantFeatures();
+  const tenantRuleMarkable =
+    canConfigure && canReview && tenantFeatures.data?.supplierLayouts === true && isCorrectable(document.status) && newLayout === null && !document.supplierLayoutVersionId && document.type !== "Unknown" && pageCount > 0;
+  const identifyAvailable = pageCount > 0 && ((!!document.supplierId && (learnable || (identifiedLayout !== null && !!document.supplierLayoutVersionId))) || tenantRuleMarkable);
+  const canMarkIdentifiers = learnable || tenantRuleMarkable;
   const supplierLayouts = useSupplierLayouts(document.supplierId, newLayout !== null);
   const [identifyChoice, setIdentifyMode] = useSessionState(document.id, "identifyMode", false);
   const identifyMode = identifyAvailable && identifyChoice;
@@ -184,7 +194,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
     [storedChoice, newLayout, document, supplierLayouts.data],
   );
   const [savedLayout, setSavedLayout] = useSessionState(document.id, "savedLayout", null);
-  const identify = useIdentify(document.id, document.supplierId ?? null, identification, setIdentification, document.definition?.key ?? null);
+  const identify = useIdentify(document.id, document.supplierId ?? null, identification, setIdentification, document.definition?.key ?? null, !learnable && tenantRuleMarkable ? "tenant" : "supplier");
   const evidence = useMemo(() => {
     if (!identifyMode) return [];
     const tested = identify.here.data?.documents.find((d) => d.documentId === document.id);
@@ -363,7 +373,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
           : undefined,
         onPick: (onPage, pick) => {
           if (identifyMode) {
-            if (learnable) identify.pick(onPage, pick);
+            if (canMarkIdentifiers) identify.pick(onPage, pick);
             return;
           }
           if (tableMode) {
@@ -754,7 +764,17 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                         active={identifyMode}
                         onActivate={() => changeIdentifyMode(true)}
                         identifiedBy={identifiedLayout && !learnable ? `${identifiedLayout.layoutKey} v${identifiedLayout.version}` : null}
-                        canMark={learnable}
+                        canMark={canMarkIdentifiers}
+                        footer={
+                          tenantRuleMarkable ? (
+                            <TenantRuleAction
+                              documentId={document.id}
+                              typeKey={document.definition?.key ?? document.type}
+                              rule={identify.rule as Record<string, unknown> | null}
+                              holds={identify.here.data?.documents.find((d) => d.documentId === document.id)?.matched === true}
+                            />
+                          ) : undefined
+                        }
                       />
                     </TabsContent>
                   )}
@@ -763,7 +783,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                   </TabsContent>
                   {showDeliveriesTab && (
                     <TabsContent value="deliveries" className="p-4">
-                      <DeliveriesTab documentId={document.id} enabled={tab === "deliveries"} canRedeliver={canRedeliver} settledAt={settledAt} />
+                      <DeliveriesTab documentId={document.id} enabled={tab === "deliveries"} canRedeliver={canRedeliver} settledAt={settledAt} rejection={openFlag(document, "EXTERNAL_REJECTED")} />
                     </TabsContent>
                   )}
                   <TabsContent value="original" className="p-4">

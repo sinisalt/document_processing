@@ -42,6 +42,10 @@ import { isFormSpec, specsFromDefinition } from "../lib/formSpec";
 import { REVIEW_NS, localized } from "../lib/labels";
 import { toFormValues } from "../lib/values";
 import { useDocumentType, useDocumentTypeVersion, type DocumentTypeVersionDetail, type PublishReport } from "./api";
+import { useTenantFeatures } from "./DocumentTypesPanel";
+import { IdentificationTab } from "./IdentificationTab";
+import { ProcessingTab } from "./ProcessingTab";
+import { RulesTab } from "./RulesTab";
 import {
   addField,
   childrenOf,
@@ -166,6 +170,7 @@ export function DocumentTypeEditor({ typeKey, canEdit, onBack }: DocumentTypeEdi
           detail={detail}
           etag={version.data?.etag ?? null}
           editable={canEdit && isDraft}
+          canConfigAdmin={canEdit}
           versions={versions}
           onChooseVersion={setChosen}
           onChanged={invalidate}
@@ -180,12 +185,14 @@ interface WorkspaceProps {
   detail: DocumentTypeVersionDetail;
   etag: string | null;
   editable: boolean;
+  /** ConfigAdmin with configurableTypes: may change the tenant fallback rules of the type, whatever version is open. */
+  canConfigAdmin: boolean;
   versions: ReadonlyArray<DocumentTypeVersionDetail["version"]>;
   onChooseVersion: (version: number) => void;
   onChanged: () => Promise<void>;
 }
 
-function VersionWorkspace({ typeKey, detail, etag, editable, versions, onChooseVersion, onChanged }: WorkspaceProps) {
+function VersionWorkspace({ typeKey, detail, etag, editable, canConfigAdmin, versions, onChooseVersion, onChanged }: WorkspaceProps) {
   const { t } = useTranslation(REVIEW_NS);
   const { client } = useApi();
   const saved = useMemo(() => (isDefinition(detail.definition) ? detail.definition : null), [detail.definition]);
@@ -198,6 +205,10 @@ function VersionWorkspace({ typeKey, detail, etag, editable, versions, onChooseV
   const versionNumber = Number(detail.version.version);
   const dirty = JSON.stringify(definition) !== JSON.stringify(saved);
   const issues = useMemo(() => (definition ? fieldIssues(definition) : []), [definition]);
+  // The tenant fallback identification rules (P5) need supplierLayouts; their writes ConfigAdmin, whatever the version.
+  const features = useTenantFeatures();
+  const identificationOn = features.data?.supplierLayouts === true;
+  const canConfigure = canConfigAdmin;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -285,6 +296,17 @@ function VersionWorkspace({ typeKey, detail, etag, editable, versions, onChooseV
       <div className="flex flex-wrap items-center gap-2">
         <TabsList>
           <TabsTrigger value="fields">{t("types.tabs.fields")}</TabsTrigger>
+          <TabsTrigger value="rules" data-testid="type-tab-rules">
+            {t("types.tabs.rules")}
+          </TabsTrigger>
+          <TabsTrigger value="processing" data-testid="type-tab-processing">
+            {t("types.tabs.processing")}
+          </TabsTrigger>
+          {identificationOn && (
+            <TabsTrigger value="identification" data-testid="type-tab-identification">
+              {t("types.tabs.identification")}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="preview">{t("types.tabs.preview")}</TabsTrigger>
           <TabsTrigger value="versions">{t("types.tabs.versions")}</TabsTrigger>
           <TabsTrigger value="json">{t("types.tabs.json")}</TabsTrigger>
@@ -359,6 +381,14 @@ function VersionWorkspace({ typeKey, detail, etag, editable, versions, onChooseV
           </CardContent>
         </Card>
       </TabsContent>
+
+      <TabsContent value="rules">
+        {tab === "rules" && <RulesTab typeKey={typeKey} version={versionNumber} definition={definition} editable={editable} dirty={dirty} onChange={setDefinition} />}
+      </TabsContent>
+
+      <TabsContent value="processing">{tab === "processing" && <ProcessingTab typeKey={typeKey} />}</TabsContent>
+
+      {identificationOn && <TabsContent value="identification">{tab === "identification" && <IdentificationTab typeKey={typeKey} canEdit={canConfigure} />}</TabsContent>}
 
       <TabsContent value="preview">
         <Preview detail={detail} dirty={dirty} />

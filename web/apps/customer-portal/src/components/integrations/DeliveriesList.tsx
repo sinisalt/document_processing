@@ -36,6 +36,28 @@ export function errorClassText(errorClass: string | null, t: (key: string, optio
   return rest.join(":") ? `${label} · ${rest.join(":")}` : label;
 }
 
+/** The badge of an acknowledgement (docs/11 §13.8): Pending until the receiver answers, then Accepted, Posted or Rejected. */
+export function externalStatusVariant(status: string): ComponentProps<typeof Badge>["variant"] {
+  switch (status) {
+    case "Accepted":
+    case "Posted":
+      return "success";
+    case "Rejected":
+      return "destructive";
+    default:
+      return "secondary";
+  }
+}
+
+export function ExternalStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
+  return (
+    <Badge variant={externalStatusVariant(status)} data-external-status={status}>
+      {t(`integrations.deliveries.externalStatuses.${status}`, { defaultValue: status })}
+    </Badge>
+  );
+}
+
 export function DeliveryStatusBadge({ status }: { status: string }) {
   const { t } = useTranslation();
   return (
@@ -159,7 +181,13 @@ function DeliveryDetailPanel({ delivery, canRedeliver }: { delivery: Delivery; c
           <>
             <dt className="text-muted-foreground">{t("integrations.deliveries.externalId")}</dt>
             <dd className="font-mono" data-testid="delivery-external-id">
-              {detail.data.externalRef.externalId} · {detail.data.externalRef.status}
+              {detail.data.externalRef.externalId}
+            </dd>
+            <dt className="text-muted-foreground">{t("integrations.deliveries.acknowledgement")}</dt>
+            <dd className="flex flex-wrap items-center gap-2" data-testid="delivery-acknowledgement">
+              <ExternalStatusBadge status={detail.data.externalRef.status} />
+              <span className="text-muted-foreground">{formatDateTime(detail.data.externalRef.updatedAt, i18n.language)}</span>
+              {detail.data.externalRef.message && <span>{detail.data.externalRef.message}</span>}
             </dd>
           </>
         )}

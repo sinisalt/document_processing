@@ -4,6 +4,7 @@ import { nav, navFor } from "./nav";
 describe("navFor", () => {
   it("drops the tenant-only screens for a platform account", () => {
     expect(navFor({ scope: "platform" }).map((item) => item.to)).toEqual(["/", "/documents", "/review"]);
+    expect(nav.map((item) => item.to)).toContain("/insights");
   });
 
   it("keeps every entry in tenant scope and while the user is unknown", () => {

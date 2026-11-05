@@ -4,7 +4,8 @@
     "inbox": "Posteingang",
     "review": "Prüfliste",
     "suppliers": "Lieferanten",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "insights": "Auswertungen"
   },
   "dashboard": {
     "title": "Übersicht",
@@ -148,7 +149,8 @@
       "document": "Dokument",
       "validFrom": "Gültig ab",
       "validUntil": "Gültig bis",
-      "lineCount": "Zeilen"
+      "lineCount": "Zeilen",
+      "reviewDue": "Prüfung fällig"
     },
     "filters": {
       "search": "Suche",
@@ -167,7 +169,8 @@
       "anyField": "Beliebiges Feld",
       "fieldValue": "{{field}} ist",
       "newLayouts": "Neue Layouts",
-      "pendingLayout": "Wartet auf ein Layout"
+      "pendingLayout": "Wartet auf ein Layout",
+      "urgentFirst": "Dringende zuerst"
     },
     "emptyTitle": "Keine Dokumente",
     "emptyFiltered": "Kein Dokument passt zu diesen Filtern.",
@@ -190,7 +193,9 @@
       "High": "Hoch",
       "Urgent": "Dringend"
     },
-    "newLayoutBadge": "Neues Layout"
+    "newLayoutBadge": "Neues Layout",
+    "dueOverdue": "überfällig ({{when}})",
+    "supersededBy": "Ersetzt"
   },
   "upload": {
     "button": "Hochladen",
@@ -506,6 +511,18 @@
         "supersedes": "Dieses Dokument ersetzt das frühere.",
         "additional": "Beide Dokumente bleiben bestehen.",
         "duplicate": "Als Duplikat abgelehnt."
+      },
+      "note": "Notiz (im Verlauf; bei einem Duplikat der Ablehnungsgrund)",
+      "earlier": "Früheres Dokument",
+      "this": "Dieses Dokument",
+      "facts": {
+        "number": "Nummer",
+        "validFrom": "Gültig ab",
+        "validUntil": "Gültig bis",
+        "lineCount": "Zeilen",
+        "status": "Status",
+        "received": "Eingegangen",
+        "approved": "Freigegeben"
       }
     },
     "integrationIssue": {
@@ -527,7 +544,8 @@
     "deliveries": {
       "description": "Wohin dieses Dokument zugestellt wurde: eine Zeile je Verknüpfung, die zu seiner Freigabe oder Ablehnung passte. Öffnen Sie eine Zeile für ihre Versuche, die Antworten des Empfängers und die gesendete Nutzlast.",
       "empty": "Keine Zustellungen",
-      "emptyDescription": "Keine Verknüpfung passte zu diesem Dokument, oder es wurde noch nicht freigegeben oder abgelehnt."
+      "emptyDescription": "Keine Verknüpfung passte zu diesem Dokument, oder es wurde noch nicht freigegeben oder abgelehnt.",
+      "rejectedTitle": "Von {{destination}} abgelehnt"
     },
     "layoutChip": "Layout {{layout}} v{{version}}",
     "layoutChipHint": "Das Layout, das dieses Dokument erkannt und seine Felder gefüllt hat",
@@ -627,6 +645,23 @@
       "reprocessed_one": "{{count}} Dokument ab Klassifizierung neu gestartet.",
       "reprocessed_other": "{{count}} Dokumente ab Klassifizierung neu gestartet.",
       "notFound": "Das gespeicherte Layout wurde nicht gefunden."
+    },
+    "tenantRule": {
+      "title": "Für alle Lieferanten ohne eigene Layouts verwenden",
+      "description": "Die markierten Merkmale als Ersatzregel von {{type}} speichern: Sie bestimmt den Typ für Dokumente unbekannter Lieferanten und von Lieferanten ohne eigene Layouts, vor den Schlüsselwörtern und dem LLM.",
+      "name": "Name der Regel",
+      "namePlaceholder": "Optional",
+      "useForAll": "Für alle Lieferanten ohne eigene Layouts verwenden",
+      "mustHold": "Die Regel muss auf dieses Dokument zutreffen.",
+      "saved": "Regel {{name}} als Entwurf gespeichert und getestet.",
+      "draftTitle": "Regel {{name}} ist ein Entwurf",
+      "activeTitle": "Regel {{name}} ist aktiv",
+      "activate": "Aktivieren",
+      "activated": "Regel {{name}} ist aktiv.",
+      "openEditor": "Im Typ-Editor öffnen",
+      "confirmTitle": "Trotz anderer Typen aktivieren?",
+      "confirm": "Die Regel {{summary}}. Diese Dokumente bekämen ihren Typ von dieser Regel.",
+      "activateAnyway": "Trotzdem aktivieren"
     }
   },
   "queue": {
@@ -661,7 +696,8 @@
       "MANUAL_REVIEW": "Prüfung erforderlich"
     },
     "reviewersOnlyTitle": "Die Prüfliste ist für Prüfer",
-    "reviewersOnly": "Ihre Rolle darf Dokumente lesen, aber nicht prüfen. Fragen Sie einen Mandanten-Admin, wenn Sie die Prüfliste bearbeiten sollen."
+    "reviewersOnly": "Ihre Rolle darf Dokumente lesen, aber nicht prüfen. Fragen Sie einen Mandanten-Admin, wenn Sie die Prüfliste bearbeiten sollen.",
+    "integrationIssue": "Integrationsproblem"
   },
   "suppliers": {
     "title": "Lieferanten",
@@ -699,7 +735,8 @@
       "settings": "Einstellungen",
       "attributes": "Attribute",
       "routing": "Zuordnung",
-      "layouts": "Layouts"
+      "layouts": "Layouts",
+      "processing": "Verarbeitung"
     },
     "fields": {
       "name": "Name",
@@ -1290,6 +1327,37 @@
         "skip": "überspringen",
         "error": "Fehler"
       }
+    },
+    "budgets": {
+      "title": "LLM-Budgets",
+      "description": "Was das LLM höchstens kosten darf, je UTC-Tag, UTC-Monat oder Dokument, für alle Stufen oder eine. Ein Aufruf, der ein Budget überschritte, unterbleibt; das Dokument läuft ohne LLM weiter und wird mit \"LLM-Budget überschritten\" angehalten.",
+      "none": "Keine Budgets: Es gilt nur die Ausgabengrenze des Anbieters.",
+      "period": "Zeitraum",
+      "stage": "Stufe",
+      "limit": "Grenze (USD)",
+      "spent": "Verbraucht",
+      "spentOf": "{{spent}} von {{limit}}",
+      "perDocument": "Je Dokument",
+      "allStages": "Alle Stufen",
+      "periods": {
+        "day": "Tag (UTC)",
+        "month": "Monat (UTC)",
+        "document": "Dokument"
+      },
+      "stages": {
+        "Classify": "Klassifizieren",
+        "Split": "Trennen",
+        "Extract": "Auslesen",
+        "Synthesize": "Erzeugen"
+      },
+      "add": "Budget hinzufügen",
+      "remove": "Budget entfernen",
+      "save": "Budgets speichern",
+      "saved": "Budgets gespeichert.",
+      "problems": {
+        "limit": "Zeile {{row}}: Die Grenze ist ein Betrag in USD, 0 oder mehr.",
+        "duplicate": "Zeile {{row}}: Jeder Zeitraum und jede Stufe hat ein Budget."
+      }
     }
   },
   "integrations": {
@@ -1301,7 +1369,8 @@
       "mappings": "Ausgabe-Mappings",
       "bindings": "Verknüpfungen",
       "lookups": "Nachschlagetabellen",
-      "deliveries": "Zustellprotokoll"
+      "deliveries": "Zustellprotokoll",
+      "masterData": "Stammdaten"
     },
     "edit": "Bearbeiten",
     "delete": "Löschen",
@@ -1746,7 +1815,44 @@
       "showPayload": "Nutzlast zeigen",
       "hidePayload": "Nutzlast ausblenden",
       "redeliverSnapshot": "Erneut zustellen",
-      "redeliverRerender": "Neu erzeugen und zustellen"
+      "redeliverRerender": "Neu erzeugen und zustellen",
+      "acknowledgement": "Rückmeldung",
+      "externalStatuses": {
+        "Pending": "Wartet auf den Empfänger",
+        "Accepted": "Angenommen",
+        "Posted": "Gebucht",
+        "Rejected": "Abgelehnt"
+      }
+    },
+    "acknowledgements": {
+      "open": "Rückmeldungen",
+      "on": "Rückmeldungen an",
+      "title": "Rückmeldungen von {{name}}",
+      "description": "Wie das empfangende System meldet, was aus einem zugestellten Dokument wurde. Eine Ablehnung kennzeichnet das Dokument mit \"Vom empfangenden System abgelehnt\" und öffnet ein Integrationsproblem; das Dokument bleibt abgeschlossen.",
+      "callback": "Rückruf: Der Empfänger meldet sich bei uns",
+      "callbackUrl": "Rückruf-URL",
+      "auth": "Authentifizierung",
+      "auths": {
+        "hmacSha256": "HMAC-SHA256-Signatur",
+        "bearer": "Bearer-Token"
+      },
+      "hmacHint": "Der Empfänger signiert \"<X-DocProc-Timestamp>.<body>\" mit dem Geheimnis und sendet X-DocProc-Signature: sha256=<hex>; ein Zeitstempel älter als 5 Minuten wird abgelehnt.",
+      "bearerHint": "Der Empfänger sendet Authorization: Bearer <Geheimnis>.",
+      "mapping": "Zuordnung (JSONata, optional)",
+      "secret": "Rückruf-Geheimnis",
+      "secretIsSet": "Gesetzt",
+      "noSecret": "Nicht gesetzt",
+      "previousSecret": "Vorheriges gilt noch",
+      "setSecret": "Geheimnis setzen",
+      "rotate": "Wechseln",
+      "secretSet": "Rückruf-Geheimnis gesetzt.",
+      "secretHint": "16 Zeichen oder mehr. Es wird nie wieder angezeigt; nach einem Wechsel gilt das vorherige bis zum nächsten.",
+      "poll": "Statusabfrage: Wir fragen den Empfänger",
+      "urlTemplate": "Status-URL",
+      "urlHint": "Auf dem Host des Ziels; {externalId} und {documentId} dürfen im Pfad oder in der Abfrage stehen.",
+      "interval": "Alle (Minuten)",
+      "maxPolls": "Höchstens (Abfragen)",
+      "saved": "Rückmeldungen von {{name}} gespeichert."
     }
   },
   "routing": {
@@ -1779,6 +1885,268 @@
       "held": "erfüllt: {{conditions}}",
       "failed": "nicht erfüllt: {{conditions}}",
       "unverified": "(Absender nicht authentifiziert)"
+    }
+  },
+  "processing": {
+    "type": "Typ",
+    "pickType": "Typ wählen",
+    "typeHint": "Die Schritte, die Dokumente dieses Lieferanten und Typs durchlaufen, mit den Abweichungen dieses Lieferanten; die von Gruppe und Layout zeigt ihre Quelle.",
+    "overridesTitle": "Abweichungen dieses Lieferanten",
+    "overridesDescription": "Einen Schritt ausschalten, die Parameter eines Schritts ändern oder eine HTTP-Abfrage nach einem Ausleseschritt einfügen. Sie gelten für alle Typen des Lieferanten; eine, die einen Schritt nennt, den ein Typ nicht hat, wird übersprungen.",
+    "none": "Keine Abweichungen: Es laufen die Schritte des Typs.",
+    "ops": {
+      "disable": "{{step}} ausschalten",
+      "param": "{{step}}: {{params}}",
+      "insertAfter": "{{kind}} {{id}} nach {{step}}",
+      "replace": "{{step}} durch {{id}} ersetzen"
+    },
+    "addDisable": "Schritt ausschalten",
+    "addParam": "Parameter ändern",
+    "addLookup": "HTTP-Abfrage einfügen",
+    "stepToDisable": "Auszuschaltender Schritt",
+    "stepToChange": "Schritt",
+    "pickStep": "Schritt wählen",
+    "add": "Hinzufügen",
+    "apply": "Übernehmen",
+    "cancel": "Abbrechen",
+    "edit": "Bearbeiten",
+    "remove": "Entfernen",
+    "save": "Abweichungen speichern",
+    "discard": "Änderungen verwerfen",
+    "saved": "Abweichungen von {{name}} gespeichert.",
+    "refused": "Die Abweichungen wurden abgelehnt",
+    "lookupsNote": "Eine HTTP-Abfrage läuft nach dem Auslesen und schreibt ihre Antwort als erschlossen in leere Felder (mit mode override auch darüber), nie über eine Korrektur.",
+    "lookup": {
+      "id": "Schritt-Kennung",
+      "after": "Nach",
+      "idProblems": {
+        "form": "Ein Buchstabe, dann Buchstaben, Ziffern, '.', '_' oder '-'.",
+        "taken": "Ein anderer Schritt hat diese Kennung."
+      },
+      "pickDestination": "HTTP-Ziel wählen",
+      "noDestinations": "Noch kein HTTP-Ziel (Einstellungen > Integrationen)",
+      "missing": "Erforderlich: {{names}}",
+      "testTitle": "Testaufruf",
+      "testHint": "Ruft das Ziel für ein Dokument des Lieferanten mit diesen Parametern auf und zeigt, was die Zuordnung schriebe. Nichts wird geschrieben oder gespeichert.",
+      "pickDocument": "Dokument wählen",
+      "noDocuments": "Noch keine Dokumente dieses Lieferanten",
+      "test": "Testaufruf",
+      "succeeded": "Geantwortet",
+      "attempts_one": "{{count}} Anfrage",
+      "attempts_other": "{{count}} Anfragen",
+      "reasons": {
+        "blocked": "Adresse abgelehnt",
+        "circuitOpen": "Nach Fehlern pausiert",
+        "destination": "Ziel nicht nutzbar",
+        "mapping": "Zuordnung fehlgeschlagen",
+        "network": "Nicht erreichbar",
+        "request": "Anfrage fehlgeschlagen",
+        "secret": "Geheimnis fehlt",
+        "status": "Fehlerantwort",
+        "timeout": "Zeitüberschreitung",
+        "token": "Token fehlgeschlagen",
+        "tooLarge": "Antwort zu groß",
+        "failed": "Fehlgeschlagen"
+      }
+    }
+  },
+  "masterData": {
+    "title": "Stammdaten",
+    "description": "Lieferantendaten aus Ihrem ERP: ein einmaliger Import oder eine Quelle, die nach Zeitplan gelesen wird. Datensätze werden über die Kreditorennummer im ERP, die USt-IdNr. und dann eine IBAN zugeordnet, jedes Feld nach seiner Konfliktregel.",
+    "matchKeys": "Zuordnen über",
+    "dryRun": "Probelauf",
+    "imported": "Importiert: {{created}} angelegt, {{updated}} geändert.",
+    "import": {
+      "title": "Lieferanten importieren",
+      "description": "Prüfen Sie die Datei mit einem Probelauf und importieren Sie sie dann. Dieselbe Datei ein zweites Mal ändert nichts.",
+      "format": "Format",
+      "file": "Datei",
+      "csv": "CSV (erste Zeile: die Spaltennamen)",
+      "json": "JSON: ein Array von {name, vatId, taxId, ibans, currency, attributes}",
+      "target": "Feld",
+      "column": "Spalte",
+      "columnOf": "Spalte für {{target}}",
+      "skip": "Nicht importiert",
+      "policy": "Bei Abweichung",
+      "policyOf": "Regel für {{target}}",
+      "apply": "Importieren",
+      "checkFirst": "Zuerst einen Probelauf machen."
+    },
+    "policies": {
+      "default": "Standard (ERP gewinnt)",
+      "externalWins": "Der Wert des ERP gewinnt",
+      "localWins": "Unseren behalten",
+      "flag": "Als Konflikt melden"
+    },
+    "report": {
+      "dryRun": "Probelauf",
+      "applied": "Übernommen",
+      "created_one": "{{count}} angelegt",
+      "created_other": "{{count}} angelegt",
+      "updated_one": "{{count}} geändert",
+      "updated_other": "{{count}} geändert",
+      "unchanged_one": "{{count}} unverändert",
+      "unchanged_other": "{{count}} unverändert",
+      "conflicts_one": "{{count}} Konflikt",
+      "conflicts_other": "{{count}} Konflikte",
+      "errors_one": "{{count}} Fehler",
+      "errors_other": "{{count}} Fehler",
+      "problemsOnly": "Nur Konflikte und Fehler",
+      "failed": "Der Lauf ist fehlgeschlagen",
+      "row": "Zeile",
+      "action": "Ergebnis",
+      "supplier": "Lieferant",
+      "matchedBy": "Zugeordnet über",
+      "details": "Einzelheiten",
+      "conflictOn": "Konflikt bei {{attribute}}",
+      "summary": "{{created}} angelegt, {{updated}} geändert, {{conflicts}} Konflikte, {{errors}} Fehler"
+    },
+    "actions": {
+      "create": "Anlegen",
+      "update": "Ändern",
+      "unchanged": "Unverändert",
+      "conflict": "Konflikt",
+      "error": "Fehler"
+    },
+    "statuses": {
+      "Succeeded": "Erfolgreich",
+      "Failed": "Fehlgeschlagen"
+    },
+    "triggers": {
+      "Manual": "Von Hand",
+      "Schedule": "Nach Zeitplan",
+      "Import": "Import"
+    },
+    "transports": {
+      "http": "HTTP (ein Ziel)",
+      "upload": "Hochladen"
+    },
+    "sources": {
+      "title": "Quellen",
+      "description": "Eine Quelle liest ein HTTP-Ziel nach Zeitplan (höchstens alle 15 Minuten) oder nimmt hochgeladene Datensätze; ihre JSONata-Zuordnung macht aus der Antwort Lieferantendaten.",
+      "new": "Neue Quelle",
+      "none": "Noch keine Quellen.",
+      "name": "Name",
+      "transport": "Übertragung",
+      "schedule": "Zeitplan",
+      "scheduleHint": "Cron (Minute Stunde Tag Monat Wochentag), optional mit CRON_TZ=<Zone> davor; leer für Läufe nur von Hand.",
+      "lastRun": "Letzter Lauf",
+      "next": "nächster {{when}}",
+      "disabled": "Aus",
+      "run": "Ausführen",
+      "runs": "Läufe",
+      "runsOf": "Läufe von {{name}}",
+      "noRuns": "Noch keine Läufe.",
+      "edit": "{{name}} bearbeiten",
+      "delete": "{{name}} löschen",
+      "deleteTitle": "{{name}} löschen?",
+      "deleteDescription": "Die Quelle und ihre Läufe werden entfernt; die Lieferanten, die sie schrieb, bleiben.",
+      "runTitle": "{{name}} ausführen",
+      "dryRunTitle": "Probelauf von {{name}}",
+      "uploadHint": "Die zu übernehmenden Datensätze als JSON (vor der Zuordnung der Quelle).",
+      "httpHint": "Liest das Ziel jetzt und übernimmt die Datensätze (ein Probelauf ändert nichts).",
+      "records": "Datensätze",
+      "newTitle": "Neue Stammdatenquelle",
+      "editTitle": "{{name}} bearbeiten",
+      "formDescription": "Woher die Datensätze kommen, wie sie Lieferanten zugeordnet werden und wann sie gelesen werden.",
+      "destination": "Ziel",
+      "pickDestination": "HTTP-Ziel wählen",
+      "mapping": "Zuordnung (JSONata)",
+      "enabled": "Eingeschaltet",
+      "saved": "Quelle {{name}} gespeichert."
+    }
+  },
+  "insights": {
+    "title": "Onboarding",
+    "description": "Wen als Nächstes einrichten und was einen Blick braucht: Lieferanten ohne Layouts nach Menge, Automatisierung je Lieferant, Anteile unbekannter Typen, Layouts, Regeln, Zustellungen und Stammdaten.",
+    "platformScopeTitle": "Auswertungen gehören zu einem Mandanten",
+    "platformScope": "Wählen Sie einen Mandanten, um seine Onboarding-Ansicht zu sehen.",
+    "window": "Zeitraum",
+    "lastDays_one": "Letzter {{count}} Tag",
+    "lastDays_other": "Letzte {{count}} Tage",
+    "kpis": {
+      "documents": "Dokumente",
+      "autoApproved": "Automatisch freigegeben",
+      "unknown": "Typ unbekannt"
+    },
+    "onboardNext": {
+      "title": "Als Nächstes: Lieferanten ohne Layouts",
+      "description": "Nach Dokumenten im Zeitraum geordnet. Mit einem Layout werden ihre Dokumente ohne LLM gelesen und automatisch freigegeben.",
+      "none": "Jeder Lieferant mit Dokumenten hat ein Layout."
+    },
+    "suppliers": {
+      "title": "Automatisierung je Lieferant",
+      "description": "Dokumente, automatische Freigaben, Korrekturen je Dokument, LLM-Kosten und Layouts im Zeitraum.",
+      "none": "Keine Dokumente im Zeitraum."
+    },
+    "columns": {
+      "supplier": "Lieferant",
+      "documents": "Dokumente",
+      "autoApproval": "Automatisch freigegeben",
+      "corrections": "Korrekturen / Dok.",
+      "llmCost": "LLM-Kosten",
+      "layouts": "Layouts",
+      "noLayouts": "Keine",
+      "newLayout_one": "{{count}} neues Design",
+      "newLayout_other": "{{count}} neue Designs"
+    },
+    "layoutStates": {
+      "none": "keins",
+      "Draft": "Entwurf",
+      "Candidate": "Kandidat",
+      "Shadow": "Schatten",
+      "Active": "Aktiv",
+      "Degraded": "Beeinträchtigt",
+      "Retired": "Abgelöst"
+    },
+    "unknown": {
+      "channels": "Anteil unbekannt je Kanal",
+      "rules": "Anteil unbekannt je Quellregel",
+      "name": "Name",
+      "rate": "Unbekannt",
+      "none": "Nichts im Zeitraum."
+    },
+    "layouts": {
+      "title": "Layouts zum Ansehen",
+      "description": "Beeinträchtigte Layouts, Kandidaten mit wartenden Dokumenten und Layouts, die seit 180 Tagen nicht getroffen haben (Kandidaten zum Ablösen; nichts wird von selbst abgelöst).",
+      "none": "Nichts anzusehen.",
+      "layout": "Layout",
+      "state": "Warum",
+      "lastMatched": "Zuletzt getroffen",
+      "never": "nie",
+      "why": {
+        "degraded": "Beeinträchtigt",
+        "waiting_one": "{{count}} Dokument wartet",
+        "waiting_other": "{{count}} Dokumente warten",
+        "stale": "Seit 180 Tagen nicht getroffen"
+      }
+    },
+    "rules": {
+      "title": "Ersatzregeln, die Prüfer überstimmen",
+      "description": "Erkennungsregeln des Mandanten, deren Typ Prüfer geändert haben.",
+      "none": "Keine Überstimmungen.",
+      "counts": "getroffen {{matched}}, überstimmt {{overridden}}"
+    },
+    "deliveries": {
+      "title": "Zustellungen je Ziel",
+      "destination": "Ziel",
+      "total": "Gesamt",
+      "failed": "Fehlgeschlagen",
+      "deadLettered": "Unzustellbar",
+      "none": "Keine Zustellungen im Zeitraum."
+    },
+    "masterData": {
+      "title": "Offene Stammdatenkonflikte",
+      "none": "Keine offenen Konflikte.",
+      "conflicts_one": "{{count}} Konflikt",
+      "conflicts_other": "{{count}} Konflikte"
+    },
+    "actions": {
+      "openSample": "Beispiel öffnen",
+      "createLayout": "Layout anlegen",
+      "addSourceRule": "Quellregel hinzufügen",
+      "openLayouts": "Layouts",
+      "openMasterData": "Stammdaten"
     }
   }
 }

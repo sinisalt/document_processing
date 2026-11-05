@@ -9,8 +9,9 @@ import { DeliveriesList } from "./DeliveriesList";
 import { DestinationsPanel } from "./DestinationsPanel";
 import { LookupTablesPanel } from "./LookupTablesPanel";
 import { MappingsPanel } from "./MappingsPanel";
+import { MasterDataPanel } from "./MasterDataPanel";
 
-export const integrationSections = ["destinations", "mappings", "bindings", "lookups", "deliveries"] as const;
+export const integrationSections = ["destinations", "mappings", "bindings", "lookups", "masterData", "deliveries"] as const;
 export type IntegrationSection = (typeof integrationSections)[number];
 
 export interface IntegrationsTabProps {
@@ -63,6 +64,9 @@ export function IntegrationsTab({ section, onSectionChange, mappingKey, onMappin
       </TabsContent>
       <TabsContent value="lookups" className="pt-4">
         {section === "lookups" && <LookupTablesPanel canEdit={canEditLookups} />}
+      </TabsContent>
+      <TabsContent value="masterData" className="pt-4">
+        {section === "masterData" && <MasterDataPanel />}
       </TabsContent>
       <TabsContent value="deliveries" className="pt-4">
         {section === "deliveries" && <DeliveryLog canRedeliver={canEdit} />}

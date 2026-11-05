@@ -2797,6 +2797,15 @@ Correction (P4, second review fixes):
 
 The portal screen is Insights > Onboarding, with actions on each row: "open sample", "create layout", "add source rule".
 
+Correction (P5, part D): as built there is no nightly `SupplierDailyStats` roll-up. `GET /insights/automation` reads
+the window's documents, corrections, LLM usage, layouts, deliveries and master-data runs live, the window at most 92
+days (the LLM usage report's approach: filtered in SQL on SQL Server, in memory on the development SQLite provider),
+which is enough for a pilot tenant's volumes; the roll-up joins when a tenant's window outgrows it. The Unknown rate
+is reported per channel and per source rule, not per type (a document of an Unknown type has no type to count it
+under). "Create layout" and "add source rule" open the supplier's sheet on its Layouts or Routing tab
+(`/suppliers?supplier=&tab=`); a layout is made from a document in review (§12.10), so the sheet is where the
+document to start from is chosen.
+
 ## 18. API changes
 
 All endpoints are under `/api/v1` and are regenerated into `web/packages/api-client`, following the API-first rule in docs/05.
@@ -2842,6 +2851,12 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
     action, no route), `POST /suppliers:import`, `/master-data-sources` CRUD with `:run`, `:dry-run` and `GET
     …/{id}/runs`, and `GET /master-data-runs/{id}`; `DocumentSummary.supersededBy`, `DocumentDetail.supersededByDocumentId`,
     `revisionOfDocumentId`, `revisionResolution` and `ReviewTaskDto.kind` are new.
+  - Correction (P5, part D): built are `GET /rule-kinds` and two routes this list lacked although §19 asks for what
+    they do: `POST /document-types/{key}/versions/{v}:test-rules {documentId}` (the type editor's rule test: the
+    version's checks, a draft's too, on one document of the type; nothing is written) and `POST /pipelines/lookups:test
+    {documentId, params, stepId?}` (the processing UI's test call of an `http-lookup`: checked as an override is at
+    save, then one dry-run call, no stored answer reused and nothing stored); docs/05 "Processing UI, rule tests and
+    Insights as built".
 - **Lookups**: `/lookup-tables` CRUD; `PUT /lookup-tables/{key}/entries` (CSV upload).
 - **Routing and suppliers**
   - `/suppliers/{id}/source-rules` CRUD
@@ -3012,6 +3027,28 @@ layout panel and governance; a tenant without them sees the screens of P3):
   layouts are not built.
 - **Inbox (item 7).** A "New layouts" filter (`?flag=NEW_LAYOUT`, also `?pendingLayoutVersionId=`) and a badge per
   document; not grouped per supplier.
+
+Correction (P5, part D), as built (each part only with its switch: `configurableTypes` for the type editor's Rules
+and Processing tabs, `supplierLayouts` for its Identification tab and for "use for all suppliers without own layouts",
+`configurableSteps` for the supplier's Processing tab; docs/05 "P5 screens"):
+- **Parameter forms.** A step's or rule's parameters are drawn from the kind's JSON Schema (`GET /step-kinds`,
+  `GET /rule-kinds`) by a form of `@docproc/review` built from `@docproc/ui` controls (text, number, enum, default /
+  yes / no, comma lists, a monospace area for rule expressions and JSONata, JSON for anything else), not `@rjsf/core`,
+  for the reason the P3 correction gives for the destination form: the schemas are small and flat, and a second form
+  library would bring its own widgets.
+- **Type editor (item 2).** The review block (`requirePassedRules`, `blockOnWarnings`, `lines`, priority, `dueBy`) is
+  on the Rules tab beside the rules it names, not on Processing; Processing shows the type's resolved pipeline
+  (read-only; the type's own `processing.extract` steps are edited in the JSON tab) and the overrides live on the
+  supplier. The rule test runs the saved version (a draft is saved first). The Identification tab edits a rule's
+  identifiers as JSON with the server's description in words; the chips are made in review's Identify mode.
+- **Review screen (item 1).** §8.5 says tenant rules are created "the same way from any document", but Identify mode
+  was built (P4) only for a `NEW_LAYOUT` document. It is now also offered, to a `ConfigAdmin`, on a typed document no
+  layout filled (a supplier without layouts, or no supplier), in the tenant's scope: `identifiers:propose {scope:
+  tenant}` and the live tests with `{tenant: true}`. The `REVISION_OF` panel compares the earlier document's facts
+  (number, validity, rows, status, dates) rather than its pages. The grid's row filter "changed against the previous
+  list" is not built (the rows are in the `deltaToPrevious` flag's parameters).
+- **Suppliers sheet (item 3).** A Processing tab holds the supplier's `pipelineOverrides` (the group's and a layout
+  version's are not edited in the UI yet).
 
 ## 20. Changes to existing code, file by file
 

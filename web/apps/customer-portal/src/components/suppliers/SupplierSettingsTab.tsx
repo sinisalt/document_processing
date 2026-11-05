@@ -22,7 +22,12 @@ export interface SupplierSettingsValues {
   defaults?: { currency?: string };
   layouts?: { required?: boolean | "inherit" | "true" | "false" };
   requireSenderAuth?: boolean;
+  /** Edited on the Processing tab (docs/11 §10.1); kept by this tab. */
+  pipelineOverrides?: unknown[];
 }
+
+/** The settings members this tab edits; every other member is kept as stored. */
+const MANAGED = new Set(["defaultDocumentTypeKey", "allowedTypeKeys", "fixDocumentType", "locale", "review", "defaults", "layouts", "requireSenderAuth"]);
 
 interface Draft {
   groupId: string;
@@ -56,7 +61,12 @@ export function settingsDraft(supplier: Supplier): Draft {
 
 /** The draft as the supplier's `settings` object: what is left at its default is not sent (PATCH replaces the settings). */
 export function settingsBody(draft: Draft, stored: SupplierSettingsValues | null | undefined): SupplierSettingsValues {
+  // The members this tab does not edit (the Processing tab's pipelineOverrides, P5) are kept as stored: PATCH replaces
+  // the whole settings object, so leaving them out would drop them.
   const next: SupplierSettingsValues = {};
+  for (const [key, value] of Object.entries(stored ?? {})) {
+    if (!MANAGED.has(key)) (next as Record<string, unknown>)[key] = value;
+  }
   if (draft.defaultDocumentTypeKey !== NONE) next.defaultDocumentTypeKey = draft.defaultDocumentTypeKey;
   if (draft.allowedTypeKeys.length > 0) next.allowedTypeKeys = draft.allowedTypeKeys;
   if (draft.fixDocumentType !== "whenSourceMatched") next.fixDocumentType = draft.fixDocumentType;

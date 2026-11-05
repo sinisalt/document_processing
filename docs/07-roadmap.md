@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (parts A, B and C done)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 done (parts A, B, C and D)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1674,7 +1674,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
       schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
       subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
-- **P5, configurable steps, custom types end to end, rules and master data – in progress (parts A, B and C done).**
+- **P5, configurable steps, custom types end to end, rules and master data – done (parts A, B, C and D; the compose demos of docs/11 §23 were not run, see "Left for later").**
   - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
     document runs the built-in steps as before and records no pipeline hash):
     - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
@@ -1854,6 +1854,51 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - the tenant's normal review SLA as a cap on `dueBy` (there is no tenant SLA yet); chunked delivery of long lists
       (P6);
     - a status poll that runs past `maxPolls` leaves the reference Pending with a message, without a flag.
+  - Done, part D (the screens of docs/11 §19 for P5, and the routes they needed):
+    - routes: `GET /rule-kinds`; `POST /document-types/{key}/versions/{v}:test-rules` (a version's checks, a draft's
+      too, on one document; nothing written); `POST /pipelines/lookups:test` (an `http-lookup`'s save-time checks, then
+      a dry-run call: `LookupCall.DryRun` skips the stored answers, the store and the breaker); `GET
+      /insights/automation` (docs/11 §17 from live queries, at most 92 days); OpenAPI regenerated;
+    - the type editor (`@docproc/review`): Rules (a form per rule kind from its schema, the P5 and line-table kinds,
+      definition flags, the review gate keys, the rule test), Processing (the resolved pipeline) and Identification
+      (the tenant fallback rules: create, edit the Draft, the save-time test, activate with the other-types
+      confirmation, disable, the override share);
+    - the supplier's Processing tab: the resolved pipeline per type and the `pipelineOverrides` (switch off, parameters
+      from the kind's schema, `http-lookup` with its destination and a test call); the LLM budgets in Settings > AI;
+    - review: "use for all suppliers without own layouts" for a `ConfigAdmin` (Identify mode in the tenant's scope on a
+      typed document no layout filled), the `REVISION_OF` panel side by side with a note, the Deliveries tab's
+      `EXTERNAL_REJECTED` and acknowledgement status;
+    - inbox and queue: the review due time, "Urgent first" (`?sort=reviewDue`), superseded lists greyed with a link,
+      Urgent/High and Integration issue badges;
+    - Settings > Integrations: Master data (supplier import with the column map, dry run, report; sources with run,
+      dry run, runs and reports) and a destination's Acknowledgements (callback, its secret, status poll);
+    - Insights > Onboarding (`/insights`) with "open sample", "create layout" and "add source rule"
+      (`/suppliers?supplier=&tab=`);
+    - a bug found on the way: the supplier sheet's Settings tab saved `settings` without the members it does not edit,
+      so saving it deleted the supplier's `pipelineOverrides` (part A); it now keeps them;
+    - tests: `ProcessingUiEndpointsTests` (rule kinds, the rule test, the lookup test call's checks and guard, insights),
+      `ConfigurableStepsPipelineTests` (a dry-run call reaches the receiver each time and stores nothing), web
+      `pipeline.test`, `rulesModel.test`, `TypeEditorP5.test`, `p5.test`, `P5Screens.test` (en and de keys checked by
+      the resources tests).
+  - Decided (part D, recorded as "Correction (P5, part D)" in docs/11 §17, §18 and §19):
+    - parameter forms are drawn from the kinds' schemas with `@docproc/ui` controls, not `@rjsf/core`;
+    - Insights read live, no nightly roll-up; the Unknown rate per channel and source rule, not per type;
+    - the review gate keys are edited on the Rules tab; the type's Processing tab is read-only;
+    - Identify mode in the tenant's scope for a `ConfigAdmin` on any typed document no layout filled (§8.5 "from any
+      document"; P4 had it only under `NEW_LAYOUT`).
+  - Left for later (part D's scope):
+    - the compose demo and a Playwright spec of the P5 screens were not run (the pipeline and component tests cover
+      them); docs/09 says how to drive each screen by hand;
+    - the `pipelineOverrides` of a supplier group and of a layout version have no UI (the API takes them); the type's
+      own `processing.extract` steps are edited in the JSON tab;
+    - the tenant rule's identifiers are edited as JSON in the type editor (the chips only in review's Identify mode);
+      no visual editor;
+    - the review grid's row filters (rejected, low confidence, changed against the previous list, page n) of docs/11
+      §19 item 1;
+    - master data: no separate conflict list with a resolve action (the conflicts are the report's rows), targets other
+      than suppliers;
+    - Insights: no `SupplierDailyStats` roll-up and no 14-day baseline alerts (docs/11 §16); the admin console's tenant
+      tabs for types, layouts and integrations (docs/11 §19 "Admin console") are not built.
 - **P6** – not started.
 
 ## Risks and open questions

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { AlertTriangle, OctagonAlert, Search, X } from "lucide-react";
 import type { components } from "@docproc/api-client";
@@ -21,6 +21,7 @@ import {
 import { useDocumentTypes, useTenantFeatures } from "@docproc/review";
 import { UploadDialog } from "@/components/UploadDialog";
 import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeLabel, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
+import { dueState, sortByReviewDue } from "@/lib/priority";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
 
 const ALL = "__all__";
@@ -38,6 +39,8 @@ const searchSchema = z.object({
   /** Documents held with NEW_LAYOUT (docs/11 §12.10 step 1), and those waiting for one pending Candidate layout. */
   flag: z.enum(["NEW_LAYOUT"]).optional().catch(undefined),
   pendingLayoutVersionId: z.string().optional().catch(undefined),
+  /** `reviewDue`: urgent reviews first, then by their due time (docs/11 §19 item 7, daily specials). */
+  sort: z.enum(["reviewDue"]).optional().catch(undefined),
 });
 
 export type InboxSearch = z.infer<typeof searchSchema>;
@@ -96,6 +99,7 @@ function InboxPage() {
   const rangeInvalid = !!(search.from && search.to && search.from > search.to);
   const list = useDocumentList(query, !rangeInvalid);
   const suppliers = useSuppliers({ limit: 200 }, tenantScope);
+  const rows = useMemo(() => (search.sort === "reviewDue" ? sortByReviewDue(list.items, (d) => d.reviewPriority, (d) => d.reviewDueAt) : list.items), [list.items, search.sort]);
 
   const setSearch = (patch: Partial<InboxSearch>) =>
     void navigate({ search: (previous) => ({ ...previous, ...patch }) });
@@ -147,6 +151,7 @@ function InboxPage() {
           cell: (info) => (
             <span className="flex items-center gap-2">
               <span className="font-medium">{info.getValue() ?? t("inbox.noNumber")}</span>
+              <SupersededLink document={info.row.original} />
               {newLayoutFilter && (
                 <Badge variant="warning" data-testid="inbox-new-layout-badge">
                   {t("inbox.newLayoutBadge")}
@@ -197,6 +202,11 @@ function InboxPage() {
           header: t("inbox.columns.flags"),
           cell: ({ row }) => <FlagCounts blocking={Number(row.original.blockingFlagCount)} warning={Number(row.original.warningFlagCount)} />,
         }),
+        helper.accessor("reviewDueAt", {
+          header: t("inbox.columns.reviewDue"),
+          cell: (info) => <ReviewDue dueAt={info.getValue() ?? null} />,
+          sortFn: "datetime",
+        }),
         helper.accessor("createdAt", {
           header: t("inbox.columns.received"),
           cell: (info) => (
@@ -230,12 +240,15 @@ function InboxPage() {
 
       <DataTable
         columns={columns}
-        data={list.items.length ? list.items : EMPTY_ARRAY}
+        data={rows.length ? rows : EMPTY_ARRAY}
         getRowId={(row) => row.id}
         isLoading={list.isLoading && !rangeInvalid}
         query={list}
         enableColumnVisibility={!phone}
         initialColumnVisibility={{ validFrom: false, validUntil: false, lineCount: false }}
+        // A list another list replaced is greyed out (docs/11 §19 item 7); its number links to the replacing one.
+        rowClassName={(row) => (row.supersededBy ? "opacity-60" : undefined)}
+        rowAttributes={(row) => ({ "data-superseded": row.supersededBy ? "true" : undefined, "data-priority": row.reviewPriority ?? undefined })}
         caption={t("inbox.caption")}
         onRowClick={(row) => void navigate({ to: "/documents/$documentId", params: { documentId: row.id } })}
         emptyTitle={rangeInvalid ? t("inbox.filters.rangeInvalidTitle") : t("inbox.emptyTitle")}
@@ -341,6 +354,15 @@ function InboxPage() {
                 {search.pendingLayoutVersionId ? t("inbox.filters.pendingLayout") : t("inbox.filters.newLayouts")}
               </Toggle>
             )}
+            <Toggle
+              variant="outline"
+              pressed={search.sort === "reviewDue"}
+              onPressedChange={(on) => setSearch({ sort: on ? "reviewDue" : undefined })}
+              aria-label={t("inbox.filters.urgentFirst")}
+              data-testid="inbox-sort-due"
+            >
+              {t("inbox.filters.urgentFirst")}
+            </Toggle>
             {tenantScope && (
               <div className="flex flex-col gap-1">
                 <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">
@@ -476,6 +498,29 @@ function IndexedValue({ field, value }: { field: IndexedFieldOption; value: stri
   if (value === undefined || value === "") return <span className="text-muted-foreground">—</span>;
   if (field.kind === "date") return <>{formatDate(value, i18n.language)}</>;
   return <span className="tabular-nums">{value}</span>;
+}
+
+/** The open review's due time (docs/11 §11 `dueBy`): red when past, amber within a few hours. */
+function ReviewDue({ dueAt }: { dueAt: string | null }) {
+  const { t, i18n } = useTranslation();
+  const state = dueState(dueAt);
+  if (!dueAt || !state) return <span className="text-muted-foreground">—</span>;
+  return (
+    <time dateTime={dueAt} title={dueAt} data-due={state} className={state === "overdue" ? "font-medium text-destructive" : state === "soon" ? "font-medium text-amber-700 dark:text-amber-400" : undefined}>
+      {state === "overdue" ? t("inbox.dueOverdue", { when: relativeTime(dueAt, i18n.language) }) : relativeTime(dueAt, i18n.language)}
+    </time>
+  );
+}
+
+/** "Replaced by" with a link to the list that superseded this one (`REVISION_OF` resolved as supersedes). */
+function SupersededLink({ document }: { document: DocumentSummary }) {
+  const { t } = useTranslation();
+  if (!document.supersededBy) return null;
+  return (
+    <Link to="/documents/$documentId" params={{ documentId: document.supersededBy }} onClick={(event) => event.stopPropagation()} className="text-xs text-muted-foreground underline underline-offset-2" data-testid="inbox-superseded">
+      {t("inbox.supersededBy")}
+    </Link>
+  );
 }
 
 /** The open review task's priority when it is above normal (docs/11 §6.2 `ReviewTask.Priority`). */

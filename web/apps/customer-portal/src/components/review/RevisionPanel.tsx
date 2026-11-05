@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CopyX, Files, Loader2, Replace, Unplug } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Button, Label, Textarea } from "@docproc/ui";
-import { queryKeys, unwrap, useApi } from "@docproc/app-shell";
-import type { DocumentDetail } from "@/lib/queries";
+import { Alert, AlertDescription, AlertTitle, Button, Label, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea } from "@docproc/ui";
+import { formatDate, formatDateTime, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { useDocument, type DocumentDetail } from "@/lib/queries";
 
 type Resolution = "supersedes" | "additional" | "duplicate";
 
@@ -31,17 +31,18 @@ export function RevisionPanel({ document, canReview }: { document: DocumentDetai
   const { t } = useTranslation();
   const { client } = useApi();
   const settle = useSettle(document.id);
+  const [note, setNote] = useState("");
   const flag = openFlag(document, "REVISION_OF");
+  const earlier = flag?.params.documentId;
   const resolve = useMutation({
     mutationFn: async (resolution: Resolution) =>
-      unwrap(await client.POST("/api/v1/documents/{id}:resolve-revision", { params: { path: { id: document.id } }, body: { resolution } })),
+      unwrap(await client.POST("/api/v1/documents/{id}:resolve-revision", { params: { path: { id: document.id } }, body: { resolution, note: note.trim() || null } })),
     onSuccess: (updated, resolution) => {
       toast.success(t(`review.revision.done.${resolution}`));
       settle(updated);
     },
   });
   if (!flag) return null;
-  const earlier = flag.params.documentId;
   return (
     <Alert data-testid="revision-panel">
       <Files aria-hidden />
@@ -55,6 +56,13 @@ export function RevisionPanel({ document, canReview }: { document: DocumentDetai
             </a>
           )}
         </p>
+        {earlier && <RevisionComparison document={document} earlierId={earlier} />}
+        {canReview && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="revision-note">{t("review.revision.note")}</Label>
+            <Textarea id="revision-note" value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} data-testid="revision-note" />
+          </div>
+        )}
         {canReview && (
           <div className="flex flex-wrap gap-2">
             {(
@@ -81,6 +89,63 @@ export function RevisionPanel({ document, canReview }: { document: DocumentDetai
         )}
       </AlertDescription>
     </Alert>
+  );
+}
+
+/** The facts of a document the comparison shows, in order. */
+export function revisionFacts(document: Pick<DocumentDetail, "documentNumber" | "status" | "createdAt" | "approvedAt" | "validFrom" | "validUntil" | "lineCount">) {
+  return [
+    ["number", document.documentNumber ?? null],
+    ["validFrom", document.validFrom ?? null],
+    ["validUntil", document.validUntil ?? null],
+    ["lineCount", document.lineCount === null || document.lineCount === undefined ? null : String(document.lineCount)],
+    ["status", document.status],
+    ["received", document.createdAt],
+    ["approved", document.approvedAt ?? null],
+  ] as const;
+}
+
+/**
+ * The earlier document side by side with this one (docs/11 §19 item 1, "A REVISION_OF panel showing the earlier
+ * document side by side"): number, validity, row count, status and dates; a row whose values differ is marked.
+ */
+function RevisionComparison({ document, earlierId }: { document: DocumentDetail; earlierId: string }) {
+  const { t, i18n } = useTranslation();
+  const earlier = useDocument(earlierId);
+  if (earlier.isPending) return <Skeleton className="h-24 w-full" />;
+  if (!earlier.data) return null;
+  const mine = revisionFacts(document);
+  const theirs = revisionFacts(earlier.data);
+  const show = (key: string, value: string | null) => {
+    if (value === null) return "—";
+    if (key === "received" || key === "approved") return formatDateTime(value, i18n.language);
+    if (key === "validFrom" || key === "validUntil") return formatDate(value, i18n.language);
+    if (key === "status") return t(`common:documentStatus.${value}`, { defaultValue: value });
+    return value;
+  };
+  return (
+    <Table data-testid="revision-comparison">
+      <TableHeader>
+        <TableRow>
+          <TableHead />
+          <TableHead>{t("review.revision.earlier")}</TableHead>
+          <TableHead>{t("review.revision.this")}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {mine.map(([key, value], index) => {
+          const other = theirs[index]![1];
+          const differs = key !== "status" && key !== "received" && key !== "approved" && value !== other;
+          return (
+            <TableRow key={key} data-fact={key} data-differs={differs}>
+              <TableCell className="text-xs text-muted-foreground">{t(`review.revision.facts.${key}`)}</TableCell>
+              <TableCell className="text-xs">{show(key, other)}</TableCell>
+              <TableCell className={differs ? "text-xs font-medium text-amber-700 dark:text-amber-400" : "text-xs"}>{show(key, value)}</TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }
 

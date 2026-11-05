@@ -286,7 +286,10 @@
       "fields": "Fields",
       "preview": "Preview",
       "versions": "Versions",
-      "json": "JSON"
+      "json": "JSON",
+      "rules": "Rules",
+      "processing": "Processing",
+      "identification": "Identification"
     },
     "save": "Save draft",
     "saved": "Draft saved.",
@@ -489,5 +492,206 @@
       "marginTop": "from",
       "marginBottom": "to"
     }
+  },
+  "params": {
+    "none": "This kind takes no parameters.",
+    "free": "This kind's parameters are not checked by this build; edit them in the JSON tab.",
+    "default": "Default",
+    "true": "Yes",
+    "false": "No",
+    "listHint": "Comma-separated",
+    "errors": {
+      "number": "Enter a number.",
+      "integer": "Enter a whole number.",
+      "json": "This is not valid JSON.",
+      "range": "Between {{min}} and {{max}}."
+    }
+  },
+  "pipeline": {
+    "typeTitle": "Steps of this type",
+    "typeDescription": "What each phase runs for a document of the published version, before a supplier's or group's overrides. Overrides and http lookups are set on the supplier's Processing tab; the review gate is on the Rules tab.",
+    "unavailable": "The pipeline could not be read",
+    "offTitle": "Configurable steps are off",
+    "off": "This tenant runs the built-in steps; overrides are kept but not applied until the admin console switches configurableSteps on.",
+    "refusedTitle": "The overrides were refused; the type's own steps run",
+    "columns": {
+      "phase": "Phase",
+      "step": "Step",
+      "kind": "Kind",
+      "state": "Runs",
+      "source": "Set by",
+      "params": "Parameters"
+    },
+    "phases": {
+      "Split": "Split",
+      "Classify": "Classify",
+      "Match": "Match",
+      "Extract": "Extract",
+      "Validate": "Validate",
+      "Publish": "Publish"
+    },
+    "fixed": "Fixed step",
+    "notRun": "Not run by this build",
+    "on": "On",
+    "disabled": "Off",
+    "sources": {
+      "default": "Built in",
+      "type": "Type",
+      "group": "Group",
+      "supplier": "Supplier",
+      "layout": "Layout"
+    },
+    "skipped": "Overrides skipped (they name a step this pipeline does not have):",
+    "hash": "Pipeline {{hash}}"
+  },
+  "rules": {
+    "title_one": "{{count}} rule",
+    "title_other": "{{count}} rules",
+    "description": "Checked in order by the validate stage. A failing rule raises its kind's flag, or the definition flag it names.",
+    "none": "No rules yet.",
+    "listLabel": "Rules",
+    "issue": "Check",
+    "kind": "Kind",
+    "add": "Add rule",
+    "pick": "Pick a rule to edit it.",
+    "issues": {
+      "id": "The id starts with a letter, then letters, digits, '.', '_' or '-' (at most 64).",
+      "duplicate": "Another rule has this id.",
+      "flag": "The flag {{detail}} is not declared below.",
+      "kind": "The kind {{detail}} is not available in this deployment.",
+      "required": "The parameter {{detail}} is required."
+    },
+    "id": "Rule id",
+    "severity": "Severity",
+    "kindSeverity": "The kind's own",
+    "severities": {
+      "blocking": "Blocking",
+      "warning": "Warning",
+      "info": "Info"
+    },
+    "flag": "Raises",
+    "kindFlags": "The kind's codes",
+    "appliesWhen": "Applies when",
+    "appliesWhenHint": "An expression, e.g. listScope = \"Full\"; empty for always",
+    "messageIn": "Message ({{locale}})",
+    "params": "Parameters",
+    "up": "Up",
+    "down": "Down",
+    "remove": "Remove rule",
+    "flags": {
+      "title": "Definition flags",
+      "description": "Codes of this type (X_ and capitals) a rule may raise instead of its kind's, with their severity and the message reviewers read in their language.",
+      "none": "No flags declared.",
+      "code": "Code",
+      "add": "Add flag",
+      "remove": "Remove flag {{code}}",
+      "problems": {
+        "form": "A code is X_ followed by capitals, digits and '_'.",
+        "duplicate": "This code is declared twice."
+      }
+    },
+    "gate": {
+      "title": "Review gate",
+      "description": "When a document of this type may skip review, and how urgent its review is.",
+      "autoApprove": "Auto-approve when every check passes",
+      "priority": "Review priority",
+      "default": "Default",
+      "priorities": {
+        "normal": "Normal",
+        "high": "High",
+        "urgent": "Urgent"
+      },
+      "dueBy": "Review due by",
+      "noDue": "No due date",
+      "requirePassed": "Rules that must pass",
+      "requirePassedHint": "Auto-approval needs each of these to have run without a warning or a blocking flag.",
+      "blockOnWarnings": "Rules whose warnings block",
+      "blockOnWarningsHint": "A warning of one of these keeps the document in review.",
+      "lines": "Rows",
+      "sources": {
+        "Rule": "Layout",
+        "Structured": "E-invoice",
+        "Human": "Reviewer",
+        "Llm": "LLM",
+        "Lookup": "Lookup"
+      },
+      "requireLocated": "Every row located on the page",
+      "maxLowConfidenceRows": "Most low-confidence rows"
+    },
+    "test": {
+      "title": "Test against a document",
+      "description": "Runs the checks of version {{version}} as saved on one of the type's documents. Nothing on the document changes.",
+      "document": "Document",
+      "pick": "Pick a document",
+      "noDocuments": "No documents of this type yet",
+      "noNumber": "No number",
+      "run": "Test",
+      "saveFirst": "Save the draft first: the test runs on the saved version.",
+      "blocking": "A blocking flag would keep this document in review.",
+      "clean": "No blocking flag.",
+      "outcome": "Outcome",
+      "flags": "Flags",
+      "outcomes": {
+        "passed": "Passed",
+        "warned": "Warning",
+        "failed": "Failed",
+        "notRun": "Not run"
+      },
+      "otherFlags": "Other flags of the checks:"
+    }
+  },
+  "identRules": {
+    "title": "Tenant fallback rules",
+    "description": "Decide the type for documents of an unknown supplier, or of a supplier without own layouts, before the keywords and the LLM. Each version is tested against the last 500 approved documents when saved.",
+    "new": "New rule",
+    "newTitle": "New fallback rule",
+    "none": "No fallback rules for this type.",
+    "name": "Name",
+    "priority": "Priority",
+    "create": "Create and test",
+    "created": "Rule {{name}} created as a draft.",
+    "rule": "Rule",
+    "ruleHint": "Identifiers under all, any and none, as in a layout's rule (no supplierValue in a tenant rule).",
+    "ruleErrors": {
+      "json": "This is not valid JSON.",
+      "shape": "A rule is an object with all or any."
+    },
+    "excluded": "Excluded suppliers ({{count}})",
+    "filterSuppliers": "Filter suppliers",
+    "notTested": "Not tested",
+    "testSummary": "Would have matched {{matched}} documents of this type, {{others}} other documents (of {{tested}} tested).",
+    "saved": "Draft saved and tested.",
+    "activated": "Rule {{name}} is active.",
+    "disabled": "Rule {{name}} is disabled.",
+    "statuses": {
+      "Active": "Active",
+      "Disabled": "Disabled"
+    },
+    "states": {
+      "Draft": "Draft",
+      "PendingApproval": "Waiting for approval",
+      "Active": "Active",
+      "Retired": "Retired"
+    },
+    "activeVersion": "v{{version}} active",
+    "stats": "Priority {{priority}} · matched {{matched}} · overridden {{overridden}}",
+    "oftenOverridden": "Overridden {{percent}} %",
+    "newVersion": "New version",
+    "disable": "Disable",
+    "columns": {
+      "version": "Version",
+      "state": "State",
+      "rule": "Rule",
+      "test": "Test",
+      "excluded": "Excluded"
+    },
+    "edit": "Edit",
+    "test": "Test",
+    "activate": "Activate",
+    "save": "Save draft",
+    "otherTypesTitle": "The test matched documents of other types",
+    "confirmTitle": "Activate although other types matched?",
+    "confirm": "The rule {{summary}}. Those documents would be typed by this rule. Add an identifier that tells them apart, or activate anyway.",
+    "activateAnyway": "Activate anyway"
   }
 }

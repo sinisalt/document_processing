@@ -715,6 +715,39 @@ docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings
   "schedule": "CRON_TZ=Europe/Berlin 15 3 * * *"}` reads an http destination every night (`:dry-run` and `:run` on
   request; an upload source takes `{"records": …}` in `:run`).
 
+### Processing, rules and onboarding screens
+
+The screens of P5 part D (docs/05 "P5 screens"), in the customer portal as the tenant admin (who is also the tenant's
+ConfigAdmin and IntegrationAdmin). Each needs its switch in the admin console's Feature switches; without it the
+screen is not offered.
+
+- **A supplier's steps** (`configurableSteps`): Suppliers, open a supplier, tab Processing. Pick a type: the table lists
+  every step per phase, who set it (built in, type, group, supplier, layout) and its parameters; fixed steps carry a
+  lock. "Switch off a step", "Change parameters" (the form comes from `GET /api/v1/step-kinds`; for example the `llm`
+  step's `maxCostPerDocument`) and "Add http lookup" (an http destination from Settings > Integrations, the request and
+  response JSONata) edit the supplier's `pipelineOverrides`; "Test call" runs the lookup for one of the supplier's
+  documents and shows what it would write, without writing or storing anything (`POST /api/v1/pipelines/lookups:test`).
+  In the compose stack a destination on `mock-erp` is a private address, so the test answers "Address refused", which
+  is the SSRF guard working; a public https host answers for real. Save overrides stores them.
+- **LLM budgets**: Settings > AI providers, LLM budgets (a day, month or document budget, for every stage or one).
+- **Rules of a type** (`configurableTypes`): Settings > Document types, open a type (a copy or a type of the tenant's
+  own; an adopted type is forked first), tab Rules. Each rule gets a form from `GET /api/v1/rule-kinds`; the
+  definition's own flags, the review gate keys and "Test against a document" (the saved version's checks on a recent
+  document of the type, `:test-rules`; nothing is written) are below. Tab Processing shows the type's steps.
+- **Tenant fallback rules** (`supplierLayouts`): the type editor's Identification tab lists them with their save-time
+  test ("would have matched N documents of this type, M other documents"); New rule takes the rule as JSON, e.g.
+  `{"all": [{"text": "Preisliste", "page": 1, "region": "title"}]}`. From review: open a typed document no layout
+  filled (for the Südhof demo, `fixtures/demo/uploads/tenant-a/Suedhof_Preisliste_*.pdf` uploaded and set to
+  `price-list`), tab Identify, press I and click "Preisliste" in the title, then "Use for all suppliers without own
+  layouts" and Activate.
+- **Revisions, priority and acknowledgements**: a second specials list of the day shows the earlier one side by side
+  in its `REVISION_OF` panel; the inbox's "Urgent first" sorts urgent reviews first, and the queue marks them; a
+  rejection by the receiving system shows in the Deliveries tab. Settings > Integrations > Destinations,
+  "Acknowledgements" sets the callback, its secret and the status poll; Master data imports suppliers (Dry run, then
+  Import) and keeps the sources and their runs.
+- **Insights > Onboarding**: the sidebar's Insights; the window is the last 7, 30 or 90 days (`GET
+  /api/v1/insights/automation?from=&to=`).
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's

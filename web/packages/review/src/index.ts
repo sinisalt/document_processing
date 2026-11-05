@@ -21,3 +21,13 @@ export { DocumentTypesPanel, useTenantFeatures, type DocumentTypesPanelProps } f
 export { DocumentTypeEditor, PublishReportView, type DocumentTypeEditorProps } from "./types-editor/DocumentTypeEditor";
 export * from "./types-editor/api";
 export * from "./types-editor/model";
+
+// Configurable steps (docs/11 §10, P5): parameter forms from the kinds' schemas, the resolved pipeline, overrides.
+export { ParamsForm, type ParamsFormProps } from "./pipeline/ParamsForm";
+export * from "./pipeline/paramsSchema";
+export * from "./pipeline/overrides";
+export * from "./pipeline/api";
+export { PipelineSteps, paramsText } from "./pipeline/PipelineSteps";
+export * from "./types-editor/rulesModel";
+export * from "./types-editor/identRules";
+export { IdentificationTab, TestSummary, useTenantRules } from "./types-editor/IdentificationTab";

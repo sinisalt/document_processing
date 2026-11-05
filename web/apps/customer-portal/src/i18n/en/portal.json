@@ -4,7 +4,8 @@
     "inbox": "Inbox",
     "review": "Review queue",
     "suppliers": "Suppliers",
-    "settings": "Settings"
+    "settings": "Settings",
+    "insights": "Insights"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -148,7 +149,8 @@
       "document": "Document",
       "validFrom": "Valid from",
       "validUntil": "Valid until",
-      "lineCount": "Rows"
+      "lineCount": "Rows",
+      "reviewDue": "Review due"
     },
     "filters": {
       "search": "Search",
@@ -167,7 +169,8 @@
       "anyField": "Any field",
       "fieldValue": "{{field}} is",
       "newLayouts": "New layouts",
-      "pendingLayout": "Waiting for a layout"
+      "pendingLayout": "Waiting for a layout",
+      "urgentFirst": "Urgent first"
     },
     "emptyTitle": "No documents",
     "emptyFiltered": "No document matches these filters.",
@@ -190,7 +193,9 @@
       "High": "High",
       "Urgent": "Urgent"
     },
-    "newLayoutBadge": "New layout"
+    "newLayoutBadge": "New layout",
+    "dueOverdue": "overdue ({{when}})",
+    "supersededBy": "Replaced"
   },
   "upload": {
     "button": "Upload",
@@ -506,6 +511,18 @@
         "supersedes": "This document replaces the earlier one.",
         "additional": "Both documents stand.",
         "duplicate": "Rejected as a duplicate."
+      },
+      "note": "Note (kept in the timeline; the reason of a duplicate)",
+      "earlier": "Earlier document",
+      "this": "This document",
+      "facts": {
+        "number": "Number",
+        "validFrom": "Valid from",
+        "validUntil": "Valid until",
+        "lineCount": "Rows",
+        "status": "Status",
+        "received": "Received",
+        "approved": "Approved"
       }
     },
     "integrationIssue": {
@@ -527,7 +544,8 @@
     "deliveries": {
       "description": "Where this document was delivered: one row per binding that matched its approval or rejection. Open a row for its attempts, the receiver's answers and the payload as sent.",
       "empty": "No deliveries",
-      "emptyDescription": "No binding matched this document, or it has not been approved or rejected yet."
+      "emptyDescription": "No binding matched this document, or it has not been approved or rejected yet.",
+      "rejectedTitle": "Rejected by {{destination}}"
     },
     "layoutChip": "Layout {{layout}} v{{version}}",
     "layoutChipHint": "The layout that recognised this document and filled its fields",
@@ -627,6 +645,23 @@
       "reprocessed_one": "{{count}} document sent back from Classify.",
       "reprocessed_other": "{{count}} documents sent back from Classify.",
       "notFound": "The saved layout could not be found."
+    },
+    "tenantRule": {
+      "title": "Use for all suppliers without own layouts",
+      "description": "Save the marked identifiers as a fallback rule of {{type}}: it types documents of unknown suppliers and of suppliers without own layouts, before the keywords and the LLM.",
+      "name": "Rule name",
+      "namePlaceholder": "Optional",
+      "useForAll": "Use for all suppliers without own layouts",
+      "mustHold": "The rule must hold on this document.",
+      "saved": "Rule {{name}} saved as a draft and tested.",
+      "draftTitle": "Rule {{name}} is a draft",
+      "activeTitle": "Rule {{name}} is active",
+      "activate": "Activate",
+      "activated": "Rule {{name}} is active.",
+      "openEditor": "Open in the type editor",
+      "confirmTitle": "Activate although other types matched?",
+      "confirm": "The rule {{summary}}. Those documents would be typed by this rule.",
+      "activateAnyway": "Activate anyway"
     }
   },
   "queue": {
@@ -661,7 +696,8 @@
       "MANUAL_REVIEW": "Review required"
     },
     "reviewersOnlyTitle": "The review queue is for reviewers",
-    "reviewersOnly": "Your role can read documents but not review them. Ask a tenant admin if you should work the queue."
+    "reviewersOnly": "Your role can read documents but not review them. Ask a tenant admin if you should work the queue.",
+    "integrationIssue": "Integration issue"
   },
   "suppliers": {
     "title": "Suppliers",
@@ -699,7 +735,8 @@
       "settings": "Settings",
       "attributes": "Attributes",
       "routing": "Routing",
-      "layouts": "Layouts"
+      "layouts": "Layouts",
+      "processing": "Processing"
     },
     "fields": {
       "name": "Name",
@@ -1290,6 +1327,37 @@
         "skip": "skip",
         "error": "error"
       }
+    },
+    "budgets": {
+      "title": "LLM budgets",
+      "description": "The most the LLM may cost per UTC day, UTC month or document, for every stage or one. A call that would pass a budget is not made; the document goes on without the LLM and is held with \"LLM budget exceeded\".",
+      "none": "No budgets: the provider's spend cap is the only limit.",
+      "period": "Period",
+      "stage": "Stage",
+      "limit": "Limit (USD)",
+      "spent": "Spent",
+      "spentOf": "{{spent}} of {{limit}}",
+      "perDocument": "Per document",
+      "allStages": "Every stage",
+      "periods": {
+        "day": "Day (UTC)",
+        "month": "Month (UTC)",
+        "document": "Document"
+      },
+      "stages": {
+        "Classify": "Classify",
+        "Split": "Split",
+        "Extract": "Extract",
+        "Synthesize": "Synthesize"
+      },
+      "add": "Add budget",
+      "remove": "Remove budget",
+      "save": "Save budgets",
+      "saved": "Budgets saved.",
+      "problems": {
+        "limit": "Row {{row}}: the limit is a number of USD, 0 or more.",
+        "duplicate": "Row {{row}}: each period and stage has one budget."
+      }
     }
   },
   "integrations": {
@@ -1301,7 +1369,8 @@
       "mappings": "Output mappings",
       "bindings": "Bindings",
       "lookups": "Lookup tables",
-      "deliveries": "Delivery log"
+      "deliveries": "Delivery log",
+      "masterData": "Master data"
     },
     "edit": "Edit",
     "delete": "Delete",
@@ -1746,7 +1815,44 @@
       "showPayload": "Show payload",
       "hidePayload": "Hide payload",
       "redeliverSnapshot": "Redeliver",
-      "redeliverRerender": "Render again and redeliver"
+      "redeliverRerender": "Render again and redeliver",
+      "acknowledgement": "Acknowledgement",
+      "externalStatuses": {
+        "Pending": "Waiting for the receiver",
+        "Accepted": "Accepted",
+        "Posted": "Posted",
+        "Rejected": "Rejected"
+      }
+    },
+    "acknowledgements": {
+      "open": "Acknowledgements",
+      "on": "Acknowledgements on",
+      "title": "Acknowledgements of {{name}}",
+      "description": "How the receiving system reports back what became of a delivered document. A rejection marks the document \"Rejected by the receiving system\" and opens an integration issue; the document stays settled.",
+      "callback": "Callback: the receiver posts to us",
+      "callbackUrl": "Callback URL",
+      "auth": "Authentication",
+      "auths": {
+        "hmacSha256": "HMAC-SHA256 signature",
+        "bearer": "Bearer token"
+      },
+      "hmacHint": "The receiver signs \"<X-DocProc-Timestamp>.<body>\" with the secret and sends X-DocProc-Signature: sha256=<hex>; a timestamp older than 5 minutes is refused.",
+      "bearerHint": "The receiver sends Authorization: Bearer <secret>.",
+      "mapping": "Mapping (JSONata, optional)",
+      "secret": "Callback secret",
+      "secretIsSet": "Set",
+      "noSecret": "Not set",
+      "previousSecret": "Previous one still accepted",
+      "setSecret": "Set secret",
+      "rotate": "Rotate",
+      "secretSet": "Callback secret set.",
+      "secretHint": "16 characters or more. It is never shown again; a rotation keeps the previous one valid until the next.",
+      "poll": "Status poll: we ask the receiver",
+      "urlTemplate": "Status URL",
+      "urlHint": "On the destination's own host; {externalId} and {documentId} may appear in the path or query.",
+      "interval": "Every (minutes)",
+      "maxPolls": "At most (polls)",
+      "saved": "Acknowledgements of {{name}} saved."
     }
   },
   "routing": {
@@ -1779,6 +1885,268 @@
       "held": "held: {{conditions}}",
       "failed": "failed: {{conditions}}",
       "unverified": "(sender not authenticated)"
+    }
+  },
+  "processing": {
+    "type": "Type",
+    "pickType": "Pick a type",
+    "typeHint": "The steps documents of this supplier and type run, with this supplier's overrides; group and layout overrides show by their source.",
+    "overridesTitle": "Overrides of this supplier",
+    "overridesDescription": "Switch a step off, change a step's parameters, or add an http lookup after an Extract step. They apply to every type of the supplier; one naming a step a type does not have is skipped.",
+    "none": "No overrides: the type's own steps run.",
+    "ops": {
+      "disable": "Switch off {{step}}",
+      "param": "{{step}}: {{params}}",
+      "insertAfter": "{{kind}} {{id}} after {{step}}",
+      "replace": "Replace {{step}} with {{id}}"
+    },
+    "addDisable": "Switch off a step",
+    "addParam": "Change parameters",
+    "addLookup": "Add http lookup",
+    "stepToDisable": "Step to switch off",
+    "stepToChange": "Step",
+    "pickStep": "Pick a step",
+    "add": "Add",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "remove": "Remove",
+    "save": "Save overrides",
+    "discard": "Discard changes",
+    "saved": "Overrides of {{name}} saved.",
+    "refused": "The overrides were refused",
+    "lookupsNote": "An http lookup runs after the extraction and writes its answer into empty fields as Inferred (or over them with mode override), never over a correction.",
+    "lookup": {
+      "id": "Step id",
+      "after": "After",
+      "idProblems": {
+        "form": "A letter, then letters, digits, '.', '_' or '-'.",
+        "taken": "Another step has this id."
+      },
+      "pickDestination": "Pick an http destination",
+      "noDestinations": "No http destination yet (Settings > Integrations)",
+      "missing": "Required: {{names}}",
+      "testTitle": "Test call",
+      "testHint": "Calls the destination for one of the supplier's documents with these parameters and shows what the mapping would write. Nothing is written or stored.",
+      "pickDocument": "Pick a document",
+      "noDocuments": "No documents of this supplier yet",
+      "test": "Test call",
+      "succeeded": "Answered",
+      "attempts_one": "{{count}} request",
+      "attempts_other": "{{count}} requests",
+      "reasons": {
+        "blocked": "Address refused",
+        "circuitOpen": "Paused after failures",
+        "destination": "Destination unusable",
+        "mapping": "Mapping failed",
+        "network": "Not reachable",
+        "request": "Request failed",
+        "secret": "Secret missing",
+        "status": "Error answer",
+        "timeout": "Timed out",
+        "token": "Token failed",
+        "tooLarge": "Answer too large",
+        "failed": "Failed"
+      }
+    }
+  },
+  "masterData": {
+    "title": "Master data",
+    "description": "Supplier records from your ERP: a one-off import, or a source read on a schedule. Records are matched by the ERP vendor id, the VAT id, then an IBAN; each field under its conflict policy.",
+    "matchKeys": "Match by",
+    "dryRun": "Dry run",
+    "imported": "Imported: {{created}} created, {{updated}} updated.",
+    "import": {
+      "title": "Import suppliers",
+      "description": "Check the file with a dry run, then import it. The same file a second time changes nothing.",
+      "format": "Format",
+      "file": "File",
+      "csv": "CSV (first line: the column names)",
+      "json": "JSON: an array of {name, vatId, taxId, ibans, currency, attributes}",
+      "target": "Field",
+      "column": "Column",
+      "columnOf": "Column of {{target}}",
+      "skip": "Not imported",
+      "policy": "When it differs",
+      "policyOf": "Policy of {{target}}",
+      "apply": "Import",
+      "checkFirst": "Run a dry run first."
+    },
+    "policies": {
+      "default": "Default (ERP wins)",
+      "externalWins": "The ERP's value wins",
+      "localWins": "Keep ours",
+      "flag": "Report a conflict"
+    },
+    "report": {
+      "dryRun": "Dry run",
+      "applied": "Applied",
+      "created_one": "{{count}} created",
+      "created_other": "{{count}} created",
+      "updated_one": "{{count}} updated",
+      "updated_other": "{{count}} updated",
+      "unchanged_one": "{{count}} unchanged",
+      "unchanged_other": "{{count}} unchanged",
+      "conflicts_one": "{{count}} conflict",
+      "conflicts_other": "{{count}} conflicts",
+      "errors_one": "{{count}} error",
+      "errors_other": "{{count}} errors",
+      "problemsOnly": "Only conflicts and errors",
+      "failed": "The run failed",
+      "row": "Row",
+      "action": "Result",
+      "supplier": "Supplier",
+      "matchedBy": "Matched by",
+      "details": "Details",
+      "conflictOn": "conflict on {{attribute}}",
+      "summary": "{{created}} created, {{updated}} updated, {{conflicts}} conflicts, {{errors}} errors"
+    },
+    "actions": {
+      "create": "Create",
+      "update": "Update",
+      "unchanged": "Unchanged",
+      "conflict": "Conflict",
+      "error": "Error"
+    },
+    "statuses": {
+      "Succeeded": "Succeeded",
+      "Failed": "Failed"
+    },
+    "triggers": {
+      "Manual": "Manual",
+      "Schedule": "Scheduled",
+      "Import": "Import"
+    },
+    "transports": {
+      "http": "HTTP (a destination)",
+      "upload": "Upload"
+    },
+    "sources": {
+      "title": "Sources",
+      "description": "A source reads an http destination on a schedule (at most every 15 minutes), or takes uploaded records; its JSONata mapping turns the answer into supplier records.",
+      "new": "New source",
+      "none": "No sources yet.",
+      "name": "Name",
+      "transport": "Transport",
+      "schedule": "Schedule",
+      "scheduleHint": "Cron (minute hour day month weekday), optionally CRON_TZ=<zone> first; empty for runs by hand only.",
+      "lastRun": "Last run",
+      "next": "next {{when}}",
+      "disabled": "Off",
+      "run": "Run",
+      "runs": "Runs",
+      "runsOf": "Runs of {{name}}",
+      "noRuns": "No runs yet.",
+      "edit": "Edit {{name}}",
+      "delete": "Delete {{name}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "The source and its runs are removed; the suppliers it wrote stay.",
+      "runTitle": "Run {{name}}",
+      "dryRunTitle": "Dry run of {{name}}",
+      "uploadHint": "The records to apply, as JSON (before the source's mapping).",
+      "httpHint": "Reads the destination now and applies the records (a dry run changes nothing).",
+      "records": "Records",
+      "newTitle": "New master-data source",
+      "editTitle": "Edit {{name}}",
+      "formDescription": "Where the records come from, how they map to suppliers and when they are read.",
+      "destination": "Destination",
+      "pickDestination": "Pick an http destination",
+      "mapping": "Mapping (JSONata)",
+      "enabled": "Enabled",
+      "saved": "Source {{name}} saved."
+    }
+  },
+  "insights": {
+    "title": "Onboarding",
+    "description": "Whom to onboard next and what needs a look: suppliers without layouts by volume, automation per supplier, Unknown rates, layouts, rules, deliveries and master data.",
+    "platformScopeTitle": "Insights belong to a tenant",
+    "platformScope": "Pick a tenant to see its onboarding view.",
+    "window": "Window",
+    "lastDays_one": "Last {{count}} day",
+    "lastDays_other": "Last {{count}} days",
+    "kpis": {
+      "documents": "Documents",
+      "autoApproved": "Auto-approved",
+      "unknown": "Unknown type"
+    },
+    "onboardNext": {
+      "title": "Onboard next: suppliers without layouts",
+      "description": "Ranked by documents in the window. A layout lets their documents be read without the LLM and auto-approved.",
+      "none": "Every supplier with documents has a layout."
+    },
+    "suppliers": {
+      "title": "Automation per supplier",
+      "description": "Documents, auto-approval, corrections per document, LLM cost and layouts in the window.",
+      "none": "No documents in the window."
+    },
+    "columns": {
+      "supplier": "Supplier",
+      "documents": "Documents",
+      "autoApproval": "Auto-approved",
+      "corrections": "Corrections / doc",
+      "llmCost": "LLM cost",
+      "layouts": "Layouts",
+      "noLayouts": "None",
+      "newLayout_one": "{{count}} new design",
+      "newLayout_other": "{{count}} new designs"
+    },
+    "layoutStates": {
+      "none": "none",
+      "Draft": "Draft",
+      "Candidate": "Candidate",
+      "Shadow": "Shadow",
+      "Active": "Active",
+      "Degraded": "Degraded",
+      "Retired": "Retired"
+    },
+    "unknown": {
+      "channels": "Unknown rate per channel",
+      "rules": "Unknown rate per source rule",
+      "name": "Name",
+      "rate": "Unknown",
+      "none": "Nothing in the window."
+    },
+    "layouts": {
+      "title": "Layouts to look at",
+      "description": "Degraded layouts, Candidates with documents waiting for their activation, and layouts that have not matched for 180 days (candidates to retire; nothing retires by itself).",
+      "none": "Nothing to look at.",
+      "layout": "Layout",
+      "state": "Why",
+      "lastMatched": "Last matched",
+      "never": "never",
+      "why": {
+        "degraded": "Degraded",
+        "waiting_one": "{{count}} document waiting",
+        "waiting_other": "{{count}} documents waiting",
+        "stale": "Not matched for 180 days"
+      }
+    },
+    "rules": {
+      "title": "Fallback rules reviewers override",
+      "description": "Tenant identification rules whose type reviewers changed.",
+      "none": "No overrides.",
+      "counts": "matched {{matched}}, overridden {{overridden}}"
+    },
+    "deliveries": {
+      "title": "Deliveries per destination",
+      "destination": "Destination",
+      "total": "Total",
+      "failed": "Failed",
+      "deadLettered": "Dead letters",
+      "none": "No deliveries in the window."
+    },
+    "masterData": {
+      "title": "Open master-data conflicts",
+      "none": "No open conflicts.",
+      "conflicts_one": "{{count}} conflict",
+      "conflicts_other": "{{count}} conflicts"
+    },
+    "actions": {
+      "openSample": "Open sample",
+      "createLayout": "Create layout",
+      "addSourceRule": "Add source rule",
+      "openLayouts": "Layouts",
+      "openMasterData": "Master data"
     }
   }
 }

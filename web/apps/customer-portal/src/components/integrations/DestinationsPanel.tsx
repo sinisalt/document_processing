@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Loader2, MessageSquareReply, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -33,6 +33,7 @@ import {
 import { ApiError, ConfirmDialog, DataTable, createDataTableColumnHelper, formatDateTime, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY } from "@/lib/queries";
 import { SectionIntro } from "@/components/settings/SectionIntro";
+import { AcknowledgementsDialog } from "./AcknowledgementsDialog";
 import { transports, useDestinations, type Destination, type Transport } from "./api";
 import { authNeedsSecret, authTypes, configOf, formFieldOfConfigPath, formOf, httpMethods, type DestinationFormValues } from "./destinationForm";
 
@@ -61,6 +62,7 @@ export function DestinationsPanel() {
   const destinations = useDestinations();
   const [editing, setEditing] = useState<Destination | "new" | null>(null);
   const [deleting, setDeleting] = useState<Destination | null>(null);
+  const [acking, setAcking] = useState<Destination | null>(null);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.outputs.destinations() });
 
   const setStatus = useMutation({
@@ -121,6 +123,12 @@ export function DestinationsPanel() {
                 <Pencil aria-hidden />
                 {t("integrations.edit")}
               </Button>
+              {row.original.transport === "http" && (
+                <Button size="xs" variant="ghost" onClick={() => setAcking(row.original)} data-testid={`ack-destination-${row.original.name}`}>
+                  <MessageSquareReply aria-hidden />
+                  {row.original.acknowledgements ? t("integrations.acknowledgements.on") : t("integrations.acknowledgements.open")}
+                </Button>
+              )}
               <Button size="xs" variant="ghost" onClick={() => setDeleting(row.original)} aria-label={t("integrations.destinations.deleteLabel", { name: row.original.name })}>
                 <Trash2 aria-hidden />
               </Button>
@@ -155,6 +163,7 @@ export function DestinationsPanel() {
         rowAttributes={(row) => ({ "data-destination": row.name })}
       />
       <DestinationDialog destination={editing === "new" ? null : editing} open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} onSaved={invalidate} />
+      {acking && <AcknowledgementsDialog key={acking.id} destination={acking} open onOpenChange={(open) => !open && setAcking(null)} />}
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}

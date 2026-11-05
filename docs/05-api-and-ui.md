@@ -555,6 +555,33 @@ reprocesses exactly as before.
     (`Pipeline:MasterDataSyncInterval`) runs the due http sources through the delivery client (public addresses, 30 s,
     2 MB), each run a `MasterDataRun` with its report.
 
+### Processing UI, rule tests and Insights as built (docs/11 §10, §11, §17, §19, P5 part D)
+
+The screens of P5 part D needed four routes the earlier parts did not have:
+
+- `GET /rule-kinds` (`Read`): every rule kind of the deployment `{kind, phase, description, paramsSchema, pathParams,
+  expressionParams}`, what the type editor's rule form is drawn from (as `GET /step-kinds` is for steps).
+- `POST /document-types/{key}/versions/{v}:test-rules {documentId}` (`ConfigAdmin`, `configurableTypes`): runs the
+  checks of that version (a draft too, compiled as it would publish; a version that does not pass the publish checks
+  answers 400 with the problems) on one document of the type, with the validate stage's code (`DocumentChecks`), and
+  answers `{rules: [{id, kind, outcome: passed|warned|failed|notRun, flags}], flags, blocking}`. Nothing is written: no
+  flag, no event. A document of another type or without data is a 400, another tenant's a 404.
+- `POST /pipelines/lookups:test {documentId, params, stepId?}` (`ConfigAdmin`, `configurableSteps`): the
+  `http-lookup` parameters checked as a supplier's override is at save (the kind's schema, an http destination of the
+  tenant, JSONata that parses: 400 under `params.*`), then one call for the document's values view through
+  `HttpLookupService` as a dry run: a stored answer is not reused, nothing is stored in `LookupResults`, the breaker
+  does not count it. The answer is the outcome `{succeeded, assignments, reason?, message?, httpStatus?, attempts}`;
+  a refused address (`blocked`), a timeout or a mapping error is an outcome, not an HTTP error.
+- `GET /insights/automation?from=&to=` (`Read`; UTC dates, the last 30 days by default, at most 92): the onboarding
+  view of docs/11 §17 from live queries (no nightly roll-up, see docs/11 §17 correction): `documents`, `autoApproved`,
+  `unknown`; `suppliers` (per supplier documents, auto-approved, corrections per document, LLM cost, open `NEW_LAYOUT`
+  documents, its layouts with the state of their current version, a sample document) and `suppliersWithoutLayouts`
+  (the same rows, by volume); `unknownByChannel` and `unknownBySourceRule`; `degradedLayouts`, `staleLayouts` (Active
+  and not matched for 180 days), `candidatesWaiting` (a Candidate version with documents in review waiting for it);
+  `overriddenRules` (tenant fallback rules reviewers overrode); `destinations` (deliveries, failed and dead-lettered
+  per destination); `masterDataConflicts` (the newest applied run of each source, or of the imports, that left
+  conflicts).
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:
@@ -639,6 +666,44 @@ One monorepo, two apps sharing a component and API-client package:
     settings (`layoutReviewWarmup`, `layoutAgreementPercent`, `layoutsRequiredByDefault`, `trustedForwarderDomains`,
     `supplierAttributeSchema`).
   - Admin console: the tenant's feature switches include `sourceRouting` and `supplierLayouts`.
+- P5 screens (docs/11 §19, P5 part D; each with the switch of its feature, a tenant without them sees the screens of
+  P4):
+  - Settings > Document types, the type editor (`@docproc/review`): a Rules tab (the rule list; a form per rule kind
+    from `GET /rule-kinds`, rule expressions in a monospace area; severity, the definition flag it raises,
+    `appliesWhen`, messages en/de; the definition's own flags; the review gate: `autoApprove`, priority, `dueBy`,
+    `requirePassedRules`, `blockOnWarnings`, `lines`; "Test against a document" with `:test-rules` on the saved
+    version), a Processing tab (the type's resolved pipeline, every step per phase with the layer that set it, fixed
+    steps locked, steps this build does not run marked) and, with `supplierLayouts`, an Identification tab (the
+    tenant fallback rules of the type: create from a rule's JSON with the excluded suppliers, edit the Draft with
+    `If-Match`, test, activate with the "other types matched" confirmation, disable; the save-time test summary, the
+    documents of other types it matched, the override share).
+  - Suppliers sheet, Processing tab (`configurableSteps`): the resolved pipeline of a chosen type for the supplier and
+    the supplier's `pipelineOverrides` (switch a step off, a `param` override from the kind's schema, an `http-lookup`
+    after an Extract step with the destination picked from the http destinations and a Test call against one of the
+    supplier's documents); saved with `PATCH /suppliers/{id} {settings}`, the API's refusals listed by place. The
+    Settings tab keeps the members it does not edit (`pipelineOverrides`) when it saves. `?supplier=&tab=` opens a
+    supplier's sheet on a tab (the links of Insights).
+  - Settings > AI providers: LLM budgets (`GET`/`PUT /llm-budgets`; period, stage, limit, what the current period
+    spent).
+  - Settings > Integrations: a Master data section (supplier import: CSV or JSON from a file or pasted, the column
+    map guessed from the header in English and German, match keys, a conflict policy per field, Dry run then Import,
+    the report with created, updated, unchanged, conflicts and errors per row; the sources with Run, Dry run, their
+    runs and reports, create and edit), and per http destination Acknowledgements (callback with HMAC or bearer and
+    its URL, the callback secret write-only with rotation, status poll, the mappings).
+  - Review screen: the `REVISION_OF` panel shows the earlier document side by side (number, validity, rows, status,
+    dates; differing values marked) and sends a note with `:resolve-revision`; the Deliveries tab names an open
+    `EXTERNAL_REJECTED` and shows each delivery's acknowledgement (Pending, Accepted, Posted, Rejected, its message);
+    for a `ConfigAdmin` with `supplierLayouts`, Identify mode is offered on a typed document no layout filled, in the
+    tenant's scope (`identifiers:propose {scope: tenant}`, the tests with `{tenant: true}`), with "Use for all
+    suppliers without own layouts" (`POST /documents/{id}/identification-rules`, then the save-time test and
+    Activate with its confirmation).
+  - Inbox: a Review due column, "Urgent first" (`?sort=reviewDue`: urgent, then high, then by due time), superseded
+    lists greyed with a link to the replacing one. Review queue: Urgent and High badges, the due time red when past and
+    amber within 4 hours, an Integration issue badge.
+  - Insights > Onboarding (`/insights`, every tenant role): the KPIs, suppliers without layouts by volume with "Open
+    sample", "Create layout" (the supplier's Layouts tab) and "Add source rule" (its Routing tab), automation per
+    supplier, the Unknown rates, layouts to look at, overridden fallback rules, delivery health and master-data
+    conflicts for the last 7, 30 or 90 days.
 
 ### Shared UI decisions
 

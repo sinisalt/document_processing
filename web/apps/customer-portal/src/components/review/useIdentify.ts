@@ -24,7 +24,7 @@ export interface IdentifierProposal {
  * VAT id a `supplierValue`); adding it makes a chip of the Identification card. Every change of the chips runs
  * `POST /identification-rules:test` on this document and on the supplier's last 50 documents.
  */
-export function useIdentify(documentId: string, supplierId: string | null, draft: IdentificationDraft, onDraftChange: (next: IdentificationDraft) => void, typeKey: string | null) {
+export function useIdentify(documentId: string, supplierId: string | null, draft: IdentificationDraft, onDraftChange: (next: IdentificationDraft) => void, typeKey: string | null, scopeKind: "supplier" | "tenant" = "supplier") {
   const { client } = useApi();
   const [proposal, setProposal] = useState<IdentifierProposal | null>(null);
   const request = useRef(0);
@@ -34,7 +34,9 @@ export function useIdentify(documentId: string, supplierId: string | null, draft
       const id = ++request.current;
       setProposal({ page, words, box, identifier: null, describe: "", holds: false, warnings: [], loading: true, error: null });
       try {
-        const body = drawn ? { page, bBox: box } : { page, words: words.map((w) => w.index) };
+        // A tenant rule names no supplier value: the proposer gives a text identifier for the VAT id (docs/11 §12.9).
+        const scopeOf = scopeKind === "tenant" ? { scope: "tenant" } : {};
+        const body = drawn ? { page, bBox: box, ...scopeOf } : { page, words: words.map((w) => w.index), ...scopeOf };
         const result = unwrap(await client.POST("/api/v1/documents/{id}/identifiers:propose", { params: { path: { id: documentId } }, body }));
         if (id !== request.current) return;
         setProposal({ page, words, box, identifier: result.identifier as unknown as Identifier, describe: result.describe, holds: result.holds, warnings: result.warnings, loading: false, error: null });
@@ -44,7 +46,7 @@ export function useIdentify(documentId: string, supplierId: string | null, draft
         setProposal({ page, words, box, identifier: null, describe: "", holds: false, warnings: [], loading: false, error: message });
       }
     },
-    [client, documentId],
+    [client, documentId, scopeKind],
   );
 
   const pick = useCallback(
@@ -85,21 +87,22 @@ export function useIdentify(documentId: string, supplierId: string | null, draft
 
   const rule = useMemo(() => ruleOf(draft), [draft]);
   const ruleJson = rule ? JSON.stringify(rule) : null;
-  const scope = supplierId ? { supplierId } : undefined;
+  const scope = scopeKind === "tenant" ? { tenant: true } : supplierId ? { supplierId } : undefined;
+  const testable = rule !== null && (supplierId !== null || scopeKind === "tenant");
 
   // "Holds for this document" and the evidence drawn on the page.
   const here = useQuery({
-    queryKey: ["supplier-layouts", "identify", documentId, "here", ruleJson],
+    queryKey: ["supplier-layouts", "identify", documentId, "here", ruleJson, scopeKind],
     queryFn: async () => unwrap(await client.POST("/api/v1/identification-rules:test", { body: { rule: rule as never, scope, documentIds: [documentId] } })),
-    enabled: rule !== null && supplierId !== null,
+    enabled: testable,
     retry: false,
     meta: { silent: true },
   });
   // Against the supplier's last 50 documents: how many it matches per layout, and the overlaps with other layouts.
   const recent = useQuery({
-    queryKey: ["supplier-layouts", "identify", documentId, "recent", ruleJson],
+    queryKey: ["supplier-layouts", "identify", documentId, "recent", ruleJson, scopeKind],
     queryFn: async () => unwrap(await client.POST("/api/v1/identification-rules:test", { body: { rule: rule as never, scope, lastN: 50, typeKey: typeKey ?? undefined } })),
-    enabled: rule !== null && supplierId !== null,
+    enabled: testable,
     retry: false,
     meta: { silent: true },
   });

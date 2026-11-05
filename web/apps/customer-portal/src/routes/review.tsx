@@ -4,7 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ExternalLink, Hand, Undo2 } from "lucide-react";
-import { Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
+import { Badge, Button, Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@docproc/ui";
 import {
   DataTable,
   EmptyState,
@@ -23,6 +23,7 @@ import {
   type ReviewTaskListQuery,
 } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type ReviewTask } from "@/lib/queries";
+import { dueState } from "@/lib/priority";
 import { reviewReasonLabels } from "@/lib/reviewReason";
 
 export const Route = createFileRoute("/review")({ component: ReviewQueuePage });
@@ -85,9 +86,22 @@ function ReviewQueue() {
           id: "documentNumber",
           header: t("inbox.columns.documentNumber"),
           cell: ({ row }) => (
-            <Link to="/documents/$documentId" params={{ documentId: row.original.documentId }} className="font-medium underline-offset-2 hover:underline">
-              {row.original.document?.documentNumber ?? t("inbox.noNumber")}
-            </Link>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <Link to="/documents/$documentId" params={{ documentId: row.original.documentId }} className="font-medium underline-offset-2 hover:underline">
+                {row.original.document?.documentNumber ?? t("inbox.noNumber")}
+              </Link>
+              {/* An urgent daily specials list sorts first (docs/11 §11 dueBy); an integration issue is a task of its own kind (§13.8). */}
+              {(row.original.priority === "Urgent" || row.original.priority === "High") && (
+                <Badge variant={row.original.priority === "Urgent" ? "destructive" : "warning"} data-testid="queue-priority">
+                  {t(`inbox.priority.${row.original.priority}`)}
+                </Badge>
+              )}
+              {row.original.kind === "IntegrationIssue" && (
+                <Badge variant="outline" data-testid="queue-integration-issue">
+                  {t("queue.integrationIssue")}
+                </Badge>
+              )}
+            </span>
           ),
         }),
         helper.accessor((task) => task.document?.supplierName ?? "", { id: "supplier", header: t("inbox.columns.supplier"), cell: (info) => info.getValue() || "—" }),
@@ -136,8 +150,9 @@ function ReviewQueue() {
           header: t("queue.columns.slaDue"),
           cell: (info) => {
             const created = t("queue.createdAt", { when: formatDateTime(info.row.original.createdAt, i18n.language) });
+            const due = dueState(info.getValue());
             return info.getValue() ? (
-              <time dateTime={info.getValue()!} title={created}>
+              <time dateTime={info.getValue()!} title={created} data-due={due ?? undefined} className={due === "overdue" ? "font-medium text-destructive" : due === "soon" ? "font-medium text-amber-700 dark:text-amber-400" : undefined}>
                 {formatDateTime(info.getValue(), i18n.language)}
               </time>
             ) : (

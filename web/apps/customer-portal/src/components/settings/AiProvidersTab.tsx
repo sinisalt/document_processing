@@ -50,6 +50,7 @@ import {
 import { ApiError, ConfirmDialog, DataTable, EmptyState, createDataTableColumnHelper, formatDate, formatMoney, formatNumber, queryKeys, relativeTime, unwrap, useApi } from "@docproc/app-shell";
 import { EMPTY_ARRAY, type LlmPolicy, type LlmProvider } from "@/lib/queries";
 import { usageDays } from "@/lib/usage";
+import { LlmBudgetsCard } from "./LlmBudgetsCard";
 import { SectionIntro } from "./SectionIntro";
 
 /** `LlmProviderKind` without the test-only Replay kind; `LlmStage`; `DataResidency`. */
@@ -212,6 +213,7 @@ export function AiProvidersTab() {
 
   return (
     <div className="flex flex-col gap-6">
+      <LlmBudgetsCard />
       {/* A list like Channels, Members and API keys: the same plain heading, not a card of its own. */}
       <section className="flex flex-col gap-4" aria-labelledby="ai-providers-title">
         <SectionIntro

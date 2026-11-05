@@ -1,4 +1,4 @@
-import { Building2, ClipboardList, Inbox, LayoutDashboard, Settings } from "lucide-react";
+import { Building2, ChartNoAxesCombined, ClipboardList, Inbox, LayoutDashboard, Settings } from "lucide-react";
 import { Policies, type AuthUser, type NavItem } from "@docproc/app-shell";
 
 /**
@@ -10,11 +10,12 @@ export const nav: NavItem[] = [
   { to: "/documents", labelKey: "portal:nav.inbox", icon: Inbox, policy: Policies.Read },
   { to: "/review", labelKey: "portal:nav.review", icon: ClipboardList, policy: Policies.Review },
   { to: "/suppliers", labelKey: "portal:nav.suppliers", icon: Building2, policy: Policies.Read },
+  { to: "/insights", labelKey: "portal:nav.insights", icon: ChartNoAxesCombined, policy: Policies.Read },
   { to: "/settings", labelKey: "portal:nav.settings", icon: Settings, policy: Policies.TenantAdmin },
 ];
 
 /** Screens whose data belongs to a tenant: a platform account (Operator, SuperAdmin without X-Tenant-Id) gets 400 there. */
-const tenantOnly = new Set(["/suppliers", "/settings"]);
+const tenantOnly = new Set(["/suppliers", "/insights", "/settings"]);
 
 /** The entries for this user: `NavItem` filters by policy and role only, so the scope is applied here. */
 export function navFor(user: Pick<AuthUser, "scope"> | null | undefined): NavItem[] {

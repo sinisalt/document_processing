@@ -209,6 +209,11 @@ end of their day, `REVISION_OF` resolved in review, the `generic-article-prices-
 example with its `mock-erp` stub, the `defaults` step and the `llm` step's `exclude` and `lines: perPage`), supplier
 master data (CSV or JSON import, scheduled sync from an http source), and acknowledgements from receiving systems
 (signed callbacks, status polling, `EXTERNAL_REJECTED`) (docs/09 "Price lists, master data and acknowledgements").
+P5 part D adds their screens: a supplier's Processing tab (the steps per phase, overrides, http lookups with a test
+call), LLM budgets, the type editor's Rules, Processing and Identification tabs (rule forms, definition flags, the
+review gate, a rule test against a document, tenant fallback rules), "use for all suppliers without own layouts" in
+review, the revision panel side by side, urgent-first sorting, master-data import and sources, destination
+acknowledgements and Insights > Onboarding (docs/09 "Processing, rules and onboarding screens").
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
