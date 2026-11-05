@@ -458,7 +458,12 @@ public sealed class DefinitionCompilerTests
     }
 
     [Theory]
-    [InlineData("""{"id":"r","kind":"tableComplete"}""", "rule kind 'tableComplete' is not available yet")]
+    [InlineData("""{"id":"r","kind":"columnSum"}""", "rule kind 'columnSum' is not available yet")]
+    [InlineData("""{"id":"r","kind":"tableComplete"}""", "do not fit the kind 'tableComplete'")]
+    [InlineData("""{"id":"r","kind":"unique","params":{"path":"returnNumber"}}""", "must name a field of rows")]
+    [InlineData("""{"id":"r","kind":"unique","params":{"path":"items[*].sku","scopeBy":["batch"]}}""", "scopeBy 'batch' is not a field of the items of items[*]")]
+    [InlineData("""{"id":"r","kind":"deltaToPrevious","params":{"path":"items[*].quantity","joinOn":"ean"}}""", "joinOn 'ean' is not a field of the items of items[*]")]
+    [InlineData("""{"id":"r","kind":"ordered","params":{"path":"items","by":"position","then":{"path":"quantity","order":"sideways"}}}""", "do not fit the kind 'ordered'")]
     [InlineData("""{"id":"r","kind":"range","params":{"path":"items[*].quantity","minimum":1}}""", "do not fit the kind 'range'")]
     [InlineData("""{"id":"r","kind":"range","params":{"min":1}}""", "do not fit the kind 'range'")]
     [InlineData("""{"id":"r","kind":"range","params":{"path":"items[*].weight","min":1}}""", "path 'items[*].weight' is not a field")]
@@ -833,9 +838,11 @@ public sealed class DefinitionCompilerTests
     [Fact]
     public void The_price_list_templates_v1_are_always_reviewed_and_use_only_P1_rule_kinds()
     {
+        // Version 1 (P1 to P4) as the catalogue migration froze it; the live templates are v2 (below).
+        var frozen = Infrastructure.Catalogue.TypeCatalogueSeedSql.FrozenTemplates().ToDictionary(f => f.Template.Key, f => f, StringComparer.Ordinal);
         foreach (var key in new[] { "std.price-list", "std.daily-specials" })
         {
-            var template = StandardTemplates.Find(key)!;
+            var template = frozen[key].Template;
 
             template.Version.ShouldBe(1);
             template.Processing.Review.AutoApprove.ShouldBeFalse(key);
@@ -847,11 +854,42 @@ public sealed class DefinitionCompilerTests
             template.Processing.Split!.Mode.ShouldBe("never");
             DefinitionPaths.Find(template, "lines")!.MaxItems.ShouldBe(10_000);
             DefinitionPaths.Enumerate(template).Where(f => f.Path.StartsWith("lines[*].", StringComparison.Ordinal)).ShouldAllBe(f => !f.Field.Indexed);
-            PublishChecks.Run(new PublishCheckInput { DefinitionJson = StandardTemplates.ReadJson(key) }).Problems.ShouldBeEmpty(key);
+            PublishChecks.Run(new PublishCheckInput { DefinitionJson = frozen[key].Json }).Problems.ShouldBeEmpty(key);
         }
 
-        StandardTemplates.Find("std.price-list")!.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_from", "r_price_pos", "r_pack", "r_unit", "r_dup"]);
-        StandardTemplates.Find("std.daily-specials")!.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_not_expired", "r_price_pos", "r_pack", "r_unit", "r_dup"]);
+        frozen["std.price-list"].Template.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_from", "r_price_pos", "r_pack", "r_unit", "r_dup"]);
+        frozen["std.daily-specials"].Template.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_not_expired", "r_price_pos", "r_pack", "r_unit", "r_dup"]);
+    }
+
+    [Fact]
+    public void The_price_list_templates_v2_name_their_substitutes_for_a_totals_check_and_publish()
+    {
+        // docs/11 §5.8: v2 adds the line-table rules and the full review block, and changes no field.
+        var frozen = Infrastructure.Catalogue.TypeCatalogueSeedSql.FrozenTemplates().ToDictionary(f => f.Template.Key, f => f.Template, StringComparer.Ordinal);
+        foreach (var key in new[] { "std.price-list", "std.daily-specials" })
+        {
+            var template = StandardTemplates.Find(key)!;
+            template.Version.ShouldBe(2);
+            DefinitionSerializer.Write(template with { Version = 1, Base = frozen[key].Base, Rules = frozen[key].Rules, Processing = frozen[key].Processing })
+                .ShouldBe(DefinitionSerializer.Write(frozen[key]), $"{key} v2 changes no field, role, classification or ui");
+            template.Processing.Review.AutoApprove.ShouldBeTrue(key);
+            template.Rules.Select(r => r.Kind).ShouldContain("tableComplete");
+            template.Rules.Select(r => r.Kind).ShouldContain("unique");
+            template.Rules.Select(r => r.Kind).ShouldContain("ordered");
+            PublishChecks.Run(new PublishCheckInput { DefinitionJson = StandardTemplates.ReadJson(key) }).Problems.ShouldBeEmpty(key);
+            template.Processing.Review.RequirePassedRules!.ShouldAllBe(id => template.Rules.Any(r => r.Id == id), $"{key} names the rules that stand in for a totals check");
+        }
+
+        var list = StandardTemplates.Find("std.price-list")!;
+        list.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_from", "r_table", "r_count", "r_sku_unique", "r_price_pos", "r_pack", "r_unit", "r_tiers", "r_delta", "r_dup"]);
+        list.Processing.Review.RequirePassedRules.ShouldBe(["r_table", "r_sku_unique", "r_price_pos"]);
+        list.Processing.Review.BlockOnWarnings.ShouldBe(["r_delta", "r_dup"]);
+        var specials = StandardTemplates.Find("std.daily-specials")!;
+        specials.Rules.Select(r => r.Id).ShouldBe(["r_validity", "r_single_day", "r_not_expired", "r_table", "r_count", "r_sku_unique", "r_price_pos", "r_pack", "r_unit", "r_tiers", "r_below_prev", "r_dup"]);
+        specials.Processing.Review.Priority.ShouldBe("urgent");
+        specials.Processing.Review.DueBy.ShouldBe("validUntil");
+        specials.Processing.Review.RequirePassedRules.ShouldBe(["r_table", "r_not_expired", "r_price_pos", "r_sku_unique"]);
+        specials.Processing.Review.BlockOnWarnings.ShouldBe(["r_dup"]);
     }
 
     [Fact]

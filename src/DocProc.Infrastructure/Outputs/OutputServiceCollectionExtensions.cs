@@ -46,6 +46,9 @@ public static class OutputServiceCollectionExtensions
         services.TryAddScoped<Lookups.HttpLookupService>();
         services.TryAddScoped<DeliveryFanOut>();
         services.TryAddScoped<DeliveryProcessor>();
+        services.TryAddSingleton<DestinationReader>();
+        services.TryAddSingleton<Acknowledgements.ExternalStatusPoller>();
+        services.TryAddSingleton<MasterData.MasterDataSync>();
         return services;
     }
 }

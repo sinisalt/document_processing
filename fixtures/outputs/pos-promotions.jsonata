@@ -1,0 +1,25 @@
+(
+  $root := $;
+  {
+    "promotionId": $required(supplier.attributes.erpVendorId, "Supplier has no ERP vendor id") & "-"
+                   & $fmtDate(roles.validFrom, "yyyyMMdd") & (roles.documentNumber ? "-" & roles.documentNumber : ""),
+    "vendorNo": supplier.attributes.erpVendorId,
+    "title": doc.title ? doc.title : "Tagesangebote " & supplier.name,
+    "validFrom": roles.validFrom & "T00:00:00",
+    "validTo": roles.validUntil & "T23:59:59",
+    "timeZone": "Europe/Berlin",
+    "currency": roles.currency,
+    "replaces": meta.supersedes,
+    "items": [ doc.lines[$not(status = "Discontinued")].{
+      "vendorArticleNo": supplierSku,
+      "ean": gtin,
+      "text": $substring(description, 0, 40),
+      "unit": $table("erp-uom", unit, "ST"),
+      "promoPrice": price.amount,
+      "regularPrice": previousPrice.amount,
+      "minQty": minOrderQuantity
+    } ],
+    "dmsId": meta.documentId,
+    "revision": meta.version
+  }
+)

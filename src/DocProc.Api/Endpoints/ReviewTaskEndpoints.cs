@@ -231,7 +231,7 @@ public static class ReviewTaskEndpoints
     private static ReviewTaskDto ToDto(ReviewTaskRow row)
     {
         var t = row.Task;
-        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document is null ? null : DocumentQueries.ToSummary(row.Document), t.Priority);
+        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document is null ? null : DocumentQueries.ToSummary(row.Document), t.Priority) { Kind = t.Kind };
     }
 
     /// <summary>The queue position of a priority: urgent 0, high 1, normal 2.</summary>

@@ -622,7 +622,10 @@
     "LAYOUT_WARMUP": "Layout-Anlaufphase",
     "LLM_BUDGET_EXCEEDED": "LLM-Budget erreicht",
     "LOOKUP_FAILED": "Abfrage fehlgeschlagen",
-    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt"
+    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt",
+    "TABLE_ROWS_REJECTED": "Tabellenzeilen abgelehnt",
+    "TABLE_PAGE_NO_ROWS": "Seite ohne Zeilen",
+    "EXTERNAL_REJECTED": "Vom Zielsystem abgelehnt"
   },
   "failure": {
     "EncryptedPdf": "Passwortgeschützte PDF",

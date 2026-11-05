@@ -146,13 +146,57 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
 
         var now = clock.GetUtcNow();
         await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
-        var compiled = TypeCatalogueRows.Compile(TypeCatalogueRows.Adopted(template, key));
+        var compiled = TypeCatalogueRows.Compile(TypeCatalogueRows.AdoptedNow(template, key));
         var definition = NewDefinition(tenantId, key, DefinitionOrigin.Adopted, template, now, actor);
         definition.PublishedVersion = 1;
         definition.Versions.Add(TypeCatalogueRows.PublishedVersion(Guid.CreateVersion7(), definition.Id, tenantId, compiled, now, actor, $"Adopted {template.Key} v{template.Version}"));
         db.DocumentTypeDefinitions.Add(definition);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return CatalogueResult<CatalogueType>.Created(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// <c>POST /document-types/{key}:upgrade-base</c> (docs/11 §5.8, §18): moves an adopted type onto the newest version of
+    /// its template (when it is not there yet) and sets <c>review.autoApprove</c> to <paramref name="autoApprove"/> (null
+    /// keeps what the published version has). Auto-approval is switched on only where the template has it. Nothing
+    /// changes, and the type comes back as it is, when both already hold.
+    /// </summary>
+    public async Task<CatalogueResult<CatalogueType>> UpgradeBaseAsync(Guid tenantId, string key, bool? autoApprove, string actor, CancellationToken cancellationToken)
+    {
+        var definition = await db.DocumentTypeDefinitions
+            .Include(d => d.Versions)
+            .Include(d => d.BaseDefinition)
+            .SingleOrDefaultAsync(d => d.TenantId == tenantId && d.Key == key, cancellationToken).ConfigureAwait(false);
+        if (definition is null)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.NotFound, $"The tenant has no type '{key}'.");
+        }
+
+        if (definition.Origin != DefinitionOrigin.Adopted || definition.BaseDefinition?.Key is not { } templateKey || StandardTemplates.Find(templateKey) is not { } template)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Conflict, $"Type '{key}' is {definition.Origin}; only an adopted type follows its template (a copy is upgraded by a three-way merge, P6).");
+        }
+
+        var current = definition.Versions.FirstOrDefault(v => v.Version == definition.PublishedVersion) ?? definition.Versions.MaxBy(v => v.Version);
+        var currentAuto = current is not null && DefinitionSerializer.Parse(current.DefinitionJson).Processing.Review.AutoApprove;
+        var target = autoApprove ?? currentAuto;
+        if (target && !template.Processing.Review.AutoApprove)
+        {
+            return CatalogueResult<CatalogueType>.Fail(CatalogueStatus.Invalid, $"{template.Key} v{template.Version} does not auto-approve; its documents are always reviewed.", [new DefinitionProblem("autoApprove", "the template has review.autoApprove false.")]);
+        }
+
+        if ((definition.BaseVersion ?? 0) >= template.Version && target == currentAuto)
+        {
+            return CatalogueResult<CatalogueType>.Ok(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
+        }
+
+        var now = clock.GetUtcNow();
+        await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        var note = (definition.BaseVersion ?? 0) < template.Version ? $"Upgraded to {template.Key} v{template.Version}" : $"Follows {template.Key} v{template.Version}";
+        note += target == currentAuto ? string.Empty : target ? "; auto-approval switched on" : "; auto-approval switched off";
+        TypeCatalogueSeeder.MoveAdopted(db, definition, template, target, now, actor, note);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return CatalogueResult<CatalogueType>.Ok(await ReloadAsync(tenantId, key, cancellationToken).ConfigureAwait(false));
     }
 
     public async Task<CatalogueResult<CatalogueType>> CopyAsync(Guid tenantId, string templateKey, string? key, string actor, CancellationToken cancellationToken)

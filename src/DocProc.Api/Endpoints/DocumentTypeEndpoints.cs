@@ -168,6 +168,12 @@ public sealed record DocumentTypeSource(string Template, string Mode);
 /// </summary>
 public sealed record CreateDocumentTypeRequest(DocumentTypeSource? From, string? Key, JsonElement? Definition);
 
+/// <summary>
+/// <c>POST /document-types/{key}:upgrade-base</c> (docs/11 §5.8): <see cref="AutoApprove"/> switches the type's
+/// <c>review.autoApprove</c> on or off (null keeps it); the type moves to its template's newest version either way.
+/// </summary>
+public sealed record UpgradeBaseRequest(bool? AutoApprove);
+
 public sealed record PublishDocumentTypeRequest(string? ChangeNote);
 
 public sealed record DefinitionProblemDto(string Where, string Message)
@@ -260,7 +266,41 @@ public static class DocumentTypeEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
             .WithName("PublishDocumentTypeVersion")
             .WithSummary("Publishes a draft when the publish-time checks pass (422 with the report otherwise); the previous version is deprecated.");
+        types.MapPost("/{key}:upgrade-base", UpgradeBaseAsync)
+            .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
+            .WithName("UpgradeDocumentTypeBase")
+            .WithSummary("Moves an adopted type onto the newest version of its template and sets review.autoApprove (docs/11 §5.8: an automatic upgrade never switches auto-approval on; this does, where the template allows it).");
         return group;
+    }
+
+    private static async Task<Results<Ok<DocumentTypeDetail>, ValidationProblem, ProblemHttpResult>> UpgradeBaseAsync(
+        string key,
+        UpgradeBaseRequest? request,
+        ITenantContext tenant,
+        ClaimsPrincipal user,
+        [FromServices] ITenantFeatures features,
+        [FromServices] DocumentTypeCatalogue catalogue,
+        CancellationToken ct)
+    {
+        if (RequireTenant(tenant, What) is { } problem)
+        {
+            return problem;
+        }
+
+        var tenantId = tenant.TenantId!.Value;
+        if (await RequireFeatureAsync(features, tenantId, TenantFeature.ConfigurableTypes, ct) is { } off)
+        {
+            return off;
+        }
+
+        var result = await catalogue.UpgradeBaseAsync(tenantId, key, request?.AutoApprove, DocumentQueries.ActorName(user), ct);
+        return result.Status switch
+        {
+            CatalogueStatus.Ok => TypedResults.Ok(DocumentTypeDetail.From(result.Value!)),
+            CatalogueStatus.Invalid => Invalid(result),
+            _ => Problem(result),
+        };
     }
 
     private static async Task<Results<Ok<IReadOnlyList<DocumentTemplateSummary>>, ProblemHttpResult>> ListTemplatesAsync(ITenantContext tenant, [FromServices] DocumentTypeCatalogue catalogue, CancellationToken ct)

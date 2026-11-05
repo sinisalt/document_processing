@@ -47,11 +47,14 @@ public sealed class StandardTemplateTests
         var template = StandardTemplates.Find(key).ShouldNotBeNull();
 
         DefinitionChecker.Check(template, RuleKinds.Keys).ShouldBeEmpty();
-        template.Rules.Select(r => RuleKinds.Available.GetValueOrDefault(r.Kind)?.Phase).ShouldAllBe(phase => phase == RuleKinds.P0 || phase == RuleKinds.P1);
-        template.Version.ShouldBe(1);
+        // The price-list templates moved to v2 with the line-table kinds of P5 (docs/11 §5.8); every other template is
+        // still version 1 with the kinds of P0 and P1.
+        var priceList = key is "std.price-list" or "std.daily-specials";
+        template.Rules.Select(r => RuleKinds.Available.GetValueOrDefault(r.Kind)?.Phase).ShouldAllBe(phase => phase == RuleKinds.P0 || phase == RuleKinds.P1 || (priceList && phase == RuleKinds.P5));
+        template.Version.ShouldBe(priceList ? 2 : 1);
         if (key == "std.daily-specials")
         {
-            template.Base.ShouldBe(new DefinitionBase { Template = "std.price-list", Version = 1, Mode = "copy" }, "the specials template is shipped as a fork of the price list (docs/11 §5.1)");
+            template.Base.ShouldBe(new DefinitionBase { Template = "std.price-list", Version = 2, Mode = "copy" }, "the specials template is shipped as a fork of the price list (docs/11 §5.1)");
         }
         else
         {
@@ -151,7 +154,7 @@ public sealed class StandardTemplateTests
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"roles":{"lineNet":"n"},"fields":[{"id":"fld_n","key":"n","kind":"money"}]}""", "needs the lineItems role")]
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"roles":{"lineItems":"l","lineNet":"n"},"fields":[{"id":"fld_n","key":"n","kind":"money"},{"id":"fld_l","key":"l","kind":"array","item":{"fields":[{"id":"fld_x","key":"x","kind":"money"}]}}]}""", "not a field of the lineItems rows")]
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"roles":{"duplicateKey":["$supplierId","nope"]},"fields":[]}""", "neither $supplierId nor a field")]
-    [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"fields":[],"rules":[{"id":"r","kind":"tableComplete"}]}""", "rule kind 'tableComplete' is not available yet")]
+    [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"fields":[],"rules":[{"id":"r","kind":"columnSum"}]}""", "rule kind 'columnSum' is not available yet")]
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"fields":[],"rules":[{"id":"r","kind":"invoice.totals"},{"id":"r","kind":"invoice.currency"}]}""", "used twice")]
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"fields":[],"rules":[{"id":"r","kind":"invoice.totals","severity":"fatal"}]}""", "severity")]
     [InlineData("""{"key":"x","version":1,"name":{"en":"X"},"fields":[],"processing":{"extract":[{"id":"r","kind":"validate.rules"}]}}""", "not a extract step kind")]

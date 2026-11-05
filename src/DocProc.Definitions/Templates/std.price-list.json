@@ -1,6 +1,6 @@
 {
   "key": "std.price-list",
-  "version": 1,
+  "version": 2,
   "name": {
     "en": "Price list",
     "de": "Preisliste"
@@ -528,6 +528,43 @@
       }
     },
     {
+      "id": "r_table",
+      "kind": "tableComplete",
+      "params": {
+        "path": "lines",
+        "maxRejectedRows": 0,
+        "everyPageInRange": true
+      },
+      "severity": "blocking"
+    },
+    {
+      "id": "r_count",
+      "kind": "expression",
+      "params": {
+        "predicate": "$not($exists(declaredLineCount)) or $count(lines) = declaredLineCount"
+      },
+      "severity": "blocking",
+      "message": {
+        "en": "Row count differs from the count printed on the list",
+        "de": "Anzahl Zeilen weicht von der gedruckten Anzahl ab"
+      }
+    },
+    {
+      "id": "r_sku_unique",
+      "kind": "unique",
+      "params": {
+        "path": "lines[*].supplierSku",
+        "scopeBy": [
+          "lineValidFrom"
+        ]
+      },
+      "severity": "blocking",
+      "message": {
+        "en": "An article number is listed twice",
+        "de": "Eine Artikelnummer ist doppelt aufgeführt"
+      }
+    },
+    {
       "id": "r_price_pos",
       "kind": "range",
       "params": {
@@ -550,6 +587,34 @@
       "params": {
         "path": "lines[*].unit",
         "table": "uom"
+      }
+    },
+    {
+      "id": "r_tiers",
+      "kind": "ordered",
+      "params": {
+        "path": "lines[*].tiers",
+        "by": "minQuantity",
+        "strict": true,
+        "then": {
+          "path": "price.amount",
+          "order": "nonIncreasing"
+        }
+      }
+    },
+    {
+      "id": "r_delta",
+      "kind": "deltaToPrevious",
+      "params": {
+        "path": "lines[*].price.amount",
+        "joinOn": "supplierSku",
+        "maxChangePercent": 25,
+        "maxChangedRowsPercent": 30
+      },
+      "severity": "warning",
+      "message": {
+        "en": "Unusual price change against the last approved list",
+        "de": "Ungewöhnliche Preisänderung gegenüber der letzten freigegebenen Liste"
       }
     },
     {
@@ -615,7 +680,24 @@
       }
     ],
     "review": {
-      "autoApprove": false
+      "autoApprove": true,
+      "minConfidence": 0.9,
+      "requirePassedRules": [
+        "r_table",
+        "r_sku_unique",
+        "r_price_pos"
+      ],
+      "blockOnWarnings": [
+        "r_delta",
+        "r_dup"
+      ],
+      "lines": {
+        "requireSource": [
+          "Profile",
+          "StructuredXml"
+        ],
+        "maxLowConfidenceRows": 0
+      }
     }
   },
   "classification": {

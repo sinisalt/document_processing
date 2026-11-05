@@ -44,7 +44,8 @@ public sealed class PipelineResolverTests
         on.Find("llm")!.Text("effort").ShouldBe("low");
         on.Find("llm")!.Source.ShouldBe(PipelineSources.Type);
         on.Phase(PipelinePhases.Extract).Select(s => s.Id).ShouldBe(["xml", "map", "prefill", "llm", "defaults", "uom"]);
-        on.Find("defaults")!.Runs.ShouldBeFalse("defaults is listed as the definition says, and not run by this build");
+        on.Find("defaults")!.Runs.ShouldBeTrue("defaults runs since P5 part C");
+        on.Find("uom")!.Runs.ShouldBeFalse("code-list is listed as the definition says, and not run by this build");
         on.Phase(PipelinePhases.Validate).Select(s => s.Kind).ShouldBe([StepKindCatalogue.ValidateSchema, StepKindCatalogue.ValidateRules, StepKindCatalogue.ReviewGate]);
     }
 

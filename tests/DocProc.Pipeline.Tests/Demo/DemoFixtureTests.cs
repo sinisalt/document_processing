@@ -330,6 +330,8 @@ public sealed class DemoFixtureTests
             (CreditNotePath(), DemoPdfs.CreditNote),
             (PriceListPath(), DemoPriceList.Pdf),
             .. DemoNordwindInvoices.All.Select(i => (NordwindInvoicePath(i), (Func<byte[]>)i.Pdf)),
+            .. DemoPriceLists.Lists.Select(l => (UploadPath(l.FileName), (Func<byte[]>)l.Pdf)),
+            .. DemoPriceLists.SpecialsLists.Select(l => (UploadPath(l.FileName), (Func<byte[]>)l.Pdf)),
         ];
 
         // "1" redraws every PDF; file names (comma-separated) redraw only those, so adding a demo PDF leaves the others' bytes alone.
@@ -358,6 +360,9 @@ public sealed class DemoFixtureTests
 
     /// <summary>The Nordwind price list the P2 demo uploads (docs/09 "Demo: manual mapping"; not ingested by the demo data).</summary>
     internal static string PriceListPath() => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", DemoPriceList.FileName);
+
+    /// <summary>A file of the P5 price-list and specials demos (docs/11 §23 P5; not ingested by the demo data).</summary>
+    internal static string UploadPath(string fileName) => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", fileName);
 
     /// <summary>A Nordwind invoice of the P4 layouts demo (docs/11 §23 P4; not ingested by the demo data).</summary>
     internal static string NordwindInvoicePath(DemoNordwindInvoices.Invoice invoice) => Path.Combine(RepositoryRoot(), "fixtures", "demo", "uploads", "tenant-a", invoice.FileName);

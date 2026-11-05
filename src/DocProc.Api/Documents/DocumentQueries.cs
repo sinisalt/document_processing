@@ -66,7 +66,10 @@ public static class DocumentQueries
             d.ValidUntil,
             d.LineCount,
             row.ReviewPriority,
-            row.ReviewDueAt);
+            row.ReviewDueAt)
+        {
+            SupersededBy = d.SupersededByDocumentId,
+        };
     }
 
     /// <summary>Loads one document with everything the detail needs; tracked when the caller is going to modify it.</summary>
@@ -139,6 +142,9 @@ public static class DocumentQueries
             PendingLayoutVersionId = d.PendingLayoutVersionId,
             IdentificationRuleVersionId = d.IdentificationRuleVersionId,
             PipelineHash = d.PipelineHash,
+            SupersededByDocumentId = d.SupersededByDocumentId,
+            RevisionOfDocumentId = d.RevisionOfDocumentId,
+            RevisionResolution = d.RevisionResolution,
         };
     }
 

@@ -97,6 +97,7 @@ public sealed partial class MockErpStubTests : IAsyncLifetime
     [Theory]
     [InlineData("erp-ap", "/api/ap/invoices", HttpStatusCode.Created)]
     [InlineData("article-prices", "/api/article-prices", HttpStatusCode.Accepted)]
+    [InlineData("pos-promotions", "/api/promotions", HttpStatusCode.Created)]
     public async Task A_forced_503_fails_the_next_call_only_and_then_the_retry_succeeds(string name, string path, HttpStatusCode success)
     {
         SkipUnlessRunning();
@@ -108,6 +109,35 @@ public sealed partial class MockErpStubTests : IAsyncLifetime
         first.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         first.Headers.RetryAfter.ShouldNotBeNull().Delta.ShouldBe(TimeSpan.FromSeconds(1));
         retry.StatusCode.ShouldBe(success);
+    }
+
+    [Fact]
+    public async Task The_pos_promotions_endpoint_echoes_the_promotion_and_what_it_replaces()
+    {
+        SkipUnlessRunning();
+        (await Control("pos-promotions", "reset")).ShouldBe(HttpStatusCode.OK);
+        using var response = await Http.SendAsync(Json(HttpMethod.Post, "/api/promotions", """{"promotionId":"V-10042-20261105","replaces":"8d2a","items":[]}"""), TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("promotionId").GetString().ShouldBe("V-10042-20261105");
+        body.GetProperty("replaced").GetString().ShouldBe("8d2a");
+    }
+
+    [Fact]
+    public async Task The_erp_status_stub_posts_queues_and_rejects_on_command()
+    {
+        SkipUnlessRunning();
+        var ct = TestContext.Current.CancellationToken;
+        async Task<string?> StateAsync() => (await Http.GetFromJsonAsync<JsonElement>(new Uri("/api/ap/invoices/AP-123/status", UriKind.Relative), ct)).GetProperty("state").GetString();
+
+        (await Control("erp-ap-status", "reset")).ShouldBe(HttpStatusCode.OK);
+        (await StateAsync()).ShouldBe("POSTED");
+        (await Control("erp-ap-status", "pending")).ShouldBe(HttpStatusCode.OK);
+        (await StateAsync()).ShouldBe("QUEUED");
+        (await Control("erp-ap-status", "reject-all")).ShouldBe(HttpStatusCode.OK);
+        (await StateAsync()).ShouldBe("REJECTED");
+        (await Control("erp-ap-status", "reset")).ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]

@@ -135,6 +135,164 @@ public sealed class DeliveryPipelineTests
         receiverGate.Sent.ShouldBe(4);
     }
 
+    /// <summary>
+    /// The P3 edge fixed in P5 (docs/11 §13.6, Correction (P5)): a settlement whose decision wrote no outbox row gets one
+    /// in the publish stage, which claims the document first; the deliveries it fans out carry the version the document
+    /// keeps, so a rerender of one is not refused as "Document changed".
+    /// </summary>
+    [Fact]
+    public async Task A_settlement_published_without_its_row_delivers_at_the_version_the_document_keeps()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver);
+        await BindAsync(host, receiver, ApExpression, enableOutputs: false);
+        var document = await AutoApproveAsync(host);
+
+        // The decision's row as if it predated the outbox, and the tenant on outputs since.
+        await host.WithDbAsync(async db =>
+        {
+            db.OutboxMessages.RemoveRange(await db.OutboxMessages.Where(m => m.DocumentId == document.Id).ToListAsync());
+            (await db.Tenants.SingleAsync(t => t.Id == TenantA)).Settings.Features!.Outputs = true;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new ProcessDocument(TenantA, document.Id, PipelineStage.Publish), Ct);
+        await host.RunUntilIdleAsync();
+
+        var after = await host.DocumentAsync(document.Id);
+        after.Version.ShouldBe(document.Version + 1, "the claim moved the version once");
+        var delivery = (await DeliveriesAsync(host, document.Id)).ShouldHaveSingleItem();
+        delivery.Status.ShouldBe(DeliveryStatus.Delivered);
+        delivery.DocumentVersion.ShouldBe(after.Version, "the delivery carries the version the document keeps");
+        receiver.Requests.ShouldHaveSingleItem().Header("X-DocProc-Revision").ShouldBe(after.Version.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var row = await host.WithDbAsync(db => db.OutboxMessages.AsNoTracking().SingleAsync(m => m.DocumentId == document.Id));
+        row.FannedOutAt.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// The status poll of docs/11 §13.8: a destination with a <c>statusPoll</c> keeps a delivered document's external
+    /// reference Pending; the poller asks the destination's status URL on its interval, a pending answer asks again, and
+    /// a rejection raises <c>EXTERNAL_REJECTED</c> with an integration-issue review task while the document stays settled.
+    /// </summary>
+    [Fact]
+    public async Task A_status_poll_asks_until_the_receiver_decides_and_a_rejection_raises_EXTERNAL_REJECTED()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver, settings => settings["Delivery:StatusPollInterval"] = "00:00:00");
+        var binding = await BindAsync(host, receiver, ApExpression);
+        await host.WithDbAsync(async db =>
+        {
+            var destination = await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId);
+            destination.CallbackConfigJson = new JsonObject
+            {
+                ["statusPoll"] = new JsonObject
+                {
+                    ["urlTemplate"] = receiver.BaseUrl + "/status/{documentId}",
+                    ["intervalMinutes"] = 5,
+                    ["mapping"] = """{ "status": state = "REJ" ? "rejected" : (state = "OK" ? "accepted" : "pending"), "message": reason }""",
+                },
+            }.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+        var answers = new Queue<string>(["""{"state":"WAIT"}""", """{"state":"REJ","reason":"Vendor blocked"}"""]);
+        receiver.Respond = request => request.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)
+            ? new ReceiverAnswer(200, answers.Dequeue())
+            : new ReceiverAnswer(201, """{"erpId":"ERP-1"}""");
+
+        var document = await AutoApproveAsync(host);
+        (await DeliveriesAsync(host, document.Id)).ShouldHaveSingleItem().Status.ShouldBe(DeliveryStatus.Delivered);
+        var reference = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id));
+        reference.Status.ShouldBe(ExternalRefStatus.Pending, "the receiver says later whether it took the document");
+        reference.NextPollAt.ShouldBe(host.Clock.GetUtcNow().AddMinutes(5));
+
+        var poller = host.Services.GetRequiredService<DocProc.Infrastructure.Outputs.Acknowledgements.ExternalStatusPoller>();
+        (await poller.PollDueAsync(Ct)).ShouldBe(0, "not due yet");
+        receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)).ShouldBe(0);
+
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        (await poller.PollDueAsync(Ct)).ShouldBe(0, "the receiver is still deciding");
+        var asked = receiver.Requests.Single(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal));
+        asked.PathAndQuery.ShouldBe($"/status/{document.Id:D}");
+        asked.Header("X-DocProc-Document-Id").ShouldBe(document.Id.ToString());
+        var waiting = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id));
+        waiting.Status.ShouldBe(ExternalRefStatus.Pending);
+        waiting.Polls.ShouldBe(1);
+
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        (await poller.PollDueAsync(Ct)).ShouldBe(1);
+        var rejected = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id));
+        rejected.Status.ShouldBe(ExternalRefStatus.Rejected);
+        rejected.NextPollAt.ShouldBeNull("a decided reference is not asked again");
+        var flag = await host.WithDbAsync(db => db.DocumentFlags.AsNoTracking().SingleAsync(f => f.DocumentId == document.Id && f.Code == DocProc.Domain.Flags.FlagCodes.ExternalRejected));
+        flag.Params!["message"].ShouldBe("Vendor blocked");
+        flag.Params["source"].ShouldBe("statusPoll");
+        var issue = await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().SingleAsync(t => t.DocumentId == document.Id && t.Kind == ReviewTaskKind.IntegrationIssue));
+        issue.Status.ShouldBe(ReviewTaskStatus.Open);
+        (await host.DocumentAsync(document.Id)).Status.ShouldBe(DocumentStatus.AutoApproved, "the document stays settled");
+
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        (await poller.PollDueAsync(Ct)).ShouldBe(0);
+        receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)).ShouldBe(2);
+    }
+
+    /// <summary>
+    /// The scheduled master-data sync (docs/11 §6.8, §14): an http source reads its destination through the delivery
+    /// client (an address the client refuses is a failed run, never a request), maps the answer with its JSONata and
+    /// applies it; the schedule moves on, and the same answer the next time changes nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_scheduled_master_data_source_reads_its_destination_and_a_second_run_changes_nothing()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver, settings => settings["Pipeline:MasterDataSyncInterval"] = "00:00:00");
+        receiver.Respond = _ => new ReceiverAnswer(200, """{"vendors":[{"Name1":"Nordwind Großhandel GmbH","UstId":"DE312456789","Lifnr":"V-10042"},{"Name1":"Südhof Feinkost GmbH","UstId":"DE298765432","Lifnr":"V-20077"}]}""");
+        var now = host.Clock.GetUtcNow();
+        var (source, blocked) = await host.WithDbAsync(async db =>
+        {
+            OutputDestination Destination(string name, string url) => new() { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = name, Transport = OutputTransports.Http, ConfigJson = new JsonObject { ["urlTemplate"] = url }.ToJsonString(), CreatedBy = "test", CreatedAt = now, UpdatedAt = now };
+            var erp = Destination("erp-vendors", receiver.BaseUrl + "/vendors");
+            var inside = Destination("inside", "http://10.1.2.3/vendors");
+            db.OutputDestinations.AddRange(erp, inside);
+            MasterDataSource Source(string name, Guid destination) => new()
+            {
+                Id = Guid.CreateVersion7(),
+                TenantId = TenantA,
+                Name = name,
+                Transport = MasterDataTransports.Http,
+                DestinationId = destination,
+                MappingExpression = """vendors.{ "name": Name1, "vatId": UstId, "attributes": { "erpVendorId": Lifnr } }""",
+                ScheduleCron = "*/30 * * * *",
+                NextRunAt = now.AddMinutes(-1),
+                CreatedBy = "test",
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            var sync = Source("ERP sync", erp.Id);
+            var refused = Source("inside", inside.Id);
+            db.MasterDataSources.AddRange(sync, refused);
+            await db.SaveChangesAsync();
+            return (sync.Id, refused.Id);
+        });
+
+        var service = host.Services.GetRequiredService<DocProc.Pipeline.Runner.MasterDataSyncHostedService>();
+        (await service.RunDueAsync(Ct)).ShouldBe(2);
+        receiver.Requests.ShouldHaveSingleItem().PathAndQuery.ShouldBe("/vendors", "the refused address was never asked");
+        var runs = await host.WithDbAsync(db => db.MasterDataRuns.AsNoTracking().ToListAsync());
+        var first = runs.Single(r => r.SourceId == source);
+        (first.Trigger, first.Status, first.Created).ShouldBe((MasterDataTrigger.Schedule, MasterDataRunStatus.Succeeded, 2));
+        var failed = runs.Single(r => r.SourceId == blocked);
+        failed.Status.ShouldBe(MasterDataRunStatus.Failed);
+        failed.ReportJson.ShouldContain("not allowed");
+        (await host.WithDbAsync(db => db.Suppliers.AsNoTracking().CountAsync(s => s.TenantId == TenantA && (s.VatId == "DE312456789" || s.VatId == "DE298765432")))).ShouldBe(2);
+        var next = (await host.WithDbAsync(db => db.MasterDataSources.AsNoTracking().SingleAsync(s => s.Id == source))).NextRunAt;
+        next.ShouldBe(new DateTimeOffset(2026, 10, 30, 12, 30, 0, TimeSpan.Zero), "the next half hour");
+
+        (await service.RunDueAsync(Ct)).ShouldBe(0, "not due again yet");
+        host.Clock.Advance(TimeSpan.FromMinutes(31));
+        (await service.RunDueAsync(Ct)).ShouldBe(2);
+        var second = (await host.WithDbAsync(db => db.MasterDataRuns.AsNoTracking().Where(r => r.SourceId == source).ToListAsync())).OrderBy(r => r.At).Last();
+        (second.Created, second.Updated, second.Unchanged).ShouldBe((0, 0, 2), "the same records change nothing");
+    }
+
     [Fact]
     public async Task A_tenant_without_the_outputs_switch_publishes_exactly_as_before()
     {

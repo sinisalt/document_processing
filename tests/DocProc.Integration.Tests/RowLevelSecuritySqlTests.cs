@@ -364,11 +364,40 @@ public sealed class RowLevelSecuritySqlTests
             ? [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12)]
             : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11)]);
 
-        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV12);
         RowLevelSecurity.PolicyV12.StrictTables.Except(RowLevelSecurity.PolicyV11.StrictTables).Select(t => t.Table)
             .ShouldBe(["TypeIdentificationRules", "TypeIdentificationRuleVersions"], ignoreOrder: true);
         RowLevelSecurity.PolicyV12.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV11.PlatformRowTables);
         RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[TypeIdentificationRuleVersions] AFTER UPDATE");
+
+        var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
+        if (up)
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeGreaterThan(operations.FindLastIndex(o => o is CreateTableOperation));
+        }
+        else
+        {
+            operations.FindIndex(o => o is SqlOperation).ShouldBeLessThan(operations.FindIndex(o => o is DropTableOperation));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_price_list_and_master_data_migration_puts_the_P5_part_C_tables_under_the_strict_policy(bool up)
+    {
+        // docs/11 §6.8: master-data sources and their runs belong to one tenant; PriceListsMasterDataCallbacks re-creates
+        // the policy with them (PolicyV13), its Down goes back to PolicyV12.
+        var migration = new PriceListsMasterDataCallbacks();
+        var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
+        statements.ShouldBe(up
+            ? [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV13)]
+            : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12)]);
+
+        RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV13);
+        RowLevelSecurity.PolicyV13.StrictTables.Except(RowLevelSecurity.PolicyV12.StrictTables).Select(t => t.Table)
+            .ShouldBe(["MasterDataSources", "MasterDataRuns"], ignoreOrder: true);
+        RowLevelSecurity.PolicyV13.PlatformRowTables.ShouldBe(RowLevelSecurity.PolicyV12.PlatformRowTables);
+        RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV13).ShouldContain($"ADD BLOCK PREDICATE [rls].[{RowLevelSecurity.PredicateFunction}]([TenantId]) ON [dbo].[MasterDataRuns] AFTER UPDATE");
 
         var operations = (up ? migration.UpOperations : migration.DownOperations).ToList();
         if (up)

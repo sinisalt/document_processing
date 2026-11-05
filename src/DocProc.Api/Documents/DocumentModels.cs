@@ -42,6 +42,9 @@ public sealed record DocumentSummary(
     DateTimeOffset? ReviewDueAt)
 {
     public IReadOnlyDictionary<string, string>? Fields { get; init; }
+
+    /// <summary>The later document that replaces this one (docs/11 §18 <c>supersededBy</c>, <c>REVISION_OF</c> resolved as supersedes); null otherwise.</summary>
+    public Guid? SupersededBy { get; init; }
 }
 
 /// <summary>
@@ -168,6 +171,15 @@ public sealed record DocumentDetail(
     /// </summary>
     public string? PipelineHash { get; init; }
 
+    /// <summary>The later document that replaces this one (<c>REVISION_OF</c> resolved as <c>supersedes</c>, docs/11 §11); null otherwise.</summary>
+    public Guid? SupersededByDocumentId { get; init; }
+
+    /// <summary>The earlier document this one's <c>REVISION_OF</c> was resolved against, and how (<c>supersedes</c>, <c>additional</c>, <c>duplicate</c>).</summary>
+    public Guid? RevisionOfDocumentId { get; init; }
+
+    /// <summary>How the <c>REVISION_OF</c> against <see cref="RevisionOfDocumentId"/> was resolved.</summary>
+    public RevisionResolution? RevisionResolution { get; init; }
+
     /// <summary>
     /// Why <c>:approve</c> would refuse the document now (docs/11 §11 "Approve is refused when a document has no definition
     /// or no canonical data"), so the review screen can say so before the click; null when nothing stands in the way.
@@ -288,6 +300,12 @@ public sealed record LearnLayoutRequest(
 public sealed record RejectDocumentRequest(string Reason);
 
 /// <summary>
+/// <c>:resolve-revision</c> (docs/11 §11): <c>resolution</c> is <c>supersedes</c>, <c>additional</c> or <c>duplicate</c>;
+/// <c>note</c> is kept in the timeline (and is the rejection reason of a duplicate).
+/// </summary>
+public sealed record ResolveRevisionRequest(string? Resolution, string? Note = null);
+
+/// <summary>
 /// Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
 /// <c>configMode</c> (docs/11 §18): <c>pinned</c> (the default) reruns with the type version the document is pinned to;
 /// <c>current</c> drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork
@@ -346,4 +364,8 @@ public sealed record ReviewTaskDto(
     DateTimeOffset? SlaDueAt,
     DateTimeOffset? CompletedAt,
     DocumentSummary? Document,
-    ReviewPriority Priority);
+    ReviewPriority Priority)
+{
+    /// <summary>What the task asks for: a document to review, or an integration issue (a settled document a receiving system rejected, docs/11 §13.8).</summary>
+    public ReviewTaskKind Kind { get; init; }
+}

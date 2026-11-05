@@ -71,7 +71,10 @@
     "LAYOUT_WARMUP": "Layout-Anlaufphase",
     "LLM_BUDGET_EXCEEDED": "LLM-Budget erreicht",
     "LOOKUP_FAILED": "Abfrage fehlgeschlagen",
-    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt"
+    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt",
+    "TABLE_ROWS_REJECTED": "Tabellenzeilen abgelehnt",
+    "TABLE_PAGE_NO_ROWS": "Seite ohne Zeilen",
+    "EXTERNAL_REJECTED": "Vom Zielsystem abgelehnt"
   },
   "stages": {
     "Normalize": "Normalisieren",
@@ -112,7 +115,11 @@
       "layout_degraded": "Layout herabgestuft",
       "layout_learned": "Als Layout gespeichert",
       "layout_matched": "Einem Layout zugeordnet",
-      "pipeline_applied": "Pipeline-Anpassungen angewendet"
+      "pipeline_applied": "Pipeline-Anpassungen angewendet",
+      "revision_resolved": "Revision entschieden",
+      "externally_accepted": "Vom Zielsystem angenommen",
+      "externally_rejected": "Vom Zielsystem abgelehnt",
+      "integration_issue_resolved": "Integrationsproblem erledigt"
     }
   },
   "inbox": {
@@ -487,6 +494,28 @@
       "submit": "Zusammenführen",
       "done_one": "{{count}} Teil zusammengeführt; das Dokument wird neu klassifiziert.",
       "done_other": "{{count}} Teile zusammengeführt; das Dokument wird neu klassifiziert."
+    },
+    "revision": {
+      "title": "Revision eines früheren Dokuments",
+      "description": "Ein Dokument mit gleichem Lieferanten, gleicher Gültigkeit, Art und Nummer existiert. Legen Sie vor der Freigabe fest, was dieses Dokument dazu ist.",
+      "open": "Früheres Dokument öffnen",
+      "supersedes": "Ersetzt das frühere",
+      "additional": "Ein zusätzliches Dokument",
+      "duplicate": "Ein Duplikat (ablehnen)",
+      "done": {
+        "supersedes": "Dieses Dokument ersetzt das frühere.",
+        "additional": "Beide Dokumente bleiben bestehen.",
+        "duplicate": "Als Duplikat abgelehnt."
+      }
+    },
+    "integrationIssue": {
+      "title": "{{destination}} hat das Dokument abgelehnt",
+      "message": "Antwort: {{message}}",
+      "noMessage": "Das Zielsystem hat keinen Grund genannt.",
+      "description": "Das Dokument bleibt freigegeben. Korrigieren und erneut freigeben (eine neue Revision wird geliefert), oder das Problem mit einer Notiz erledigen.",
+      "note": "Notiz",
+      "resolve": "Mit Notiz erledigen",
+      "done": "Integrationsproblem erledigt."
     },
     "mapDocument": {
       "title": "Dieses Dokument zuordnen",

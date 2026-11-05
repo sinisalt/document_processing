@@ -1,0 +1,54 @@
+{
+  "key": "generic-article-prices-json",
+  "version": 1,
+  "name": "Generic article prices JSON",
+  "description": "A price list or daily specials list as a header and one row per article, tier prices as a list and discontinued articles apart (the mapping of docs/11 §13.10 without the tenant-specific lookups: units and vendor numbers as stored). Read by roles and the fields std.price-list and std.daily-specials share; a starting point to copy and adapt to the receiver's article import.",
+  "sourceTypeKey": "price-list",
+  "engine": "jsonata",
+  "contentType": "application/json",
+  "targetSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["header", "prices", "discontinued"],
+    "properties": {
+      "header": {
+        "type": "object",
+        "required": ["documentType", "documentId", "revision", "mode"],
+        "properties": {
+          "documentType": { "type": "string" },
+          "supplierId": { "type": ["string", "null"] },
+          "supplierName": { "type": ["string", "null"] },
+          "vendorNo": { "type": ["string", "null"] },
+          "priceListId": { "type": ["string", "null"] },
+          "validFrom": { "type": ["string", "null"], "format": "date" },
+          "validUntil": { "type": ["string", "null"], "format": "date" },
+          "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+          "priceBasis": { "type": ["string", "null"] },
+          "mode": { "enum": ["REPLACE", "UPSERT"] },
+          "documentId": { "type": "string", "format": "uuid" },
+          "revision": { "type": "integer" },
+          "supersedes": { "type": ["string", "null"] }
+        }
+      },
+      "prices": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["sku", "price"],
+          "properties": {
+            "sku": { "type": ["string", "null"] },
+            "price": { "type": ["number", "null"] },
+            "tiers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": { "minQuantity": { "type": ["number", "null"] }, "price": { "type": ["number", "null"] } }
+              }
+            }
+          }
+        }
+      },
+      "discontinued": { "type": "array", "items": { "type": ["string", "null"] } }
+    }
+  }
+}

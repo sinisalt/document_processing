@@ -622,7 +622,10 @@
     "LAYOUT_WARMUP": "Layout warm-up",
     "LLM_BUDGET_EXCEEDED": "LLM budget reached",
     "LOOKUP_FAILED": "Lookup failed",
-    "PIPELINE_INVALID": "Pipeline overrides refused"
+    "PIPELINE_INVALID": "Pipeline overrides refused",
+    "TABLE_ROWS_REJECTED": "Table rows rejected",
+    "TABLE_PAGE_NO_ROWS": "Page without rows",
+    "EXTERNAL_REJECTED": "Rejected by the receiving system"
   },
   "failure": {
     "EncryptedPdf": "Password-protected PDF",

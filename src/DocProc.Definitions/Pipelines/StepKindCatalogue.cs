@@ -104,18 +104,46 @@ public static class StepKindCatalogue
         yield return new(
             Llm,
             PipelinePhases.Extract,
-            "The LLM extraction (the invoice family's prompt; fill-missing after a layout or the pre-fill). effort sets the reasoning effort; maxCostPerDocument (USD) skips the call once the document's LLM usage reaches it.",
+            "The LLM extraction (the invoice family's prompt; fill-missing after a layout or the pre-fill). effort sets the reasoning effort; maxCostPerDocument (USD) skips the call once the document's LLM usage reaches it. For a definition-driven type, exclude names top-level fields not asked for (a price list's lines), and lines: perPage reads the rows page by page, one call per page, under maxCostPerDocument (rows the LLM read never auto-approve a price list, review.lines).",
             Params(
                 ("adapter", String(64)),
                 ("mode", Enum("full", "fill-missing")),
                 ("exclude", new JsonObject { ["type"] = "array", ["items"] = String(200), ["maxItems"] = 50 }),
+                ("lines", Enum("perPage")),
                 ("effort", Enum("none", "low", "medium", "high")),
                 ("maxCostPerDocument", Number(0, 1000))),
             Fixed: false,
             Insertable: false,
             Runs: true,
             DefaultId: "llm");
-        yield return new(Defaults, PipelinePhases.Extract, "Writes default values and supplier attributes as Inferred (not run by this build).", OpenParams(), Fixed: false, Insertable: false, Runs: false, DefaultId: "defaults");
+        yield return new(
+            Defaults,
+            PipelinePhases.Extract,
+            "Writes default values as Inferred into fields the extraction left empty (mode ifMissing) or over them (override), never over a correction: values.<field> is {value} (a constant), {from} (the first of these fields, or $source.receivedDate, that has a value) or {fromSupplierSetting: defaults.currency|locale}. Runs for definition-driven types after the extraction chain.",
+            Params(("values", new JsonObject
+            {
+                ["type"] = "object",
+                ["maxProperties"] = 50,
+                ["additionalProperties"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["value"] = new JsonObject(),
+                        ["from"] = new JsonObject
+                        {
+                            ["anyOf"] = new JsonArray(String(200), new JsonObject { ["type"] = "array", ["items"] = String(200), ["minItems"] = 1, ["maxItems"] = 5 }),
+                        },
+                        ["fromSupplierSetting"] = Enum("defaults.currency", "locale"),
+                        ["mode"] = Enum("ifMissing", "override"),
+                    },
+                    ["additionalProperties"] = false,
+                },
+            })),
+            Fixed: false,
+            Insertable: false,
+            Runs: true,
+            DefaultId: "defaults");
         yield return new(CodeList, PipelinePhases.Extract, "Maps values through a code list such as units (not run by this build).", OpenParams(), Fixed: false, Insertable: false, Runs: false, DefaultId: "code-list");
         yield return new(Transform, PipelinePhases.Extract, "Value transforms (not run by this build).", OpenParams(), Fixed: false, Insertable: false, Runs: false, DefaultId: "transform");
         yield return new(

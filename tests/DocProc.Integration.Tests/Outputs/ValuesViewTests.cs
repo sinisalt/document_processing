@@ -9,6 +9,7 @@ using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Fields;
 using DocProc.Domain.Invoices;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Llm.Schema;
 using DocProc.Outputs.Renderer;
 
@@ -319,6 +320,82 @@ public sealed class ValuesViewTests(RendererFixture fixture) : IClassFixture<Ren
         var missing = await fixture.Renderer.RenderAsync(new RenderRequest(ArticlePriceImport, noVendor, new DateOnly(2026, 11, 3)) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
         missing.Error!.Kind.ShouldBe(RenderErrorKinds.Required);
         missing.Error.Message.ShouldBe("Supplier has no ERP vendor id");
+    }
+
+    [Fact]
+    public async Task The_platform_article_prices_template_renders_a_price_list_by_roles_without_lookups()
+    {
+        // docs/11 §13.9: generic-article-prices-json is §13.10's mapping without the tenant's lookups (units and the
+        // vendor number as stored), checked against its own target schema.
+        var template = OutputTemplates.Find("generic-article-prices-json")!;
+        var (tree, compiled) = PriceList(5);
+        var view = DocumentDataView.Build(tree, compiled, PriceListContext());
+
+        var result = await fixture.Renderer.RenderAsync(new RenderRequest(template.Expression, view, new DateOnly(2026, 11, 3)) { TargetSchema = JsonNode.Parse(template.TargetSchemaJson!)!.AsObject() }, TestContext.Current.CancellationToken);
+
+        result.Succeeded.ShouldBeTrue(string.Join("; ", result.SchemaErrors.Select(e => e.Message)) + result.Error?.Message);
+        var output = result.Output!;
+        output["header"]!["vendorNo"]!.GetValue<string>().ShouldBe("V-10042");
+        output["header"]!["priceListId"]!.GetValue<string>().ShouldBe("PL-2027-01");
+        output["header"]!["validFrom"]!.GetValue<string>().ShouldBe("2027-01-01");
+        output["header"]!["mode"]!.GetValue<string>().ShouldBe("REPLACE");
+        output["header"]!["supersedes"].ShouldBeNull();
+        var prices = output["prices"]!.AsArray();
+        prices.Count.ShouldBe(3, "discontinued articles are listed apart");
+        prices[0]!["sku"]!.GetValue<string>().ShouldBe("4711");
+        prices[0]!["unit"]!.GetValue<string>().ShouldBe("KAR", "as stored, no erp-uom table needed");
+        prices[0]!["tiers"]!.ToJsonString().ShouldBe("""[{"minQuantity":10,"price":48.50},{"minQuantity":50,"price":46.00}]""");
+        prices[2]!["validFrom"]!.GetValue<string>().ShouldBe("2027-02-01", "a row's own validity wins");
+        prices[1]!["validFrom"]!.GetValue<string>().ShouldBe("2027-01-01");
+        output["discontinued"]!.ToJsonString().ShouldBe("""["3990","3991"]""");
+
+        // A supplier without a vendor number still renders (null), unlike the tenant mapping of §13.10.
+        var noVendor = DocumentDataView.Build(tree, compiled, PriceListContext() with { Supplier = Context.Supplier! with { Attributes = new JsonObject() } });
+        var plain = await fixture.Renderer.RenderAsync(new RenderRequest(template.Expression, noVendor, new DateOnly(2026, 11, 3)) { TargetSchema = JsonNode.Parse(template.TargetSchemaJson!)!.AsObject() }, TestContext.Current.CancellationToken);
+        plain.Succeeded.ShouldBeTrue(string.Join("; ", plain.SchemaErrors.Select(e => e.Message)) + plain.Error?.Message);
+        plain.Output!["header"]!["vendorNo"].ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_pos_promotions_example_renders_todays_specials_and_names_the_list_it_replaces()
+    {
+        // docs/11 §13.10 pos-promotions v1 (fixtures/outputs/pos-promotions.jsonata, the demo's tenant mapping).
+        var expression = await File.ReadAllTextAsync(RepositoryPaths.ResolveUpwards("fixtures/outputs/pos-promotions.jsonata", AppContext.BaseDirectory), TestContext.Current.CancellationToken);
+        var compiled = Compile(StandardTemplates.Find("std.daily-specials")!);
+        var tree = DefinitionTree.CreateEmpty(compiled.Descriptors);
+        tree["validFrom"] = Envelope(JsonValue.Create("2026-11-03"));
+        tree["validUntil"] = Envelope(JsonValue.Create("2026-11-03"));
+        tree["currency"] = Envelope(JsonValue.Create("EUR"));
+        tree["title"] = Envelope(JsonValue.Create("Tagesangebote 03.11."));
+        var first = DefinitionTree.EmptyRow(compiled.Descriptors, "lines");
+        first["supplierSku"] = Identifier("4711");
+        first["gtin"] = Identifier("4006381333931");
+        first["description"] = Envelope(JsonValue.Create("Kaffee Crema 1kg"));
+        first["unit"] = Envelope(JsonValue.Create("KAR"));
+        first["price"] = Eur(44.90m);
+        first["previousPrice"] = Eur(50.00m);
+        var second = DefinitionTree.EmptyRow(compiled.Descriptors, "lines");
+        second["supplierSku"] = Identifier("6230");
+        second["description"] = Envelope(JsonValue.Create("Kakao Pulver 500g"));
+        second["price"] = Eur(3.49m);
+        tree["lines"] = new JsonArray(first, second);
+        var earlier = Guid.Parse("a41c0000-0000-0000-0000-00000000000e");
+        var context = Context with { Meta = new DocumentDataMeta(Guid.Parse("a41c0000-0000-0000-0000-000000000001"), 2, "daily-specials", 1, "Approved") { Supersedes = earlier } };
+
+        var result = await fixture.Renderer.RenderAsync(new RenderRequest(expression, DocumentDataView.Build(tree, compiled, context), new DateOnly(2026, 11, 3)) { Lookups = [ErpUom] }, TestContext.Current.CancellationToken);
+
+        result.Error.ShouldBeNull();
+        var output = result.Output!;
+        output["promotionId"]!.GetValue<string>().ShouldBe("V-10042-20261103");
+        output["title"]!.GetValue<string>().ShouldBe("Tagesangebote 03.11.");
+        output["validFrom"]!.GetValue<string>().ShouldBe("2026-11-03T00:00:00");
+        output["validTo"]!.GetValue<string>().ShouldBe("2026-11-03T23:59:59");
+        output["replaces"]!.GetValue<string>().ShouldBe(earlier.ToString(), "a list that supersedes an earlier one of the day replaces its promotion");
+        output["items"]![0]!["promoPrice"]!.GetValue<decimal>().ShouldBe(44.90m);
+        output["items"]![0]!["regularPrice"]!.GetValue<decimal>().ShouldBe(50.00m);
+        output["items"]![1]!["unit"]!.GetValue<string>().ShouldBe("ST", "a row without a unit gets the table's default");
+        output["items"]![1]!["regularPrice"].ShouldBeNull();
+        output["revision"]!.GetValue<int>().ShouldBe(2);
     }
 
     [Fact]

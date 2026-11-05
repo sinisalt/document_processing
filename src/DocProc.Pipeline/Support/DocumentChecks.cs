@@ -70,6 +70,7 @@ public static class DocumentChecks
         FlagCodes.MissingRequired, FlagCodes.InvalidValue, FlagCodes.TotalsMismatch, FlagCodes.TaxMismatch, FlagCodes.LineArithmetic,
         FlagCodes.DateImplausible, FlagCodes.CustomerMismatch, FlagCodes.LowConfidence, FlagCodes.CurrencyInferred, FlagCodes.DuplicateSuspected,
         FlagCodes.FieldRequired, FlagCodes.FieldInvalid, FlagCodes.RuleFailed, FlagCodes.RevisionOf, FlagCodes.ChecksSkipped,
+        FlagCodes.TableRowsRejected, FlagCodes.TablePageNoRows,
         FlagCodes.DefinitionScopedWildcard,
     ];
 
@@ -121,6 +122,16 @@ public static class DocumentChecks
                 data = data with { Supplier = await SupplierViewAsync(db, supplierId, cancellationToken).ConfigureAwait(false) };
             }
 
+            if (type.Rules.Any(r => r.Kind == Domain.Validation.Rules.GenericRules.TableComplete))
+            {
+                data = data with { TableReports = await TableReportsAsync(db, document, cancellationToken).ConfigureAwait(false) };
+            }
+
+            if (compiled is not null && type.Rules.Any(r => r.Kind == Domain.Validation.Rules.GenericRules.DeltaToPrevious))
+            {
+                data = data with { Previous = await PreviousApprovedAsync(db, document, compiled, cancellationToken).ConfigureAwait(false) };
+            }
+
             var context = new ValidationContext(
                 today,
                 ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
@@ -141,6 +152,121 @@ public static class DocumentChecks
         }
 
         return new CheckRun(flags, result);
+    }
+
+    /// <summary>
+    /// The table reports of the document (docs/11 §6.2), read for <c>tableComplete</c>: by group path, the rows read, the
+    /// rejected rows per page and the pages without rows. A report that does not parse counts as no report.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<string, TableReportSummary>> TableReportsAsync(DocProcDbContext db, Document document, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(document);
+        var tenantId = document.TenantId;
+        var documentId = document.Id;
+        var rows = await db.DocumentTableReports.AsNoTracking()
+            .Where(r => r.TenantId == tenantId && r.DocumentId == documentId)
+            .Select(r => new { r.Path, r.ReportJson })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        // A report written in this unit of work (the Extract stage's layout table, not saved yet) counts too.
+        var pending = db.ChangeTracker.Entries<DocumentTableReport>()
+            .Where(e => e.Entity.DocumentId == documentId && e.State is EntityState.Added or EntityState.Modified)
+            .Select(e => new { e.Entity.Path, e.Entity.ReportJson });
+        var deleted = db.ChangeTracker.Entries<DocumentTableReport>()
+            .Where(e => e.Entity.DocumentId == documentId && e.State == EntityState.Deleted)
+            .Select(e => e.Entity.Path).ToHashSet(StringComparer.Ordinal);
+        var result = new Dictionary<string, TableReportSummary>(StringComparer.Ordinal);
+        foreach (var row in rows.Where(r => !deleted.Contains(r.Path)).Concat(pending))
+        {
+            if (ParseReport(row.ReportJson) is { } summary)
+            {
+                result[row.Path] = summary;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>The summary of a stored table report (<c>LayoutExtractor.ReportJson</c>'s shape), or null.</summary>
+    public static TableReportSummary? ParseReport(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is not System.Text.Json.Nodes.JsonObject report)
+            {
+                return null;
+            }
+
+            static int Int(System.Text.Json.Nodes.JsonNode? node) => node is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<int>(out var i) ? i : 0;
+            static List<int> Ints(System.Text.Json.Nodes.JsonNode? node) => node is System.Text.Json.Nodes.JsonArray a ? [.. a.Select(Int)] : [];
+            var byPage = new Dictionary<int, int>();
+            if (report["perPage"] is System.Text.Json.Nodes.JsonArray pages)
+            {
+                foreach (var page in pages.OfType<System.Text.Json.Nodes.JsonObject>())
+                {
+                    var rejected = Int(page["rejected"]);
+                    if (rejected > 0)
+                    {
+                        byPage[Int(page["page"])] = rejected;
+                    }
+                }
+            }
+
+            return new TableReportSummary(Int(report["rows"]), Int(report["rejectedRows"]), Ints(report["pages"]), Ints(report["pagesWithoutRows"]), byPage);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The last approved document of the same supplier and type (docs/11 §11 <c>deltaToPrevious</c>, the
+    /// <c>SupplierHints.LastApproved</c> of the design): approved or auto-approved, not superseded, not this document,
+    /// the latest approval first; its values view built with <paramref name="compiled"/> (the types of one key share the
+    /// field tree of their version line). Null without a supplier or without such a document.
+    /// </summary>
+    public static async Task<PreviousDocument?> PreviousApprovedAsync(DocProcDbContext db, Document document, CompiledDefinition compiled, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(compiled);
+        if (document.SupplierId is not { } supplierId)
+        {
+            return null;
+        }
+
+        var tenantId = document.TenantId;
+        var type = document.Type;
+        var documentId = document.Id;
+        var previous = await db.Documents.AsNoTracking()
+            .Where(d => d.TenantId == tenantId && d.Id != documentId && d.SupplierId == supplierId && d.Type == type
+                        && (d.Status == DocumentStatus.Approved || d.Status == DocumentStatus.AutoApproved)
+                        && d.SupersededByDocumentId == null && d.CanonicalJson != null)
+            .OrderByDescending(d => d.ApprovedAt)
+            .ThenByDescending(d => d.Id)
+            .Select(d => new { d.Id, d.ApprovedAt, d.CanonicalJson })
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (previous is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.Parse(previous.CanonicalJson!) is System.Text.Json.Nodes.JsonObject root
+                ? new PreviousDocument(previous.Id, previous.ApprovedAt, DocumentDataView.Values(root, compiled.Descriptors))
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The matched supplier as rule expressions read it (<c>$supplier</c>: id, name, vatId, attributes).</summary>
@@ -227,6 +353,39 @@ public static class DocumentChecks
         "high" => ReviewPriority.High,
         _ => ReviewPriority.Normal,
     };
+
+    /// <summary>
+    /// The review task's due time from the type's <c>review.dueBy</c> (docs/11 §5.8): the end of the day (23:59:59 in the
+    /// tenant's time zone) of the date role it names (<c>validUntil</c> or <c>validFrom</c>, read from the document's
+    /// columns); null without <c>dueBy</c> or without that date. There is no tenant review SLA yet, so nothing earlier
+    /// replaces it.
+    /// </summary>
+    public static DateTimeOffset? DueAtOf(EffectiveType? type, Document document, Tenant tenant)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(tenant);
+        var date = type?.Definition.Processing.Review.DueBy switch
+        {
+            "validUntil" => document.ValidUntil,
+            "validFrom" => document.ValidFrom,
+            _ => null,
+        };
+        if (date is not { } day)
+        {
+            return null;
+        }
+
+        var local = day.ToDateTime(new TimeOnly(23, 59, 59));
+        try
+        {
+            var zone = TimeZoneInfo.FindSystemTimeZoneById(tenant.TimeZone);
+            return new DateTimeOffset(local, zone.GetUtcOffset(local)).ToUniversalTime();
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return new DateTimeOffset(local, TimeSpan.Zero);
+        }
+    }
 
     /// <summary>
     /// Same tenant, same matched supplier, same normalised number, on a document that is still alive. Unmatched

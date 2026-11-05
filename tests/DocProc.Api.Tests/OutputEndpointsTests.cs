@@ -62,11 +62,11 @@ public sealed class OutputEndpointsTests(ApiFactory factory) : IClassFixture<Api
         using var admin = factory.TenantAdminOf(tenant);
 
         var templates = (await admin.GetFromJsonAsync<List<OutputTemplateSummary>>("/api/v1/output-templates", ApiFactory.Json, Ct))!;
-        templates.Select(t => t.Key).ShouldBe(["generic-ap-json", "std.event"]);
+        templates.Select(t => t.Key).ShouldBe(["generic-ap-json", "generic-article-prices-json", "std.event"]);
         templates.ShouldAllBe(t => t.CopiedAs.Count == 0 && t.Engine == "jsonata");
 
         var listed = (await admin.GetFromJsonAsync<List<OutputMappingDetail>>("/api/v1/output-mappings", ApiFactory.Json, Ct))!;
-        listed.Where(m => m.Origin == "Platform").Select(m => m.Key).ShouldBe(["generic-ap-json", "std.event"], ignoreOrder: true);
+        listed.Where(m => m.Origin == "Platform").Select(m => m.Key).ShouldBe(["generic-ap-json", "generic-article-prices-json", "std.event"], ignoreOrder: true);
         listed.ShouldAllBe(m => m.PublishedVersion == 1);
         (await admin.PatchAsJsonAsync("/api/v1/output-mappings/std.event", new { name = "Mine" }, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound, "a template is copied, not changed");
         (await admin.PostAsync("/api/v1/output-mappings/std.event/versions", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);

@@ -33,6 +33,7 @@ import { FlagsList, sortFlags } from "./FlagsList";
 import { IdentificationCard } from "./IdentificationCard";
 import { LayoutSavedDialog } from "./LayoutSavedDialog";
 import { NewLayoutPanel, defaultLayoutChoice } from "./NewLayoutPanel";
+import { IntegrationIssuePanel, RevisionPanel, openFlag } from "./RevisionPanel";
 import { useIdentify } from "./useIdentify";
 import { MapDocumentPanel } from "./MapDocumentPanel";
 import { OriginalTab } from "./OriginalTab";
@@ -642,6 +643,16 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                 {/* A plain scroller: Radix ScrollArea sizes its content as a table, so the form grew to its max-content width. */}
                 <div className="@container relative min-h-0 min-w-0 flex-1 overflow-y-auto">
                   <TabsContent value="fields" className="p-4">
+                    {isCorrectable(document.status) && openFlag(document, "REVISION_OF") && (
+                      <div className="mb-6">
+                        <RevisionPanel document={document} canReview={canReview} />
+                      </div>
+                    )}
+                    {openFlag(document, "EXTERNAL_REJECTED") && (
+                      <div className="mb-6">
+                        <IntegrationIssuePanel document={document} canReview={canReview} />
+                      </div>
+                    )}
                     {layoutFlag && layoutChoice !== null && isCorrectable(document.status) && (
                       <div className="mb-6">
                         <NewLayoutPanel document={document} flag={layoutFlag} locale={locale} choice={layoutChoice} onChoiceChange={setLayoutChoice} fieldLabel={(path) => (path.includes(".") ? `${fieldLabel(path.slice(0, path.indexOf(".")), true)} · ${fieldLabel(path, true)}` : fieldLabel(path, true))} canReview={canReview} />

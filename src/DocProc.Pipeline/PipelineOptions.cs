@@ -92,6 +92,9 @@ public sealed class PipelineOptions
     /// <summary>The most settlements one sweep queues; the rest wait for the next sweep.</summary>
     public int PublishSweepBatchSize { get; set; } = 200;
 
+    /// <summary>How often the master-data sync looks for sources whose schedule is due (docs/11 §14); zero turns it off.</summary>
+    public TimeSpan MasterDataSyncInterval { get; set; } = TimeSpan.FromMinutes(1);
+
     /// <summary>Exponential backoff for the attempt that just failed: base × 2^(attempt − 1), capped at <see cref="MaxRetryDelay"/>.</summary>
     public TimeSpan BackoffAfter(int failedAttempt)
     {

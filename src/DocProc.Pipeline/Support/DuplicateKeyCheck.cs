@@ -18,8 +18,8 @@ namespace DocProc.Pipeline.Support;
 /// says so (<c>FIELD_REQUIRED</c> blocks already). It is skipped too when every component other than the supplier is
 /// empty, and when the key names the supplier but none is matched ("no supplier" is not a supplier).</description></item>
 /// <item><description>Only the document's own tenant's documents are candidates, whatever the scope of the context.</description></item>
-/// <item><description>Rejected, failed and cancelled (joined) documents are never matches. (Sandbox runs and superseded documents arrive
-/// with later phases and are excluded then.)</description></item>
+/// <item><description>Rejected, failed and cancelled (joined) documents are never matches, nor superseded ones and the
+/// earlier document of a pair a reviewer resolved as "an additional list" (<c>:resolve-revision</c>, P5).</description></item>
 /// </list>
 /// </summary>
 public static class DuplicateKeyCheck
@@ -75,7 +75,15 @@ public static class DuplicateKeyCheck
 
         var typeKey = document.Type;
         var candidates = db.Documents.AsNoTracking()
-            .Where(d => d.TenantId == tenantId && d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected && d.Status != DocumentStatus.Cancelled);
+            .Where(d => d.TenantId == tenantId && d.Id != document.Id && d.Type == typeKey && d.Status != DocumentStatus.Failed && d.Status != DocumentStatus.Rejected && d.Status != DocumentStatus.Cancelled)
+            // A superseded document is never a match, nor one a reviewer resolved as "an additional list" against this
+            // one, either way round (docs/11 §11 :resolve-revision).
+            .Where(d => d.SupersededByDocumentId == null)
+            .Where(d => !(d.RevisionOfDocumentId == document.Id && d.RevisionResolution == RevisionResolution.Additional));
+        if (document.RevisionResolution == RevisionResolution.Additional && document.RevisionOfDocumentId is { } additionalTo)
+        {
+            candidates = candidates.Where(d => d.Id != additionalTo);
+        }
         if (bySupplier)
         {
             var supplierId = document.SupplierId;

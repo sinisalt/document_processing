@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (parts A and B done)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 in progress (parts A, B and C done)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1674,7 +1674,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
       schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
       subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
-- **P5, configurable steps, custom types end to end, rules and master data – in progress (parts A and B done).**
+- **P5, configurable steps, custom types end to end, rules and master data – in progress (parts A, B and C done).**
   - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
     document runs the built-in steps as before and records no pipeline hash):
     - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
@@ -1732,7 +1732,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - a layout version's `ruleOverrides`, `llmHints` and the reduced LLM schema per layout version (`CoverageJson` is
       stored, `params.reducedSchema` is not read); a new layout version saved from review does not carry the previous
       version's `pipelineOverrides` over;
-    - `defaults`, `code-list` and `transform` steps (listed, not run), the tenant-currency default still in the mapper,
+    - `defaults` (run since part C), `code-list` and `transform` steps (listed, not run), the tenant-currency default
+      still in the mapper,
       and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5);
     - `step_completed` timeline events per step with their cost; the alert when a type's Unknown rate or LLM spend passes
       its 14-day baseline (docs/11 §16);
@@ -1784,9 +1785,75 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       record a tenant rule's identification (the timeline event and the pinned version do);
     - the LLM does not fill what a layout left Missing on a custom type; rows are not anchored with `LocateLine`;
     - the line-table rule kinds (`tableComplete`, `unique`, `ordered`, `deltaToPrevious`), templates v2, `REVISION_OF`
-      resolution and the price-list demos (part C); a definition naming them is still refused at publish;
+      resolution and the price-list demos (part C); a definition naming them is still refused at publish (all done in
+      part C below, except the compose demo);
     - no compose demo was run for part B (its demo, the tenant fallback rule on Südhof's price lists, needs part C's
       fixtures and price-list templates v2).
+  - Done, part C (price lists end to end, specials, master data, acknowledgements):
+    - the line-table rule kinds `tableComplete` (rejected rows per page, pages without rows, rows without a table report
+      unless `allowUnreported`, the printed count at `declaredCount`), `unique`, `ordered` and `deltaToPrevious` (against
+      the last approved, not superseded list of the supplier and type, the changed rows listed for the review grid), in
+      `RuleKinds` with their schemas and the publish checks of their row-relative parameters;
+    - the price-list templates v2 (`std.price-list`, `std.daily-specials`: the rules and review block of docs/11 §5.8);
+      adopted types follow a newer template version with their `autoApprove` kept, a new adoption of an opt-in
+      template starts with it off, and `POST /document-types/{key}:upgrade-base {autoApprove}` switches it;
+    - the `dueBy` review priority (`SlaDueAt` at the end of the date's day in the tenant's time zone; the queue sorts
+      urgent tasks first), an expired specials list blocked by `r_not_expired`, `REVISION_OF` with `POST
+      /documents/{id}:resolve-revision` (`supersedes` with `SupersededByDocumentId` and `meta.supersedes`, `additional`,
+      `duplicate`), superseded documents and resolved pairs no duplicate matches;
+    - the `defaults` step run (`value`, `from` fields or `$source.receivedDate`, `fromSupplierSetting`), the `llm`
+      step's `exclude` and `lines: perPage` (one call per page under `maxCostPerDocument`, `LLM_BUDGET_EXCEEDED` for the
+      pages not read), for definition-driven types with `configurableSteps`;
+    - the platform output template `generic-article-prices-json`, the `pos-promotions` example mapping
+      (`fixtures/outputs`) and the `mock-erp` stubs `POST /api/promotions` and `GET /api/ap/invoices/{id}/status`
+      (posted, rejected, pending by `__control` calls);
+    - acknowledgements: destination settings (`callback`, `statusPoll`), callback secrets with rotation, the anonymous
+      HMAC- or bearer-authenticated callback with its JSONata mapping, the status poller (`StatusPollerHostedService`,
+      the destination's own host only, through the delivery client), `EXTERNAL_REJECTED` with an `IntegrationIssue`
+      review task while the document stays settled, `POST /documents/{id}:resolve-integration-issue`;
+    - master data: `POST /suppliers:import` (CSV with a column map or JSON, dry run first, match keys, conflict policy per
+      attribute, idempotent, the report kept as a `MasterDataRun`), `/master-data-sources` (http or upload, JSONata
+      mapping, cron schedule in a time zone, at most every 15 minutes) with `:run`, `:dry-run` and their runs,
+      `MasterDataSyncHostedService` through the delivery client;
+    - the P3 edge: a settlement the publish stage adds the missing outbox row for claims the document first (one
+      conditional update), so its deliveries carry the version the document keeps and a rerender of one is accepted;
+    - a P4 bug found on the way: an `integer` field a layout read (`declaredLineCount`) was dropped when written;
+    - migration `PriceListsMasterDataCallbacks` (revision columns, the review task's `Kind`, the callback secrets, the
+      poll columns of the external references, `MasterDataSources` and `MasterDataRuns` under `PolicyV13`);
+    - web: the review screen's revision and integration-issue panels, flag labels and messages for
+      `TABLE_ROWS_REJECTED`, `TABLE_PAGE_NO_ROWS` and `EXTERNAL_REJECTED`, timeline labels (en, de);
+    - fixtures: next month's Nordwind list, the copy with one article up 40 %, three specials lists, two Südhof lists and
+      one from an unknown sender, drawn by `DemoPriceLists` and committed;
+    - tests: `LineTableRuleTests`, the template v1/v2 and publish tests, `PriceListsEndToEndTests` (January and February
+      auto-approve, March with one article up 40 % to review with the row; specials urgent until the end of the day, a
+      second list a revision, yesterday's blocked), `LlmDefinitionExtractorTests` (exclude, per page, the cost limit),
+      `DeliveryPipelineTests` (the AddMissing version, the status poll to `EXTERNAL_REJECTED`, the scheduled http sync and
+      a refused address), `IntegrationCallbackEndpointsTests`, `MasterDataEndpointsTests`, `MasterDataTests`,
+      `DocumentRevisionEndpointsTests`, the output template renders, RLS, the idempotent script and the migrate down and
+      up with part C data, web `RevisionPanel.test`.
+  - Decided (part C, recorded as "Correction (P5, part C)" in docs/11 §5.8, §6.8, §11, §13.6, §13.8, §14, §18 and §24):
+    - auto-approval of the price-list templates is opt-in per tenant, also on a new adoption (`:upgrade-base`);
+    - `deltaToPrevious` does not count moves below `ignoreBelowPercent` (5 %) as changed rows, so a yearly 3 % on every
+      row passes `maxChangedRowsPercent`;
+    - the templates' `r_count` is an expression without `appliesWhen`, and `tableComplete` takes `declaredCount` too;
+    - the type's own steps (`defaults`, `exclude`, `lines: perPage`) run with `configurableSteps` only, as part A built
+      the step model;
+    - acknowledgements are built in P5 as the plan says (decision 4 had put callbacks later); the poll goes to the
+      destination's host only; the issue is a review task of kind `IntegrationIssue`, resolved by acceptance, by
+      re-approval (an approval completes every open task of the document) or with a note;
+    - a master-data run keeps its report in the run row, not in a blob; targets are suppliers only.
+  - Left for later (part C's scope):
+    - the compose demo of docs/11 §23 for price lists, specials and the Südhof rule was not run; the pipeline tests run
+      the same files and steps (`PriceListsEndToEndTests`, `TenantFallbackRulesPipelineTests`), and docs/09 "Price
+      lists, master data and acknowledgements" says how to drive each part by hand;
+    - the review grid's filter to the rows `deltaToPrevious` names (the rows are in the flag's parameters), the
+      Integrations UI for acknowledgements, the master-data screens and conflict list, the type's Processing tab for
+      auto-approval (docs/11 §19): the API is complete;
+    - master-data targets other than suppliers (lookup tables, entity attributes, receiving entities) and the blob
+      transport; the `code-list` and `transform` steps (listed, not run);
+    - the tenant's normal review SLA as a cap on `dueBy` (there is no tenant SLA yet); chunked delivery of long lists
+      (P6);
+    - a status poll that runs past `maxPolls` leaves the reference Pending with a message, without a flag.
 - **P6** – not started.
 
 ## Risks and open questions

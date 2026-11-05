@@ -64,7 +64,11 @@ public sealed class OutputsSqlTests(SqlServerFixture sqlServer) : IClassFixture<
             version.TargetSchemaJson.ShouldNotBeNull();
         }
 
-        (await OutputTemplates.AddMissingAsync(platform, DateTimeOffset.UtcNow, ct)).ShouldBe(0, "the seeder finds nothing missing after the migration");
+        // A template shipped after the migration (generic-article-prices-json, P5) is added by the seeder on start: its
+        // mapping row and its version; then nothing is missing.
+        (await OutputTemplates.AddMissingAsync(platform, DateTimeOffset.UtcNow, ct)).ShouldBe(2 * OutputTemplates.All.Count(t => OutputTemplates.Frozen().All(f => f.Key != t.Key)));
+        await platform.SaveChangesAsync(ct);
+        (await OutputTemplates.AddMissingAsync(platform, DateTimeOffset.UtcNow, ct)).ShouldBe(0, "the seeder finds nothing missing after the start");
     }
 
     [Fact]

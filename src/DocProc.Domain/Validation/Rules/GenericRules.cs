@@ -52,6 +52,10 @@ public static partial class GenericRules
         new Rule(SumEquals, EvaluateSumEquals),
         new Rule(Arithmetic, EvaluateArithmetic),
         new Rule(Expression, EvaluateExpression),
+        new Rule(TableComplete, EvaluateTableComplete),
+        new Rule(Unique, EvaluateUnique),
+        new Rule(Ordered, EvaluateOrdered),
+        new Rule(DeltaToPrevious, EvaluateDeltaToPrevious),
     ];
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);

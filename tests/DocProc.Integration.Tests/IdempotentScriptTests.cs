@@ -263,6 +263,23 @@ public sealed class IdempotentScriptTests : IAsyncLifetime
 
         (await asA.TypeIdentificationRuleVersions.AsNoTracking().CountAsync(ct)).ShouldBe(1);
 
+        // PriceListsMasterDataCallbacks (P5 part C): the master-data sources and runs are strict tenant tables, and a
+        // tenant session writes and reads its own source and run through the policy.
+        foreach (var table in new[] { "MasterDataSources", "MasterDataRuns" })
+        {
+            (await asA.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+        }
+
+        if (!await asA.MasterDataSources.AnyAsync(ct))
+        {
+            var source = new Infrastructure.Persistence.Entities.MasterDataSource { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "Uploads", MatchKeys = ["vatId"], CreatedAt = At, CreatedBy = "test", UpdatedAt = At };
+            asA.MasterDataSources.Add(source);
+            asA.MasterDataRuns.Add(new Infrastructure.Persistence.Entities.MasterDataRun { Id = Guid.CreateVersion7(), TenantId = TenantA, SourceId = source.Id, ReportJson = """{"rows":[]}""", At = At, By = "test" });
+            await asA.SaveChangesAsync(ct);
+        }
+
+        (await asA.MasterDataRuns.AsNoTracking().CountAsync(ct)).ShouldBe(1);
+
         (await asA.OutputMappings.AsNoTracking().Where(m => m.TenantId == null).Select(m => m.Key).OrderBy(k => k).ToListAsync(ct)).ShouldBe(["generic-ap-json", "std.event"]);
         (await asA.OutputMappingVersions.AsNoTracking().CountAsync(v => v.TenantId == null, ct)).ShouldBe(2);
         (await asA.Suppliers.AsNoTracking().AllAsync(s => s.AttributesJson == null, ct)).ShouldBeTrue("nothing to back-fill");

@@ -184,4 +184,70 @@ public sealed class LlmDefinitionExtractorTests
         tree["rows"]![1]!["price"]!["value"]!["currency"]!.GetValue<string>().ShouldBe("EUR");
         tree["total"]!["value"]!["currency"]!.GetValue<string>().ShouldBe("EUR");
     }
+    [Fact]
+    public async Task Exclude_leaves_the_named_fields_out_of_the_schema_under_a_version_of_its_own()
+    {
+        // docs/11 §5.8: a price list's llm step excludes lines, which the layout's table reads.
+        var (extractor, gateway) = Create();
+
+        var outcome = await extractor.ExtractAsync(Request() with { Exclude = ["items", "pickup"] }, CancellationToken.None);
+
+        var schema = gateway.Requests.Single().OutputSchema!;
+        schema.Schema["properties"]!.AsObject().ContainsKey("items").ShouldBeFalse();
+        schema.Schema["properties"]!.AsObject().ContainsKey("pickup").ShouldBeFalse();
+        schema.Schema["required"]!.AsArray().Select(r => r!.GetValue<string>()).ShouldNotContain("items");
+        schema.Version.ShouldContain("+x.");
+        SchemaPortability.Check(schema.Schema).ShouldBeEmpty();
+        outcome.Document.Root.ContainsKey("items").ShouldBeFalse("an answer's excluded fields are not mapped");
+        outcome.Document.Root["returnNumber"].ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Lines_per_page_reads_the_header_once_and_the_rows_page_by_page_in_order()
+    {
+        var gateway = new FakeGateway()
+            .Answer("""{ "returnNumber": "RMA-4711", "returnDate": "2026-10-27", "currency": "EUR", "creditAmount": null, "supplier": null, "deliveryNotes": [], "pickup": null, "unreadableRegions": [] }""")
+            .Answer("""{ "items": [ { "supplierSku": "1", "description": "Strauchtomaten", "quantity": 10, "reason": "Damaged" } ], "unreadableRegions": [] }""")
+            .Answer("""{ "items": [ { "supplierSku": "2", "description": "Gurken", "quantity": 4, "reason": null }, { "supplierSku": "3", "description": "Paprika", "quantity": 1, "reason": "Wrong" } ], "unreadableRegions": [] }""");
+        var extractor = new LlmDefinitionExtractor(gateway, Prompts, PriceTable.Default, new LlmExtractionOptions());
+        var request = Request() with { LinesPerPage = true, Input = Request().Input with { Pdf = null, PageImages = [(ReadOnlyMemory<byte>)Inputs.PngBytes, (ReadOnlyMemory<byte>)Inputs.PngBytes] } };
+
+        var outcome = await extractor.ExtractAsync(request, CancellationToken.None);
+
+        gateway.Requests.Count.ShouldBe(3, "one header call and one call per page");
+        gateway.Requests[0].OutputSchema!.Schema["properties"]!.AsObject().ContainsKey("items").ShouldBeFalse("the header call does not ask for the rows");
+        gateway.Requests[1].OutputSchema!.Schema["properties"]!.AsObject().Select(p => p.Key).ShouldBe(["items", "unreadableRegions"], ignoreOrder: true);
+        gateway.Requests[1].Document!.PageImages.Count.ShouldBe(1, "a page call sends that page only");
+        gateway.Requests[2].Prompt.Task.ShouldContain("page 2 of 2");
+        var rows = outcome.Document.Root["items"]!.AsArray();
+        rows.Select(r => r!["supplierSku"]!["value"]!["verbatim"]!.GetValue<string>()).ShouldBe(["1", "2", "3"]);
+        rows[0]!["description"]!["source"]!["method"]!.GetValue<string>().ShouldBe("Llm", "rows the LLM read never auto-approve a price list (review.lines)");
+        outcome.Document.Root["returnNumber"].ShouldNotBeNull();
+        outcome.PagesNotRead.ShouldBe(0);
+        outcome.Cost.LlmInputTokens.ShouldBe(3_000, "the cost of every call counts");
+    }
+
+    [Fact]
+    public async Task Lines_per_page_stops_at_the_steps_cost_limit_and_says_how_many_pages_it_left()
+    {
+        // A price of 1 USD per million tokens either way: each call below costs 0.102 USD.
+        var gateway = new FakeGateway()
+            .Answer("""{ "returnNumber": "RMA-4711", "returnDate": null, "currency": null, "creditAmount": null, "supplier": null, "deliveryNotes": [], "pickup": null, "unreadableRegions": [] }""", usage: new LlmUsage(100_000, 2_000), model: "test-model")
+            .Answer("""{ "items": [ { "supplierSku": "1", "description": "Strauchtomaten", "quantity": 10, "reason": null } ], "unreadableRegions": [] }""", usage: new LlmUsage(100_000, 2_000), model: "test-model");
+        var prices = new PriceTable(new Dictionary<string, ModelPrice>(StringComparer.Ordinal) { ["test-model"] = new ModelPrice(1m, 1m, 1m, 1m) });
+        var extractor = new LlmDefinitionExtractor(gateway, Prompts, prices, new LlmExtractionOptions());
+        var request = Request() with
+        {
+            LinesPerPage = true,
+            SpentUsd = 0.01m,
+            MaxCostUsd = 0.15m,
+            Input = Request().Input with { Pdf = null, PageImages = [(ReadOnlyMemory<byte>)Inputs.PngBytes, (ReadOnlyMemory<byte>)Inputs.PngBytes, (ReadOnlyMemory<byte>)Inputs.PngBytes] },
+        };
+
+        var outcome = await extractor.ExtractAsync(request, CancellationToken.None);
+
+        gateway.Requests.Count.ShouldBe(2, "the header (0.112 USD with what was spent before) and page 1; then 0.214 USD is past the limit");
+        outcome.PagesNotRead.ShouldBe(2);
+        outcome.Document.Root["items"]!.AsArray().Count.ShouldBe(1, "what was read is kept");
+    }
 }

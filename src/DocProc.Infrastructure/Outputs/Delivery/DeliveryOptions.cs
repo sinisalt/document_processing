@@ -56,6 +56,12 @@ public sealed class DeliveryOptions
     /// <summary>The most deliveries one sweep queues.</summary>
     public int SweepBatchSize { get; set; } = 100;
 
+    /// <summary>How often the status poller asks destinations with a <c>statusPoll</c> about their Pending documents (docs/11 §13.8); zero turns it off.</summary>
+    public TimeSpan StatusPollInterval { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>The most references one round of the status poller asks about.</summary>
+    public int StatusPollBatchSize { get; set; } = 50;
+
     /// <summary>
     /// How long a delivery being sent is held by the attempt that claimed it, on top of the transport's timeout; a
     /// process that dies mid-send leaves the row to the sweeper once this has passed.

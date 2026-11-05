@@ -19,6 +19,8 @@ internal sealed class OutputDestinationConfiguration : IEntityTypeConfiguration<
         b.Property(d => d.SecretRef).HasMaxLength(400);
         b.Property(d => d.PreviousSecretRef).HasMaxLength(400);
         b.Property(d => d.CallbackConfigJson).HasColumnType("json");
+        b.Property(d => d.CallbackSecretRef).HasMaxLength(400);
+        b.Property(d => d.PreviousCallbackSecretRef).HasMaxLength(400);
         b.Property(d => d.LastTestResult).HasMaxLength(2000);
         b.Property(d => d.CreatedBy).HasMaxLength(200);
         b.Property(d => d.Version).IsConcurrencyToken();
@@ -143,6 +145,9 @@ internal sealed class DocumentExternalRefConfiguration : IEntityTypeConfiguratio
         b.Property(r => r.ExternalId).HasMaxLength(400);
         b.Property(r => r.Message).HasMaxLength(2000);
         b.HasIndex(r => new { r.DocumentId, r.DestinationId }).IsUnique();
+        // A callback names the receiver's id; the status poller picks the due Pending rows (docs/11 §13.8).
+        b.HasIndex(r => new { r.DestinationId, r.ExternalId });
+        b.HasIndex(r => new { r.Status, r.NextPollAt });
         b.HasOne<Document>().WithMany().HasForeignKey(r => r.DocumentId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<OutputDestination>().WithMany().HasForeignKey(r => r.DestinationId).OnDelete(DeleteBehavior.NoAction);
     }

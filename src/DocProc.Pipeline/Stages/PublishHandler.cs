@@ -55,7 +55,23 @@ internal sealed class PublishHandler(
         }
 
         var now = Timeline.Now;
-        var outbox = current.FirstOrDefault() ?? DocumentOutbox.AddMissing(Db, document, now);
+        var outbox = current.FirstOrDefault();
+        if (outbox is null)
+        {
+            // Claim first, so the row, the deliveries and the values view they render carry the version the document
+            // keeps (a rerender of such a delivery is then accepted, docs/11 §13.6); a second publisher loses here.
+            if (!await DocumentOutbox.ClaimMissingAsync(Db, document, cancellationToken).ConfigureAwait(false))
+            {
+                if (Logger.IsEnabled(LogLevel.Information))
+                {
+                    Logger.LogInformation("Document {DocumentId}: another publisher claimed the missing {EventType} row; message dropped.", document.Id, eventType);
+                }
+                return StageOutcome.Skipped;
+            }
+
+            outbox = DocumentOutbox.AddMissing(Db, document, now);
+        }
+
         outbox.FannedOutAt = now;
         var recoveredBy = string.Equals(message.Origin, PipelineMessageOrigins.PublishSweeper, StringComparison.Ordinal) ? message.Origin : null;
         if (recoveredBy is not null)

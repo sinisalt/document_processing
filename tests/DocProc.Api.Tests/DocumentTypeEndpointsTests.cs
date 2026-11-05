@@ -104,7 +104,25 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         resolved.ShouldNotBeNull().Origin.ShouldBe(DefinitionOrigin.Adopted);
         resolved.TemplateKey.ShouldBe("std.price-list");
         resolved.VersionId.ShouldBe(factory.Query(db => db.DocumentTypeVersions.Single(v => v.TenantId == tenant).Id));
-        resolved.AutoApprove.ShouldBeFalse("price lists are always reviewed in P1 (docs/11 §5.8)");
+        resolved.AutoApprove.ShouldBeFalse("std.price-list v2 auto-approves, but a tenant opts in (docs/11 §5.8, §23)");
+
+        // A ConfigAdmin switches auto-approval on: a new published version of the adopted type, the old one deprecated.
+        var upgraded = await admin.PostAsJsonAsync("/api/v1/document-types/price-list:upgrade-base", new { autoApprove = true }, Ct);
+        upgraded.StatusCode.ShouldBe(HttpStatusCode.OK, await upgraded.Content.ReadAsStringAsync(Ct));
+        var detail = (await upgraded.Content.ReadFromJsonAsync<DocumentTypeDetail>(ApiFactory.Json, Ct))!;
+        detail.PublishedVersion.ShouldBe(2);
+        detail.BaseVersion.ShouldBe(2);
+        detail.Versions.Single(v => v.Version == 1).State.ShouldBe("Deprecated");
+        (await ResolveAsync(tenant, "price-list"))!.AutoApprove.ShouldBeTrue("v2 names the rules that stand in for a totals check");
+
+        // Asking again changes nothing; switching it off publishes a version without auto-approval.
+        var again = (await (await admin.PostAsJsonAsync("/api/v1/document-types/price-list:upgrade-base", new { autoApprove = true }, Ct)).Content.ReadFromJsonAsync<DocumentTypeDetail>(ApiFactory.Json, Ct))!;
+        again.PublishedVersion.ShouldBe(2);
+        (await admin.PostAsJsonAsync("/api/v1/document-types/price-list:upgrade-base", new { autoApprove = false }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ResolveAsync(tenant, "price-list"))!.AutoApprove.ShouldBeFalse();
+
+        // Only an adopted type follows its template, and a template without auto-approval cannot get it.
+        (await admin.PostAsJsonAsync("/api/v1/document-types/nothing:upgrade-base", new { autoApprove = true }, Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -222,9 +240,9 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         SetFeatures(tenant, configurable: true, custom: true);
         using var admin = factory.TenantAdminOf(tenant);
 
-        // The P5 rule kind tableComplete is not available yet: the draft saves, the publish is refused.
+        // A rule kind this deployment does not have yet: the draft saves, the publish is refused.
         var withP5Rule = JsonNode.Parse(ReturnSlip())!.AsObject();
-        withP5Rule["rules"]!.AsArray().Add(JsonNode.Parse("""{ "id": "r_table", "kind": "tableComplete", "params": { "path": "items" } }"""));
+        withP5Rule["rules"]!.AsArray().Add(JsonNode.Parse("""{ "id": "r_table", "kind": "columnSum", "params": { "path": "items" } }"""));
         var created = await admin.PostAsJsonAsync("/api/v1/document-types", new { definition = withP5Rule }, Ct);
         created.StatusCode.ShouldBe(HttpStatusCode.Created);
         var type = (await created.Content.ReadFromJsonAsync<DocumentTypeDetail>(ApiFactory.Json, Ct))!;
@@ -237,7 +255,7 @@ public sealed class DocumentTypeEndpointsTests(ApiFactory factory) : IClassFixtu
         blocked.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, await blocked.Content.ReadAsStringAsync(Ct));
         var report = (await blocked.Content.ReadFromJsonAsync<PublishReportDto>(ApiFactory.Json, Ct))!;
         report.CanPublish.ShouldBeFalse();
-        report.Problems.ShouldContain(p => p.Message.Contains("rule kind 'tableComplete' is not available yet"));
+        report.Problems.ShouldContain(p => p.Message.Contains("rule kind 'columnSum' is not available yet"));
 
         var fixedDefinition = JsonNode.Parse(ReturnSlip())!.AsObject();
         (await Put(admin, "return-slip", 1, fixedDefinition, ifMatch: "\"0\"")).StatusCode.ShouldBe(HttpStatusCode.OK);

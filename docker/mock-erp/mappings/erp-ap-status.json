@@ -1,0 +1,119 @@
+{
+  "mappings": [
+    {
+      "name": "erp-ap-status: a delivered invoice is posted (GET /api/ap/invoices/{erpId}/status, the status poll of docs/11 §13.8)",
+      "priority": 5,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/api/ap/invoices/[^/]+/status"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"erpId\":\"{{request.pathSegments.[3]}}\",\"state\":\"POSTED\",\"text\":\"Gebucht\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "erp-ap-status: every invoice is rejected after POST /__control/erp-ap-status/reject-all",
+      "priority": 1,
+      "scenarioName": "erp-ap-status",
+      "requiredScenarioState": "rejecting",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/api/ap/invoices/[^/]+/status"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"erpId\":\"{{request.pathSegments.[3]}}\",\"state\":\"REJECTED\",\"text\":\"Kreditor gesperrt\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "erp-ap-status: still in the ERP's inbox after POST /__control/erp-ap-status/pending",
+      "priority": 1,
+      "scenarioName": "erp-ap-status",
+      "requiredScenarioState": "pending",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/api/ap/invoices/[^/]+/status"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"erpId\":\"{{request.pathSegments.[3]}}\",\"state\":\"QUEUED\",\"text\":\"In Prüfung\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "control: erp-ap-status rejects every invoice",
+      "scenarioName": "erp-ap-status",
+      "newScenarioState": "rejecting",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap-status/reject-all"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap-status",
+          "state": "rejecting"
+        }
+      }
+    },
+    {
+      "name": "control: erp-ap-status keeps every invoice queued",
+      "scenarioName": "erp-ap-status",
+      "newScenarioState": "pending",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap-status/pending"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap-status",
+          "state": "pending"
+        }
+      }
+    },
+    {
+      "name": "control: erp-ap-status posts every invoice again",
+      "scenarioName": "erp-ap-status",
+      "newScenarioState": "Started",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap-status/reset"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap-status",
+          "state": "Started"
+        }
+      }
+    }
+  ]
+}

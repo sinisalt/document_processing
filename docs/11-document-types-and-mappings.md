@@ -600,6 +600,30 @@ A specials list is short (one or two pages, 10 to 80 rows), so the `llm` step ma
 
 When no date is printed, `validFrom` falls back to `$source.receivedDate`, the date the mail or file was received in the tenant time zone (5.6), and `validUntil` to `validFrom`, so an undated "today's specials" list received at 06:40 on 3 November is valid on 3 November only. `dueBy: "validUntil"` with `priority: "urgent"` sets the ReviewTask's `Priority` to Urgent and its `SlaDueAt` to the end of the `validUntil` day (23:59:59 in the tenant time zone, or the tenant's normal SLA when that is earlier), so the list sorts to the top of the queue. Section 13.10 shows the output side of both types.
 
+Correction (P5, part C), as built (`std.price-list` v2, `std.daily-specials` v2, `GenericRules.Tables`):
+- The rules are written in the forms the P5 kinds take: `compare` with `op: eq|lt` (not `==`, `<`; an absent value is
+  not compared, so `skipWhenMissing` is not a parameter), and `r_count` as the expression `$not($exists(declaredLineCount))
+  or $count(lines) = declaredLineCount` over the values (rules have no `appliesWhen`, and paths are not prefixed with
+  `doc.`); `tableComplete` also takes `declaredCount` (the field holding the printed count).
+- `review.lines.requireSource` names the stored source methods: `Profile` (a layout's rows, "Rule" above) and
+  `StructuredXml` ("Structured"); both spellings are accepted.
+- "A normal yearly 3 % increase raises no flag" and "more than 30 % of the rows changed" fit together only when small
+  moves do not count: `deltaToPrevious` counts a row as changed for `maxChangedRowsPercent` from `ignoreBelowPercent`
+  (default 5 %) on. "The last approved list" is the latest Approved or AutoApproved document of the supplier and type
+  key that is not superseded.
+- Auto-approval is opt-in per tenant also for a new adoption: an adopted type keeps the `review.autoApprove` of the
+  version it replaces on an automatic upgrade, a new adoption of a template whose version 1 did not auto-approve starts
+  with it off, and `POST /document-types/{key}:upgrade-base {autoApprove: true}` (ConfigAdmin) switches it on (the
+  Processing tab of §19 is not built).
+- The type's own steps run with `configurableSteps` only, as the step model of P5 part A builds pipelines (§10.1,
+  Correction (P5)): without it the `defaults` step (the `$source.receivedDate` fallback above) and the `llm` step's
+  `exclude` do not run, so an undated specials list has no `validFrom`. `defaults` runs after the extraction chain and
+  before `http-lookup`, never over a correction, and not on a tree nothing was extracted into (it would read as data to
+  the approval gate and map mode).
+- There is no tenant review SLA yet, so `dueBy` is not capped by one; the queue sorts by priority, then creation.
+- The demo's "copy dated yesterday" is a committed file printed for 4 November 2026 (`fixtures/demo/uploads/tenant-a`),
+  so it is expired on any later day.
+
 ## 6. Data model
 
 All new tables implement `ITenantScoped`, get a `HasQueryFilter` (the pattern at `DocProcDbContext.cs:111-132`) and an RLS entry (section 6.10). Tables marked "temporal" use SQL Server temporal tables, as `Documents` and `ExtractorProfiles` already do; their history tables need RLS entries of their own (section 6.10).
@@ -957,6 +981,15 @@ New file `Outputs.cs` in `src/DocProc.Infrastructure/Persistence/Entities` (P3).
 - `ScheduleCron?`, `LastRunAt`, `LastResultJson`.
 
 **MasterDataRun**: `SourceId`, `At`, `Created`, `Updated`, `Conflicts`, `DiffBlobKey`.
+
+Correction (P5, part C), as built: `Target` is `suppliers` only (lookup tables, entity attributes and receiving
+entities are left for later) and `Transport` `http` (an http destination of the tenant, its `urlTemplate` without
+placeholders, read through the delivery client) or `upload` (records in `:run`); no blob transport. `MatchKeys` are
+`attributes.<key>`, `vatId` and `iban` (empty: that order with `attributes.erpVendorId`), the conflict policy is a JSON
+object by attribute, by `attributes` or `*`, and a schedule is a 5-field cron, optionally after `CRON_TZ=<zone>`, for
+http sources only, at most every 15 minutes. `MasterDataRun` keeps its report (per record the action, the changed
+attributes and the conflicts, at most 1,000 rows) in `ReportJson` instead of a blob, with `Trigger`, `DryRun`,
+`Status`, `Unchanged` and `Errors`.
 
 ### 6.9 Governance
 
@@ -2457,6 +2490,12 @@ When a receiver needs several calls, `OutputBinding.RecipeJson` lists ordered st
   each saying to re-send the stored payload instead, or to wait for the new version's own delivery). The version is
   checked again on the values view the render reads, so a reprocess that commits in between is caught too. `snapshot`
   is unchanged: the stored payload is what was approved under that revision.
+- Correction (P5, part C): a settlement whose decision wrote no outbox row (the publish stage's `AddMissing`) claimed
+  the document by marking its version modified in the save that also inserted the deliveries, so the deliveries carried
+  the version before that save and the document ended one past them: a rerender of such a delivery was refused as
+  "Document changed". The publish stage now claims the document first with one conditional update of its version, so
+  the row, the deliveries and the values view they render carry the version the document keeps; a second publisher
+  that also found no row loses the claim and drops its message.
 
 ### 13.7 Batches
 
@@ -2474,6 +2513,18 @@ Asynchronous status comes back in one of two ways:
 - **Polling**: `statusPoll {urlTemplate, intervalMinutes, mapping}` on the destination, run by the delivery worker while the external ref is `Pending`.
 
 `DocumentExternalRef.Status` then becomes `Accepted`, `Posted` or `Rejected`. A rejection (for example "duplicate in ERP" or "vendor blocked") raises `EXTERNAL_REJECTED {destination, message}` on the document and creates a ReviewTask of kind `IntegrationIssue`. The document stays settled. The reviewer either corrects the data, reprocesses from Validate and re-approves (a new revision is delivered according to `OnReapproval`), or resolves the issue with a note.
+
+Correction (P5, part C), as built: the destination's settings are `{callback?: {auth: hmacSha256|bearer, mapping?},
+statusPoll?: {urlTemplate, intervalMinutes, mapping?, maxPolls?}}` (`PUT /destinations/{id}/acknowledgements`), with the
+callback secret in two slots (`PUT /destinations/{id}/callback-secret`; the replaced one stays valid until the next
+rotation). An HMAC callback signs `"<X-DocProc-Timestamp>.<body>"` (a timestamp within 5 minutes, so a replay is
+refused) in `X-DocProc-Signature: sha256=<hex>`; one callback may carry a list of at most 100 acknowledgements. A
+status poll URL may hold `{externalId}` and `{documentId}` after the host only and must name the destination's own host,
+since it sends the destination's credentials. A destination with acknowledgements keeps the external reference
+`Pending` after a 2xx (one without them takes the 2xx as `Accepted`, as before) under the document id until the
+receiver names its own id. An acceptance resolves the destination's open `EXTERNAL_REJECTED` and completes the
+integration issue when none is left; an approval completes every open review task of the document, the issue too;
+`POST /documents/{id}:resolve-integration-issue {note}` resolves it with a note.
 
 ### 13.9 Integration templates
 
@@ -2624,6 +2675,10 @@ Rendered for a Nordwind specials list of 3 November with 18 rows (two shown); th
 - Lookup tables (cost centres, tax keys, units) sync the same way, with `ValidFrom` handling.
 - **Create supplier from review.** On `SUPPLIER_UNMATCHED`, the reviewer clicks "Create supplier from this document". The form is pre-filled from the extracted supplier party (name, VAT, IBAN, address). If an `http-lookup` vendor search is configured, it suggests the ERP vendor id. Optionally the reviewer adds a source rule for the sender.
   - Correction (P2, permission decision): this did not say what a reviewer may set, and `POST /suppliers` is a tenant admin's. A reviewer creates the supplier with its name and the identifiers printed on the document (VAT id, tax id, IBANs) and its currency; email domains, aliases and `alwaysReview`, which steer the Match stage and the review of every later document of the tenant, stay with a tenant admin (403 for a reviewer), so review and supplier master data keep their separation of duties. That the identifiers are printed on the document is not checked.
+- Correction (P5, part C), as built: `POST /suppliers:import` takes `{format: csv|json, content + columns | records,
+  matchKeys?, conflictPolicy?, dryRun?}` and is a dry run unless `dryRun: false`; a run is idempotent (the same file
+  twice changes nothing) and its report is kept as a `MasterDataRun` (`Trigger=Import`). A record that matches several
+  suppliers, or a new one whose name folds to an existing supplier's, is a conflict, not a second supplier.
 
 ## 15. Configuration lifecycle
 
@@ -2780,6 +2835,13 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
     `GET /pipelines/{hash}` and `GET`/`PUT /llm-budgets`; `pipelineOverrides` are written in a supplier's or a
     group's `settings` and in a layout version's mapping (docs/05 "Configurable steps and LLM budgets").
     `GET /rule-kinds` is not built yet.
+  - Correction (P5, part C): built are `POST /document-types/{key}:upgrade-base {autoApprove?}` (the auto-approval of
+    an adopted price-list type, §5.8), `POST /documents/{id}:resolve-revision {resolution, note?}`, `PUT
+    /destinations/{id}/acknowledgements`, `PUT /destinations/{id}/callback-secret`, `POST
+    /integrations/callbacks/{destinationId}`, `POST /documents/{id}:resolve-integration-issue {note}` (§13.8 names the
+    action, no route), `POST /suppliers:import`, `/master-data-sources` CRUD with `:run`, `:dry-run` and `GET
+    …/{id}/runs`, and `GET /master-data-runs/{id}`; `DocumentSummary.supersededBy`, `DocumentDetail.supersededByDocumentId`,
+    `revisionOfDocumentId`, `revisionResolution` and `ReviewTaskDto.kind` are new.
 - **Lookups**: `/lookup-tables` CRUD; `PUT /lookup-tables/{key}/entries` (CSV upload).
 - **Routing and suppliers**
   - `/suppliers/{id}/source-rules` CRUD
@@ -3220,6 +3282,11 @@ Five decisions change the build. Each is listed with its options and a recommend
 | 5 | Non-PDF inputs | PDF and images in the first release; spreadsheets, custom XML/JSON and office formats in the later phases as planned. |
 
 Open consequence of decision 2 (found while delivering P0, not yet rewritten): sections 8.3, 12.10 (steps 6 and 8), 22 ("New-layout flow", "End to end in compose") and the P4 and P5 demos in 23 still describe the recommended Option A, where version 1 of a layout saved from a `NEW_LAYOUT` review has warm-up 0, and say that the next document in the new design is delivered without review "with the default tenant settings". Under the decided policy that default is a warm-up of 5, so the first five documents under the new version go to review. Those passages, and whether the demos run five documents or set the demo tenant's warm-up explicitly, are to be settled when P4 is planned in detail.
+
+Correction (P5, part C): decision 4 keeps "acknowledgement callbacks" for the later phases, while the plan of §23 lists
+"Callbacks and status polling with `EXTERNAL_REJECTED`" in P5. They were built in P5 as the plan says (§13.8,
+Correction (P5, part C)); the first release's receiving systems are unchanged (one JSON POST per document, file drop,
+pull feed), and a destination reports back only when it is configured to.
 
 Settled when P4 was planned (Correction (P4, warm-up)): the default stays 5. The passages of 8.3, 12.10, 22 and 23 carry
 a correction note; the P4 demo shows the next web-shop invoice going to review as warm-up 1 of 5, already filled by the

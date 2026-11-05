@@ -122,12 +122,29 @@ public sealed class DocumentValidator(RuleRegistry registry)
             }
         }
 
+        // An info note (deltaToPrevious without a previous document) stays a note, and a page without rows keeps the
+        // severity tableComplete gave it (blocking only with everyPageInRange, docs/11 §11): the rule's severity is for
+        // its failures.
+        var severity = flag.Severity == FlagSeverity.Info || flag.Code == FlagCodes.TablePageNoRows ? flag.Severity : entry.Severity ?? flag.Severity;
+        if (flag.Severity == FlagSeverity.Info)
+        {
+            return flag with
+            {
+                Params = new Dictionary<string, string>(flag.Params ?? new Dictionary<string, string>(), StringComparer.Ordinal)
+                {
+                    ["ruleId"] = entry.Id,
+                    ["ruleKind"] = entry.Kind,
+                    ["typeKey"] = typeKey,
+                },
+            };
+        }
+
         if (entry.FlagCode is { } code)
         {
             parameters["ruleCode"] = flag.Code;
-            return flag with { Code = code, Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
+            return flag with { Code = code, Severity = severity, Message = message, Params = parameters };
         }
 
-        return flag with { Severity = entry.Severity ?? flag.Severity, Message = message, Params = parameters };
+        return flag with { Severity = severity, Message = message, Params = parameters };
     }
 }

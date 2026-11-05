@@ -63,7 +63,16 @@ public static class ReviewGateRules
             .Select(r => r.Value)
             .OfType<JsonObject>()
             .ToList();
-        var allowed = lines.RequireSource is { Count: > 0 } methods ? methods.ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+        // docs/11 §5.8 names the layout's rows "Rule" and e-invoice rows "Structured"; the stored methods are Profile and
+        // StructuredXml, so both spellings are accepted.
+        var allowed = lines.RequireSource is { Count: > 0 } methods
+            ? methods.SelectMany(m => m.ToUpperInvariant() switch
+            {
+                "RULE" => new[] { m, "Profile" },
+                "STRUCTURED" => [m, "StructuredXml"],
+                _ => [m],
+            }).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
         var wrongSource = 0;
         var notLocated = 0;
         var lowRows = 0;

@@ -108,6 +108,76 @@ public static class TypeCatalogueSeeder
     }
 
     /// <summary>
+    /// The definition an adopted type moves to when its template has a newer version (docs/11 §5.8 "adopted types move to
+    /// it automatically"): the template materialised as version <paramref name="version"/> under <paramref name="key"/>,
+    /// with <c>review.autoApprove</c> as <paramref name="autoApprove"/>. An automatic upgrade passes the value of the
+    /// version it replaces, so it never switches auto-approval on; a <c>ConfigAdmin</c> does that with
+    /// <c>POST /document-types/{key}:upgrade-base {autoApprove: true}</c>, and only where the template allows it.
+    /// </summary>
+    public static TypeDefinition UpgradedAdopted(TypeDefinition template, string key, int version, bool autoApprove)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        var adopted = TypeCatalogueRows.Adopted(template, key, version);
+        return adopted with { Processing = adopted.Processing with { Review = adopted.Processing.Review with { AutoApprove = autoApprove && template.Processing.Review.AutoApprove } } };
+    }
+
+    /// <summary>
+    /// Moves an adopted type (its versions tracked) onto <paramref name="template"/>: a new published version (the next
+    /// number) follows the template with <c>review.autoApprove</c> as <paramref name="autoApprove"/>, the version published
+    /// until now becomes deprecated (documents pinned to it keep it), and <c>BaseVersion</c> names the template version.
+    /// Returns the new version, unsaved.
+    /// </summary>
+    public static DocumentTypeVersion MoveAdopted(DocProcDbContext db, DocumentTypeDefinition definition, TypeDefinition template, bool autoApprove, DateTimeOffset now, string actor, string changeNote)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(definition);
+        var next = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(v => v.Version) + 1;
+        foreach (var previous in definition.Versions.Where(v => v.State == DocumentTypeVersionState.Published))
+        {
+            previous.State = DocumentTypeVersionState.Deprecated;
+            previous.UpdatedAt = now;
+        }
+
+        var version = TypeCatalogueRows.PublishedVersion(
+            Guid.CreateVersion7(), definition.Id, definition.TenantId, TypeCatalogueRows.Compile(UpgradedAdopted(template, definition.Key, next, autoApprove)), now, actor, changeNote);
+        definition.Versions.Add(version);
+        db.DocumentTypeVersions.Add(version);
+        definition.PublishedVersion = next;
+        definition.BaseVersion = template.Version;
+        definition.Name = new Dictionary<string, string>(template.Name, StringComparer.Ordinal);
+        definition.Description = template.Description;
+        definition.UpdatedAt = now;
+        return version;
+    }
+
+    /// <summary>
+    /// Moves every tenant's adopted types whose template has a newer version onto it (docs/11 §5.8): the new version keeps
+    /// the <c>review.autoApprove</c> of the version it replaces. Returns how many types moved. The caller saves.
+    /// </summary>
+    public static async Task<int> UpgradeAdoptedTypesAsync(DocProcDbContext db, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var templates = StandardTemplates.All.ToDictionary(t => TypeCatalogueRows.PlatformDefinitionId(t.Key), t => t);
+        var ids = templates.Keys.ToList();
+        var stale = await db.DocumentTypeDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId != null && d.Origin == DefinitionOrigin.Adopted && d.BaseDefinitionId != null && ids.Contains(d.BaseDefinitionId.Value))
+            .Select(d => new { d.Id, d.BaseDefinitionId, d.BaseVersion })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var moved = 0;
+        foreach (var row in stale.Where(r => (r.BaseVersion ?? 0) < templates[r.BaseDefinitionId!.Value].Version))
+        {
+            var template = templates[row.BaseDefinitionId!.Value];
+            var definition = await db.DocumentTypeDefinitions.IgnoreQueryFilters().Include(d => d.Versions).SingleAsync(d => d.Id == row.Id, cancellationToken).ConfigureAwait(false);
+            var current = definition.Versions.FirstOrDefault(v => v.Version == definition.PublishedVersion) ?? definition.Versions.MaxBy(v => v.Version);
+            var autoApprove = current is not null && DefinitionSerializer.Parse(current.DefinitionJson).Processing.Review.AutoApprove;
+            MoveAdopted(db, definition, template, autoApprove, now, TypeCatalogueRows.SeedActor, $"Upgraded to {template.Key} v{template.Version}{(template.Processing.Review.AutoApprove && !autoApprove ? "; auto-approval stays off until a ConfigAdmin switches it on" : string.Empty)}");
+            moved++;
+        }
+
+        return moved;
+    }
+
+    /// <summary>
     /// The platform rows and every tenant's adopted types, then the type versions of documents without one (the
     /// back-fill of docs/11 §21 step 3 for documents the migration did not see). Needs a platform-scope context.
     /// </summary>
@@ -115,6 +185,13 @@ public static class TypeCatalogueSeeder
     {
         ArgumentNullException.ThrowIfNull(db);
         var added = await AddMissingPlatformTemplatesAsync(db, now, cancellationToken).ConfigureAwait(false);
+        if (added > 0)
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Adopted types follow a newer template version (docs/11 §5.8), auto-approval kept as it was.
+        added += await UpgradeAdoptedTypesAsync(db, now, cancellationToken).ConfigureAwait(false);
         // The platform output templates (docs/11 §13.9) are seeded the same way.
         added += await Outputs.OutputTemplates.AddMissingAsync(db, now, cancellationToken).ConfigureAwait(false);
         var tenants = await db.Tenants.IgnoreQueryFilters().Select(t => t.Id).ToListAsync(cancellationToken).ConfigureAwait(false);

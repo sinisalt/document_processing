@@ -40,6 +40,30 @@ public static class TypeCatalogueRows
         };
     }
 
+    /// <summary>
+    /// The template keys whose auto-approval a tenant opts into (docs/11 §5.8, §23 "a ConfigAdmin then switches
+    /// auto-approval on"): the templates whose first version, frozen with the catalogue migration, did not auto-approve
+    /// (<c>std.price-list</c>, <c>std.daily-specials</c>). A later version that auto-approves does not switch it on for a
+    /// tenant by itself, neither on an upgrade nor on a new adoption.
+    /// </summary>
+    public static IReadOnlySet<string> AutoApproveOptIn => OptIn.Value;
+
+    private static readonly Lazy<IReadOnlySet<string>> OptIn = new(() =>
+        TypeCatalogueSeedSql.FrozenTemplates().Where(t => !t.Template.Processing.Review.AutoApprove).Select(t => t.Template.Key).ToHashSet(StringComparer.Ordinal));
+
+    /// <summary>
+    /// What a tenant gets when it adopts <paramref name="template"/> now (<c>POST /document-types {from: {mode: adopt}}</c>):
+    /// <see cref="Adopted"/>, with <c>review.autoApprove</c> off for an opt-in template (<see cref="AutoApproveOptIn"/>);
+    /// <c>POST /document-types/{key}:upgrade-base {autoApprove: true}</c> switches it on.
+    /// </summary>
+    public static TypeDefinition AdoptedNow(TypeDefinition template, string key)
+    {
+        var adopted = Adopted(template, key);
+        return AutoApproveOptIn.Contains(template.Key) && adopted.Processing.Review.AutoApprove
+            ? adopted with { Processing = adopted.Processing with { Review = adopted.Processing.Review with { AutoApprove = false } } }
+            : adopted;
+    }
+
     /// <summary>A copy (fork) of <paramref name="template"/> under <paramref name="key"/>: the same, with <c>base</c> in copy mode.</summary>
     public static TypeDefinition Copied(TypeDefinition template, string key, int version = 1)
     {

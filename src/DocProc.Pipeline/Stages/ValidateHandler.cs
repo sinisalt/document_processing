@@ -182,6 +182,7 @@ internal sealed class ValidateHandler(
             Reason = reason.Length <= 1000 ? reason : reason[..1000],
             Status = ReviewTaskStatus.Open,
             Priority = DocumentChecks.PriorityOf(resolved),
+            SlaDueAt = DocumentChecks.DueAtOf(resolved, document, tenant),
             CreatedAt = Timeline.Now,
         });
         Timeline.Transition(document, DocumentStatus.NeedsReview, new { reason }, DocumentEventTypes.ReviewRequested);

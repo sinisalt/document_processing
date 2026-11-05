@@ -45,8 +45,10 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
 
         await platform.SaveChangesAsync(ct);
 
-        // Tenants created after the migration get their adopted types from the seeder (docs/11 §21 step 2).
-        (await TypeCatalogueSeeder.EnsureAllAsync(platform, now, ct)).ShouldBe(14);
+        // Tenants created after the migration get their adopted types from the seeder (docs/11 §21 step 2): 7 types for
+        // each of the two tenants, plus what the build ships after the migrations froze theirs: the price-list templates
+        // v2 (two platform versions) and the output template generic-article-prices-json (its row and version, P5).
+        (await TypeCatalogueSeeder.EnsureAllAsync(platform, now, ct)).ShouldBe(18);
         (await TypeCatalogueSeeder.EnsureAllAsync(platform, now, ct)).ShouldBe(0, "the seeder only adds what is missing");
     }
 
@@ -102,6 +104,57 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 seeding.ApiKeys.Add(new ApiKey { Id = feedOnly, TenantId = TenantA, Name = "feed", Prefix = "feed0000", Hash = new string('f', 64), Scopes = [ApiKeyScope.DeliveriesRead], DestinationId = seeded.DestinationId, CreatedAt = DateTimeOffset.UtcNow });
                 await seeding.SaveChangesAsync(ct);
             }
+
+            // P5 part C first, with one of everything it writes: a revision resolved as supersedes, an integration-issue
+            // review task, a destination with acknowledgements and a callback secret, a Pending external reference due
+            // for a poll, and a master-data source with a run. Down to P5 part B, the tables and columns are gone and
+            // the policy of part B is back; up again, they are new (the task's kind back-filled Document).
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var seeded = await seeding.OutboxDeliveries.FirstAsync(d => d.Id == delivery, ct);
+                var destination = await seeding.OutputDestinations.SingleAsync(d => d.Id == seeded.DestinationId, ct);
+                destination.CallbackConfigJson = """{"callback":{"auth":"hmacSha256"},"statusPoll":{"urlTemplate":"https://erp.example/status/{externalId}","intervalMinutes":5,"maxPolls":10}}""";
+                destination.CallbackSecretRef = $"tenant/{TenantA:D}/destination/{destination.Id:D}/callback/1";
+                var newer = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                var older = await seeding.Documents.SingleAsync(d => d.Id == part, ct);
+                newer.RevisionOfDocumentId = older.Id;
+                newer.RevisionResolution = RevisionResolution.Supersedes;
+                older.SupersededByDocumentId = newer.Id;
+                seeding.ReviewTasks.Add(new ReviewTask { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = target, Reason = "EXTERNAL_REJECTED: erp", Kind = ReviewTaskKind.IntegrationIssue, Priority = ReviewPriority.High, CreatedAt = now });
+                if (!await seeding.DocumentExternalRefs.AnyAsync(r => r.DocumentId == seeded.DocumentId && r.DestinationId == seeded.DestinationId, ct))
+                {
+                    seeding.DocumentExternalRefs.Add(new DocumentExternalRef { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = seeded.DocumentId, DestinationId = seeded.DestinationId, ExternalId = "AP-1", Status = ExternalRefStatus.Pending, NextPollAt = now, Polls = 2, UpdatedAt = now });
+                }
+
+                var source = new MasterDataSource { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "ERP vendors", Transport = MasterDataTransports.Http, DestinationId = destination.Id, MatchKeys = ["attributes.erpVendorId", "vatId"], ConflictPolicyJson = """{"name":"localWins"}""", ScheduleCron = "CRON_TZ=Europe/Berlin 15 2 * * *", NextRunAt = now, CreatedAt = now, CreatedBy = "test", UpdatedAt = now };
+                seeding.MasterDataSources.Add(source);
+                seeding.MasterDataRuns.Add(new MasterDataRun { Id = Guid.CreateVersion7(), TenantId = TenantA, SourceId = source.Id, Trigger = MasterDataTrigger.Schedule, Created = 1, ReportJson = """{"created":1,"rows":[]}""", At = now, By = "schedule" });
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261104231037_TenantIdentificationRules", ct);
+            (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104231037_TenantIdentificationRules");
+            foreach (var table in new[] { "MasterDataSources", "MasterDataRuns" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
+            }
+
+            foreach (var (table, column) in new[] { ("Documents", "SupersededByDocumentId"), ("DocumentsHistory", "RevisionResolution"), ("ReviewTasks", "Kind"), ("OutputDestinations", "CallbackSecretRef"), ("DocumentExternalRefs", "NextPollAt") })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = {column}").SingleAsync(ct)).ShouldBe(0, $"{table}.{column}");
+            }
+
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_policies WHERE name = N'tenant_policy' AND is_enabled = 1").SingleAsync(ct)).ShouldBe(1);
+            await platform.Database.MigrateAsync(ct);
+            foreach (var table in new[] { "MasterDataSources", "MasterDataRuns" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.security_predicates WHERE [target_object_id] = OBJECT_ID({"dbo." + table})").SingleAsync(ct)).ShouldBe(3, table);
+            }
+
+            (await platform.ReviewTasks.AsNoTracking().AllAsync(t => t.Kind == ReviewTaskKind.Document, ct)).ShouldBeTrue("up again, every task is a document task");
+            (await platform.Documents.AsNoTracking().SingleAsync(d => d.Id == part, ct)).SupersededByDocumentId.ShouldBeNull("up again, the column is new");
+            (await platform.MasterDataSources.AsNoTracking().CountAsync(ct)).ShouldBe(0);
 
             // P5 part B first, with one of everything it writes: a tenant fallback rule with an Active version and a
             // document it typed (its version pinned). Down to P5 part A, the tables and the column are gone and the policy
@@ -435,7 +488,8 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
         {
             await using var asTenant = NewContext(TenantContext.ForTenant(tenant));
             (await asTenant.DocumentTypeDefinitions.IgnoreQueryFilters().CountAsync(d => d.TenantId == null, ct)).ShouldBe(StandardTemplates.All.Count);
-            (await asTenant.DocumentTypeVersions.IgnoreQueryFilters().CountAsync(v => v.TenantId == null, ct)).ShouldBe(StandardTemplates.All.Count);
+            // Every version a template has had: version 1 of each, and version 2 of the price-list templates (P5).
+            (await asTenant.DocumentTypeVersions.IgnoreQueryFilters().CountAsync(v => v.TenantId == null, ct)).ShouldBe(StandardTemplates.All.Sum(t => t.Version));
         }
 
         await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))

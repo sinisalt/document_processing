@@ -321,6 +321,33 @@ public static class PublishChecks
                 }
             }
 
+            if (RuleKinds.ItemRelativeParams.TryGetValue(kind.Kind, out var itemRelative)
+                && parameters["path"] is JsonValue basePathValue && basePathValue.TryGetValue<string>(out var basePath))
+            {
+                // unique and deltaToPrevious name a field of the rows of path; ordered a field of the items of the lists at path.
+                var items = kind.Kind == "ordered"
+                    ? (basePath.EndsWith("[*]", StringComparison.Ordinal) ? basePath : basePath + "[*]")
+                    : DocProc.Domain.Validation.Rules.GenericRules.SplitRowPath(basePath)?.Rows;
+                if (items is null)
+                {
+                    yield return new DefinitionProblem(at, $"path '{basePath}' must name a field of rows (for example lines[*].supplierSku).");
+                }
+                else
+                {
+                    foreach (var name in itemRelative)
+                    {
+                        var node = name.Contains('.', StringComparison.Ordinal) ? (parameters[name.Split('.')[0]] as JsonObject)?[name.Split('.')[1]] : parameters[name];
+                        foreach (var relativeItem in PathsOf(node))
+                        {
+                            if (DefinitionPaths.FindValue(definition, $"{items}.{relativeItem}") is null)
+                            {
+                                yield return new DefinitionProblem(at, $"{name} '{relativeItem}' is not a field of the items of {items}.");
+                            }
+                        }
+                    }
+                }
+            }
+
             foreach (var name in kind.PathParams)
             {
                 foreach (var path in PathsOf(parameters[name]))

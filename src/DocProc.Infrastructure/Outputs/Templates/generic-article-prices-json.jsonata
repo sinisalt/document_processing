@@ -1,0 +1,41 @@
+(
+  $root := $;
+  {
+    "header": {
+      "documentType": meta.typeKey,
+      "supplierId": supplier.id,
+      "supplierName": supplier.name,
+      "vendorNo": supplier.attributes.erpVendorId,
+      "priceListId": roles.documentNumber,
+      "validFrom": roles.validFrom,
+      "validUntil": roles.validUntil,
+      "currency": roles.currency,
+      "priceBasis": doc.priceBasis,
+      "mode": doc.listScope = "Changes" ? "UPSERT" : "REPLACE",
+      "documentId": meta.documentId,
+      "revision": meta.version,
+      "supersedes": meta.supersedes
+    },
+    "prices": [ doc.lines[$not(status = "Discontinued")].{
+      "sku": supplierSku,
+      "gtin": gtin,
+      "description": description,
+      "category": category,
+      "unit": unit,
+      "packSize": packSize,
+      "packUnit": packUnit,
+      "packDescription": packDescription,
+      "priceQuantity": (priceQuantity ? priceQuantity : 1),
+      "price": price.amount,
+      "previousPrice": previousPrice.amount,
+      "minOrderQuantity": minOrderQuantity,
+      "validFrom": (lineValidFrom ? lineValidFrom : $root.roles.validFrom),
+      "validUntil": (lineValidUntil ? lineValidUntil : $root.roles.validUntil),
+      "tiers": [ tiers.{
+        "minQuantity": minQuantity,
+        "price": price.amount
+      } ]
+    } ],
+    "discontinued": [ doc.lines[status = "Discontinued"].supplierSku ]
+  }
+)

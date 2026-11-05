@@ -669,6 +669,52 @@ docs/11 §8.5, §9.3, §9.4 and §11 (P5 part B). No new setting; what each part
   sender, or from a supplier without layouts, that it holds on is typed by it (`typeSource: Identification`,
   `identificationRuleVersionId`), and the keyword rules and the LLM are not asked.
 
+### Price lists, master data and acknowledgements
+
+docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings: `Delivery:StatusPollInterval`,
+`Delivery:StatusPollBatchSize` and `Pipeline:MasterDataSyncInterval` ("Settings reference" below). What each part needs:
+
+- **Price lists that auto-approve** (`configurableTypes`, and `configurableSteps` for the templates' `defaults` step and
+  the `llm` step's `exclude`): adopt `std.price-list` or `std.daily-specials` (`POST /api/v1/document-types
+  {"from": {"template": "std.price-list", "mode": "adopt"}}`); it starts with auto-approval off, and `POST
+  /api/v1/document-types/price-list:upgrade-base {"autoApprove": true}` (ConfigAdmin) switches it on. A list read by a
+  layout's `column-table` then auto-approves when every row was read (`r_table`), article numbers are unique, prices
+  positive and no price moved more than 25 % against the last approved list of the supplier (`r_delta`; one that did
+  goes to review with the rows named in the flag). Specials are `urgent` with the review task due at the end of their
+  day; one printed for a past day is blocked (`r_not_expired`), and a second list of the same supplier and day arrives
+  with `REVISION_OF`, resolved in review (`POST /api/v1/documents/{id}:resolve-revision {"resolution":
+  "supersedes"|"additional"|"duplicate"}`, the panel above the form). Without `configurableSteps` a specials list
+  without a printed date has no `validFrom` (the `defaults` step that falls back to the day received does not run).
+- **The P5 demo files** are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/
+  DemoPriceLists.cs`, redrawn only with `REGENERATE_DEMO_PDFS=<file name>`): `Nordwind_Preisliste_2027-02.pdf` (12
+  prices changed within 25 %, "Anzahl Artikel: 412"), `Nordwind_Preisliste_2027-03.pdf` (one article, number 104539,
+  up 40 % against February), `Nordwind_Tagesangebote.pdf` and `Nordwind_Tagesangebote_Nachtrag.pdf` (two lists
+  without a date, so valid on the day received), `Nordwind_Tagesangebote_2026-11-04.pdf` (printed for 4 November 2026,
+  expired on any later day), `Suedhof_Preisliste_2027-01.pdf`, `Suedhof_Preisliste_2027-02.pdf` (Südhof Feinkost, a
+  supplier without layouts) and `Bergquell_Preisliste_2027.pdf` (a sender that is no supplier). The pipeline tests
+  `PriceListsEndToEndTests` run them with the layouts they use.
+- **Specials to a POS hub**: copy `fixtures/outputs/pos-promotions.jsonata` into a mapping for `daily-specials`, bind it
+  to an http destination `http://mock-erp:8080/api/promotions` with the condition `roles.validUntil >= $today()`; the
+  stub answers `201` with a `promotionId`, and its request journal (`GET http://localhost:8086/__admin/requests`) shows
+  the payload of docs/11 §13.10 (`replaces` names the list a superseding one replaces). `generic-article-prices-json`
+  (`GET /api/v1/output-templates`) is the article-price import without the tenant's lookups.
+- **Acknowledgements**: `PUT /api/v1/destinations/{id}/acknowledgements` with `{"statusPoll": {"urlTemplate":
+  "http://mock-erp:8080/api/ap/invoices/{externalId}/status", "intervalMinutes": 1, "mapping": "{ \"status\":
+  state = \"POSTED\" ? \"posted\" : (state = \"REJECTED\" ? \"rejected\" : \"pending\"), \"message\": text }"}}`
+  (the poll goes to the destination's own host) makes the platform ask `mock-erp` after each delivery;
+  `POST http://localhost:8086/__control/erp-ap-status/reject-all` makes it answer `REJECTED` ("Kreditor gesperrt"), so
+  the next poll raises `EXTERNAL_REJECTED` and an integration-issue task (the document stays approved; the review
+  screen's panel resolves it with a note), and `…/reset` goes back to `POSTED`. A receiver that calls back instead
+  gets `PUT /api/v1/destinations/{id}/acknowledgements {"callback": {"auth": "hmacSha256", "mapping": …}}` and `PUT
+  /api/v1/destinations/{id}/callback-secret {"secret": "…"}`, and signs `<X-DocProc-Timestamp>.<body>` with it in
+  `X-DocProc-Signature: sha256=<hex>` on `POST /api/v1/integrations/callbacks/{destinationId}`.
+- **Supplier master data** (TenantAdmin): `POST /api/v1/suppliers:import {"format": "csv", "content": "Kreditor;Name;
+  USt-IdNr\nV-10042;Nordwind Großhandel GmbH;DE312456789", "columns": {"attributes.erpVendorId": "Kreditor", "name":
+  "Name", "vatId": "USt-IdNr"}}` answers the dry run's report; `"dryRun": false` applies it, and the same file again
+  changes nothing. `POST /api/v1/master-data-sources` with `{"transport": "http", "destinationId": …, "mapping": …,
+  "schedule": "CRON_TZ=Europe/Berlin 15 3 * * *"}` reads an http destination every night (`:dry-run` and `:run` on
+  request; an upload source takes `{"records": …}` in `:run`).
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
@@ -1343,6 +1389,7 @@ this section does not name.
 | `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). At least 1. |
 | `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio, never below a 1 MiB floor: per entry (a more compressed entry is skipped as a likely zip bomb), per archive (its entries together; the archive stops) and per ingestion (everything unpacked at every level against the archive bytes uploaded; the ingestion's unpack budget runs out). 0 turns all three off; not negative. |
 | `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. Not negative. |
+| `Pipeline:MasterDataSyncInterval` | `00:01:00` | How often the master-data sync (`MasterDataSyncHostedService`, docs/11 §14) looks for http sources whose schedule is due and runs them; `00:00:00` turns it off. Not negative. |
 
 **Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)
 
@@ -1412,6 +1459,8 @@ processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 
 | `Delivery:SendLease` | `00:02:00` | How long an attempt holds its delivery on top of the transport's timeout; a process that died mid-send leaves it to the sweeper after that. |
 | `Delivery:DropRoot` | `data/outbound` (content root); `/data/outbound` in compose | The root folder of `blob` destinations' file drop; each tenant writes below `<root>/<tenantId>`. |
 | `Delivery:DevelopmentHosts` | empty; `mock-erp:8080` in compose, `localhost:8086` under the AppHost | `host` or `host:port` entries http destinations may reach over plain http at any address, past `TenantEndpointGuard`. Honoured in the Development environment only. |
+| `Delivery:StatusPollInterval` | `00:01:00` | How often the status poller (`StatusPollerHostedService`, docs/11 §13.8) asks destinations with a `statusPoll` about the documents whose external status is still Pending and due; `00:00:00` turns it off. |
+| `Delivery:StatusPollBatchSize` | 50 | Most references one round of the status poller asks about. |
 
 **Mailboxes** (`MailOptions`; both hosts: the worker's pollers read mail, the API checks a mailbox channel's host)
 

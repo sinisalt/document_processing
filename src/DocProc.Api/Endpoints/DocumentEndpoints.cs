@@ -123,6 +123,7 @@ public static partial class DocumentEndpoints
 
         MapReviewActions(documents);
         MapMapMode(documents);
+        MapRevisionActions(documents);
         return group;
     }
 

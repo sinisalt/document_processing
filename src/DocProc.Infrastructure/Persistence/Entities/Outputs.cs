@@ -52,8 +52,17 @@ public sealed class OutputDestination : ITenantScoped, IVersioned
 
     public DateTimeOffset? SecretSetAt { get; set; }
 
-    /// <summary>Acknowledgement callbacks (docs/11 §13.8, P5); null until then.</summary>
+    /// <summary>
+    /// The destination's acknowledgements (docs/11 §13.8, P5): <c>{callback?: {auth, mapping?}, statusPoll?: {urlTemplate,
+    /// intervalMinutes, mapping?, maxPolls?}}</c> (<c>AcknowledgementConfig</c>); null when the receiver reports nothing back.
+    /// </summary>
     public string? CallbackConfigJson { get; set; }
+
+    /// <summary>The secret store reference of the callback secret (an HMAC key or a bearer token); null until one is set.</summary>
+    public string? CallbackSecretRef { get; set; }
+
+    /// <summary>The callback secret it replaced, still accepted until the next rotation (two active secrets, docs/11 §13.8).</summary>
+    public string? PreviousCallbackSecretRef { get; set; }
 
     public OutputDestinationStatus Status { get; set; } = OutputDestinationStatus.Active;
 
@@ -454,6 +463,12 @@ public sealed class DocumentExternalRef : ITenantScoped
     public string? Message { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>When the destination's status poll asks next (docs/11 §13.8); null when it does not poll or the status is final.</summary>
+    public DateTimeOffset? NextPollAt { get; set; }
+
+    /// <summary>How often the status was polled; polling stops at the destination's <c>maxPolls</c>.</summary>
+    public int Polls { get; set; }
 }
 
 public enum LookupTableSource

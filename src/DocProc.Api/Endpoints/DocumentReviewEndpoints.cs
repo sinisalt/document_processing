@@ -259,9 +259,11 @@ public static partial class DocumentEndpoints
             DocumentChecks.ReplaceFlags(db, document, [], [FlagCodes.Create(FlagCodes.UnsupportedType, flagMessage, parameters: FlagParams.Of(("type", key.Value)))], now);
         }
 
-        foreach (var task in await db.ReviewTasks.Where(t => t.DocumentId == document.Id && (t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)).ToListAsync(ct))
+        var taskTenant = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == document.TenantId, ct);
+        foreach (var task in await db.ReviewTasks.Where(t => t.DocumentId == document.Id && t.Kind == ReviewTaskKind.Document && (t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)).ToListAsync(ct))
         {
             task.Priority = DocumentChecks.PriorityOf(type);
+            task.SlaDueAt = taskTenant is null ? null : DocumentChecks.DueAtOf(type, document, taskTenant);
         }
 
         AddSetTypeCorrection(db, document, previous, next, actor, now);

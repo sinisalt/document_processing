@@ -150,7 +150,7 @@ public sealed class DocumentRuleTests
     {
         // Publishing refuses a kind the deployment does not declare (docs/11 §5.7); a declared kind whose evaluator is
         // not registered yet is reported as not run, and a result with a rule that did not run is never auto-approved.
-        var unknown = new RuleReference("r1", "tableComplete", RuleParams.None);
+        var unknown = new RuleReference("r1", "notRegisteredYet", RuleParams.None);
         var notRun = DocumentValidator.Default.Validate(DocumentView.ForInvoice(Valid()), [unknown], Context);
         notRun.Flags.ShouldBeEmpty();
         notRun.RulesNotRun.ShouldBe(["r1"]);

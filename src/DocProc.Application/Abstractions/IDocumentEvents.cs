@@ -46,4 +46,18 @@ public static class DocumentEventTypes
 
     /// <summary>A stage ran a pipeline that is not the type's own: overrides changed its steps, or were refused.</summary>
     public const string PipelineApplied = "document.pipeline_applied";
+
+    // Price lists, acknowledgements (docs/11 §11, §13.8, P5); timeline only, never published.
+
+    /// <summary>A reviewer resolved a <c>REVISION_OF</c> (<c>:resolve-revision</c>): supersedes, additional or duplicate; on both documents.</summary>
+    public const string RevisionResolved = "document.revision_resolved";
+
+    /// <summary>A receiving system accepted or posted a delivered document (callback or status poll).</summary>
+    public const string ExternallyAccepted = "document.externally_accepted";
+
+    /// <summary>A receiving system rejected a delivered document (callback or status poll): <c>EXTERNAL_REJECTED</c>.</summary>
+    public const string ExternallyRejected = "document.externally_rejected";
+
+    /// <summary>A reviewer resolved an integration issue with a note (<c>:resolve-integration-issue</c>).</summary>
+    public const string IntegrationIssueResolved = "document.integration_issue_resolved";
 }

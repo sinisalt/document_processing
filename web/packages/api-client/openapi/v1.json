@@ -1835,6 +1835,163 @@
         }
       }
     },
+    "/api/v1/integrations/callbacks/{destinationId}": {
+      "post": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}.",
+        "operationId": "ReceiveIntegrationCallback",
+        "parameters": [
+          {
+            "name": "destinationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:resolve-integration-issue": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Resolves the document's open EXTERNAL_REJECTED flags with a note and completes its integration-issue review tasks; the document stays settled.",
+        "operationId": "ResolveDocumentIntegrationIssue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveIntegrationIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/suppliers:import": {
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Imports suppliers from CSV (with a column map) or JSON (docs/11 §14): matched by attributes.erpVendorId, vatId, then IBAN, each attribute under its conflict policy (externalWins, localWins, flag). A dry run (the default) answers the report only; the same file twice changes nothing.",
+        "operationId": "ImportSuppliers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataRunDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-runs/{id}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One run with its report.",
+        "operationId": "GetMasterDataRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataRunDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/llm-usage": {
       "get": {
         "tags": [
@@ -3252,6 +3409,58 @@
                   "items": {
                     "$ref": "#/components/schemas/DocumentTableReportDto"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{id}:resolve-revision": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Resolves an open REVISION_OF (docs/11 §11): supersedes (the earlier document is superseded and this one carries meta.supersedes), additional (both stand; the pair is not flagged again) or duplicate (this document is rejected).",
+        "operationId": "ResolveDocumentRevision",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
                 }
               }
             }
@@ -5325,6 +5534,63 @@
         }
       }
     },
+    "/api/v1/document-types/{key}:upgrade-base": {
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Moves an adopted type onto the newest version of its template and sets review.autoApprove (docs/11 §5.8: an automatic upgrade never switches auto-approval on; this does, where the template allows it).",
+        "operationId": "UpgradeDocumentTypeBase",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpgradeBaseRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTypeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/output-mappings": {
       "get": {
         "tags": [
@@ -6349,6 +6615,429 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/destinations/{id}/acknowledgements": {
+      "put": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Sets how the destination reports back (docs/11 §13.8): callback {auth: hmacSha256|bearer, mapping?} and/or statusPoll {urlTemplate, intervalMinutes, mapping?, maxPolls?}; an empty object turns both off.",
+        "operationId": "SetDestinationAcknowledgements",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/destinations/{id}/callback-secret": {
+      "put": {
+        "tags": [
+          "Outputs"
+        ],
+        "summary": "Sets or rotates the destination's callback secret; the replaced one is still accepted until the next rotation.",
+        "operationId": "SetDestinationCallbackSecret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCallbackSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-sources": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The tenant's master-data sources.",
+        "operationId": "ListMasterDataSources",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MasterDataSourceDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Adds a master-data source: an http destination read on a schedule (CRON_TZ=<zone> m h dom mon dow) or an upload source, its JSONata mapping to supplier records, match keys and conflict policy.",
+        "operationId": "CreateMasterDataSource",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterDataSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataSourceDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-sources/{id}": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "One master-data source.",
+        "operationId": "GetMasterDataSource",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataSourceDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Changes a master-data source.",
+        "operationId": "UpdateMasterDataSource",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterDataSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataSourceDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Removes a master-data source and its runs.",
+        "operationId": "DeleteMasterDataSource",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-sources/{id}:run": {
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Runs the source now and applies its records (an upload source takes them in the body); answers the run with its report.",
+        "operationId": "RunMasterDataSource",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MasterDataRunRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataRunDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-sources/{id}:dry-run": {
+      "post": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "Runs the source without changing anything: the report says what a run would create, update and flag.",
+        "operationId": "DryRunMasterDataSource",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MasterDataRunRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataRunDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/master-data-sources/{id}/runs": {
+      "get": {
+        "tags": [
+          "Suppliers"
+        ],
+        "summary": "The source's runs, newest first (at most 50).",
+        "operationId": "ListMasterDataRuns",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MasterDataRunDto"
+                  }
                 }
               }
             }
@@ -7442,6 +8131,48 @@
           }
         },
         "description": "The import report: whether the signature verified, the mode, and per item what happens."
+      },
+      "CallbackResponse": {
+        "required": [
+          "applied",
+          "pending",
+          "unknown",
+          "problems"
+        ],
+        "type": "object",
+        "properties": {
+          "applied": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pending": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknown": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination."
       },
       "ChangeMemberRoleRequest": {
         "required": [
@@ -8767,6 +9498,25 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "acknowledgements": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "The destination's acknowledgements (docs/11 §13.8: `{callback?, statusPoll?}`); null when it reports nothing back.",
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "hasCallbackSecret": {
+            "type": "boolean",
+            "description": "Whether a callback secret is set (it is never returned)."
+          },
+          "hasPreviousCallbackSecret": {
+            "type": "boolean",
+            "description": "Whether the previous callback secret is still accepted (the overlap of a rotation)."
           }
         },
         "description": "A destination as the API shows it. The secret is write-only: bool DestinationResponse.HasSecret and DateTimeOffset? DestinationResponse.SecretSetAt\nare all a client learns, bool DestinationResponse.HasPreviousSecret whether the one it replaced is still kept for the overlap."
@@ -9248,6 +9998,33 @@
             ],
             "description": "The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; `GET /pipelines/{hash}` lists its\nsteps); null for a tenant without `configurableSteps`."
           },
+          "supersededByDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The later document that replaces this one (`REVISION_OF` resolved as `supersedes`, docs/11 §11); null otherwise.",
+            "format": "uuid"
+          },
+          "revisionOfDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The earlier document this one's `REVISION_OF` was resolved against, and how (`supersedes`, `additional`, `duplicate`).",
+            "format": "uuid"
+          },
+          "revisionResolution": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "description": "How the `REVISION_OF` against Guid? DocumentDetail.RevisionOfDocumentId was resolved.",
+                "$ref": "#/components/schemas/RevisionResolution"
+              }
+            ]
+          },
           "approvalBlocked": {
             "oneOf": [
               {
@@ -9709,6 +10486,14 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "supersededBy": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The later document that replaces this one (docs/11 §18 `supersededBy`, `REVISION_OF` resolved as supersedes); null otherwise.",
+            "format": "uuid"
           }
         },
         "description": "One row of the inbox (docs/05 \"Inbox\"): the denormalised columns plus flag counts, never the canonical JSON.\n`TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's\ncross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and\n`LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a\ntotal); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.\n`Fields` holds the indexed field values the list request asked for with `fields=` (docs/11 §19, the inbox\ncolumns of indexed custom fields), keyed by definition path, as `DocumentFieldIndex` stores them (identifiers and\nstrings normalised, numbers invariant, dates ISO); null when the request named none."
@@ -12046,6 +12831,314 @@
           }
         },
         "description": "`POST /documents/{id}:golden`: an optional note."
+      },
+      "MasterDataRunDto": {
+        "required": [
+          "id",
+          "sourceId",
+          "trigger",
+          "dryRun",
+          "status",
+          "created",
+          "updated",
+          "unchanged",
+          "conflicts",
+          "errors",
+          "report",
+          "at",
+          "by"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/MasterDataTrigger"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MasterDataRunStatus"
+          },
+          "created": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "updated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unchanged": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "conflicts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errors": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "report": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "by": {
+            "type": "string"
+          }
+        },
+        "description": "One run with its report."
+      },
+      "MasterDataRunRequest": {
+        "required": [
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "records": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        },
+        "description": "`:run` and `:dry-run`: the records of an upload source (JSON, before the source's mapping)."
+      },
+      "MasterDataRunStatus": {
+        "enum": [
+          "Succeeded",
+          "Failed"
+        ]
+      },
+      "MasterDataSourceDto": {
+        "required": [
+          "id",
+          "name",
+          "target",
+          "transport",
+          "destinationId",
+          "mapping",
+          "matchKeys",
+          "conflictPolicy",
+          "schedule",
+          "enabled",
+          "nextRunAt",
+          "lastRunAt",
+          "lastResult",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "mapping": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "matchKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflictPolicy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "schedule": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "nextRunAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastRunAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastResult": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "A master-data source as the API shows it (docs/11 §6.8)."
+      },
+      "MasterDataSourceRequest": {
+        "required": [
+          "name",
+          "target",
+          "transport",
+          "destinationId",
+          "mapping",
+          "matchKeys",
+          "conflictPolicy",
+          "schedule",
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "transport": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "destinationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "mapping": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "matchKeys": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflictPolicy": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "schedule": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "Create or change a master-data source; on PATCH a property left out keeps its value."
+      },
+      "MasterDataTrigger": {
+        "enum": [
+          "Manual",
+          "Schedule",
+          "Import"
+        ],
+        "description": "How a master-data run started."
       },
       "MatchLayoutRequest": {
         "required": [
@@ -14596,6 +15689,42 @@
         },
         "description": "Which stage to rerun; the document is reset to the state before it (docs/03 \"any stage can be re-run\").\n`configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;\n`current` drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork\nwith a custom field published after the document arrived)."
       },
+      "ResolveIntegrationIssueRequest": {
+        "required": [
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /documents/{id}:resolve-integration-issue`: the reviewer's note (required)."
+      },
+      "ResolveRevisionRequest": {
+        "required": [
+          "resolution"
+        ],
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`:resolve-revision` (docs/11 §11): `resolution` is `supersedes`, `additional` or `duplicate`;\n`note` is kept in the timeline (and is the rejection reason of a duplicate)."
+      },
       "ResolvedPipelineResponse": {
         "required": [
           "hash",
@@ -14762,9 +15891,20 @@
           },
           "priority": {
             "$ref": "#/components/schemas/ReviewPriority"
+          },
+          "kind": {
+            "description": "What the task asks for: a document to review, or an integration issue (a settled document a receiving system rejected, docs/11 §13.8).",
+            "$ref": "#/components/schemas/ReviewTaskKind"
           }
         },
         "description": "A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary)."
+      },
+      "ReviewTaskKind": {
+        "enum": [
+          "Document",
+          "IntegrationIssue"
+        ],
+        "description": "What a review task asks for (docs/11 §13.8)."
       },
       "ReviewTaskStatus": {
         "enum": [
@@ -14772,6 +15912,14 @@
           "InProgress",
           "Done",
           "Skipped"
+        ]
+      },
+      "RevisionResolution": {
+        "enum": [
+          "Supersedes",
+          "Additional",
+          "Duplicate",
+          null
         ]
       },
       "RoutingTestCandidate": {
@@ -15143,6 +16291,18 @@
           }
         },
         "description": "A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision)."
+      },
+      "SetCallbackSecretRequest": {
+        "required": [
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string"
+          }
+        },
+        "description": "`PUT /destinations/{id}/callback-secret`: the HMAC key or bearer token the receiver signs its callbacks with."
       },
       "SetDestinationSecretRequest": {
         "required": [
@@ -15735,6 +16895,76 @@
           }
         },
         "description": "A supplier group (docs/11 §6.4) with the number of its members."
+      },
+      "SupplierImportRequest": {
+        "required": [
+          "format",
+          "content",
+          "records",
+          "columns",
+          "matchKeys",
+          "conflictPolicy",
+          "dryRun"
+        ],
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "content": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "records": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "columns": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "matchKeys": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflictPolicy": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "dryRun": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "`POST /suppliers:import` (docs/11 §14): supplier records as CSV with a column map, or as JSON, matched by\n`matchKeys` (default `attributes.erpVendorId`, `vatId`, `iban`) under the per-attribute\n`conflictPolicy`; `dryRun` (the default) answers the report without changing anything."
       },
       "SupplierLayoutResponse": {
         "required": [
@@ -17317,6 +18547,21 @@
           "Proposed",
           null
         ]
+      },
+      "UpgradeBaseRequest": {
+        "required": [
+          "autoApprove"
+        ],
+        "type": "object",
+        "properties": {
+          "autoApprove": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "description": "`POST /document-types/{key}:upgrade-base` (docs/11 §5.8): bool? UpgradeBaseRequest.AutoApprove switches the type's\n`review.autoApprove` on or off (null keeps it); the type moves to its template's newest version either way."
       },
       "ValueCandidateDto": {
         "required": [

@@ -481,6 +481,80 @@ reprocesses exactly as before.
     split prefilter applies the type's `split.mode` the same way. A reviewer's `:set-type` to another type counts in
     `Overridden` and drops the pin.
 
+### Price lists, master data and acknowledgements as built (docs/11 §5.8, §6.8, §11, §13.8 to §13.10, §14, P5 part C)
+
+- **Line-table rule kinds** in a definition's `rules`: `tableComplete {path, maxRejectedRows?, everyPageInRange?,
+  allowUnreported?, declaredCount?}` (reads the table report of `path`: `TABLE_ROWS_REJECTED {page, rows}` blocking
+  per page past `maxRejectedRows`, `TABLE_PAGE_NO_ROWS {page}` blocking with `everyPageInRange` and a warning
+  otherwise, `RULE_FAILED {reason: tableUnreported}` for rows without a report unless `allowUnreported`, `{reason:
+  tableCount}` when the field at `declaredCount` differs from the rows read), `unique {path, scopeBy?}` (`path` a row
+  path such as `lines[*].supplierSku`; `scopeBy` row fields), `ordered {path, by, strict?, then?: {path, order:
+  increasing|nonDecreasing|decreasing|nonIncreasing}}` (the items of every list at `path`, for example
+  `lines[*].tiers`) and `deltaToPrevious {path, joinOn, maxChangePercent?, maxChangedRowsPercent?,
+  ignoreBelowPercent? (5)}` (against the last Approved or AutoApproved, not superseded document of the same supplier
+  and type key: one summary `RULE_FAILED {reason: deltaToPrevious, rows, compared, changed, changedPercent,
+  previousDocumentId}` whose `rows` lists the row indexes over `maxChangePercent` (at most 150) for the review grid, and
+  one `{reason: deltaRow, key, previous, value, changePercent}` per such row; with no previous document an info note
+  `{reason: noPrevious}`, which does not fail `requirePassedRules`). Publish checks that `unique.scopeBy`,
+  `deltaToPrevious.joinOn`, `ordered.by` and `ordered.then.path` are fields of the items they name.
+- **Price-list templates v2** (`std.price-list`, `std.daily-specials`): the rules of docs/11 §5.8 and the full review
+  block (`requirePassedRules`, `blockOnWarnings`, `lines`, for specials `priority: urgent` and `dueBy: validUntil`). An
+  adopted type follows a newer template version on start-up with its `review.autoApprove` kept, and a new adoption of
+  these two templates starts with auto-approval off; `POST /document-types/{key}:upgrade-base {autoApprove?}`
+  (`ConfigAdmin`, `configurableTypes`) publishes a version on the newest template version with `review.autoApprove`
+  as asked (`422` when the template does not auto-approve, `409` for a type that is not adopted, unchanged when both
+  already hold). A review task of a type with `dueBy` gets `slaDueAt` at 23:59:59 of that date in the tenant's time zone.
+- **The type's own extract steps** (with `configurableSteps`, as part A built the step model): `defaults
+  {values: {<field>: {value | from: field | [fields, "$source.receivedDate"] | fromSupplierSetting:
+  defaults.currency|locale, mode?: ifMissing|override}}}` writes Inferred values after the extraction chain (never
+  over a correction, not on a tree nothing was extracted into); the `llm` step's `exclude` leaves top-level fields out
+  of the definition schema, and `lines: perPage` reads the top-level tables one page per call under the step's
+  `maxCostPerDocument` (the pages not read raise `LLM_BUDGET_EXCEEDED`; rows the LLM read have source `Llm`, which the
+  price list's `review.lines` does not accept).
+- **Revisions**: `POST /documents/{id}:resolve-revision {resolution: supersedes|additional|duplicate, note?}`
+  (`Review`; a document in review with an open `REVISION_OF`, `409` otherwise): `supersedes` sets the earlier
+  document's `SupersededByDocumentId` (`DocumentSummary.supersededBy`, `DocumentDetail.supersededByDocumentId`) and
+  this one's `meta.supersedes` in the values view, `additional` lets both stand and keeps the pair from matching again,
+  `duplicate` rejects the document (published as a rejection). The flag is resolved, `document.revision_resolved` is
+  written on both documents, and the document stays in review for its approval (except a duplicate).
+- **Output template** `generic-article-prices-json` (platform, `GET /output-templates`): §13.10's article-price
+  mapping without the tenant's lookups (units and the vendor number as stored), with a target schema; the demo's
+  `pos-promotions` mapping is `fixtures/outputs/pos-promotions.jsonata`, and `mock-erp` answers `POST /api/promotions`.
+- **Acknowledgements** (`IntegrationAdmin`, `outputs`):
+  - `PUT /destinations/{id}/acknowledgements {callback?: {auth: hmacSha256|bearer, mapping?}, statusPoll?:
+    {urlTemplate, intervalMinutes (1-1440, 15), mapping?, maxPolls (1-2000, 288)}}` (an empty object turns both off);
+    a poll template takes `{externalId}` and `{documentId}` after the host only and must name the destination's own
+    host (the poll sends the destination's credentials); mappings are JSONata checked by the renderer;
+  - `PUT /destinations/{id}/callback-secret {secret}` (16 or more characters): two slots, so the replaced secret is
+    accepted until the next rotation (`DestinationResponse.hasCallbackSecret`, `hasPreviousCallbackSecret`,
+    `acknowledgements`);
+  - `POST /integrations/callbacks/{destinationId}` (anonymous; 64 KB): `hmacSha256` needs `X-DocProc-Timestamp` (Unix
+    seconds, within 5 minutes) and `X-DocProc-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<body>">`, `bearer`
+    `Authorization: Bearer <secret>`; the mapping (or the body itself) gives `{documentId | externalId, status:
+    accepted|posted|rejected|pending, message?}` or a list of at most 100; answers `{applied, pending, unknown,
+    problems}` (`401` unauthenticated, `404` without callbacks, `422` when nothing reads as an acknowledgement);
+  - a destination with acknowledgements keeps a delivered document's external reference `Pending`; the status poller
+    (`Delivery:StatusPollInterval`) asks the poll URL with the destination's headers and authentication through the
+    delivery client (public addresses, TLS, no redirects, 10 s, 64 KB) until it is decided or `maxPolls` ran out;
+  - a rejection raises `EXTERNAL_REJECTED {destination, destinationId, message, externalId, source}` (warning, once per
+    destination while open) and opens a review task of kind `IntegrationIssue` (`ReviewTaskDto.kind`; the document
+    stays settled); an acceptance resolves the destination's flag and closes the task when none is left;
+    `POST /documents/{id}:resolve-integration-issue {note}` (`Review`) resolves the open flags with a note.
+- **Master data** (`TenantAdmin`):
+  - `POST /suppliers:import {format: csv|json, content? + columns? | records?, matchKeys?, conflictPolicy?, dryRun?
+    (true)}` (2 MB): CSV with `;`, `,` or tab and a column map to `name`, `vatId`, `taxId`, `ibans`, `currency` and
+    `attributes.<key>`, or JSON records of that shape; matched by `attributes.erpVendorId`, then `vatId`, then `iban`
+    (or the given keys), each attribute under `externalWins` (default), `localWins` or `flag` (by attribute, by
+    `attributes`, or `*`); answers the run with its report (per record `create`, `update` with the changed
+    attributes, `unchanged`, `conflict` or `error`); the same file twice changes nothing;
+  - `/master-data-sources` CRUD (at most 25 per tenant) `{name, target: suppliers, transport: http|upload,
+    destinationId (an http destination of the tenant, its urlTemplate without placeholders), mapping? (JSONata to
+    records), matchKeys?, conflictPolicy?, schedule? (5-field cron, `CRON_TZ=<zone>` allowed, http sources only, at
+    most every 15 minutes), enabled?}`, `POST …/{id}:run` and `:dry-run` (an upload source takes `{records}`),
+    `GET …/{id}/runs` (50 newest) and `GET /master-data-runs/{id}`; `MasterDataSyncHostedService`
+    (`Pipeline:MasterDataSyncInterval`) runs the due http sources through the delivery client (public addresses, 30 s,
+    2 MB), each run a `MasterDataRun` with its report.
+
 ## React applications
 
 One monorepo, two apps sharing a component and API-client package:

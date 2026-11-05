@@ -170,7 +170,7 @@ public sealed class GenericRuleP5Tests
         var passing = Rule("sumEquals", """{ "path": "items[*].lineNet", "equals": "subtotalNet" }""");
         var warning = Rule("compare", """{ "left": "pickupDate", "op": "lt", "right": "returnDate" }""") with { Id = "r_warn" };
         var info = Rule("compare", """{ "left": "reason", "op": "eq", "value": "Other" }""", severity: "info") with { Id = "r_info" };
-        var result = Validate(Values(), passing, warning, info, new RuleReference("r_later", "tableComplete", RuleParams.None));
+        var result = Validate(Values(), passing, warning, info, new RuleReference("r_later", "notRegisteredYet", RuleParams.None));
         result.Passed("r_sumEquals").ShouldBeTrue();
         result.Passed("r_info").ShouldBeTrue("an info note does not fail a rule");
         result.Passed("r_warn").ShouldBeFalse();

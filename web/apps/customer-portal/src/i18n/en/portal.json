@@ -71,7 +71,10 @@
     "LAYOUT_WARMUP": "Layout warm-up",
     "LLM_BUDGET_EXCEEDED": "LLM budget reached",
     "LOOKUP_FAILED": "Lookup failed",
-    "PIPELINE_INVALID": "Pipeline overrides refused"
+    "PIPELINE_INVALID": "Pipeline overrides refused",
+    "TABLE_ROWS_REJECTED": "Table rows rejected",
+    "TABLE_PAGE_NO_ROWS": "Page without rows",
+    "EXTERNAL_REJECTED": "Rejected by the receiving system"
   },
   "stages": {
     "Normalize": "Normalize",
@@ -112,7 +115,11 @@
       "layout_degraded": "Layout degraded",
       "layout_learned": "Saved as layout",
       "layout_matched": "Matched to a layout",
-      "pipeline_applied": "Pipeline overrides applied"
+      "pipeline_applied": "Pipeline overrides applied",
+      "revision_resolved": "Revision resolved",
+      "externally_accepted": "Accepted by the receiving system",
+      "externally_rejected": "Rejected by the receiving system",
+      "integration_issue_resolved": "Integration issue resolved"
     }
   },
   "inbox": {
@@ -487,6 +494,28 @@
       "submit": "Join",
       "done_one": "{{count}} part joined; the document is being classified again.",
       "done_other": "{{count}} parts joined; the document is being classified again."
+    },
+    "revision": {
+      "title": "Revision of an earlier document",
+      "description": "A document with the same supplier, validity, scope and number exists. Say what this one is to it before you approve.",
+      "open": "Open the earlier document",
+      "supersedes": "Replaces the earlier one",
+      "additional": "An additional document",
+      "duplicate": "A duplicate (reject)",
+      "done": {
+        "supersedes": "This document replaces the earlier one.",
+        "additional": "Both documents stand.",
+        "duplicate": "Rejected as a duplicate."
+      }
+    },
+    "integrationIssue": {
+      "title": "{{destination}} rejected the document",
+      "message": "Its answer: {{message}}",
+      "noMessage": "The receiving system gave no reason.",
+      "description": "The document stays approved. Correct it and approve it again (a new revision is delivered), or resolve the issue with a note.",
+      "note": "Note",
+      "resolve": "Resolve with note",
+      "done": "Integration issue resolved."
     },
     "mapDocument": {
       "title": "Map this document",

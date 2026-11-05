@@ -203,6 +203,12 @@ P5 part B adds the rule kinds `requiredIf`, `compare`, `sumEquals`, `arithmetic`
 language), definition flags, the review gate's `requirePassedRules`, `blockOnWarnings` and `lines`, a tenant's own types
 end to end (tenant keyword set, LLM classifier over the tenant's types, LLM extraction against the type's schema) and
 tenant fallback identification rules (docs/09 "Rules, custom types and tenant fallback rules").
+P5 part C adds price lists end to end (the line-table rule kinds `tableComplete`, `unique`, `ordered` and
+`deltaToPrevious`, the price-list templates v2 with auto-approval a ConfigAdmin switches on, urgent specials due at the
+end of their day, `REVISION_OF` resolved in review, the `generic-article-prices-json` template and the `pos-promotions`
+example with its `mock-erp` stub, the `defaults` step and the `llm` step's `exclude` and `lines: perPage`), supplier
+master data (CSV or JSON import, scheduled sync from an http source), and acknowledgements from receiving systems
+(signed callbacks, status polling, `EXTERNAL_REJECTED`) (docs/09 "Price lists, master data and acknowledgements").
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.

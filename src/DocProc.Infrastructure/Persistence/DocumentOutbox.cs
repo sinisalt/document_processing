@@ -4,6 +4,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace DocProc.Infrastructure.Persistence;
 
@@ -67,17 +68,47 @@ public static class DocumentOutbox
 
     /// <summary>
     /// Adds the row of a settlement whose decision did not write one (a decision from before the outbox was written in
-    /// the decision transaction), and claims the document for it: the document's <see cref="IVersioned.Version"/> is
-    /// marked modified, so the save also updates the document under its concurrency token. The row's own token
+    /// the decision transaction), after <see cref="ClaimMissingAsync"/> claimed the document for it. The row's own token
     /// (<see cref="OutboxMessage.FannedOutAt"/>) guards only an update of an existing row, and nothing in the index
-    /// keeps two publishers that both found no row from both inserting one; with the claim, only the first commits and
-    /// the second gets a <see cref="Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException"/>, its row unsaved.
+    /// keeps two publishers that both found no row from both inserting one; with the claim, only the first goes on.
     /// </summary>
-    public static OutboxMessage AddMissing(DocProcDbContext db, Document document, DateTimeOffset at)
+    /// <remarks>
+    /// Correction (P5): the claim used to mark the version modified for the save that also inserts the deliveries, so the
+    /// deliveries carried the version the document had before that save and the document ended one past them: a
+    /// <c>rerender</c> of such a delivery was refused as "Document changed" (docs/11 §13.6). The claim is now a
+    /// conditional update of the version made first (<see cref="ClaimMissingAsync"/>), and the row, the deliveries and
+    /// the values view they render all see the claimed version.
+    /// </remarks>
+    public static OutboxMessage AddMissing(DocProcDbContext db, Document document, DateTimeOffset at) => Add(db, document, at);
+
+    /// <summary>
+    /// Claims the document for a settlement whose decision wrote no outbox row: bumps its <see cref="IVersioned.Version"/>
+    /// in the database only if it is still the version loaded (one statement, first claim wins), and moves the tracked
+    /// document to the new version as its original and current value, so the later save checks against it and does not
+    /// bump it again. False when another writer changed the document first (a second publisher that also found no row):
+    /// that publisher owns the settlement. Call it before anything reads the version (the fan-out, the values view).
+    /// </summary>
+    public static async Task<bool> ClaimMissingAsync(DocProcDbContext db, Document document, CancellationToken cancellationToken)
     {
-        var row = Add(db, document, at);
-        db.Entry(document).Property(d => d.Version).IsModified = true;
-        return row;
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(document);
+        var loaded = document.Version;
+        var id = document.Id;
+        var claimed = await db.Documents
+            .Where(d => d.Id == id && d.Version == loaded)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.Version, loaded + 1), cancellationToken).ConfigureAwait(false);
+        if (claimed == 0)
+        {
+            return false;
+        }
+
+        // The tracked document takes the claimed version as its loaded one, unmodified: the later save neither bumps it
+        // again nor checks the old token (setting the current value alone would mark it modified and bump it twice).
+        var version = db.Entry(document).Property(d => d.Version);
+        version.CurrentValue = loaded + 1;
+        version.OriginalValue = loaded + 1;
+        version.IsModified = false;
+        return true;
     }
 
     /// <summary>

@@ -368,6 +368,8 @@ internal sealed class ExtractHandler(
 
         tree ??= DefinitionTree.CreateEmpty(compiled.Descriptors);
         DefinitionTree.Complete(tree, compiled.Descriptors);
+        // No defaults step here: nothing was extracted, and a tree of defaults only would read as data to the approval
+        // gate (NO_DATA) and to map mode, which the reviewer fills from the page (docs/11 §12.1, §12.3).
         var lookupRun = await lookups.RunAsync(document, type, pipeline, tree, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
         document.CanonicalJson = tree.ToJsonString(Domain.Documents.CanonicalJson.Options);
         document.CanonicalSchemaVersion = DefinitionTree.SchemaVersion;
@@ -395,6 +397,8 @@ internal sealed class ExtractHandler(
     /// </summary>
     private async Task StoreLayoutTreeAsync(Document document, EffectiveType type, LayoutApplication application, ResolvedPipeline pipeline, string tenantCurrency, CancellationToken cancellationToken)
     {
+        // docs/11 §5.8: the type's defaults step fills what the extraction left empty, before the lookups read the tree.
+        await ExtractDefaults.RunAsync(Db, document, type, pipeline, application.Document.Root, tenantCurrency, cancellationToken).ConfigureAwait(false);
         var lookupRun = await lookups.RunAsync(document, type, pipeline, application.Document.Root, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
         Apply(document, application.Document, type.Roles, definitionDriven: true);
         document.ExtractionMethod = ExtractionMethod.Profile;
@@ -422,6 +426,8 @@ internal sealed class ExtractHandler(
     private async Task StorePrefillTreeAsync(Document document, EffectiveType type, PrefillApplication prefill, ResolvedPipeline pipeline, string tenantCurrency, CancellationToken cancellationToken)
     {
         DefinitionTree.Complete(prefill.Document.Root, type.Compiled!.Descriptors);
+        // docs/11 §5.8: the type's defaults step fills what the extraction left empty, before the lookups read the tree.
+        await ExtractDefaults.RunAsync(Db, document, type, pipeline, prefill.Document.Root, tenantCurrency, cancellationToken).ConfigureAwait(false);
         var lookupRun = await lookups.RunAsync(document, type, pipeline, prefill.Document.Root, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
         Apply(document, prefill.Document, type.Roles, definitionDriven: true);
         document.ExtractionMethod = ExtractionMethod.Profile;
@@ -472,10 +478,25 @@ internal sealed class ExtractHandler(
                 .Select(f => f.Path)
                 .ToList();
         var name = type.Definition.Name.TryGetValue("en", out var english) ? english : type.Definition.Name.Values.FirstOrDefault() ?? type.TypeKey;
+        // The step's own parameters (the type's or an override's): exclude and lines: perPage (docs/11 §5.8).
+        var exclude = llmStep.Params["exclude"] is System.Text.Json.Nodes.JsonArray excluded
+            ? excluded.Select(e => e is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var key) ? key : null).OfType<string>().ToList()
+            : [];
+        var request = new DefinitionExtractionRequest(input, compiled, name, type.Definition.Llm?.Guidance, fill)
+        {
+            Exclude = exclude,
+            LinesPerPage = llmStep.Text("lines") == "perPage",
+            MaxCostUsd = llmStep.Number("maxCostPerDocument") is { } most ? (decimal)most : null,
+            SpentUsd = document.Costs.EstimatedUsd ?? 0m,
+        };
         try
         {
-            var outcome = await definitionExtractor.ExtractAsync(new DefinitionExtractionRequest(input, compiled, name, type.Definition.Llm?.Guidance, fill), cancellationToken).ConfigureAwait(false);
-            return (outcome, input, null);
+            var outcome = await definitionExtractor.ExtractAsync(request, cancellationToken).ConfigureAwait(false);
+            // A page-by-page read stopped by maxCostPerDocument keeps the pages it read and says so (LLM_BUDGET_EXCEEDED).
+            var stopped = outcome.PagesNotRead > 0 && request.MaxCostUsd is { } limit
+                ? new DocProc.Llm.Gateway.LlmBudgetExceededException(new DocProc.Llm.Gateway.LlmBudgetVerdict(false, new DocProc.Llm.Gateway.LlmBudget(DocProc.Llm.Gateway.LlmBudgetPeriod.Document, limit, DocProc.Llm.LlmStage.Extract), request.SpentUsd + (outcome.Cost.Usd ?? 0m)))
+                : null;
+            return (outcome, input, stopped);
         }
         catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
         {
@@ -522,6 +543,8 @@ internal sealed class ExtractHandler(
     {
         var tree = prefill is null ? outcome.Document.Root : LayoutExtractor.Merge(prefill.Document.Root, outcome.Document.Root);
         DefinitionTree.Complete(tree, type.Compiled!.Descriptors);
+        // docs/11 §5.8: the type's defaults step fills what the extraction left empty, before the lookups read the tree.
+        await ExtractDefaults.RunAsync(Db, document, type, pipeline, tree, tenantCurrency, cancellationToken).ConfigureAwait(false);
         var lookupRun = await lookups.RunAsync(document, type, pipeline, tree, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
         Apply(document, new ExtractedDocument(tree), type.Roles, definitionDriven: true);
         document.ExtractionMethod = ExtractionMethod.Llm;

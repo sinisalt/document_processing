@@ -68,7 +68,7 @@ public sealed class GenericRuleTests
     {
         GenericRules.All.Select(r => r.Kind).ShouldBe(
             ["required", "pattern", "range", "enumMember", "dateOrder", "datePlausibility", "lookupExists", "duplicate", "confidence", "customerMatch",
-             "requiredIf", "compare", "sumEquals", "arithmetic", "expression"],
+             "requiredIf", "compare", "sumEquals", "arithmetic", "expression", "tableComplete", "unique", "ordered", "deltaToPrevious"],
             ignoreOrder: true);
         foreach (var kind in GenericRules.All.Select(r => r.Kind))
         {

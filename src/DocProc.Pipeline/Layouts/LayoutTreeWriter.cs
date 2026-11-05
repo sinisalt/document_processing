@@ -498,7 +498,13 @@ internal static class LayoutTreeWriter
                 return reading is JsonValue uv && uv.TryGetValue<string>(out var unit) && UnitName(unit) is { } name ? JsonValue.Create(name) : null;
 
             case FieldKinds.Integer:
-                return reading is JsonValue n && n.TryGetValue<decimal>(out var whole) && whole == decimal.Truncate(whole)
+                // The printed reading of an integer is a long (PrintedValues), which TryGetValue<decimal> does not read.
+                if (reading is JsonValue n && (n.TryGetValue<long>(out var asLong) || (n.TryGetValue<int>(out var asInt) && (asLong = asInt) == asInt)))
+                {
+                    return JsonValue.Create(asLong);
+                }
+
+                return reading is JsonValue d && d.TryGetValue<decimal>(out var whole) && whole == decimal.Truncate(whole)
                     ? JsonValue.Create(decimal.ToInt64(whole))
                     : null;
 

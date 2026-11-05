@@ -163,7 +163,71 @@ public static class RuleKinds
             "The predicate holds for the document (or for every row of forEach); field names the flagged field in the row.",
             Params(Required("predicate"), ("predicate", ExpressionSchema()), ("forEach", PathSchema()), ("field", PathSchema())),
             ["forEach"]);
+
+        yield return new RuleKindDescriptor(
+            "tableComplete",
+            P5,
+            "The table report of the rows at path shows every line read: at most maxRejectedRows rejected, no page of the range without rows (blocking with everyPageInRange), and the count at declaredCount, when printed, equal to the rows; rows without a report fail unless allowUnreported.",
+            Params(
+                Required("path"),
+                ("path", PathSchema()),
+                ("maxRejectedRows", new JsonObject { ["type"] = "integer", ["minimum"] = 0 }),
+                ("everyPageInRange", new JsonObject { ["type"] = "boolean" }),
+                ("allowUnreported", new JsonObject { ["type"] = "boolean" }),
+                ("declaredCount", PathSchema())),
+            ["path", "declaredCount"]);
+        yield return new RuleKindDescriptor(
+            "unique",
+            P5,
+            "No two rows share the value at path (a row path such as lines[*].supplierSku), within the same values of the row fields scopeBy.",
+            Params(Required("path"), ("path", PathSchema()), ("scopeBy", new JsonObject { ["type"] = "array", ["items"] = PathSchema(), ["maxItems"] = 5 })),
+            ["path"]);
+        yield return new RuleKindDescriptor(
+            "ordered",
+            P5,
+            "In every list at path (for example lines[*].tiers) the items ascend by the item field by (strictly with strict), and the item field then.path follows then.order.",
+            Params(
+                Required("path", "by"),
+                ("path", PathSchema()),
+                ("by", PathSchema()),
+                ("strict", new JsonObject { ["type"] = "boolean" }),
+                ("then", new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["path"] = PathSchema(),
+                        ["order"] = new JsonObject { ["enum"] = new JsonArray("increasing", "nonDecreasing", "decreasing", "nonIncreasing") },
+                    },
+                    ["required"] = new JsonArray("path"),
+                    ["additionalProperties"] = false,
+                })),
+            ["path"]);
+        yield return new RuleKindDescriptor(
+            "deltaToPrevious",
+            P5,
+            "The values at path (a row path) change by at most maxChangePercent against the last approved document of the same supplier and type, joined on the row field joinOn, and at most maxChangedRowsPercent of the joined rows change.",
+            Params(
+                Required("path", "joinOn"),
+                ("path", PathSchema()),
+                ("joinOn", PathSchema()),
+                ("maxChangePercent", new JsonObject { ["type"] = "number", ["minimum"] = 0 }),
+                ("maxChangedRowsPercent", new JsonObject { ["type"] = "number", ["minimum"] = 0, ["maximum"] = 100 }),
+                ("ignoreBelowPercent", new JsonObject { ["type"] = "number", ["minimum"] = 0, ["maximum"] = 100 })),
+            ["path"]);
     }
+
+    /// <summary>
+    /// The parameters of the line-table kinds that name a field relative to the items of another path, by kind: the
+    /// relative parameter and how its full path is formed (<c>unique.scopeBy</c> and <c>deltaToPrevious.joinOn</c> under
+    /// the rows of <c>path</c>; <c>ordered.by</c> and <c>ordered.then.path</c> under the items of the lists at <c>path</c>).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string[]> ItemRelativeParams = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["unique"] = ["scopeBy"],
+        ["deltaToPrevious"] = ["joinOn"],
+        ["ordered"] = ["by", "then.path"],
+    };
 
     private static JsonObject ExpressionSchema() => new() { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 2000 };
 

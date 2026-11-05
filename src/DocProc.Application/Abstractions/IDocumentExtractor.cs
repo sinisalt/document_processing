@@ -52,6 +52,12 @@ public sealed record TenantHints(string LegalName, string? VatId, string Default
 public sealed record ExtractionOutcome(ExtractedDocument Document, ExtractionMethod Method, IReadOnlyList<DocumentFlag> Flags, DocumentCost Cost)
 {
     /// <summary>
+    /// Pages a page-by-page extraction (<c>lines: perPage</c>) did not read because the step's <c>maxCostPerDocument</c>
+    /// was reached; zero otherwise. The Extract stage keeps what was read and raises <c>LLM_BUDGET_EXCEEDED</c>.
+    /// </summary>
+    public int PagesNotRead { get; init; }
+
+    /// <summary>
     /// The compatibility constructor of docs/11 §9.1: an invoice path hands over its typed invoice, which is
     /// serialised into the tree exactly as the canonical column stores it, so the invoice extractors compile and behave
     /// unchanged until they build trees themselves.
@@ -156,7 +162,23 @@ public sealed record DefinitionExtractionRequest(
     DocProc.Definitions.Compilation.CompiledDefinition Compiled,
     string TypeName,
     string? Guidance,
-    IReadOnlyList<string>? FillPaths = null);
+    IReadOnlyList<string>? FillPaths = null)
+{
+    /// <summary>The <c>llm</c> step's <c>exclude</c>: top-level fields not asked for (a price list's <c>lines</c>, docs/11 §5.8).</summary>
+    public IReadOnlyList<string> Exclude { get; init; } = [];
+
+    /// <summary>
+    /// The <c>llm</c> step's <c>lines: perPage</c> (docs/11 §5.8, P5): the header is asked for once without the rows, and
+    /// the top-level tables page by page, one call per page, until <see cref="MaxCostUsd"/> is reached.
+    /// </summary>
+    public bool LinesPerPage { get; init; }
+
+    /// <summary>The step's <c>maxCostPerDocument</c> (USD), against which <see cref="SpentUsd"/> and the calls of this extraction count.</summary>
+    public decimal? MaxCostUsd { get; init; }
+
+    /// <summary>What the document's LLM calls cost before this extraction (USD).</summary>
+    public decimal SpentUsd { get; init; }
+}
 
 /// <summary>
 /// The LLM path of a definition-driven type (docs/11 §9.3): a type outside the invoice family, extracted against its

@@ -214,6 +214,40 @@ export interface paths {
         patch: operations["UpdateDestination"];
         trace?: never;
     };
+    "/api/v1/destinations/{id}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets how the destination reports back (docs/11 §13.8): callback {auth: hmacSha256|bearer, mapping?} and/or statusPoll {urlTemplate, intervalMinutes, mapping?, maxPolls?}; an empty object turns both off. */
+        put: operations["SetDestinationAcknowledgements"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}/callback-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets or rotates the destination's callback secret; the replaced one is still accepted until the next rotation. */
+        put: operations["SetDestinationCallbackSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/destinations/{id}/secret": {
         parameters: {
             query?: never;
@@ -277,6 +311,23 @@ export interface paths {
         get: operations["GetDocumentType"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}:upgrade-base": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moves an adopted type onto the newest version of its template and sets review.autoApprove (docs/11 §5.8: an automatic upgrade never switches auto-approval on; this does, where the template allows it). */
+        post: operations["UpgradeDocumentTypeBase"];
         delete?: never;
         options?: never;
         head?: never;
@@ -586,6 +637,40 @@ export interface paths {
         put?: never;
         /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract). */
         post: operations["ReprocessDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:resolve-integration-issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves the document's open EXTERNAL_REJECTED flags with a note and completes its integration-issue review tasks; the document stays settled. */
+        post: operations["ResolveDocumentIntegrationIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:resolve-revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves an open REVISION_OF (docs/11 §11): supersedes (the earlier document is superseded and this one carries meta.supersedes), additional (both stand; the pair is not flagged again) or duplicate (this document is rejected). */
+        post: operations["ResolveDocumentRevision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1071,6 +1156,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/callbacks/{destinationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}. */
+        post: operations["ReceiveIntegrationCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/llm-budgets": {
         parameters: {
             query?: never;
@@ -1309,6 +1411,111 @@ export interface paths {
         get?: never;
         /** Replaces every entry of one of the tenant's tables (If-Match: the revision read). */
         put: operations["PutLookupEntries"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One run with its report. */
+        get: operations["GetMasterDataRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's master-data sources. */
+        get: operations["ListMasterDataSources"];
+        put?: never;
+        /** Adds a master-data source: an http destination read on a schedule (CRON_TZ=<zone> m h dom mon dow) or an upload source, its JSONata mapping to supplier records, match keys and conflict policy. */
+        post: operations["CreateMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One master-data source. */
+        get: operations["GetMasterDataSource"];
+        put?: never;
+        post?: never;
+        /** Removes a master-data source and its runs. */
+        delete: operations["DeleteMasterDataSource"];
+        options?: never;
+        head?: never;
+        /** Changes a master-data source. */
+        patch: operations["UpdateMasterDataSource"];
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}:dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the source without changing anything: the report says what a run would create, update and flag. */
+        post: operations["DryRunMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}:run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the source now and applies its records (an upload source takes them in the body); answers the run with its report. */
+        post: operations["RunMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The source's runs, newest first (at most 50). */
+        get: operations["ListMasterDataRuns"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1978,6 +2185,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/suppliers:import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Imports suppliers from CSV (with a column map) or JSON (docs/11 §14): matched by attributes.erpVendorId, vatId, then IBAN, each attribute under its conflict policy (externalWins, localWins, flag). A dry run (the default) answers the report only; the same file twice changes nothing. */
+        post: operations["ImportSuppliers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/suppliers/{id}": {
         parameters: {
             query?: never;
@@ -2336,6 +2560,16 @@ export interface components {
             /** Format: int32 */
             version: number | string;
         };
+        /** @description The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination. */
+        CallbackResponse: {
+            /** Format: int32 */
+            applied: number | string;
+            /** Format: int32 */
+            pending: number | string;
+            problems: string[];
+            /** Format: int32 */
+            unknown: number | string;
+        };
         ChangeMemberRoleRequest: {
             role: string;
         };
@@ -2661,9 +2895,14 @@ export interface components {
          *     are all a client learns, bool DestinationResponse.HasPreviousSecret whether the one it replaced is still kept for the overlap.
          */
         DestinationResponse: {
+            acknowledgements?: null | components["schemas"]["JsonElement"];
             config: components["schemas"]["JsonElement"];
             /** Format: date-time */
             createdAt: string;
+            /** @description Whether a callback secret is set (it is never returned). */
+            hasCallbackSecret?: boolean;
+            /** @description Whether the previous callback secret is still accepted (the overlap of a rotation). */
+            hasPreviousCallbackSecret?: boolean;
             hasPreviousSecret: boolean;
             hasSecret: boolean;
             /** Format: uuid */
@@ -2788,7 +3027,18 @@ export interface components {
              * @description The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.
              */
             receivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The earlier document this one's `REVISION_OF` was resolved against, and how (`supersedes`, `additional`, `duplicate`).
+             */
+            revisionOfDocumentId?: null | string;
+            revisionResolution?: null | components["schemas"]["RevisionResolution"];
             status: components["schemas"]["DocumentStatus"];
+            /**
+             * Format: uuid
+             * @description The later document that replaces this one (`REVISION_OF` resolved as `supersedes`, docs/11 §11); null otherwise.
+             */
+            supersededByDocumentId?: null | string;
             /** Format: uuid */
             supplierId: null | string;
             /**
@@ -2934,6 +3184,11 @@ export interface components {
             reviewDueAt: null | string;
             reviewPriority: null | components["schemas"]["ReviewPriority"];
             status: components["schemas"]["DocumentStatus"];
+            /**
+             * Format: uuid
+             * @description The later document that replaces this one (docs/11 §18 `supersededBy`, `REVISION_OF` resolved as supersedes); null otherwise.
+             */
+            supersededBy?: null | string;
             /** Format: uuid */
             supplierId: null | string;
             supplierName: null | string;
@@ -3579,6 +3834,80 @@ export interface components {
         MarkGoldenRequest: {
             note?: null | string;
         };
+        /** @description One run with its report. */
+        MasterDataRunDto: {
+            /** Format: date-time */
+            at: string;
+            by: string;
+            /** Format: int32 */
+            conflicts: number | string;
+            /** Format: int32 */
+            created: number | string;
+            dryRun: boolean;
+            /** Format: int32 */
+            errors: number | string;
+            /** Format: uuid */
+            id: string;
+            report: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            sourceId: null | string;
+            status: components["schemas"]["MasterDataRunStatus"];
+            trigger: components["schemas"]["MasterDataTrigger"];
+            /** Format: int32 */
+            unchanged: number | string;
+            /** Format: int32 */
+            updated: number | string;
+        };
+        /** @description `:run` and `:dry-run`: the records of an upload source (JSON, before the source's mapping). */
+        MasterDataRunRequest: {
+            records: null | components["schemas"]["JsonElement"];
+        };
+        /** @enum {unknown} */
+        MasterDataRunStatus: "Succeeded" | "Failed";
+        /** @description A master-data source as the API shows it (docs/11 §6.8). */
+        MasterDataSourceDto: {
+            conflictPolicy: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            destinationId: null | string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            lastResult: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            lastRunAt: null | string;
+            mapping: null | string;
+            matchKeys: string[];
+            name: string;
+            /** Format: date-time */
+            nextRunAt: null | string;
+            schedule: null | string;
+            target: string;
+            transport: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description Create or change a master-data source; on PATCH a property left out keeps its value. */
+        MasterDataSourceRequest: {
+            conflictPolicy: null | {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            destinationId: null | string;
+            enabled: null | boolean;
+            mapping: null | string;
+            matchKeys: null | string[];
+            name: null | string;
+            schedule: null | string;
+            target: null | string;
+            transport: null | string;
+        };
+        /**
+         * @description How a master-data run started.
+         * @enum {unknown}
+         */
+        MasterDataTrigger: "Manual" | "Schedule" | "Import";
         /** @description A document a version's rule holds on (or, for the "no longer recognised" check, does not hold on). */
         MatchingDocumentDto: {
             /** Format: uuid */
@@ -4247,6 +4576,18 @@ export interface components {
             runs: boolean;
             source: string;
         };
+        /** @description `POST /documents/{id}:resolve-integration-issue`: the reviewer's note (required). */
+        ResolveIntegrationIssueRequest: {
+            note: null | string;
+        };
+        /**
+         * @description `:resolve-revision` (docs/11 §11): `resolution` is `supersedes`, `additional` or `duplicate`;
+         *     `note` is kept in the timeline (and is the rejection reason of a duplicate).
+         */
+        ResolveRevisionRequest: {
+            note?: null | string;
+            resolution: null | string;
+        };
         /** @enum {unknown} */
         ReviewPriority: "Normal" | "High" | "Urgent" | null;
         /** @description A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary). */
@@ -4261,6 +4602,8 @@ export interface components {
             documentId: string;
             /** Format: uuid */
             id: string;
+            /** @description What the task asks for: a document to review, or an integration issue (a settled document a receiving system rejected, docs/11 §13.8). */
+            kind?: components["schemas"]["ReviewTaskKind"];
             priority: components["schemas"]["ReviewPriority"];
             reason: string;
             /** Format: date-time */
@@ -4270,8 +4613,15 @@ export interface components {
             tenantId: string;
             tenantName: null | string;
         };
+        /**
+         * @description What a review task asks for (docs/11 §13.8).
+         * @enum {unknown}
+         */
+        ReviewTaskKind: "Document" | "IntegrationIssue";
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @enum {unknown} */
+        RevisionResolution: "Supersedes" | "Additional" | "Duplicate" | null;
         /** @description How one rule fared in a routing test. */
         RoutingTestCandidate: {
             describe: string;
@@ -4359,6 +4709,10 @@ export interface components {
             fileNameTemplate: null | string;
             sampleDocumentIds: null | string[];
             targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /** @description `PUT /destinations/{id}/callback-secret`: the HMAC key or bearer token the receiver signs its callbacks with. */
+        SetCallbackSecretRequest: {
+            secret: string;
         };
         /** @description `PUT /destinations/{id}/secret`: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16). */
         SetDestinationSecretRequest: {
@@ -4523,6 +4877,24 @@ export interface components {
             supplierCount: number | string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        /**
+         * @description `POST /suppliers:import` (docs/11 §14): supplier records as CSV with a column map, or as JSON, matched by
+         *     `matchKeys` (default `attributes.erpVendorId`, `vatId`, `iban`) under the per-attribute
+         *     `conflictPolicy`; `dryRun` (the default) answers the report without changing anything.
+         */
+        SupplierImportRequest: {
+            columns: null | {
+                [key: string]: string;
+            };
+            conflictPolicy: null | {
+                [key: string]: string;
+            };
+            content: null | string;
+            dryRun: null | boolean;
+            format: null | string;
+            matchKeys: null | string[];
+            records: null | components["schemas"]["JsonElement"];
         };
         /** @description A supplier or group layout (docs/11 §6.6 `SupplierLayout`) with its versions, newest first. */
         SupplierLayoutResponse: {
@@ -4944,6 +5316,13 @@ export interface components {
         };
         /** @enum {unknown} */
         TypeSource: "Rule" | "Llm" | "Human" | "Structured" | "Supplier" | "Identification" | "Proposed" | null;
+        /**
+         * @description `POST /document-types/{key}:upgrade-base` (docs/11 §5.8): bool? UpgradeBaseRequest.AutoApprove switches the type's
+         *     `review.autoApprove` on or off (null keeps it); the type moves to its template's newest version either way.
+         */
+        UpgradeBaseRequest: {
+            autoApprove: null | boolean;
+        };
         /** @description A reading of the selected text as a field kind (docs/11 §12.3: "28.10.2026 → 2026-10-28"), in the shape a correction takes. */
         ValueCandidateDto: {
             kind: string;
@@ -4971,6 +5350,7 @@ export type SchemaBulkReprocessRequest = components['schemas']['BulkReprocessReq
 export type SchemaBundleImportItem = components['schemas']['BundleImportItem'];
 export type SchemaBundleImportRequest = components['schemas']['BundleImportRequest'];
 export type SchemaBundleImportResponse = components['schemas']['BundleImportResponse'];
+export type SchemaCallbackResponse = components['schemas']['CallbackResponse'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
@@ -5065,6 +5445,12 @@ export type SchemaLookupEntryDto = components['schemas']['LookupEntryDto'];
 export type SchemaLookupTableDetail = components['schemas']['LookupTableDetail'];
 export type SchemaLookupTableSummary = components['schemas']['LookupTableSummary'];
 export type SchemaMarkGoldenRequest = components['schemas']['MarkGoldenRequest'];
+export type SchemaMasterDataRunDto = components['schemas']['MasterDataRunDto'];
+export type SchemaMasterDataRunRequest = components['schemas']['MasterDataRunRequest'];
+export type SchemaMasterDataRunStatus = components['schemas']['MasterDataRunStatus'];
+export type SchemaMasterDataSourceDto = components['schemas']['MasterDataSourceDto'];
+export type SchemaMasterDataSourceRequest = components['schemas']['MasterDataSourceRequest'];
+export type SchemaMasterDataTrigger = components['schemas']['MasterDataTrigger'];
 export type SchemaMatchingDocumentDto = components['schemas']['MatchingDocumentDto'];
 export type SchemaMatchLayoutRequest = components['schemas']['MatchLayoutRequest'];
 export type SchemaMemberResponse = components['schemas']['MemberResponse'];
@@ -5123,15 +5509,20 @@ export type SchemaReplayReport = components['schemas']['ReplayReport'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
 export type SchemaResolvedPipelineResponse = components['schemas']['ResolvedPipelineResponse'];
 export type SchemaResolvedStepResponse = components['schemas']['ResolvedStepResponse'];
+export type SchemaResolveIntegrationIssueRequest = components['schemas']['ResolveIntegrationIssueRequest'];
+export type SchemaResolveRevisionRequest = components['schemas']['ResolveRevisionRequest'];
 export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
+export type SchemaReviewTaskKind = components['schemas']['ReviewTaskKind'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaRevisionResolution = components['schemas']['RevisionResolution'];
 export type SchemaRoutingTestCandidate = components['schemas']['RoutingTestCandidate'];
 export type SchemaRoutingTestRequest = components['schemas']['RoutingTestRequest'];
 export type SchemaRoutingTestResponse = components['schemas']['RoutingTestResponse'];
 export type SchemaRoutingTestSenderAuth = components['schemas']['RoutingTestSenderAuth'];
 export type SchemaSandboxRunRequest = components['schemas']['SandboxRunRequest'];
 export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
+export type SchemaSetCallbackSecretRequest = components['schemas']['SetCallbackSecretRequest'];
 export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
 export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
@@ -5147,6 +5538,7 @@ export type SchemaSupplierEntityAttributesRequest = components['schemas']['Suppl
 export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
 export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
 export type SchemaSupplierGroupResponse = components['schemas']['SupplierGroupResponse'];
+export type SchemaSupplierImportRequest = components['schemas']['SupplierImportRequest'];
 export type SchemaSupplierLayoutResponse = components['schemas']['SupplierLayoutResponse'];
 export type SchemaSupplierLayoutVersionResponse = components['schemas']['SupplierLayoutVersionResponse'];
 export type SchemaSupplierLayoutVersionSummary = components['schemas']['SupplierLayoutVersionSummary'];
@@ -5178,6 +5570,7 @@ export type SchemaTypeIdentificationRuleResponse = components['schemas']['TypeId
 export type SchemaTypeIdentificationRuleVersionRequest = components['schemas']['TypeIdentificationRuleVersionRequest'];
 export type SchemaTypeIdentificationRuleVersionResponse = components['schemas']['TypeIdentificationRuleVersionResponse'];
 export type SchemaTypeSource = components['schemas']['TypeSource'];
+export type SchemaUpgradeBaseRequest = components['schemas']['UpgradeBaseRequest'];
 export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
 export interface operations {
@@ -5689,6 +6082,76 @@ export interface operations {
             };
         };
     };
+    SetDestinationAcknowledgements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonElement"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SetDestinationCallbackSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCallbackSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     SetDestinationSecret: {
         parameters: {
             query?: never;
@@ -5824,6 +6287,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+        };
+    };
+    UpgradeDocumentTypeBase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["UpgradeBaseRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -6483,6 +6981,76 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": null | components["schemas"]["ReprocessDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ResolveDocumentIntegrationIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveIntegrationIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ResolveDocumentRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRevisionRequest"];
             };
         };
         responses: {
@@ -7400,6 +7968,28 @@ export interface operations {
             };
         };
     };
+    ReceiveIntegrationCallback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackResponse"];
+                };
+            };
+        };
+    };
     ListLlmBudgets: {
         parameters: {
             query?: never;
@@ -7982,6 +8572,250 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetMasterDataRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+        };
+    };
+    ListMasterDataSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"][];
+                };
+            };
+        };
+    };
+    CreateMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterDataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+        };
+    };
+    DeleteMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterDataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DryRunMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MasterDataRunRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    RunMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MasterDataRunRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListMasterDataRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"][];
                 };
             };
         };
@@ -9418,6 +10252,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SupplierResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ImportSuppliers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
                 };
             };
             /** @description Bad Request */

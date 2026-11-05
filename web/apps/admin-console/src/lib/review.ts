@@ -42,6 +42,9 @@ export const flagCodes = [
   "LLM_BUDGET_EXCEEDED",
   "LOOKUP_FAILED",
   "PIPELINE_INVALID",
+  "TABLE_ROWS_REJECTED",
+  "TABLE_PAGE_NO_ROWS",
+  "EXTERNAL_REJECTED",
 ] as const;
 
 /** What the queue offers on a task, by the API's rules (ReviewTaskEndpoints). */

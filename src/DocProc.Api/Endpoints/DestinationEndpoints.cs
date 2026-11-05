@@ -38,8 +38,29 @@ public sealed record DestinationResponse(
     internal static DestinationResponse From(OutputDestination d)
     {
         using var config = JsonDocument.Parse(d.ConfigJson);
-        return new(d.Id, d.Name, d.Transport, config.RootElement.Clone(), d.SecretRef is not null, d.SecretSetAt, d.PreviousSecretRef is not null, d.Status.ToString(), d.LastTestAt, d.LastTestResult, d.CreatedAt, d.UpdatedAt);
+        JsonElement? acknowledgements = null;
+        if (!string.IsNullOrWhiteSpace(d.CallbackConfigJson))
+        {
+            using var ack = JsonDocument.Parse(d.CallbackConfigJson);
+            acknowledgements = ack.RootElement.Clone();
+        }
+
+        return new(d.Id, d.Name, d.Transport, config.RootElement.Clone(), d.SecretRef is not null, d.SecretSetAt, d.PreviousSecretRef is not null, d.Status.ToString(), d.LastTestAt, d.LastTestResult, d.CreatedAt, d.UpdatedAt)
+        {
+            Acknowledgements = acknowledgements,
+            HasCallbackSecret = d.CallbackSecretRef is not null,
+            HasPreviousCallbackSecret = d.PreviousCallbackSecretRef is not null,
+        };
     }
+
+    /// <summary>The destination's acknowledgements (docs/11 §13.8: <c>{callback?, statusPoll?}</c>); null when it reports nothing back.</summary>
+    public JsonElement? Acknowledgements { get; init; }
+
+    /// <summary>Whether a callback secret is set (it is never returned).</summary>
+    public bool HasCallbackSecret { get; init; }
+
+    /// <summary>Whether the previous callback secret is still accepted (the overlap of a rotation).</summary>
+    public bool HasPreviousCallbackSecret { get; init; }
 }
 
 /// <summary><c>POST /destinations</c>: a name, a transport (<c>http</c>, <c>blob</c>, <c>pull</c>), its config and, write-only, the secret.</summary>
@@ -444,6 +465,7 @@ public static class DestinationEndpoints
         foreach (var slot in new[] { 1, 2 })
         {
             await secrets.DeleteAsync(SecretReference(destination.TenantId, destination.Id, slot), ct);
+            await secrets.DeleteAsync(IntegrationEndpoints.CallbackSecretReference(destination.TenantId, destination.Id, slot), ct);
         }
 
         return TypedResults.NoContent();

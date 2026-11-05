@@ -50,6 +50,8 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
                 d.ApprovedAt,
                 d.ApprovedBy,
                 d.IngestionItemId,
+                d.RevisionOfDocumentId,
+                d.RevisionResolution,
                 Flags = d.Flags.Where(f => f.ResolvedAt == null).Select(f => f.Code).ToList(),
             })
             .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -124,6 +126,8 @@ public sealed class DocumentDataViewBuilder(DocProcDbContext db, IEffectiveConfi
             TenantId = document.TenantId,
             Event = request.Event,
             EventAt = request.EventAt,
+            // meta.supersedes (docs/11 §11, §13.10 pos-promotions "replaces"): the earlier document this one replaces.
+            Supersedes = document.RevisionResolution == DocProc.Infrastructure.Persistence.Entities.RevisionResolution.Supersedes ? document.RevisionOfDocumentId : null,
         })
         {
             Supplier = supplier,

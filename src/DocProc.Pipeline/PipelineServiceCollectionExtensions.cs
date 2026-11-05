@@ -70,6 +70,12 @@ public static class PipelineServiceCollectionExtensions
         // And the delivery sweeper (docs/11 §13.6), for deliveries whose message was lost.
         services.TryAddSingleton<DeliverySweeperHostedService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DeliverySweeperHostedService>(sp => sp.GetRequiredService<DeliverySweeperHostedService>()));
+        // The status poller (docs/11 §13.8): asks destinations with a statusPoll about their Pending documents. And the
+        // scheduled master-data sync (docs/11 §14).
+        services.TryAddSingleton<StatusPollerHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, StatusPollerHostedService>(sp => sp.GetRequiredService<StatusPollerHostedService>()));
+        services.TryAddSingleton<MasterDataSyncHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, MasterDataSyncHostedService>(sp => sp.GetRequiredService<MasterDataSyncHostedService>()));
 
         services.TryAddSingleton<PipelineBlobs>();
         services.TryAddSingleton(DocumentValidator.Default);

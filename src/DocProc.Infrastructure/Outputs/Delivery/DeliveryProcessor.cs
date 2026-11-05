@@ -195,10 +195,17 @@ public sealed class DeliveryProcessor(
             delivery.DeliveredAt = now;
             delivery.NextAttemptAt = null;
             delivery.LastError = null;
+            // A destination that reports back (docs/11 §13.8, callback or status poll) keeps the reference Pending until
+            // it does; one without a mapped id is known by the document id until its first answer names its own.
+            var acknowledgements = Acknowledgements.AcknowledgementConfig.Of(destination.CallbackConfigJson);
             if (outcome.ExternalId is { } externalId)
             {
-                await StoreExternalIdAsync(delivery, externalId, now, cancellationToken).ConfigureAwait(false);
+                await StoreExternalIdAsync(delivery, externalId, acknowledgements, now, cancellationToken).ConfigureAwait(false);
                 details["externalId"] = externalId;
+            }
+            else if (acknowledgements.Any)
+            {
+                await StoreExternalIdAsync(delivery, delivery.DocumentId.ToString(), acknowledgements, now, cancellationToken).ConfigureAwait(false);
             }
 
             if (outcome.Note is { } note)
@@ -294,8 +301,11 @@ public sealed class DeliveryProcessor(
         }
     }
 
-    private async Task StoreExternalIdAsync(OutboxDelivery delivery, string externalId, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task StoreExternalIdAsync(OutboxDelivery delivery, string externalId, Acknowledgements.AcknowledgementConfig acknowledgements, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        // Without acknowledgements the 2xx is the receiver's acceptance, as before; with them the receiver says later.
+        var status = acknowledgements.Any ? ExternalRefStatus.Pending : ExternalRefStatus.Accepted;
+        var nextPoll = Acknowledgements.ExternalAcknowledgements.FirstPollAt(acknowledgements, now);
         var reference = await db.DocumentExternalRefs.SingleOrDefaultAsync(r => r.DocumentId == delivery.DocumentId && r.DestinationId == delivery.DestinationId, cancellationToken).ConfigureAwait(false);
         if (reference is null)
         {
@@ -306,16 +316,19 @@ public sealed class DeliveryProcessor(
                 DocumentId = delivery.DocumentId,
                 DestinationId = delivery.DestinationId,
                 ExternalId = externalId,
-                Status = ExternalRefStatus.Accepted,
+                Status = status,
                 UpdatedAt = now,
+                NextPollAt = nextPoll,
             });
             return;
         }
 
         reference.ExternalId = externalId;
-        reference.Status = ExternalRefStatus.Accepted;
+        reference.Status = status;
         reference.Message = null;
         reference.UpdatedAt = now;
+        reference.NextPollAt = nextPoll;
+        reference.Polls = 0;
     }
 
     private async Task<byte[]?> PayloadAsync(OutboxDelivery delivery, CancellationToken cancellationToken)

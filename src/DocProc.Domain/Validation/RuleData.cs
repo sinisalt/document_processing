@@ -23,7 +23,30 @@ public sealed record RuleData
     /// <c>attributes</c>, docs/11 §11); null when the document has no supplier.
     /// </summary>
     public System.Text.Json.Nodes.JsonObject? Supplier { get; init; }
+
+    /// <summary>
+    /// The stored table reports of the document by group path (<c>lines</c>), as <c>tableComplete</c> reads them
+    /// (docs/11 §6.2 <c>DocumentTableReport</c>); empty when the rows have no report (read by the LLM, typed in).
+    /// </summary>
+    public IReadOnlyDictionary<string, TableReportSummary> TableReports { get; init; } = new Dictionary<string, TableReportSummary>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The last approved document of the same supplier and type (<c>SupplierHints.LastApproved</c>, docs/11 §11), as its
+    /// values view, which <c>deltaToPrevious</c> compares with; null when there is none or the rule is not used.
+    /// </summary>
+    public PreviousDocument? Previous { get; init; }
 }
+
+/// <summary>What <c>tableComplete</c> reads of a table report: rows read, rejected rows per page, the pages and the pages without rows.</summary>
+public sealed record TableReportSummary(
+    int Rows,
+    int RejectedRows,
+    IReadOnlyList<int> Pages,
+    IReadOnlyList<int> PagesWithoutRows,
+    IReadOnlyDictionary<int, int> RejectedByPage);
+
+/// <summary>The previous approved document a <c>deltaToPrevious</c> rule compares with: its id, when it was approved and its values view.</summary>
+public sealed record PreviousDocument(Guid DocumentId, DateTimeOffset? ApprovedAt, System.Text.Json.Nodes.JsonObject Values);
 
 /// <summary>An earlier document with the same duplicate key.</summary>
 public sealed record DuplicateMatch(Guid DocumentId, string Status, string? Number);

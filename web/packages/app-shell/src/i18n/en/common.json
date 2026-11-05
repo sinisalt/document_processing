@@ -294,6 +294,15 @@
     },
     "PIPELINE_INVALID": {
       "default": "The pipeline overrides of the supplier, its group or its layout were refused ({{path}}: {{problem}}); the type's own steps ran."
+    },
+    "TABLE_ROWS_REJECTED": {
+      "default": "Page {{page}}: {{rows}} line(s) of the table did not become rows; check them before the list is used."
+    },
+    "TABLE_PAGE_NO_ROWS": {
+      "default": "Page {{page}} is in the table's page range but yielded no row."
+    },
+    "EXTERNAL_REJECTED": {
+      "default": "{{destination}} rejected the document: {{message}}. Correct and re-approve it, or resolve the issue with a note."
     }
   },
   "apiErrors": {

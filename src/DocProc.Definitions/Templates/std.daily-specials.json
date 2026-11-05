@@ -1,9 +1,9 @@
 {
   "key": "std.daily-specials",
-  "version": 1,
+  "version": 2,
   "base": {
     "template": "std.price-list",
-    "version": 1,
+    "version": 2,
     "mode": "copy"
   },
   "name": {
@@ -524,6 +524,20 @@
       "severity": "blocking"
     },
     {
+      "id": "r_single_day",
+      "kind": "compare",
+      "params": {
+        "left": "validUntil",
+        "op": "eq",
+        "right": "validFrom"
+      },
+      "severity": "warning",
+      "message": {
+        "en": "Specials valid for more than one day",
+        "de": "Angebot gilt länger als einen Tag"
+      }
+    },
+    {
       "id": "r_not_expired",
       "kind": "datePlausibility",
       "params": {
@@ -535,6 +549,43 @@
       "message": {
         "en": "These specials have already expired",
         "de": "Angebot ist bereits abgelaufen"
+      }
+    },
+    {
+      "id": "r_table",
+      "kind": "tableComplete",
+      "params": {
+        "path": "lines",
+        "maxRejectedRows": 0,
+        "allowUnreported": true
+      },
+      "severity": "blocking"
+    },
+    {
+      "id": "r_count",
+      "kind": "expression",
+      "params": {
+        "predicate": "$not($exists(declaredLineCount)) or $count(lines) = declaredLineCount"
+      },
+      "severity": "blocking",
+      "message": {
+        "en": "Row count differs from the count printed on the list",
+        "de": "Anzahl Zeilen weicht von der gedruckten Anzahl ab"
+      }
+    },
+    {
+      "id": "r_sku_unique",
+      "kind": "unique",
+      "params": {
+        "path": "lines[*].supplierSku",
+        "scopeBy": [
+          "lineValidFrom"
+        ]
+      },
+      "severity": "blocking",
+      "message": {
+        "en": "An article number is listed twice",
+        "de": "Eine Artikelnummer ist doppelt aufgeführt"
       }
     },
     {
@@ -560,6 +611,33 @@
       "params": {
         "path": "lines[*].unit",
         "table": "uom"
+      }
+    },
+    {
+      "id": "r_tiers",
+      "kind": "ordered",
+      "params": {
+        "path": "lines[*].tiers",
+        "by": "minQuantity",
+        "strict": true,
+        "then": {
+          "path": "price.amount",
+          "order": "nonIncreasing"
+        }
+      }
+    },
+    {
+      "id": "r_below_prev",
+      "kind": "compare",
+      "params": {
+        "left": "lines[*].price.amount",
+        "op": "lt",
+        "right": "lines[*].previousPrice.amount"
+      },
+      "severity": "warning",
+      "message": {
+        "en": "A special price is not below the printed old price",
+        "de": "Ein Angebotspreis liegt nicht unter dem alten Preis"
       }
     },
     {
@@ -633,7 +711,28 @@
       }
     ],
     "review": {
-      "autoApprove": false
+      "autoApprove": true,
+      "minConfidence": 0.9,
+      "priority": "urgent",
+      "dueBy": "validUntil",
+      "requirePassedRules": [
+        "r_table",
+        "r_not_expired",
+        "r_price_pos",
+        "r_sku_unique"
+      ],
+      "blockOnWarnings": [
+        "r_dup"
+      ],
+      "lines": {
+        "requireSource": [
+          "Profile",
+          "StructuredXml",
+          "Llm"
+        ],
+        "requireLocated": true,
+        "maxLowConfidenceRows": 0
+      }
     }
   },
   "classification": {

@@ -20,9 +20,11 @@ public sealed class OutputTemplateTests(RendererFixture fixture) : IClassFixture
     [Fact]
     public void The_shipped_templates_are_std_event_and_generic_ap_json_and_version_1_is_the_frozen_copy()
     {
-        OutputTemplates.All.Select(t => t.Key).ShouldBe(["generic-ap-json", "std.event"]);
+        // generic-article-prices-json ships with the price-list templates v2 (P5, docs/11 §13.9); the seeder adds it.
+        OutputTemplates.All.Select(t => t.Key).ShouldBe(["generic-ap-json", "generic-article-prices-json", "std.event"]);
+        OutputTemplates.Frozen().Select(t => t.Key).ShouldBe(["generic-ap-json", "std.event"]);
         var frozen = OutputTemplates.Frozen().ToDictionary(t => t.Key);
-        foreach (var template in OutputTemplates.All.Where(t => t.Version == 1))
+        foreach (var template in OutputTemplates.All.Where(t => t.Version == 1 && frozen.ContainsKey(t.Key)))
         {
             frozen[template.Key].ShouldBe(template, "a published template version never changes; ship version 2 instead");
         }
@@ -34,6 +36,7 @@ public sealed class OutputTemplateTests(RendererFixture fixture) : IClassFixture
     [Theory]
     [InlineData("std.event")]
     [InlineData("generic-ap-json")]
+    [InlineData("generic-article-prices-json")]
     public async Task Every_template_parses_with_its_target_schema(string key)
     {
         var template = OutputTemplates.Find(key)!;

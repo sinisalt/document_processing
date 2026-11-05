@@ -107,6 +107,8 @@ v1.MapOutputMappings();
 v1.MapDestinations();
 v1.MapOutputBindings();
 v1.MapDeliveries();
+v1.MapIntegrations();
+v1.MapMasterData();
 v1.MapLookupTables();
 v1.MapLlmAdmin();
 v1.MapPipelines();

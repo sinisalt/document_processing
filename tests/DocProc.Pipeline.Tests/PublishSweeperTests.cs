@@ -203,12 +203,20 @@ public sealed class PublishSweeperTests
         await using var second = factory.CreatePlatformScoped();
         var mine = await first.Documents.SingleAsync(d => d.Id == rowless, TestContext.Current.CancellationToken);
         var theirs = await second.Documents.SingleAsync(d => d.Id == rowless, TestContext.Current.CancellationToken);
-        DocumentOutbox.AddMissing(first, mine, now).FannedOutAt = now;
-        DocumentOutbox.AddMissing(second, theirs, now).FannedOutAt = now;
 
+        // The claim is a conditional update of the document's version made before the row is added (so the row and
+        // the deliveries see the version the document keeps): the first wins, the second finds the version moved on.
+        (await DocumentOutbox.ClaimMissingAsync(first, mine, TestContext.Current.CancellationToken)).ShouldBeTrue();
+        (await DocumentOutbox.ClaimMissingAsync(second, theirs, TestContext.Current.CancellationToken)).ShouldBeFalse();
+        DocumentOutbox.AddMissing(first, mine, now).FannedOutAt = now;
         await first.SaveChangesAsync(TestContext.Current.CancellationToken);
-        await Should.ThrowAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+
         (await OutboxAsync(host, rowless)).ShouldHaveSingleItem();
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == rowless))).Version.ShouldBe(mine.Version, "the save kept the claimed version");
+
+        // A writer still holding the version from before the claim loses on its own save.
+        theirs.UpdatedAt = now.AddSeconds(1);
+        await Should.ThrowAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
     }
 
     [Fact]

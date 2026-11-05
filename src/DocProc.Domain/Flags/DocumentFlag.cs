@@ -106,6 +106,15 @@ public static class FlagCodes
     /// <summary>The supplier's, group's or layout's pipeline overrides were refused (a fixed step, invalid parameters); the type's own pipeline ran.</summary>
     public const string PipelineInvalid = "PIPELINE_INVALID";
 
+    /// <summary>A table's report lists lines that did not become rows (docs/11 §11 <c>tableComplete</c>): the list is not read completely.</summary>
+    public const string TableRowsRejected = "TABLE_ROWS_REJECTED";
+
+    /// <summary>A page in a table's page range yielded no row (docs/11 §11 <c>tableComplete</c>); blocking with <c>everyPageInRange</c>.</summary>
+    public const string TablePageNoRows = "TABLE_PAGE_NO_ROWS";
+
+    /// <summary>A destination rejected the delivered document asynchronously (callback or status poll, docs/11 §13.8).</summary>
+    public const string ExternalRejected = "EXTERNAL_REJECTED";
+
     /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
     public static readonly string DefinitionScopedPrefix = "X_";
 
@@ -146,6 +155,9 @@ public static class FlagCodes
         new(DeliveryFailed, FlagSeverity.Warning, "A delivery to a destination failed for good (retries ran out or the receiver refused it); an integration admin redelivers it."),
         new(LlmBudgetExceeded, FlagSeverity.Blocking, "An LLM step was not called because the tenant's LLM budget for the period (or the document) would have been exceeded; a reviewer checks what it would have filled."),
         new(LookupFailed, FlagSeverity.Warning, "An http-lookup step could not call its destination or map its answer; the fields it fills stay as they were (blocking when the step says so)."),
+        new(TableRowsRejected, FlagSeverity.Blocking, "The table report lists lines that did not become rows; a reviewer checks them before the list is used."),
+        new(TablePageNoRows, FlagSeverity.Warning, "A page in the table's page range yielded no row (blocking when the rule asks for every page)."),
+        new(ExternalRejected, FlagSeverity.Warning, "The receiving system rejected the delivered document (callback or status poll); a reviewer corrects and re-approves it, or resolves the issue with a note."),
         new(PipelineInvalid, FlagSeverity.Blocking, "The pipeline overrides of the supplier, its group or its layout were refused (a fixed step, invalid parameters); the type's own steps ran and a reviewer checks the document."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 

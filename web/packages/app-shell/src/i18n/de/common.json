@@ -294,6 +294,15 @@
     },
     "PIPELINE_INVALID": {
       "default": "Die Pipeline-Anpassungen des Lieferanten, seiner Gruppe oder seines Layouts wurden abgelehnt ({{path}}: {{problem}}); die Schritte des Typs liefen."
+    },
+    "TABLE_ROWS_REJECTED": {
+      "default": "Seite {{page}}: {{rows}} Zeile(n) der Tabelle wurden nicht gelesen; bitte prüfen, bevor die Liste verwendet wird."
+    },
+    "TABLE_PAGE_NO_ROWS": {
+      "default": "Seite {{page}} liegt im Seitenbereich der Tabelle, ergab aber keine Zeile."
+    },
+    "EXTERNAL_REJECTED": {
+      "default": "{{destination}} hat das Dokument abgelehnt: {{message}}. Korrigieren und erneut freigeben, oder das Problem mit einer Notiz erledigen."
     }
   },
   "apiErrors": {

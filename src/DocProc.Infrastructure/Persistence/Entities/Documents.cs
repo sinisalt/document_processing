@@ -105,6 +105,19 @@ public sealed class Document : ITenantScoped, IVersioned
     /// <see cref="DocumentStatus.Cancelled"/>.
     /// </summary>
     public Guid? JoinedIntoDocumentId { get; set; }
+
+    /// <summary>
+    /// The later document that replaces this one (docs/11 §11, <c>REVISION_OF</c> resolved as <c>supersedes</c>): a
+    /// superseded document is never a duplicate match, nor the previous list of <c>deltaToPrevious</c>.
+    /// </summary>
+    public Guid? SupersededByDocumentId { get; set; }
+
+    /// <summary>The earlier document a reviewer resolved this one's <c>REVISION_OF</c> against (docs/11 §11 <c>:resolve-revision</c>).</summary>
+    public Guid? RevisionOfDocumentId { get; set; }
+
+    /// <summary>How the <c>REVISION_OF</c> against <see cref="RevisionOfDocumentId"/> was resolved; null while unresolved.</summary>
+    public RevisionResolution? RevisionResolution { get; set; }
+
     public Guid? ExtractorProfileId { get; set; }
     public ExtractionMethod? ExtractionMethod { get; set; }
 
@@ -260,6 +273,19 @@ public enum SupplierMatchMethod
     Hint,
 }
 
+/// <summary>How a reviewer resolved a <c>REVISION_OF</c> (docs/11 §11, <c>POST /documents/{id}:resolve-revision</c>).</summary>
+public enum RevisionResolution
+{
+    /// <summary>This document replaces the earlier one, which gets <see cref="Document.SupersededByDocumentId"/>.</summary>
+    Supersedes,
+
+    /// <summary>Both stand; the pair is not flagged again.</summary>
+    Additional,
+
+    /// <summary>This document is a duplicate of the earlier one and was rejected.</summary>
+    Duplicate,
+}
+
 /// <summary>How urgent a review task is (docs/11 §6.2, from the type's <c>review.priority</c>); the queue sorts by it first.</summary>
 public enum ReviewPriority
 {
@@ -350,6 +376,16 @@ public enum ReviewTaskStatus
     Skipped,
 }
 
+/// <summary>What a review task asks for (docs/11 §13.8).</summary>
+public enum ReviewTaskKind
+{
+    /// <summary>A document waits for review before it is settled.</summary>
+    Document,
+
+    /// <summary>A settled document was rejected by a receiving system (<c>EXTERNAL_REJECTED</c>); the document stays settled.</summary>
+    IntegrationIssue,
+}
+
 public sealed class ReviewTask : ITenantScoped, IVersioned
 {
     public Guid Id { get; set; }
@@ -365,6 +401,12 @@ public sealed class ReviewTask : ITenantScoped, IVersioned
 
     /// <summary>From the type's <c>review.priority</c> (docs/11 §6.2); Normal for every task before it existed.</summary>
     public ReviewPriority Priority { get; set; } = ReviewPriority.Normal;
+
+    /// <summary>
+    /// What the task asks for (docs/11 §13.8): a document to review (every task before the column existed), or an
+    /// <see cref="ReviewTaskKind.IntegrationIssue"/> about a settled document a receiving system rejected.
+    /// </summary>
+    public ReviewTaskKind Kind { get; set; } = ReviewTaskKind.Document;
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? SlaDueAt { get; set; }

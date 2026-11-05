@@ -101,6 +101,7 @@ public sealed class ComposeParityTests
     [Theory]
     [InlineData("erp-ap", "/api/ap/invoices", 201)]
     [InlineData("article-prices", "/api/article-prices", 202)]
+    [InlineData("pos-promotions", "/api/promotions", 201)]
     public void The_mock_erp_stubs_accept_the_endpoint_and_can_be_forced_to_fail(string name, string path, int success)
     {
         var stubs = Directory.GetFiles(RepositoryPath("docker", "mock-erp", "mappings"), "*.json")
