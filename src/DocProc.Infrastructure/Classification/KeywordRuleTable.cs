@@ -27,16 +27,19 @@ public sealed class KeywordRuleTable
 
     /// <summary>
     /// The match timeout of one tenant rule on one page. The phrases compile to linear patterns
-    /// (<see cref="KeywordRuleSet.PhrasePattern"/>), so this is a backstop, kept short: every rule of a table runs on every
-    /// page, on the worker every tenant shares.
+    /// (<see cref="KeywordRuleSet.PhrasePattern"/>), so this is only a backstop. It is measured in wall-clock time, so it
+    /// is set well above what a match takes: a busy worker or a garbage-collection pause must not make a rule time out.
+    /// A rule that does time out makes the page's evaluation incomplete (<see cref="KeywordMatcher"/>).
     /// </summary>
-    internal static readonly TimeSpan TenantTimeout = TimeSpan.FromMilliseconds(100);
+    internal static readonly TimeSpan TenantTimeout = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// How long the rules of one table may take on one page in all (<see cref="KeywordMatcher"/>): the rules after that
-    /// are not run on the page, so a large table cannot hold the worker for rules × <see cref="TenantTimeout"/>.
+    /// are not run on the page, so a large table cannot hold the worker for rules × <see cref="TenantTimeout"/>. Like
+    /// <see cref="TenantTimeout"/> it is wall-clock time and a backstop; a page cut short by it is incomplete, and the
+    /// classifier then decides nothing from the keyword rules.
     /// </summary>
-    internal static readonly TimeSpan PageBudget = TimeSpan.FromMilliseconds(500);
+    internal static readonly TimeSpan PageBudget = TimeSpan.FromSeconds(2);
 
     internal KeywordRuleTable(IReadOnlyList<KeywordRule> rules)
     {

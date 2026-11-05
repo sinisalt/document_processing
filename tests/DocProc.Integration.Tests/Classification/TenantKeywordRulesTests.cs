@@ -114,7 +114,34 @@ public sealed class TenantKeywordRulesTests
     [Fact]
     public void A_tenant_table_stops_at_its_budget_per_page()
     {
-        KeywordRuleTable.PageBudget.ShouldBeLessThanOrEqualTo(TimeSpan.FromSeconds(1));
+        // Wall-clock backstops: short enough that a large table cannot hold the shared worker for long, long enough
+        // that a busy worker or a garbage-collection pause does not make a linear match time out.
+        KeywordRuleTable.PageBudget.ShouldBeLessThanOrEqualTo(TimeSpan.FromSeconds(2));
+        KeywordRuleTable.TenantTimeout.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1));
         KeywordRuleTable.TenantTimeout.ShouldBeLessThanOrEqualTo(KeywordRuleTable.PageBudget);
+    }
+
+    [Fact]
+    public void A_page_whose_tenant_rules_did_not_all_run_decides_no_type()
+    {
+        // The return slip's title rule times out (a pattern that backtracks, with a 1 ms timeout, stands in for a
+        // stalled worker); the rule of the other type still matches. Before, that other type won on partial evidence.
+        var stalled = new KeywordRule(ReturnSlip, "de", KeywordKind.Title,
+            new System.Text.RegularExpressions.Regex(@"(a+)+$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(1)),
+            KeywordRuleSet.TitleWeight, ["Retourenschein"]);
+        var other = KeywordRuleTable.FromTypes([new KeywordTypeSource(DocumentTypeKey.Invoice, null, UsesStandardRules: true)]);
+        var table = new KeywordRuleTable([stalled, .. other.Rules]);
+        var text = Layer("Musterfirma GmbH", "Rechnung", "Rechnungsnummer RE-1", new string('a', 5000) + "!");
+
+        var page = IndexedPageText.From(text.Pages[0]);
+        KeywordMatcher.FindHits(page, table, out var complete);
+        complete.ShouldBeFalse("the stalled rule timed out");
+        KeywordMatcher.FindHits(page, other, out var completeWithoutIt);
+        completeWithoutIt.ShouldBeTrue();
+
+        var outcome = _classifier.Classify(text, null, table);
+        outcome.Type.ShouldBe(DocumentTypeKey.Unknown, "the missing rule may be the winner's");
+        outcome.Confidence.ShouldBe(0);
+        _classifier.Classify(text, null, other).Type.ShouldBe(DocumentTypeKey.Invoice, "a complete evaluation still decides");
     }
 }

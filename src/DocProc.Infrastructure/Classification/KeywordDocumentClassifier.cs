@@ -56,10 +56,12 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
         var pages = textLayer.Pages.Select(IndexedPageText.From).ToList();
         var scores = new Dictionary<DocumentTypeKey, double>();
         var allHits = new List<KeywordHit>();
+        var complete = true;
 
         foreach (var page in pages)
         {
-            var hits = KeywordMatcher.FindHits(page, table);
+            var hits = KeywordMatcher.FindHits(page, table, out var pageComplete);
+            complete &= pageComplete;
             allHits.AddRange(hits);
 
             var isFirstPage = page.Page.Number == textLayer.Pages[0].Number;
@@ -84,6 +86,14 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
         }
 
         var language = LanguageDetector.Detect(pages, allHits);
+        if (!complete)
+        {
+            // Some of the tenant's rules were not run (a timeout or the page budget): the missing rule may be the
+            // winner's, so the partial scores decide nothing. Unknown with no confidence leaves the type to the LLM
+            // classifier or to review.
+            return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule, language);
+        }
+
         var positive = scores.Where(s => s.Value > 0 && (candidates is not { Count: > 0 } || candidates.Contains(s.Key.Value, StringComparer.Ordinal))).ToList();
         if (positive.Count == 0)
         {

@@ -16,8 +16,16 @@ internal static class KeywordMatcher
     public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page) => FindHits(page, KeywordRuleTable.Default);
 
     /// <summary>The hits of <paramref name="table"/>'s rules (the built-in table, or a tenant's, docs/11 §9.4).</summary>
-    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table)
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table) => FindHits(page, table, out _);
+
+    /// <summary>
+    /// The hits of <paramref name="table"/>'s rules, and whether every rule was run on the page: false when a tenant
+    /// rule timed out or the table's <see cref="KeywordRuleTable.PageBudget"/> was spent before its last rule. The hits
+    /// of an incomplete page are partial evidence; the classifier does not decide a type from them.
+    /// </summary>
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table, out bool complete)
     {
+        complete = true;
         if (page.WordCount == 0)
         {
             return [];
@@ -31,6 +39,7 @@ internal static class KeywordMatcher
             // A tenant's table runs within a budget per page: the rules left when it is spent are not run on the page.
             if (bounded && System.Diagnostics.Stopwatch.GetElapsedTime(started) > KeywordRuleTable.PageBudget)
             {
+                complete = false;
                 break;
             }
 
@@ -42,7 +51,9 @@ internal static class KeywordMatcher
             }
             catch (RegexMatchTimeoutException)
             {
-                // A tenant rule that ran out of time (escaped literals make this unlikely) is skipped, not fatal.
+                // A tenant rule that ran out of time (escaped literals make this unlikely) is skipped, not fatal, and the
+                // page counts as incomplete.
+                complete = false;
                 continue;
             }
 

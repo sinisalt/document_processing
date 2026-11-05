@@ -1722,6 +1722,11 @@ Correction (P5, part B), as built (`KeywordRuleTable`, `TenantClassification`, `
   500 ms per page in all (the rules left are not run on that page). Publish refuses a classification list of more than
   50 phrases, a phrase longer than 100 characters, one without a letter or digit and one with more than three spaces or
   hyphens in a row.
+- Correction (P5, after fix 4): both limits are wall-clock time, so a busy worker or a garbage-collection pause could
+  make a linear match time out, and the rule, or the rest of the table, was skipped without a trace: the document
+  was then `Unknown`, or typed as another type that scored on what was left. The limits are now backstops of 1 s per
+  rule and 2 s per page and table, and a page whose tenant rules did not all run makes the keyword outcome `Unknown`
+  with confidence 0: the partial scores decide nothing, and the LLM classifier (when on) or review decides the type.
 - The LLM classifier's schema is `document_classification@1+t.<hash8>` (one per candidate set) with the prompt
   `classify-tenant-document`; an answer outside the set is Unknown.
 - Not built: the splitter's keyword signals and `LlmDocumentSplitter` keep the built-in table and enum.

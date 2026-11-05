@@ -1972,7 +1972,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       migration `AcknowledgementReplayGuard`): a replay or a late callback is answered `replayed` and changes nothing;
       a status answer applies to the polled reference only; a poll whose URL left the destination's host is not sent,
       and a destination does not move to another host while its poll names the old one;
-    - tenant classification phrases compile to linear patterns (100 ms per rule, 500 ms per page and table), and
+    - tenant classification phrases compile to linear patterns (100 ms per rule, 500 ms per page and table; 1 s and 2 s
+      since the correction after fix 4), and
       publish refuses phrases that are not words;
     - the P5 Down methods map back the data the build before P5 reads (`P5DowngradeSql`), and a definition without
       flags is written without `flags`; the down/up test reads the result under those rules;
@@ -2038,6 +2039,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       column need `configurableTypes` (an address that already sorts keeps them): a tenant with every switch off sees
       the sidebar and the inbox of P4;
     - docs/09: "Read this page > Write 2 rows" in step 9 of "Demo: routing and layouts".
+  - Done, after fix 4 (found by the final full test run, which failed one custom-type test under load): a tenant
+    keyword rule that timed out, or a page whose 500 ms budget ran out, was skipped silently, so on a busy worker or
+    during a garbage-collection pause a document could be typed `Unknown`, or as another type that scored on the
+    partial evidence. The limits are wall-clock backstops and now 1 s per rule and 2 s per page and table, and a page
+    whose tenant rules did not all run makes the keyword outcome `Unknown` with no confidence, so the LLM classifier
+    or review decides (docs/11 §9.4, "Correction (P5, after fix 4)").
   - Left for later (fix 4): saving or activating a provider configuration whose model has no price is not refused while
     the tenant has budgets (its calls are refused instead), `GET /llm-budgets` does not list unpriced calls, and the
     price table is not bound from configuration yet (docs/08); a callback's reports of one document are not merged
