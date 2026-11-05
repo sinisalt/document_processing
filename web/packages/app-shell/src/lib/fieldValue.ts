@@ -8,7 +8,7 @@ export type BadgeVariant = NonNullable<ComponentProps<typeof Badge>["variant"]>;
  * (`src/DocProc.Domain/Fields/*.cs`, camel-cased by System.Text.Json; enums as names).
  */
 export type FieldStatus = "Extracted" | "Inferred" | "Missing" | "Unreadable" | "Conflict" | "Corrected";
-export type SourceMethod = "StructuredXml" | "Profile" | "Llm" | "Ocr" | "Human";
+export type SourceMethod = "StructuredXml" | "Profile" | "Llm" | "Ocr" | "Human" | "Lookup";
 
 /** Page coordinates normalised to 1000 × 1000 units (docs/04). */
 export interface BoundingBox {
@@ -44,7 +44,7 @@ export interface FieldValue<T = unknown> {
 }
 
 export const fieldStatuses: readonly FieldStatus[] = ["Extracted", "Inferred", "Missing", "Unreadable", "Conflict", "Corrected"];
-export const sourceMethods: readonly SourceMethod[] = ["StructuredXml", "Profile", "Llm", "Ocr", "Human"];
+export const sourceMethods: readonly SourceMethod[] = ["StructuredXml", "Profile", "Llm", "Ocr", "Human", "Lookup"];
 
 export function isFieldValue(value: unknown): value is FieldValue {
   if (typeof value !== "object" || value === null) return false;
@@ -87,6 +87,7 @@ export const sourceMethodVariant: Readonly<Record<SourceMethod, BadgeVariant>> =
   Llm: "outline",
   Ocr: "outline",
   Human: "default",
+  Lookup: "secondary",
 };
 
 /**

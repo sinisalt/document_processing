@@ -4,6 +4,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+    <!-- TenantEndpointGuard, the platform's guard for calls to tenant-chosen hosts (docs/11 §16). -->
+    <ProjectReference Include="../DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Anthropic" />

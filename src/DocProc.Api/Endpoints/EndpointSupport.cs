@@ -148,6 +148,12 @@ internal static partial class EndpointSupport
 
         public int Count => _errors.Count;
 
+        /// <summary>Whether <paramref name="field"/> has an error already.</summary>
+        public bool Has(string field) => _errors.ContainsKey(field);
+
+        /// <summary>The errors so far, by field.</summary>
+        public IEnumerable<KeyValuePair<string, string[]>> Fields() => _errors;
+
         public Errors Add(string field, string message, string? code = null, IReadOnlyDictionary<string, string>? parameters = null)
         {
             _errors[field] = [message];
@@ -232,8 +238,21 @@ internal static partial class EndpointSupport
         /// <summary>Not an absolute http(s) URL of at most <c>maxLength</c> characters.</summary>
         public const string HttpUrl = "httpUrl";
 
+        /// <summary>A list with more than <c>maxItems</c> entries.</summary>
+        public const string MaxItems = "maxItems";
+
+        /// <summary>An entry (<c>value</c>, as given) that is not an IBAN (a country code, two check digits and 11 to 30 letters or digits).</summary>
+        public const string Iban = "iban";
+
+        /// <summary>An entry (<c>value</c>, as given) that is not a domain name such as <c>example.com</c>.</summary>
+        public const string EmailDomain = "emailDomain";
+
         /// <summary>A code's parameters, numbers as invariant strings.</summary>
         public static IReadOnlyDictionary<string, string> Params(params (string Key, IFormattable Value)[] pairs) =>
             pairs.ToDictionary(p => p.Key, p => p.Value.ToString(null, CultureInfo.InvariantCulture), StringComparer.Ordinal);
+
+        /// <summary>The <c>value</c> parameter: the offending entry of a list as the client gave it (trimmed), so the apps can name it.</summary>
+        public static IReadOnlyDictionary<string, string> ValueParam(string value) =>
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["value"] = value };
     }
 }

@@ -20,7 +20,7 @@ by configuration.
 | Watched folder | SMB/SFTP/blob container | A bind-mounted local folder or an Azurite container. | Identical code path. | n/a |
 | LLM providers | Anthropic API, Claude on Microsoft Foundry, Azure OpenAI, OpenAI | Real APIs over the internet (no emulator). The gateway has a **replay provider** that serves recorded responses keyed by request hash, used by all CI tests. For offline smoke tests, the OpenAI-compatible adapter can point at **Ollama / LM Studio** on the Mac. | Replay is exact for regression; live calls are opt-in (`LLM_LIVE=1`) and cost cents. | The eval harness runs live in batch mode on demand, never in the default test run. |
 | Identity | Entra External ID / Entra ID | **Keycloak** container (arm64) as a local OIDC provider with seeded realms for superadmin, operator and two tenants; the API only knows OIDC authority + audience. Alternatively the test auth handler for unit tests. | Same OIDC flows; Entra-specific claims mapping is configuration. | Entra External ID dev tenant (free up to 50 000 monthly active users) used by the Azure dev environment. |
-| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts the API, the worker and all containers above with one `dotnet run`; `docker compose` file generated from it for people who prefer that. The two React apps run as Vite dev servers next to it (README "Web apps and end-to-end tests"); the AppHost does not start them yet. | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
+| Compute | Azure Container Apps (KEDA scaling on queue length) | **Aspire AppHost** starts the API, the worker and all containers above with one `dotnet run`; the two React apps run as Vite dev servers next to it (README "Web apps and end-to-end tests"). **`docker-compose.yml`** starts the same set plus both apps as production builds behind nginx, without the .NET SDK ("With Docker Compose" below). | Scaling behaviour is not local. | Dev environment in Azure deployed by Bicep from CI on every main merge. |
 | Observability | Azure Monitor / Application Insights | Aspire dashboard (traces, logs, metrics via OpenTelemetry). | Same instrumentation, different exporter. | n/a |
 
 ## What the AppHost actually starts
@@ -31,14 +31,232 @@ The Keycloak realm is imported from `src/DocProc.AppHost/realms/docproc-realm.js
 roles `SuperAdmin`, `Operator`, `TenantAdmin`, `Reviewer`, `Viewer`, clients `docproc-api`
 (bearer-only audience), `docproc-portal` and `docproc-admin` (public, PKCE), a `tenant_id`
 claim from a user attribute, and six users across the platform and two tenants (see README).
+The realm declares the client scopes `basic` (`sub`), `profile` and `email` itself: an import that
+lists `clientScopes` gets none of Keycloak's built-in ones, and without them the apps' sign-in
+(`scope=openid profile email`) fails with `invalid_scope` and tokens carry no `sub`. Keycloak imports
+the realm on its first start only, so a `docproc-keycloak-data` volume from before keeps the old
+realm until it is deleted.
 Lowkey Vault (`vault`, HTTPS 8443) runs and both hosts get `KeyVault__Endpoint`, but no
 Key Vault `ISecretStore` reads it yet: BYOK keys go to the file-backed store, and the AppHost
 gives the API and the worker the same absolute `Secrets__Path`
 (`src/DocProc.AppHost/data/secrets`), so a key the API stores is the key the worker's LLM stages
-read. Mail flows use GreenMail (`mail`).
+read. Mail flows use GreenMail (`mail`). WireMock (`mock-erp`, http://localhost:8086) stands in for the
+receiving ERP of the delivery demos ("Mock ERP" below).
 Tests under `tests/DocProc.AppHost.Tests` build the application model without starting it and
 assert the resource set, images, waits, the shared secret-store path and realm contents, so a
-rename is caught before anyone runs the stack.
+rename is caught before anyone runs the stack. Aspire's testing builder runs the AppHost's own
+`Program` on a background thread, and once a test builds the model that `Program` goes on to
+`.Run()`, which starts the orchestrator and every persistent container; only disposing the app
+cancelled that start, and a test that did not dispose it left six containers (`storage-*`,
+`messaging-*` and its `messaging-mssql-*`, `keycloak-*`, `vault-*`, `mail-*`) running after every
+`dotnet test`. Every model check now builds through `AppHostModel`
+(`tests/DocProc.AppHost.Tests/AppHostModel.cs`), which stops that run at `BeforeStartEvent`, before the
+host and the orchestrator start, and always disposes the app (`Building_the_model_starts_nothing`
+holds it); the AppHost itself is unchanged, so `dotnet run` behaves as before. Containers left by an
+earlier run are removed with `docker rm -f` by name (the suffix is a hash of the AppHost path).
+
+## With Docker Compose
+
+`docker-compose.yml` at the repository root is the same stack for people without the .NET SDK, or
+who want the two web apps as they ship: `docker compose up --build` (`-d` for the background) from a
+clean clone; README "With Docker Compose" has the URLs, users, LLM keys and reset. The project name
+is `docproc` (`name:` in the file), so volumes and the network are `docproc_*`; `-p <name>` runs a
+second copy, though the fixed host ports below allow only one at a time. The AppHost listens on the
+same ports while it runs, so stop one before starting the other. Its containers outlive it
+(`ContainerLifetime.Persistent`) but do not hold those ports: Aspire proxies every endpoint, so each
+container publishes a random host port, and the fixed one belongs to the AppHost's proxy, which
+stops with `dotnet run`. Nothing is external: the
+default network and five named volumes (`sql-data`, `azurite-data`, `keycloak-data`, `secrets`, and `outbound`, the
+file drop of `blob` destinations that the API and the worker share at `/data/outbound`)
+belong to the project, and `down -v` removes them.
+
+**Mock ERP.** `mock-erp` is WireMock 3 with the stub mappings in `docker/mock-erp/mappings`, the
+receiving system that the delivery demos of docs/11 §23 send to from P3 on. Both the AppHost and compose run it on host port 8086 with the folder mounted read-only, so a
+change to a stub needs a restart of the container (`docker compose restart mock-erp`).
+
+| Request | Answer |
+|---|---|
+| `POST /api/ap/invoices` (`erp-ap`) with a JSON body | 201 `{"erpId":"AP-<8 digits>","status":"accepted","idempotencyKey":<the Idempotency-Key header>,"receivedAt":...}` |
+| `POST /api/ap/invoices` as `multipart/form-data` (a destination's `multipart` parts: the payload and the original file) | 201, the same body with `"withAttachment":true` |
+| `POST /api/article-prices` with a JSON body | 202 `{"importId":"AP-IMP-<8 digits>","status":"queued",...}` |
+| `PUT /api/article-prices/<priceListId>` with a JSON body (a re-approval under `OnReapproval: Update`) | 200 `{"importId":"AP-UPD-<8 digits>","status":"updated","priceListId":<from the path>,...}`; with `X-Mock-Erp-Fail: 503` a 503 |
+| `POST /oauth/token` with `grant_type=client_credentials` | 200 `{"access_token":"mock-erp-token","token_type":"Bearer","expires_in":3600}` (any client id and secret), for `oauth2ClientCredentials` destinations |
+| either endpoint with another content type | 415 |
+| either endpoint with the header `X-Mock-Erp-Fail: 503` | 503 with `Retry-After: 1`, that request only |
+| `POST /__control/<erp-ap\|article-prices>/fail-next` | the next call of that endpoint answers 503 (`Retry-After: 1`), the one after succeeds again: the "forced 503, retried, then success" of the P3 demo |
+| `POST /__control/<erp-ap\|article-prices>/fail-always`, `.../reset` | every call answers 503 until the reset |
+| `GET /__admin/requests` | WireMock's journal: every request it received, with headers and body (`DELETE` clears it) |
+
+The failure modes are WireMock scenarios named after the endpoint, so `POST /__admin/scenarios/reset`
+resets both. `ComposeParityTests` holds the compose service to the AppHost (image, arguments, mount,
+port) and checks that every endpoint has its success and 503 stubs; `MockErpStubTests`
+(`tests/DocProc.Integration.Tests`, Docker) runs the compose file's image over the folder and
+exercises each answer. The http transport sends through `TenantEndpointGuard`, which accepts only
+https to public hosts; `Delivery:DevelopmentHosts` (honoured in the Development environment only) lets a tenant
+destination reach `http://mock-erp:8080` in compose and `http://localhost:8086` under the AppHost, which set it to
+those (docs/11 §13.3).
+
+Every long-running service has `restart: unless-stopped`; only the one-shot helpers
+(`servicebus-ready`, `llm-setup`) have `restart: "no"` (`ComposeParityTests` checks both). A
+container that exits while others wait for it to be healthy otherwise fails the whole `up` with
+"dependency failed to start": SQL Server 2025 does exit on a busy machine's first boot now and then
+(`[AppLoader] Failed to load LSA: 0xc0070102`, a start-up timeout), and restarted it comes up
+normally within the health check's 60 tries. Not always: after a first-boot crash
+(`This program has encountered a fatal error ... Reason: 0x00000002`, with a core dump in the volume) the
+restarted container can crash again on every restart (`Reason: 0x00000002, Last errno text: No such file or
+directory`, `RestartCount` climbing in `docker inspect`), and `up --wait` fails with "container ...-sqlserver-1 is
+unhealthy". Then start over with an empty volume and SQL Server on its own first:
+`docker compose down -v`, `docker compose up -d --wait sqlserver`, then the usual `up` (with `--build` and the
+same `-p` and `-f` options as before). `docker compose ps -a` shows `worker` and
+`servicebus` as `Up` without "(healthy)": neither has a health check of its own (see the table).
+
+| Service | Image | Mirrors | Notes |
+|---|---|---|---|
+| `sqlserver` | `mcr.microsoft.com/mssql/server:2025-latest`, `linux/amd64` | `sql` | `sa` password `DOCPROC_SQL_PASSWORD` (local default in the file); healthy once `sqlcmd` answers |
+| `azurite` | `mcr.microsoft.com/azure-storage/azurite` (the AppHost's tag) | `storage` | `--skipApiVersionCheck`; the API creates `raw`, `derived`, `exports` (`Blobs:CreateContainersOnStartup`) |
+| `servicebus` | `mcr.microsoft.com/azure-messaging/servicebus-emulator` (the AppHost's tag), `linux/amd64` | `messaging` | entities from `docker/servicebus/Config.json`; stores them in `sqlserver`. The image has no shell, so the one-shot `servicebus-ready` polls its `:5300/health` and the API waits for that |
+| `keycloak` | `quay.io/keycloak/keycloak` (the AppHost's tag), `start-dev --import-realm` | `keycloak` | realm mounted from `src/DocProc.AppHost/realms`; `KC_HOSTNAME=http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}`, `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true` |
+| `vault` | `nagyesta/lowkey-vault` | `vault` | in memory; nothing reads `KeyVault__Endpoint` yet |
+| `mail` | `greenmail/standalone` | `mail` | same `GREENMAIL_OPTS`; the platform IMAP server of the `Mailbox` channels: the worker reads `Mail__ImapHost`/`Mail__ImapPort` (3143, plain IMAP, `Mail__ImapSecurity: None`) and believes the `Authentication-Results` of the one platform receiver `mx.platform.local` (`Mail__TrustedAuthServIds`); SMTP on :3025 for the demo mails. The health check reads the SMTP greeting and sends `QUIT` (the image has `bash`, no `wget`), since a dropped connection makes GreenMail log a stack trace each time |
+| `mock-erp` | `wiremock/wiremock` (the AppHost's tag), `--disable-banner --verbose` | `mock-erp` | the receiving ERP of the delivery demos, `:8086`; stubs mounted read-only from `docker/mock-erp` ("Mock ERP" below); the image's `curl` checks `/__admin/health` |
+| `api` | `src/Dockerfile`, target `api` | `api` | migrates, seeds, runs the pipeline in-process; `:5100` |
+| `worker` | `src/Dockerfile`, target `worker` | `worker` | waits for the API's health check; no HTTP endpoint, so no health check of its own |
+| `llm-setup` | `node:22-bookworm-slim` running `docker/llm-setup.mjs` | (none) | one-shot: LLM keys of `.env` to platform configurations, below |
+| `portal`, `admin` | `web/Dockerfile` (`APP=customer-portal` / `admin-console`) | (Vite dev servers) | unprivileged nginx on container port 8080, published on `:5173` / `:5174`; `/api` proxied to `api:8080`, SPA fallback to `index.html`, security headers |
+
+**Configuration.** The hosts get the keys the AppHost sets (`ConnectionStrings__DocProc`,
+`ConnectionStrings__blobs`, `ConnectionStrings__messaging`, `Persistence__Provider=SqlServer`,
+`Persistence__MigrateOnStartup` for the API, `Authentication__Dev__Enabled=false`,
+`Authentication__Oidc__*`, `Secrets__Path`, `KeyVault__Endpoint`, `Mail__ImapHost`/`Port`;
+`ComposeParityTests` in `tests/DocProc.AppHost.Tests` fails when the AppHost gives a host a key the
+compose file does not) and run in the Development environment like under the AppHost, which loads
+`appsettings.Development.json` and lets the development seed run. On top of that the API gets
+`Persistence__SeedDevData=true` (the realm's tenants must exist, or every tenant user gets 404
+"Unknown tenant"), `Persistence__SeedDemoDocuments` (`DOCPROC_DEMO_DOCUMENTS`, default true; the
+image carries `fixtures/demo` and its replay fixtures), `Pipeline__RunInProcess=true` and
+`Blobs__CreateContainersOnStartup=true`. Both hosts set
+`Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command=Warning`, because EF Core logs
+every statement at Information and the first start's migrations alone are thousands of lines of
+SQL that bury the start-up messages (migrations applied, "Development seed applied", "Demo data
+applied", "Now listening"); to see the SQL, set it to `Information` for the host in a
+`docker-compose.override.yml`. Both hosts mount the `secrets` volume at `/data/secrets`
+(created owner-only for the image's non-root user), so a BYOK key the API stores is one the worker
+reads.
+
+**Where documents are processed.** No host reads `ConnectionStrings:messaging` yet: the Service
+Bus transport is a later block (docs/03 "Implementation"), and until then the queue is in memory.
+The API therefore runs the pipeline itself, and the process that accepts an upload processes it;
+the worker starts, connects and runs an idle in-process runner, exactly as under the AppHost. The
+emulator still comes up with every entity the AppHost declares (`ComposeParityTests`
+holds `docker/servicebus/Config.json` to the app model), so
+the transport can be switched on without touching the compose file.
+
+**OIDC issuer and back channel.** The browser signs in at `http://localhost:8080/realms/docproc`,
+which is the `iss` of every token, but inside the API's container `localhost:8080` is the container
+itself. Keycloak is told its public URL (`KC_HOSTNAME`), so the issuer never depends on who asks,
+and answers other containers with back-channel URLs on the host name they used
+(`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`). The API keeps `Authentication:Oidc:Authority` at the public
+URL and reads the discovery document from `Authentication:Oidc:MetadataAddress`
+(`http://keycloak:8080/realms/docproc/.well-known/openid-configuration`), whose `jwks_uri` then
+points at `http://keycloak:8080/...` too ("Settings reference"). The apps' host ports are fixed
+for the same reason: the realm's redirect URIs name 5173 and 5174. Keycloak's host port is
+`DOCPROC_KEYCLOAK_PORT` (default 8080), because 8080 is often taken by another local server; when
+that server answers instead of Keycloak, sign-in fails with "Failed to fetch" and a CORS error on
+`.../.well-known/openid-configuration`. The port goes into `KC_HOSTNAME`, the API's `Authority`, the
+apps' `VITE_OIDC_AUTHORITY` build argument (which overrides `.env.production`, whose 8080 is the
+default) and their `OIDC_ORIGIN`, so a change needs `docker compose up --build -d`
+(`ComposeParityTests` checks all of them against the compose file). Inside the network Keycloak
+stays `keycloak:8080`.
+
+**LLM keys.** Outside the development mode the platform provider is a platform configuration in the
+database, managed through `/api/v1/llm/providers` (admin console, "AI providers"); the newest active
+one serves every tenant without its own, and its key is resolved from the secret store, then
+`Llm:Secrets:<secretRef>`, then `LLM_SECRET_<SECRET_REF>` (docs/08). The seed adds the Anthropic
+configuration `llm-platform-eu` disabled, and the demo data adds an active Replay configuration for
+the demo PDFs. The compose file passes `.env`'s `ANTHROPIC_API_KEY` to both hosts as
+`LLM_SECRET_LLM_PLATFORM_EU`. The one-shot `llm-setup` (`docker/llm-setup.mjs`, after the API is
+healthy; the admin console waits for it) signs in as `superadmin` on every `up` and makes the
+platform configurations follow `.env`:
+
+- `ANTHROPIC_API_KEY` set: the seeded Anthropic configuration is enabled. Empty: an active seeded
+  configuration is disabled again, since without the variable it has no key and every call would
+  fail with "No key is stored".
+- `OPENAI_API_KEY` with `OPENAI_MODEL`: the platform OpenAI configuration with this key and this
+  model for every stage is the active one. The key is recognised by its fingerprint
+  (`keyFingerprint` of `GET /llm/providers`, the first 16 hex digits of its SHA-256, which the API
+  stores with every key), not by its last four characters, which two keys can share. It is created
+  when none exists (the key goes to the shared secret store) and enabled again when it was disabled,
+  and every other active platform OpenAI configuration is disabled, so a new key replaces the
+  previous one and switching back to an earlier key re-enables that one. Empty: the OpenAI
+  configurations stay as they are, since they keep the key stored for them; the log names the
+  ones still active (disable them in the admin console).
+
+With both keys, the one configured last is in use; switch in the admin console. A rerun with the same
+`.env` changes nothing. It never fails the stack: `docker compose logs llm-setup` says what it did
+and ends with the configuration in use. The API's start-up line "LLM platform configuration in
+use" ("Demo data" below) is written before `llm-setup` runs, so after a key change it still names
+the configuration from before; the admin console's AI providers page shows the current state.
+Without any key, e-invoice XML needs no LLM, the demo PDFs replay, and other PDFs end `Failed`.
+`node --test docker/llm-setup.test.mjs` runs the script's unit tests (CI's `compose` job does).
+
+**Images.** `src/Dockerfile` restores once for the target architecture (cache mount) from the
+project files alone (`COPY --parents src/*/*.csproj` with `Directory.*.props` and `global.json`), so
+a source change does not restore again; then each host's stage copies `src/` without the other
+host's folder and publishes it in Release, so a change under `src/DocProc.Api` does not publish the
+worker again. They run on `mcr.microsoft.com/dotnet/aspnet` as the image's non-root `app` user (the
+worker needs the ASP.NET runtime: `DocProc.ServiceDefaults` references it); `curl` is added for the
+health check. The XML documentation files are left out of `/app` (the OpenAPI descriptions are
+compiled into the API); the `.pdb` files stay, so exceptions in the logs carry file and line
+numbers. `web/Dockerfile` copies the workspace's `package.json` files and the lockfile first and runs
+`pnpm install --frozen-lockfile` for both apps and their packages (one layer both images share),
+then copies the shared packages and the one app and runs its `pnpm build` (typecheck and `vite
+build` with `.env.production`). It serves `dist` from `nginxinc/nginx-unprivileged` (nginx as uid
+101, listening on 8080) with `web/nginx.conf.template`, which re-resolves `api` through Docker's DNS
+so a recreated API container is found again and sends `Content-Security-Policy` (scripts from the
+app only; the OIDC authority `OIDC_ORIGIN`, `http://localhost:${DOCPROC_KEYCLOAK_PORT}`, for
+discovery, tokens and the silent-renew frame), `X-Content-Type-Options`, `X-Frame-Options:
+SAMEORIGIN`, `Referrer-Policy` and `Permissions-Policy`. The base images are pinned to patch releases (SDK `10.0.403`, runtime `10.0.14`, Node
+`22.23.4`, nginx `1.29.8`); bump them when a servicing release ships. The `# syntax=docker/dockerfile:1`
+line pulls a frontend that knows `COPY --parents` and `--exclude`. `.dockerignore` keeps `bin`, `obj`,
+`node_modules`, `dist`, `data`, tests, docs and `.git` out of the build context. CI's `compose` job
+runs `docker compose config -q` and builds all four images.
+
+**Building behind a TLS-inspecting proxy.** If restores or `pnpm install` fail with certificate
+errors because a corporate proxy re-signs TLS, pass its CA bundle (PEM) as the build secret
+`extra_ca_certs`; both Dockerfiles trust it for the build only and do nothing without it. For
+example, in a `docker-compose.override.yml`, which compose merges automatically and Git ignores:
+
+```yaml
+services:
+  api: { build: { secrets: [extra_ca_certs] } }
+  worker: { build: { secrets: [extra_ca_certs] } }
+  portal: { build: { secrets: [extra_ca_certs] } }
+  admin: { build: { secrets: [extra_ca_certs] } }
+secrets:
+  extra_ca_certs:
+    file: /path/to/corporate-ca.pem
+```
+
+Recent compose versions build through `buildx bake`, which asks for permission to read that file;
+run `BUILDX_BAKE_ENTITLEMENTS_FS=0 docker compose up --build` to allow it.
+
+**Globalization.** `Directory.Build.props` turns on invariant globalization, but
+Microsoft.Data.SqlClient refuses to open a connection in that mode ("Globalization Invariant Mode is
+not supported"), so `DocProc.Api`, `DocProc.Worker` and `DocProc.Integration.Tests` set
+`InvariantGlobalization=false` and run with ICU (the `aspnet` image and macOS ship it). Before that,
+no SQL Server connection could open, under the AppHost or the integration tests. The same run found
+three SQL Server-only schema errors (error 1785, multiple cascade paths): the foreign keys
+`Ingestions.ChannelId`, `Documents.SupplierId` and `ExtractorProfiles.SupplierId` are `NO ACTION`
+now (SQLite accepted the cascades), and the API refuses to delete a channel, supplier or the
+supplier of an extractor profile that something still references, with 409, before the database
+would. That change edits `InitialCreate` (and the snapshot) in place instead of adding a migration,
+because no database ever applied the old version: on SQL Server it stopped at error 1785 (and
+before the globalization fix no connection opened at all), the SQLite development mode creates its
+schema with `EnsureCreated` rather than migrations, and no workflow deploys or migrates a shared
+database yet. A database that somehow did apply the old `InitialCreate` keeps the cascades while EF
+Core considers it current; recreate it. Behaviour change: deleting a supplier that an extractor
+profile references used to set the profile's `SupplierId` to null and is now refused with 409
+(docs/05).
 
 ## Running without Docker
 
@@ -52,7 +270,7 @@ checkout; the AppHost overrides it (`Persistence__Provider=SqlServer`,
 |---|---|---|
 | `Persistence:Provider` | `Sqlite` (default is `SqlServer` whenever `ConnectionStrings:DocProc` is set) | `DocProcDbContext` on a SQLite file; the schema comes from the model with `EnsureCreated`, because the migrations are SQL Server-only. |
 | `Persistence:SqlitePath` | `./data/docproc.db` (relative to the content root, i.e. the project folder under `dotnet run`, whatever the working directory; the folder is created) | Delete the file after a model change; there is no migration path for SQLite. |
-| `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. |
+| `Persistence:SeedDevData` | implied by `Sqlite`; set it explicitly to seed a SQL Server dev database (refused in Production, like the two other switches) | Idempotent seed with fixed ids (`DevSeed`): tenants A and B of the Keycloak realm, an API-upload channel each, five suppliers, the platform Anthropic provider (status Disabled, secret ref `llm-platform-eu`) and tenant A's LLM policy. The type catalogue's own rows (the platform templates and every tenant's adopted legacy types, see "Document types" below) are added on every start whatever this switch says. |
 | `Persistence:SeedDemoDocuments` | `true` (default `false`; refused in Production; only acts where the seed runs, so not under the AppHost) | After the seed, the API ingests the demo documents of `Persistence:DemoDocumentsPath` (`fixtures/demo`) and adds members and two weeks of LLM usage; see "Demo data" below. |
 | `Llm:Replay:Directory` | `fixtures/demo/llm-replay` | Registers the file replay provider. A relative path is searched upwards from the content root until its first folder (`fixtures`) exists, so `src/DocProc.Api` finds the repository's folder; an absolute path is taken as it is. |
 | `Authentication:Dev:Enabled` | `true` | The API signs its own tokens (`POST /dev/token`, `GET /dev/users`, tagged "Development") with an RSA key and the bearer handler trusts issuer `docproc-dev` instead of the OIDC authority. The endpoints are not mapped at all when disabled. |
@@ -80,6 +298,465 @@ lists, the idempotency window and the timeline order work unchanged; SQL Server 
 A `docproc.db` created before that change must be deleted (as after any model change). Everything
 SQL Server-specific is exercised by the integration tests against a container, not here.
 
+### Document types
+
+The type catalogue (docs/11 §5, §6.1) is seeded on every start: the SQLite schema host and the
+migration host add the platform templates and, for every tenant, the standard types it adopts under
+the legacy keys (`Invoice` … `Other`, version 1, published); the `TypeCatalogue` migration does the
+same on SQL Server. Documents are processed with their tenant's published version of their type
+(pinned in `Documents.DocumentTypeVersionId` by the Extract stage).
+
+Changing the catalogue needs the `configurableTypes` switch of the tenant (all switches are off by
+default, docs/11 §3) and ConfigAdmin (a tenant admin); a type of the tenant's own also needs
+`customTypes`.
+
+**In the browser.** As `superadmin` in the admin console, open the tenant, tab Settings: the card
+"Feature switches" turns `configurableTypes` and `customTypes` on and off (custom types switch the
+catalogue on with them). The same tenant page has a Document types tab. In the customer portal, a tenant
+admin (`tenant-a-admin`) finds the catalogue under Settings > Document types (`/settings?tab=types`):
+the templates with Adopt and Copy, the tenant's types with Fork (an adopted type, such as `CreditNote`,
+becomes the tenant's copy under the same key) and the type editor (fields, labels in English and German,
+the labels a value is printed with and a pattern as extraction hints, required, indexed, options, a
+preview of the generated review form, validate and publish with the publish report, the versions, the
+JSON). With the switch off the catalogue is read only. Once a type is definition-driven, its documents
+open in review with the generated form (delivery notes, purchase orders, price lists, custom fields),
+and the inbox filters by the type's indexed fields and shows them as columns
+(`GET /documents?fields=<path>,…` returns the values in `DocumentSummary.fields`). A document keeps the
+type version it was read with; the review screen's Reprocess dialog offers "Use the published version of
+the type" (`configMode: current`), ticked when a newer version is published, and then starts from
+Extract, where the added fields are read.
+
+With the dev issuer:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)
+H="authorization: Bearer $TOKEN"
+# Switch the feature on (features is optional on PUT; the other settings are sent as read).
+curl -s http://localhost:5100/api/v1/settings -H "$H" | jq '.settings | .features.configurableTypes = true' \
+  | curl -s -X PUT http://localhost:5100/api/v1/settings -H "$H" -H 'content-type: application/json' -d @- | jq .settings.features
+curl -s http://localhost:5100/api/v1/document-templates -H "$H" | jq '.[].key'
+# Adopt the price list (published at once), or fork the credit note in place as a draft to edit.
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.price-list","mode":"adopt"}}' | jq '{key, origin, publishedVersion}'
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.credit-note","mode":"copy"}}' | jq '{key, origin, draftVersion}'
+```
+
+A draft is edited with `PUT /api/v1/document-types/{key}/versions/{v}` (the body is the definition;
+`If-Match` is the ETag of `GET …/versions/{v}`), checked with `POST …/versions/{v}:validate` and
+published with `POST …/versions/{v}:publish` (422 with the report when a check fails). The
+publish-time checks and their report are those of docs/11 §5.7. A fork of `Invoice` or `CreditNote`
+keeps the fields of the invoice record as they are (relabel, require, deprecate and add fields; removing,
+renaming or retyping one of them is refused, because the coded extraction and rules read them); an added
+group or table of such a fork is filled in review, not asked of the LLM. Only an invoice or credit note
+with its `invoice.totals` rule is approved without a reviewer in P1: on any other type
+`processing.review.autoApprove` has no effect yet, and the report says so. A field renamed in a new version
+keeps its value in documents moved onto that version (reprocessed from Extract or Validate with
+`configMode: "current"`, or corrected after the move); a field moved into another group or table does
+not, and the report says so. Publish refuses a field that takes a key another field of the type had in
+an earlier version (old documents hold that field's value under it), sibling keys that differ only by
+case (`refNo` and `refno`), and a `pattern` rule or field pattern the non-backtracking engine cannot run
+(backreferences, lookarounds, atomic groups).
+
+**A custom field, end to end (demo data).** The demo PDF invoice of Bio-Hof Müller prints
+"Kundennummer 0815". Fork `Invoice` in place, add the field of
+`fixtures/demo/types/invoice-customer-number.field.json`, publish, and reprocess the invoice with
+`configMode: "current"` (a reprocess otherwise keeps the type version the document is pinned to). The
+LLM is asked for the field in `x_custom` (schema `invoice_extraction@1+x.<hash8>`), answered from the
+third replay fixture, and the document is stored as a definition-driven tree
+(`canonicalSchemaVersion` 2) with the field indexed, so the inbox finds it:
+
+```bash
+curl -s -X POST http://localhost:5100/api/v1/document-types -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"std.invoice","mode":"copy"}}' | jq '{key, draftVersion}'
+ETAG=$(curl -s -D - -o /tmp/invoice-v2.json http://localhost:5100/api/v1/document-types/Invoice/versions/2 -H "$H" | awk 'tolower($1)=="etag:"{print $2}' | tr -d '\r')
+jq --slurpfile f fixtures/demo/types/invoice-customer-number.field.json '.definition | .fields += $f' /tmp/invoice-v2.json \
+  | curl -s -X PUT http://localhost:5100/api/v1/document-types/Invoice/versions/2 -H "$H" -H "if-match: $ETAG" -H 'content-type: application/json' -d @- | jq .state
+curl -s -X POST http://localhost:5100/api/v1/document-types/Invoice/versions/2:publish -H "$H" -H 'content-type: application/json' -d '{}' | jq .publishedVersion
+DOC=$(curl -s "http://localhost:5100/api/v1/documents?q=2026-131" -H "$H" | jq -r '.items[0].id')
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:reprocess" -H "$H" -H 'content-type: application/json' -d '{"fromStage":"Extract","configMode":"current"}' | jq .status
+sleep 5
+curl -s "http://localhost:5100/api/v1/documents?field.supplierCustomerRef=0815" -H "$H" | jq '.items[] | {documentNumber, status}'
+curl -s "http://localhost:5100/api/v1/documents/$DOC" -H "$H" | jq '{canonicalSchemaVersion, typeVersion, ref: .canonical.supplierCustomerRef.value}'
+```
+
+The fixture matches only this field: its key, kind and description (with `extraction.llmHint`, if
+any) are part of the LLM schema and therefore of the request hash; its labels, printed labels, pattern,
+section and `indexed` are not. It also needs a demo database where the PDF invoice is still as the
+demo data left it; another field, or another PDF, gets a replay miss and ends `Failed` as described
+under "Demo data".
+
+Documents of a definition-driven type (docs/11 §5.6) are stored and corrected by their type
+version: with `configurableTypes` on, a purchase order or delivery note gets the empty tree of its
+type in Extract (`UNSUPPORTED_TYPE` with `reason: definition` says it is filled in review), and a
+price list adopted from the catalogue is checked by `validate.schema` and its rules. `PATCH
+/documents/{id}/fields` then takes `append` (a row, with an object of its values, or a list entry)
+and `remove` (a row, a list entry or an `ext` key) besides `set`, re-validates the document at once
+and answers with the new flags. A document of such a type read before the switch was turned on has no
+tree; while it is correctable (`NeedsReview`, `Validated`, `Failed`) `GET /documents/{id}` answers the
+empty tree of its type version (`canonicalSchemaVersion` 2) as `canonical`, which the first correction
+stores, and a stored tree that lacks fields its version has is answered completed with them; nothing is
+written by a read. Indexed fields are filtered with `?field.<path>=value` on `GET /documents` (at most
+5 such filters, one value each, else a 400), compared
+as the index stores them (identifiers trimmed, repeated spaces collapsed and upper-cased, so
+`104 220815` is found as `104 220815` but not as `104220815`; a number of 10^17 or more is compared as
+text only, the index holds no number that large); `validFrom`, `validUntil`, `lineCount`
+and the open review task's `reviewPriority` are in every inbox row.
+
+**Review actions (docs/11 §12, P2).** A document in review (`NeedsReview`, `Validated`, `Failed`) can be
+given a type, a supplier, or other pages; docs/05 has the request and answer of each. With the dev issuer
+(`$H` as above, a reviewer is enough) and an Unknown document `$DOC`:
+
+```bash
+# Type it as a price list (adopted above): the empty fields of the type at once.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:set-type" -H "$H" -H 'content-type: application/json' -d '{"typeKey":"price-list"}' | jq '{type, typeVersion, approvalBlocked}'
+# A value captured into the wrong field moves to the right one (one correction, history kept).
+curl -s -X PATCH "http://localhost:5100/api/v1/documents/$DOC/fields" -H "$H" -H 'content-type: application/json' -d '{"corrections":[{"path":"issueDate","value":"2026-11-01"}]}' > /dev/null
+curl -s -X PATCH "http://localhost:5100/api/v1/documents/$DOC/fields" -H "$H" -H 'content-type: application/json' -d '{"corrections":[{"path":"validFrom","op":"move","from":"issueDate"}]}' | jq .validFrom
+# Or have the Extract stage read it for a type (202; an invoice is read by the LLM).
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:set-type" -H "$H" -H 'content-type: application/json' -d '{"typeKey":"Invoice","prefill":"auto"}' | jq .status
+# Create the supplier from the document, or assign an existing one.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:create-supplier" -H "$H" -H 'content-type: application/json' -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE811111111"}' | jq .supplier.id
+# Pages 1-2 and 3 are two documents; page 3 is an invoice. Join them again with :join.
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC:split" -H "$H" -H 'content-type: application/json' -d '{"parts":[{"pages":[1,2]},{"pages":[3],"typeKey":"Invoice"}]}' | jq .parts
+```
+
+**Map mode and the table tool (docs/11 §12.3, §12.4, P2).** The server side of capturing values by pointing at
+the page; the review screen's map mode and table tool call them ("Demo: manual mapping" below). Boxes are in page
+units (0 to 1000, top left origin):
+
+```bash
+# The words under a box, their text and its readings (a date, an amount, ...), in the tenant's locale.
+curl -s "http://localhost:5100/api/v1/documents/$DOC/pages/1/words?bbox=600,120,800,140" -H "$H" | jq '{text, candidates}'
+# Propose the columns of a table drawn around its header and first rows on page 1 (fields named from the headers).
+COLUMNS=$(curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC/regions:table" -H "$H" -H 'content-type: application/json' \
+  -d '{"page":1,"bBox":{"x0":40,"y0":95,"x1":995,"y1":300}}' | jq -c .columns)
+# Apply that mapping to every page and write the rows (without "write" it is a preview with the same report).
+curl -s -X POST "http://localhost:5100/api/v1/documents/$DOC/regions:table" -H "$H" -H 'content-type: application/json' \
+  -d "$(jq -n --argjson cols "$COLUMNS" '{page:1,bBox:{x0:40,y0:95,x1:995,y1:940},headerRow:{y0:99,y1:111},columns:$cols,pages:"1-*",groupHeader:{target:"category"},write:true}')" \
+  | jq '.report | {rows, rejectedRows, pagesWithoutRows}'
+curl -s "http://localhost:5100/api/v1/documents/$DOC/table-reports" -H "$H" | jq '.[0].report.perPage[] | {page, rows, rejected}'
+```
+
+`regions:read` (region OCR) answers `501 OCR_NOT_CONFIGURED`: no OCR provider is registered in either host yet, so
+a scanned page without a text layer has no words (`source: none`).
+
+With `configurableTypes` on, `:approve` refuses an Unknown document, one whose type has no published
+definition, and one with no data: no tree, or a tree none of whose fields holds a value, as `:set-type` with prefill
+none leaves it (`409 Cannot approve` with `code`), and the review screen shows the reason under a disabled Approve
+button (`DocumentDetail.approvalBlocked`); a tenant without the switch approves as before. The review screen offers
+the tools of P2 (Map this document, the More menu with set type, supplier, split and join, map mode and the table
+tool) only with `configurableTypes` on (`DocumentDetail.configurableTypes`); a tenant without it reviews as before
+P2, while the endpoints answer API clients of any tenant. A part joined into another document is `Cancelled` (status filter `Cancelled`, shown only under "All").
+
+### Outputs
+
+Output mappings, destinations, bindings and lookup tables (docs/11 §13, P3) need the tenant's `outputs` switch
+(admin console: Tenants > tenant > Settings > Feature switches > Outputs) and IntegrationAdmin (a tenant admin;
+lookup tables ConfigAdmin). In the portal they live under Settings > Integrations (destinations, output mappings with
+the visual field map, code mode and the server-rendered preview, bindings, lookup tables, the delivery log), and a
+document's deliveries under its Deliveries tab; "Demo: outputs and delivery" below walks through them. The preview
+renders a mapping over a document's values view on the server. Renders run in renderer child processes
+(`DocProc.Outputs.Renderer.dll`, built next to each host; settings under "Outputs" below); the first render of a host
+starts one, which takes about half a second. The platform templates `std.event` and `generic-ap-json` are seeded on
+every start (and by the `OutputsAndLookups` migration).
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5100/dev/token -H 'content-type: application/json' -d '{"username":"tenant-a-admin"}' | jq -r .access_token)
+H="authorization: Bearer $TOKEN"
+curl -s http://localhost:5100/api/v1/settings -H "$H" | jq '.settings | .features.outputs = true' \
+  | curl -s -X PUT http://localhost:5100/api/v1/settings -H "$H" -H 'content-type: application/json' -d @- | jq .settings.features
+curl -s http://localhost:5100/api/v1/output-templates -H "$H" | jq '.[].key'
+# Render generic-ap-json over an approved document (any document id of the tenant), without delivering.
+VERSION=$(curl -s http://localhost:5100/api/v1/output-mappings/generic-ap-json -H "$H" | jq -r '.versions[0].id')
+curl -s -X POST http://localhost:5100/api/v1/output-mappings:preview -H "$H" -H 'content-type: application/json' \
+  -d "{\"mappingVersionId\":\"$VERSION\",\"documentId\":\"$DOC\"}" | jq '{output, errors, schemaErrors}'
+# Or an expression of your own, with the values view back for the source tree.
+curl -s -X POST http://localhost:5100/api/v1/output-mappings:preview -H "$H" -H 'content-type: application/json' \
+  -d "{\"expression\":\"{ \\\"no\\\": roles.documentNumber, \\\"day\\\": \$fmtDate(roles.documentDate, \\\"dd.MM.yyyy\\\") }\",\"documentId\":\"$DOC\",\"includeValues\":true}" | jq '{output, values: .values.roles}'
+# The ERP vendor number mappings read as supplier.attributes.erpVendorId.
+curl -s -X PATCH "http://localhost:5100/api/v1/suppliers/$SUPPLIER" -H "$H" -H 'content-type: application/json' -d '{"attributes":{"erpVendorId":"V-10042"}}' | jq .attributes
+```
+
+A render that takes more than 2 s of processor time, allocates past its 1 GB heap or writes more than 5 MB fails with
+`timeLimit`, `memoryLimit` or `sizeLimit` in `errors`, and the host starts a fresh renderer for the next one. An
+output nesting objects and arrays more than 48 levels deep, and an expression nesting brackets or minus signs more than
+1000 deep, fail with `depthLimit`; an error message (`$error` of a long text) is cut to 2000 characters. A renderer
+that stops while it runs an expression is tried once more on a fresh process, then the render fails with `depthLimit`
+(`CRASH`), and the host logs the first 20 lines of the renderer's standard error. Only a renderer that cannot be
+started or cannot take the request is `unavailable`, the one error a delivery's publish stage retries.
+
+**Delivery (P3 part B).** With the switch on, every approval, auto-approval and rejection the publish stage hands on
+is fanned out to the tenant's bindings (docs/11 §13.5): each binding whose scope and condition hold renders its
+mapping now, the snapshot goes to the `exports` container, and the delivery is sent by the runner of the host that
+published (`ProcessDelivery`), retried with backoff on 408, 425, 429, 5xx and network errors (the receiver's
+`Retry-After` replaces the wait), and dead-lettered with a `DELIVERY_FAILED` flag after 15 attempts, 72 h or any
+other 4xx. The document's timeline shows `document.delivery_succeeded`, `document.delivery_failed` and
+`document.delivery_skipped`; `GET /api/v1/deliveries?documentId=` lists them with their attempts. The delivery
+sweeper sends what a crash left behind (`Delivery:SweepInterval`, `Delivery:SweepGrace`). Against the mock ERP of the
+compose stack, with `$H` holding a tenant admin's Keycloak token as in "Demo: types as data" below (under the AppHost
+the destination URL is `http://localhost:8086/...`; a plain `dotnet run` has no mock ERP) and `$DOC` an approved
+invoice of the tenant (an e-invoice XML uploaded to `POST /api/v1/ingestions` is auto-approved):
+
+```bash
+# A destination at mock-erp (plain http, allowed by Delivery:DevelopmentHosts), the copy of generic-ap-json, a binding.
+DEST=$(curl -s -X POST http://localhost:5100/api/v1/destinations -H "$H" -H 'content-type: application/json' \
+  -d '{"name":"erp-ap","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/ap/invoices","responseMapping":"erpId"}}' | jq -r .id)
+curl -s -X POST http://localhost:5100/api/v1/output-mappings -H "$H" -H 'content-type: application/json' -d '{"from":{"template":"generic-ap-json"},"key":"erp-ap-import"}' > /dev/null
+curl -s -X POST http://localhost:5100/api/v1/output-mappings/erp-ap-import/versions/1:publish -H "$H" -H 'content-type: application/json' -d '{}' > /dev/null
+curl -s -X POST http://localhost:5100/api/v1/output-bindings -H "$H" -H 'content-type: application/json' \
+  -d "{\"name\":\"ap-invoices\",\"documentTypeKey\":\"Invoice\",\"mappingKey\":\"erp-ap-import\",\"destinationId\":\"$DEST\"}" | jq .id
+# Make the next call fail once, approve an invoice in review (or wait for an auto-approval), and watch it retry.
+curl -s -X POST http://localhost:8086/__control/erp-ap/fail-next
+curl -s "http://localhost:5100/api/v1/deliveries?documentId=$DOC" -H "$H" | jq '.items[] | {status, attempts, lastStatusCode, lastError}'
+curl -s http://localhost:8086/__admin/requests | jq '.requests[] | {url: .request.url, key: .request.headers["Idempotency-Key"]}'
+# Send a delivery again: from its snapshot, or rendered again (mode rerender, optionally mappingVersion).
+curl -s -X POST "http://localhost:5100/api/v1/deliveries/$DELIVERY:redeliver" -H "$H" -H 'content-type: application/json' -d '{"mode":"snapshot"}' | jq .
+```
+
+A `blob` destination (`{"path":"ap","fileNameTemplate":"{{meta.documentId}}-{{meta.version}}.json"}`) writes below
+`Delivery:DropRoot/<tenantId>/` (`/data/outbound` in compose: `docker compose exec worker ls -R /data/outbound`). A
+`pull` destination keeps its deliveries in a feed that a receiving system polls with an API key of scope
+`deliveries:read` (optionally restricted to the destination): `GET /api/v1/feeds/<id>?after=<sequence>` and
+`POST /api/v1/feeds/<id>:ack {"upTo": <sequence>}` (docs/05).
+
+### Source routing (mailboxes, watched folders, source rules)
+
+docs/11 §7 (P4 part A). Everything here needs the tenant's `sourceRouting` switch (Settings → features, or
+`PUT /api/v1/settings` with `features.sourceRouting: true`); a tenant without it is never polled and ingests as before.
+
+- **Mailbox channels.** The worker reads each active `Mailbox` channel every `Intake:PollInterval` (30 s). In compose and
+  under the AppHost the platform server is GreenMail (`Mail:ImapHost`), so a channel needs only its address:
+  `POST /api/v1/channels {"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local","trustedForwarderDomains":["bureau.example"]}}`
+  (GreenMail accepts any password; a real server takes the channel's write-only `secret`). The channel's `sourceKey`
+  is null until the worker's first poll logs in to the mailbox and claims it (no other channel then reads that
+  folder of that mailbox); a message that does not read as a mail is skipped, stays in the mailbox and is named in
+  `lastError`. Send it a mail through
+  GreenMail's SMTP port 3025, for example `curl smtp://localhost:3025 --mail-from rechnungsversand@nordwind.example
+  --mail-rcpt invoices@tenant-a.local --upload-file rechnung.eml`. Each message is ingested once (the channel's cursor
+  is `{UIDVALIDITY}:{UID}`, and the message id, a hash of the `Message-ID` header and the sender, is unique per
+  channel, so a folder renumbered by its server is not ingested twice); the .eml is the raw artefact, its attachments
+  (and those of a message attached to it) the items. The ingestion records the sender, recipients, mailbox, subject
+  and the `Authentication-Results` the receiving server wrote. Only a header whose `authserv-id` is listed in
+  `Mail:TrustedAuthServIds` (or the channel's `authServId`) is believed; with none listed no sender is authenticated.
+  The platform's list names the receiving server in front of the platform IMAP server, one for every tenant, and counts
+  for mailboxes on that server only: a mailbox on a tenant's own host believes only its channel's `authServId`, and
+  without one no sender there is authenticated. GreenMail writes no header, so compose and the AppHost list
+  `mx.platform.local`, and an .eml carries the header itself to try the DMARC rules: `Authentication-Results:
+  mx.platform.local; dmarc=pass header.from=nordwind.example`. A forward from a trusted forwarder domain (not a free-mail provider) is unwrapped to
+  its original sender. A poll that fails names the reason in the channel's `lastError`.
+- **Watched folders.** The worker scans `Intake:FolderRoot/<tenant slug>/<channel path>/` (in compose
+  `./fixtures/dropzone/tenant-a/...`, mounted at `/data/dropzone`): `POST /api/v1/channels
+  {"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}`, then copy a PDF to
+  `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/`. A file is taken once its size and time stayed the same
+  for `stableSeconds` (two scans at least), recorded with its folder path relative to the channel root
+  (`lieferanten/nordwind/`, the values view's `source.folderPath`) and moved to `processed/` (or `failed/`) below the
+  channel root. Hidden files, `.part`/`.tmp` files and links are skipped; a named pipe or other file that is not a
+  regular one is moved to `failed/`, and on Linux files are read and moved through folder handles that never follow
+  a link. The container's user must be able to write the folder (`chmod -R a+rwX fixtures/dropzone` on Linux).
+- **Source rules.** `POST /api/v1/suppliers/{id}/source-rules` with a sender, sender domain, recipient, channel and
+  folder prefix, subject or file-name expression; `POST /api/v1/routing:test` shows what a source would get and why.
+  Documents are created with the supplier (and a pinned type) at ingest; the Match stage corroborates it with the VAT id
+  and IBAN (`SUPPLIER_CONFLICT` for an `Exclusive` rule, the content's supplier for a default). Sender rules need DMARC
+  (or SPF with an aligned DKIM signature) unless the rule says `requireSenderAuth: false`.
+
+### Supplier layouts (identification rules and field mappings)
+
+docs/11 §8 (P4 part B). Everything here needs the tenant's `supplierLayouts` switch (`PUT /api/v1/settings` with
+`features.supplierLayouts: true`); a tenant without it is never identified by a layout and its documents run as
+before. A layout is one design of one type of a supplier: an identification rule (which words prove the design) and a
+field mapping (where each value is printed).
+
+- **Demo invoices.** `fixtures/demo/uploads/tenant-a/` holds four Nordwind invoices in the design of its ERP
+  (`Nordwind_Rechnung_NW-RE-2026-*.pdf`: "Rechnung" in the title, the VAT id `DE312456789` in the letterhead) and four
+  from its web shop (`Nordwind_Webshop_Rechnung_WS-2026-*.pdf`: "RECHNUNG / INVOICE" top right, the VAT id on page 2).
+  They are drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoNordwindInvoices.cs` and redrawn only on request
+  (`REGENERATE_DEMO_PDFS=<file name>[,<file name>…]`, docs "Demo data"); the layouts the tests use for them are in
+  `tests/DocProc.Pipeline.Tests/Layouts/NordwindLayouts.cs`.
+- **A layout.** `POST /api/v1/suppliers/{id}/layouts` (ConfigAdmin) with `layoutKey`, `name`, `documentTypeKey`,
+  `identification` (for example `{"all":[{"text":"Rechnung","page":1,"region":"title"},{"supplierValue":"vatId","page":1}]}`)
+  and `mapping` (`{"fields":{"invoiceNumber":{"rules":[{"strategy":"label-right","labels":["Rechnungs-Nr."]}]}, ...}}`,
+  docs/11 §8.1) saves version 1 as a Candidate; `POST /api/v1/supplier-layouts/{id}/versions/1:activate` makes it
+  Active with the tenant's warm-up once its replay set is not empty: the supplier needs an approved document the rule
+  holds on. Without one the activation is refused ("The replay set is empty"); the first document in that design then
+  arrives with `NEW_LAYOUT` naming the Candidate, and a `MappingAuthor` approving it with "Confirm against pending
+  layout" activates it (docs/11 §8.3, Correction (P4, part D); `fixtures/demo/layouts/nordwind-invoice-erp.json` is
+  the ERP design's layout as such a body). `POST /api/v1/identification-rules:test` shows on which of the supplier's documents a
+  rule holds, with the words that made it hold; `GET /api/v1/suppliers/{id}/layouts:resolve?documentId=` explains what
+  the resolver decides for a document.
+- **What happens.** For a supplier known at ingest (a source rule, the channel default) the layout is resolved in
+  Classify, otherwise in Match once the VAT id or IBAN names the supplier. A layout whose rule holds sets the type
+  (`TypeSource Identification`), fills the fields and lines (`ExtractionMethod Profile`, no LLM call) and is named in
+  `appliedConfig.layout`. A supplier with an Active layout, or `layouts.required`, whose layouts all fail gets the
+  blocking `NEW_LAYOUT` (the old layout is never applied, the classifiers only propose a type) and goes to review.
+- **Warm-up.** The first `reviewWarmup` documents under a newly activated version go to review with `LAYOUT_WARMUP`
+  ("document 1 of the first 5"), already filled by the layout. The default is 5 (decision 2 of docs/11 §24); a tenant
+  admin sets another value with `PUT /api/v1/settings {"layoutReviewWarmup": 0}` (the demo tenant's warm-up of docs/11
+  §23 P4): versions activated from then on take it, and Active versions whose warm-up is still the old tenant value
+  follow, so the next document of a version inside its warm-up auto-approves. Per activation: `{"reviewWarmup": n}`
+  (a MappingAuthor may ask for the tenant's warm-up or more; only a tenant admin may ask for fewer, otherwise `403`
+  with `code: LAYOUT_WARMUP_BELOW_TENANT`).
+- **Learning in review** (P4 part C). A `NEW_LAYOUT` document arrives pre-filled by the `layout-prefill` step
+  (`appliedConfig.prefill.sources`: the pending Candidate's mapping, the supplier's other layouts' labels anywhere, its
+  master data and known values, each Inferred with its place; the LLM fills the rest only when a provider is
+  configured), so without an LLM it waits in review instead of for a provider. The reviewer corrects values on the page
+  and approves with `{"learnLayout": {"layoutKey": "nordwind-invoice-webshop"}}` (or calls `:learn-layout`):
+  `AnchorLearner` turns the confirmed values into the field mapping, the rule is the one marked
+  (`identifiers:propose` turns a selection into an identifier) or a proposed one ("RECHNUNG / INVOICE" in the page-1
+  title area plus `supplierValue: vatId`). A user with the `MappingAuthor` grant (`tenant-a-reviewer` in the dev realm,
+  and every tenant admin) gets the layout Active after its replay, with the tenant's warm-up; anyone else a Candidate,
+  which the next document in that design waits for (`pendingLayoutVersionId`, pre-filled from it) and which
+  `GET /api/v1/notifications` reports to the MappingAuthors. `POST /api/v1/supplier-layouts/{id}/versions/{v}:activate
+  {"reprocessWaiting": true}` activates it and sends the waiting documents back from Classify.
+- **Governance.** `POST /api/v1/documents/{id}:golden` keeps an approved document's values as a golden document;
+  `POST /api/v1/regression-runs {layoutId, version}` runs the golden documents through a version, `POST
+  /api/v1/sandbox/runs` a document through a draft rule and mapping, both without side effects. `GET
+  /api/v1/config/bundle` exports the configuration as a signed JSON bundle and `POST /api/v1/config/bundle:import
+  {"bundle": …, "mode": "dry-run"|"apply"}` checks and imports it (layouts as Candidates, rules and bindings disabled;
+  each part only where its feature is on, with the checks of its own endpoint, and an apply all or nothing); the
+  signature key is `ConfigBundles:SigningKey` (below), which only Development and Testing may leave unset.
+
+### Configurable steps and LLM budgets
+
+docs/11 §10 and §16 (P5 part A). The steps need the tenant's `configurableSteps` switch (`PUT /api/v1/settings`
+with `features.configurableSteps: true`, or the admin console's Feature switches); without it every document runs the
+built-in steps as before, whatever a supplier's settings say. Budgets need no switch.
+
+- **See a type's pipeline.** `GET /api/v1/step-kinds` lists every step kind per phase with its parameter schema;
+  `GET /api/v1/document-types/Invoice/resolved-pipeline?supplierId=<id>` shows the steps a document of that supplier
+  runs, which layer changed each, the overrides skipped, and its `hash`. A processed document's `pipelineHash`
+  (`GET /api/v1/documents/{id}`) reads back with `GET /api/v1/pipelines/{hash}`; its timeline has
+  `document.pipeline_applied` where the pipeline was not the type's own.
+- **Change a supplier's steps.** `PATCH /api/v1/suppliers/{id}` with
+  `{"settings": {"pipelineOverrides": [{"op": "disable", "step": "llm"}, {"op": "param", "step": "llm", "params": {"effort": "low"}}]}}`
+  (`sourceRouting` is needed for supplier settings, as before). An override of `classify.identification`, the review
+  gate, a match or publish step, or a parameter its kind does not take is a 400 that names the place. A group's
+  `settings.pipelineOverrides` apply first, a layout version's `mapping.pipelineOverrides` last.
+- **Look a value up.** Create an `http` destination (`POST /api/v1/destinations`, `outputs` switch) whose `urlTemplate`
+  takes the request's values, for example `https://erp.example/api/vendors?vat={{output.vat}}`, then add
+  `{"op": "insertAfter", "step": "map", "with": {"id": "erpVendor", "kind": "http-lookup", "params": {"destinationId": "<id>",
+  "request": "{\"vat\": supplier.vatId}", "response": "{\"ext.erpVendorId\": response.id}"}}}`. The Extract stage
+  calls it (https to a public host only; in Development `Delivery:DevelopmentHosts` lets `mock-erp:8080` through, as for
+  deliveries), writes the mapped values as Inferred (`source.method: Lookup`), keeps the answer per document and request
+  in `LookupResults` (a reprocess that sends the same request maps the kept answer with the step's current `response`,
+  without calling again), and raises `LOOKUP_FAILED` when the call or the mapping fails.
+- **Cap the LLM.** `PUT /api/v1/llm-budgets {"budgets": [{"period": "month", "limitUsd": 50}, {"period": "day", "limitUsd": 0,
+  "stage": "Extract"}]}` (TenantAdmin). A call that would pass a budget is not made; the document goes on without it
+  and to review with `LLM_BUDGET_EXCEEDED`. `GET /api/v1/llm-budgets` shows each budget with this period's spend. The
+  compose demos run without an LLM key and are not affected.
+
+### Rules, custom types and tenant fallback rules
+
+docs/11 §8.5, §9.3, §9.4 and §11 (P5 part B). No new setting; what each part needs:
+
+- **P5 rule kinds and definition flags** (`configurableTypes`): in a draft's `rules`, for example
+  `{"id": "r_qty", "kind": "compare", "params": {"left": "items[*].quantity", "op": "gt", "value": 0}}`,
+  `{"id": "r_sum", "kind": "sumEquals", "params": {"path": "lines[*].lineNet", "equals": "subtotalNet"}}`,
+  `{"id": "r_row", "kind": "arithmetic", "params": {"rows": "lines[*]", "expression": "quantity * unitPrice", "equals": "lineNet"}}`
+  or `{"id": "r_ref", "kind": "requiredIf", "params": {"path": "supplierCustomerRef", "when": "$exists($supplier.attributes.erpVendorId)"}}`.
+  A rule may raise the definition's own code: declare `"flags": [{"code": "X_LATE", "severity": "warning",
+  "message": {"en": "…", "de": "…"}}]` and put `"flag": "X_LATE"` on the rule. Validate the draft
+  (`POST /api/v1/document-types/{key}/versions/{v}:validate`) to see what publish refuses.
+- **Auto-approval of a type outside the invoice family**: `processing.review` with `"autoApprove": true` and
+  `"requirePassedRules": ["r_qty", …]`; `blockOnWarnings` and `lines` tighten it. The review task's reason, or the
+  `gate` of the `document.validated` event, says which condition held a document.
+- **A tenant's own type end to end** (`configurableTypes` and `customTypes`): `POST /api/v1/document-types` with the
+  definition (its `classification.keywords` titles classify it), publish it, and with an LLM provider configured its
+  documents are extracted against the type's schema (`doc_<key>`). Without a provider (the compose default) they go to
+  review with the type's empty tree, as before.
+- **A rule for all suppliers without own layouts** (`supplierLayouts`, ConfigAdmin): `POST
+  /api/v1/document-types/price-list/identification-rules {"name": "Preisliste im Titel", "rule": {"all": [{"text":
+  "Preisliste", "page": 1, "region": "title"}]}}` saves version 1 as a Draft with its test ("would have matched N
+  price-list documents, M other documents"); from a document in review `POST /api/v1/documents/{id}/identification-rules
+  {"rule": …}` does the same for its type. `POST /api/v1/identification-rules/{id}/versions/1:activate` (with
+  `{"confirmOtherTypes": true}` when the test matched other types) makes it run: the next document from an unknown
+  sender, or from a supplier without layouts, that it holds on is typed by it (`typeSource: Identification`,
+  `identificationRuleVersionId`), and the keyword rules and the LLM are not asked.
+
+### Price lists, master data and acknowledgements
+
+docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings: `Delivery:StatusPollInterval`,
+`Delivery:StatusPollBatchSize` and `Pipeline:MasterDataSyncInterval` ("Settings reference" below). What each part needs:
+
+- **Price lists that auto-approve** (`configurableTypes`, and `configurableSteps` for the templates' `defaults` step and
+  the `llm` step's `exclude`): adopt `std.price-list` or `std.daily-specials` (`POST /api/v1/document-types
+  {"from": {"template": "std.price-list", "mode": "adopt"}}`); it starts with auto-approval off, and `POST
+  /api/v1/document-types/price-list:upgrade-base {"autoApprove": true}` (ConfigAdmin) switches it on. A list read by a
+  layout's `column-table` then auto-approves when every row was read (`r_table`), article numbers are unique, prices
+  positive and no price moved more than 25 % against the last approved list of the supplier (`r_delta`; one that did
+  goes to review with the rows named in the flag). Specials are `urgent` with the review task due at the end of their
+  day; one printed for a past day is blocked (`r_not_expired`), and a second list of the same supplier and day arrives
+  with `REVISION_OF`, resolved in review (`POST /api/v1/documents/{id}:resolve-revision {"resolution":
+  "supersedes"|"additional"|"duplicate"}`, the panel above the form; a list resolved as `supersedes` replaces the
+  earlier one once it is approved, and a rejected one replaces nothing). Without `configurableSteps` a specials list
+  without a printed date has no `validFrom` (the `defaults` step that falls back to the day received does not run).
+- **The P5 demo files** are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/
+  DemoPriceLists.cs`, redrawn only with `REGENERATE_DEMO_PDFS=<file name>`): `Nordwind_Preisliste_2027-01.pdf` (the
+  P2 list's 412 articles and prices in the design of the later lists, "Anzahl Artikel: 412"),
+  `Nordwind_Preisliste_2027-02.pdf` (12 prices changed within 25 %, "Anzahl Artikel: 412"),
+  `Nordwind_Preisliste_2027-03.pdf` (one article, number 104539, up 40 % against February),
+  `Nordwind_Preisliste_2027-04.pdf` (February's prices with two small changes), `Nordwind_Tagesangebote.pdf` and `Nordwind_Tagesangebote_Nachtrag.pdf` (two lists
+  without a date, so valid on the day received), `Nordwind_Tagesangebote_2026-11-04.pdf` (printed for 4 November 2026,
+  expired on any later day), `Suedhof_Preisliste_2027-01.pdf`, `Suedhof_Preisliste_2027-02.pdf` (Südhof Feinkost, a
+  supplier without layouts) and `Bergquell_Preisliste_2027.pdf` (a sender that is no supplier). The pipeline tests
+  `PriceListsEndToEndTests` and `PriceListDemoFixturesTests` run them with the layouts they use, and
+  `fixtures/demo/layouts/nordwind-daily-specials.json` is the specials layout "Demo: price lists, specials and
+  fallback rules" posts.
+- **Specials to a POS hub**: copy `fixtures/outputs/pos-promotions.jsonata` into a mapping for `daily-specials`, bind it
+  to an http destination `http://mock-erp:8080/api/promotions` with the condition `roles.validUntil >= $today()`; the
+  stub answers `201` with a `promotionId`, and its request journal (`GET http://localhost:8086/__admin/requests`) shows
+  the payload of docs/11 §13.10 (`replaces` names the list a superseding one replaces). `generic-article-prices-json`
+  (`GET /api/v1/output-templates`) is the article-price import without the tenant's lookups.
+- **Acknowledgements**: `PUT /api/v1/destinations/{id}/acknowledgements` with `{"statusPoll": {"urlTemplate":
+  "http://mock-erp:8080/api/ap/invoices/{externalId}/status", "intervalMinutes": 1, "mapping": "{ \"status\":
+  state = \"POSTED\" ? \"posted\" : (state = \"REJECTED\" ? \"rejected\" : \"pending\"), \"message\": text }"}}`
+  (the poll goes to the destination's own origin: scheme, host and port) makes the platform ask `mock-erp` after each delivery;
+  `POST http://localhost:8086/__control/erp-ap-status/reject-all` makes it answer `REJECTED` ("Kreditor gesperrt"), so
+  the next poll raises `EXTERNAL_REJECTED` and an integration-issue task (the document stays approved; the review
+  screen's panel resolves it with a note), and `…/reset` goes back to `POSTED`. A receiver that calls back instead
+  gets `PUT /api/v1/destinations/{id}/acknowledgements {"callback": {"auth": "hmacSha256", "mapping": …}}` and `POST
+  /api/v1/destinations/{id}/callback-secret` (the platform generates the secret and answers it once, `{"destination":
+  …, "secret": "…"}`), and signs `<X-DocProc-Timestamp>.<destinationId>.<body>` with it in `X-DocProc-Signature:
+  sha256=<hex>` on `POST /api/v1/integrations/callbacks/{destinationId}` (the destination id as in that URL).
+- **Supplier master data** (TenantAdmin): `POST /api/v1/suppliers:import {"format": "csv", "content": "Kreditor;Name;
+  USt-IdNr\nV-10042;Nordwind Großhandel GmbH;DE312456789", "columns": {"attributes.erpVendorId": "Kreditor", "name":
+  "Name", "vatId": "USt-IdNr"}}` answers the dry run's report; `"dryRun": false` applies it, and the same file again
+  changes nothing. `POST /api/v1/master-data-sources` with `{"transport": "http", "destinationId": …, "mapping": …,
+  "schedule": "CRON_TZ=Europe/Berlin 15 3 * * *"}` reads an http destination every night (`:dry-run` and `:run` on
+  request; an upload source takes `{"records": …}` in `:run`).
+
+### Processing, rules and onboarding screens
+
+The screens of P5 part D (docs/05 "P5 screens"), in the customer portal as the tenant admin (who is also the tenant's
+ConfigAdmin and IntegrationAdmin). Each needs its switch in the admin console's Feature switches; without it the
+screen is not offered.
+
+- **A supplier's steps** (`configurableSteps`): Suppliers, open a supplier, tab Processing. Pick a type: the table lists
+  every step per phase, who set it (built in, type, group, supplier, layout) and its parameters; fixed steps carry a
+  lock. "Switch off a step", "Change parameters" (the form comes from `GET /api/v1/step-kinds`; for example the `llm`
+  step's `maxCostPerDocument`) and "Add http lookup" (an http destination from Settings > Integrations, the request and
+  response JSONata) edit the supplier's `pipelineOverrides`; "Test call" runs the lookup for one of the supplier's
+  documents and shows what it would write, without writing or storing anything (`POST /api/v1/pipelines/lookups:test`).
+  In the compose stack a destination on `mock-erp` is a private address, so the test answers "Address refused", which
+  is the SSRF guard working; a public https host answers for real. Save overrides stores them.
+- **LLM budgets**: Settings > AI providers, LLM budgets (a day, month or document budget, for every stage or one).
+- **Rules of a type** (`configurableTypes`): Settings > Document types, open a type (a copy or a type of the tenant's
+  own; an adopted type is forked first), tab Rules. Each rule gets a form from `GET /api/v1/rule-kinds`; the
+  definition's own flags, the review gate keys and "Test against a document" (the saved version's checks on a recent
+  document of the type, `:test-rules`; nothing is written) are below. Tab Processing shows the type's steps.
+- **Tenant fallback rules** (`supplierLayouts`): the type editor's Identification tab lists them with their save-time
+  test ("would have matched N documents of this type, M other documents"); New rule takes the rule as JSON, e.g.
+  `{"all": [{"text": "Preisliste", "page": 1, "region": "title"}]}`. From review: open a typed document no layout
+  filled (for the Südhof demo, `fixtures/demo/uploads/tenant-a/Suedhof_Preisliste_*.pdf` uploaded and set to
+  `price-list`), tab Identify, press I and click "Preisliste" in the title, then "Use for all suppliers without own
+  layouts" and Activate.
+- **Revisions, priority and acknowledgements**: a second specials list of the day shows the earlier one side by side
+  in its `REVISION_OF` panel; the inbox's "Urgent first" (with `configurableTypes`) sorts urgent reviews first, and the queue marks them; a
+  rejection by the receiving system shows in the Deliveries tab. Settings > Integrations > Destinations,
+  "Acknowledgements" sets the callback, its secret and the status poll; Master data imports suppliers (Dry run, then
+  Import) and keeps the sources and their runs.
+- **Insights > Onboarding**: the sidebar's Insights, shown to a tenant with one of `sourceRouting`, `supplierLayouts`,
+  `customTypes` or `configurableSteps` (a fresh tenant with every switch off has no Insights entry, and its inbox has
+  no "Urgent first" or "Review due" until `configurableTypes`); "Create layout" needs `supplierLayouts` and "Add
+  source rule" `sourceRouting`. The window is the last 7, 30 or 90 days (`GET /api/v1/insights/automation?from=&to=`).
+
 ### Demo data
 
 With `Persistence:SeedDemoDocuments=true` (the `appsettings.Development.json` default) the API's
@@ -90,8 +767,8 @@ clean checkout without Docker or an LLM key:
 | What | Rows |
 |---|---|
 | Documents | Every file under `fixtures/demo/<tenant slug>/` is ingested for that tenant through the same `UploadIntake` code path as `POST /ingestions` (raw blob, ingestion with one candidate item, `ProcessIngestion` on the in-process queue), from the tenant admin's address. The pipeline then processes them like any upload. |
-| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) ends `Failed` at once (a miss is an `InvalidRequest`, which no retry fixes) with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use, and warns instead when the active configuration is a real provider whose key the gateway cannot resolve (no `Llm:Secrets:<secretRef>` or `LLM_SECRET_<SECRET_REF>`), because every LLM call would then fail. |
-| Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
+| Replay provider | An active platform configuration of kind `Replay` (`DemoData.PlatformReplayConfig`) with the same models as the platform Anthropic one, so the gateway answers the demo PDFs' LLM calls from `fixtures/demo/llm-replay`. Added only when no other platform configuration is active: a dev database that already runs on a real key keeps it. A request with no fixture (any other PDF you upload) ends `Failed` at once (a miss is an `InvalidRequest`, which no retry fixes) with "No recorded response … This document has no demo fixture …" (the `LlmReplayMissHint` the demo data registers) instead of `LLM_PROVIDER_UNAVAILABLE`; to use a real key, store it and enable the Anthropic configuration in the admin console (the newest active platform configuration wins) or disable the Replay one. The start-up log names the platform configuration in use (under docker compose, before `llm-setup` has applied `.env`: its own log names the one in use afterwards), and warns instead when the active configuration is a real provider whose key the gateway cannot resolve (no `Llm:Secrets:<secretRef>` or `LLM_SECRET_<SECRET_REF>`), because every LLM call would then fail. |
+| Members | `TenantMember` rows for `tenant-a-admin`, `tenant-a-reviewer`, `tenant-b-admin`, `tenant-b-reviewer` and `tenant-b-viewer`, with the dev issuer's `sub` (`DevSeed.SubjectFor`), e-mail and name, so the members screens list the people you sign in as. |
 | LLM usage | About 50 `LlmUsageEntry` rows over the 14 UTC days up to the first start (both tenants, platform Anthropic configuration, classify and extract, two failed calls), each at 08:00 UTC of its day plus a fixed offset (today's clamped to the start time), marked by a `ProviderRequestId` starting `demo-usage-`, so the usage charts have a history. The rows are written once: the history does not move forward with later starts; reset `data/` to refresh it. |
 
 The demo documents and their designed outcome:
@@ -123,6 +800,22 @@ again; "in the outbox" is the publish stage's own rule (a row of the settlement'
 settlement), so a row left by an earlier settlement, such as a rejection before a reprocess, does not count;
 otherwise `Failed`, `NeedsReview` and the settled states are left alone, as is a document persisted `Validated` (which
 the pipeline never does; it is logged). Every handler drops a message whose work is already done, so a twin is harmless.
+For every tenant, not only the demo ones, the publish sweeper (`Pipeline:PublishSweep*` below) covers the rest: approve,
+reject and auto-approval write the outbox row with the decision, so a publish message lost after that commit leaves a
+row the publish stage never handed on, and the first sweep after the restart that finds the decision older than the grace
+period (a few minutes with the defaults) queues the publish stage for it; its timeline entry then says `recoveredBy: "publish-sweeper"` (docs/11 §13.5).
+
+**Demo: a decision whose publish message is lost** (the P0 demo of docs/11 §23). In the Development environment
+`Pipeline:Faults:CrashBeforePublishEnqueueMarker` names a file; while that file exists, the next decision's publish
+nudge (approve, reject or auto-approval) deletes it and ends the process at once (`Environment.FailFast`), after the
+decision and its outbox row were committed and before the publish message is queued (`CrashBeforePublishEnqueueQueue`).
+With compose, start the stack with the key set for the API (`Pipeline__Faults__CrashBeforePublishEnqueueMarker:
+/tmp/crash-before-publish-enqueue` in a `docker-compose.override.yml`), arm it with
+`docker compose exec api touch /tmp/crash-before-publish-enqueue`, and approve a document in review: the approve call
+gets no answer, `restart: unless-stopped` starts the API again, the document is `Approved` without a publish entry,
+and the first sweep after the grace period publishes it with `recoveredBy: "publish-sweeper"` in its timeline. The
+marker is deleted before the process ends, so the restarted API does not crash again, and the next approval publishes
+normally. Outside Development the key is ignored, and no shipped configuration sets it.
 `DemoDataTests` (`tests/DocProc.Api.Tests`) boots the API in the Development environment and asserts the table
 above and that a second start-up seeds nothing; `DemoDataHostTests` (`tests/DocProc.Pipeline.Tests/Demo`) interrupts
 a start-up with the delivery note mid-pipeline and six ingestions queued, restarts, and asserts that all seven
@@ -136,11 +829,19 @@ start seeds and ingests everything again, with a usage history that ends today. 
 **Replay fixtures.** `fixtures/demo/llm-replay/<request hash>.json` are `FileReplayStore` files: a readable
 header, the usage and a hand-authored, schema-valid answer (`tests/DocProc.Pipeline.Tests/Demo/DemoAnswers.cs`).
 The hash is `RequestHasher.Hash` over model, prompt, task text, schema, options and the document bytes the
-stage sends (the PDF for extraction, the rendered first page PNG for classification).
+stage sends (the PDF for extraction, the rendered first page PNG for classification, page thumbnails for the LLM
+splitter).
 `DemoFixtureTests.Llm_replay_fixtures_answer_exactly_the_requests_the_demo_pdfs_produce` boots the processing
 stack with the API's `appsettings.json` and `appsettings.Development.json`, lets the demo data run with a capturing
 provider in place of the replay store, hashes every request the real stages send and compares the resulting files
-with the committed ones. After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
+with the committed ones. It then forks tenant A's `Invoice` with the demo custom field (`fixtures/demo/types`, see
+"Document types" above) and reprocesses the PDF invoice with `configMode: "current"`, which adds the third fixture:
+the extraction with `x_custom`. Last it forks `CreditNote` with the field of docs/11 §5.3
+(`fixtures/demo/types/credit-note-supplier-customer-ref.field.json`) and uploads the credit note of
+`fixtures/demo/uploads/tenant-a`, which adds the fourth: that credit note's extraction with `x_custom` ("Demo: types
+as data" below). Then it adopts `std.price-list` and uploads the Nordwind price list of the same folder, which adds
+the fifth and sixth: its split (14 pages are too many for the heuristic splitter) and its classification, both
+answered so that it arrives as one document of type `Other` ("Demo: manual mapping" below). After a change to a prompt, a schema, the LLM options, the models, the page rendering or a
 demo PDF it fails and says so; regenerate and commit:
 
 ```bash
@@ -148,21 +849,699 @@ UPDATE_DEMO_FIXTURES=1 dotnet test --project tests/DocProc.Pipeline.Tests -c Rel
 git add fixtures/demo/llm-replay
 ```
 
-The two PDFs are committed bytes, drawn once by `tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` with PDFsharp
-(test-only, see below). PDFsharp writes a new document id on every save, so the normal run never rewrites them;
-after editing `DemoPdfs`, run once with `REGENERATE_DEMO_PDFS=1` and then with `UPDATE_DEMO_FIXTURES=1`. To add a
-demo document, drop the file into the tenant folder; if it is a PDF that needs an LLM call, add its answer to
-`DemoAnswers` (and its expected request to the fixture test) and regenerate.
+The four PDFs (the two of `tenant-a`, the credit note and the price list of `uploads/tenant-a`) are committed bytes,
+drawn once by `tests/DocProc.Pipeline.Tests/Pdf/DemoPdfs.cs` and `DemoPriceList.cs` with PDFsharp (test-only, see
+below). PDFsharp writes a new document
+id on every save, so the normal run never rewrites them; after editing `DemoPdfs`, run once with
+`REGENERATE_DEMO_PDFS=1` (every PDF) or `REGENERATE_DEMO_PDFS=<file name>` (that one only, so the others' bytes and
+fixtures stay as they are) and then with `UPDATE_DEMO_FIXTURES=1`. To add a demo document, drop the file into the
+tenant folder (or into `uploads/<tenant slug>` for one a demo uploads by hand: the demo data does not ingest it);
+if it is a PDF that needs an LLM call, add its answer to `DemoAnswers` (and its expected request to the fixture
+test) and regenerate. `DemoPdfClassificationTests` holds which demo PDFs the keyword rules classify.
 
-The classification hash covers the PNG that PDFium renders. The committed fixtures are generated on linux-x64 (the
+The classification and split hashes cover the PNGs that PDFium renders. The committed fixtures are generated on linux-x64 (the
 CI platform, `DemoData.FixtureCapturePlatform`); a machine whose PDFium build rasterises the page differently gets a
-replay miss for the delivery note, which then ends `Failed`, and the API logs a warning saying so at start-up. On any
+replay miss for the delivery note and the price list, which then end `Failed`, and the API logs a warning saying so at start-up. On any
 platform other than linux-x64 (`RuntimeInformation`: Linux and X64), `DemoFixtureTests` compares only the extraction
-fixture, which hashes the PDF bytes and is platform-independent, `UPDATE_DEMO_FIXTURES=1` rewrites only that one, and
+fixtures, which hash the PDF bytes and are platform-independent, `UPDATE_DEMO_FIXTURES=1` rewrites only those, and
 `DemoDataTests` skips the delivery-note assertions; both tests then report themselves skipped with this explanation.
-Do not commit a classification fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
+Do not commit a classification or split fixture regenerated on such a machine. `fixtures/demo/.gitattributes` (`* -text`)
 keeps every file's bytes exactly as committed on every checkout, whatever `core.autocrlf` says, since the bytes key
 the request hashes.
+
+### Demo: types as data
+
+The P1 demo of docs/11 §23, run as the product owner needs it: a tenant gets a document type the system has no
+fields for, or a supplier-specific identifier on a known one, and defines the fields itself, custom fields
+included, without a code change. docs/11 tells it for the tenant "Acme"; in the demo data that is tenant A,
+Gasthaus zur Post GmbH (`tenant-a`). Run it on a fresh stack (`docker compose up --build`, README "With Docker
+Compose"; no LLM key needed) or in the dependency-free dev mode (the same screens with the dev sign-in, API on
+port 5100). The screens are the portal on http://localhost:5173 and the admin console on http://localhost:5174.
+
+1. **Before.** As `tenant-a-reviewer`, open the Bio-Hof Müller delivery note ("(no number)", Needs review) from the
+   inbox: it says "This document type has no form to review yet", the gap the product owner hit. As
+   `tenant-a-admin` (a reviewer has no Settings), Settings > Document types shows the tenant's catalogue read only
+   under "Document types are switched off", because `configurableTypes` is off.
+2. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types on (Types of the tenant's own as well, to offer New type for a type no
+   template covers).
+3. **Adopt and fork.** As `tenant-a-admin` in the portal: Settings > Document types. Price list > Adopt (`std.price-list`
+   v1, published at once). Credit note > Fork to edit (a v2 draft under the key `CreditNote`). Add field, with the
+   values of `fixtures/demo/types/credit-note-supplier-customer-ref.field.json` (the field of docs/11 §5.3):
+
+   | Field | Value |
+   |---|---|
+   | Key / Kind | `supplierCustomerRef` / Number / identifier |
+   | Label (EN) / (DE) | Our customer no. at supplier / Unsere Kundennummer beim Lieferanten |
+   | Section | Document |
+   | Description | `The account number the supplier assigned to us, printed as Kunden-Nr. or Kd.-Nr.` (exactly: with the key and kind it keys the replay fixture) |
+   | Printed as (DE) / (EN) | Kunden-Nr., Kd.-Nr., Kundennummer / Customer No., Account No. |
+   | Pattern | `^[0-9]{3}\s?[0-9]{6}$` |
+   | Indexed | on |
+
+   Save draft, then Validate: "The checks passed", extraction schema `invoice_extraction@1+x.58a31050`, the field
+   listed as Added. Versions > Publish (v2; v1 becomes Deprecated).
+4. **A credit note with that field arrives.** Inbox > Upload > `fixtures/demo/uploads/tenant-a/Getraenke-Hoffmann_Gutschrift_GS-2026-0918.pdf`
+   (a Getränke Hoffmann credit note for empties, "Kd.-Nr. 104 220815"). The keyword rules classify it ("Gutschrift"),
+   the Extract stage asks the LLM for the field in `x_custom` and is answered by the fourth replay fixture, and it is
+   stored as a version 2 tree pinned to CreditNote v2, Needs review with one warning: `LOW_CONFIDENCE` on the due
+   date, which the model worked out from "spätestens nach 30 Tagen" and which is not printed.
+5. **Review.** As `tenant-a-reviewer`, open GS-2026-0918: the header says Credit note v2, and the generated form
+   shows "Our customer no. at supplier" = `104 220815` with its AI provenance on page 1 (highlighted on the page).
+   Change it (to `104 220816`, say) and Save corrections: the field is Corrected, re-validated at once. Then set it
+   back to `104 220815` and save again: step 6 and the curl call below search for that value, and the index holds
+   whatever was saved last.
+6. **Inbox.** Tab All, Type Credit note, Field "Our customer no. at supplier", value `104 220815`, Apply: the credit
+   note alone, with the field as a column (the value is compared as the index stores it, see "Document types").
+   Through the API: `GET /api/v1/documents?type=CreditNote&field.supplierCustomerRef=104%20220815&fields=supplierCustomerRef`;
+   tenant B finds nothing.
+7. **The delivery note gets a defined type with fields.** Open the delivery note again: it now shows the generated
+   form of Delivery note v1 with empty fields (it was read before the switch; the API answers the empty tree of its
+   type) and can be filled, rows included. To add fields of the tenant's own: as `tenant-a-admin`, Delivery note >
+   Fork to edit, add `tour` (Delivery round / Tour, indexed) and `supplierCustomerRef` (Number / identifier,
+   labels Our customer no. at supplier / Unsere Kundennummer beim Lieferanten; a field without labels shows as
+   "New field"), Save draft, Validate, Publish v2. As the reviewer, Reprocess: "Use the published version of the type" is ticked
+   ("This document was read with Delivery note v1; v2 is published"), from Extract. The form now has the two
+   fields; fill Delivery note no. `L-2026-0457`, Delivery round `Rosenheim Nord`, Our customer no. at supplier `0815` and a
+   row, Save corrections, Approve. `GET /api/v1/documents?field.tour=Rosenheim%20Nord` finds it.
+
+In the compose stack the API takes Keycloak tokens; for curl, the portal client allows the password grant:
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password \
+  -d client_id=docproc-portal -d username=tenant-a-reviewer -d password=tenant-a-reviewer | jq -r .access_token)
+curl -s "http://localhost:5100/api/v1/documents?type=CreditNote&field.supplierCustomerRef=104%20220815&fields=supplierCustomerRef" \
+  -H "authorization: Bearer $TOKEN" | jq '.items[] | {documentNumber, status, fields}'
+```
+
+The replay fixture answers only this field and this PDF (see "Replay fixtures" above); a field with another key,
+kind or description sends another schema and gets a replay miss, and the credit note then ends `Failed`.
+`docker compose down -v` resets the stack (in dev mode, delete `src/DocProc.Api/data/`). What the demo shows is
+held by tests too: `DemoFixtureTests` (fork, upload, x_custom, the tree, the index row), `DemoPdfClassificationTests`,
+`DefinitionDrivenDocumentEndpointsTests` (the empty tree, the completed tree, definitions on decisions), the portal's
+`ReviewScreen.definition` tests (the reprocess option, the empty delivery note) and `DocumentTypesPanel` tests (the
+extraction hints).
+
+### Demo: manual mapping
+
+The P2 demo of docs/11 §23, in the browser: a 14-page Nordwind price list the system does not recognise is given its
+type in review, its header values are captured by pointing at the page, and its 412 rows by one table mapping drawn
+on page 1 and applied to all pages. Run it on a fresh compose stack (`docker compose up --build`; no LLM key needed),
+portal on http://localhost:5173, admin console on http://localhost:5174.
+
+The file is `fixtures/demo/uploads/tenant-a/Nordwind_Preisliste_2027.pdf` (drawn by
+`tests/DocProc.Pipeline.Tests/Pdf/DemoPriceList.cs`, see "Demo data"): 14 A4 pages, 412 articles in nine groups
+("Weißweine" … "Feinkost"), the column header Art.-Nr. / Bezeichnung / Gebinde / Preis / ab 10 / ab 50 repeated under a
+running header on every page, eleven continuation lines under a row, two rows continued at the top of the next page,
+tier prices in some rows only, and "gültig ab 01.01.2027", "Listen-Nr. PL-2027-01" and "Alle Preise in EUR" on page 1.
+Nordwind is not in the demo master data; the demo creates it from the document (step 5).
+
+1. **Switch on and adopt** (as in "Demo: types as data", steps 2 and 3). As `superadmin` in the admin console: Tenants >
+   Gasthaus zur Post GmbH > Settings > Feature switches: Configurable document types on. As `tenant-a-admin` in the
+   portal: Settings > Document types > Templates > Price list > Adopt ("price-list adopted.").
+2. **Upload.** As `tenant-a-reviewer`: Inbox > Upload > the price list > Upload 1 file. It costs two LLM calls, both
+   answered by replay fixtures: 14 pages are more than the heuristic splitter decides alone (`MaxConfidentPageCount`,
+   6), so the LLM splitter is asked and keeps the pages together; no keyword rule knows a price list, so the LLM
+   classifier is asked, whose types have none either. The document arrives as `Other`, not `Unknown` (the correction
+   in docs/11 §23), in Needs review with `UNSUPPORTED_TYPE` and `SUPPLIER_UNMATCHED`; Approve is disabled with
+   "Nothing was captured yet: none of the fields holds a value. Fill the fields before approving."
+3. **Map this document.** Open it from the inbox ("(no number)", type Other). The Fields tab shows the Map this
+   document panel: Type = Price list, Start with = Empty, Set type. The form of Price list v1 appears with every field
+   empty, the blocking `FIELD_REQUIRED` flags of Valid from, Supplier and Currency, and map mode on (Map in the page
+   viewer's toolbar; M switches it on and off). Since P5 the adopted price list follows the template's second version,
+   whose rules add two more flags: a blocking "Rule failed" of `r_table` ("The rows of 'lines' have no table report
+   …": no table mapping read them yet; the table write of step 6 resolves it) and an informational "Rule failed" of
+   `r_delta` ("There is no earlier approved document of this supplier and type to compare the values with."), which
+   does not block and stays. Approve stays disabled with the same note: a form whose fields are all
+   empty is no data (docs/11 §11), until the first value is saved in step 4.
+4. **Header values from the page.** Click Valid from in the form, then click "01.01.2027" on the page: the preview above
+   the page reads `“01.01.2027” → 2027-01-01` (editable); Enter assigns it and moves to the next empty required field,
+   Tab skips, Esc drops the selection. Likewise Price list no. ← "PL-2027-01" (click it first: it is not required) and
+   Currency ← "EUR"; Enter after Currency moves on to Supplier > Name (the supplier party is required as a whole): drag
+   a box around "Nordwind Großhandel GmbH" in the letterhead (a box reads every word in it, in reading order;
+   shift-click adds words one by one). Save corrections: each value is Corrected by the reviewer with its page and box,
+   drawn on the page, and the three required flags resolve.
+5. **Supplier.** More > Create supplier from this document: the dialog is filled from the supplier party
+   (Nordwind Großhandel GmbH); Create and assign. `SUPPLIER_UNMATCHED` resolves and the header names the supplier.
+   More > Assign supplier picks an existing one instead. A reviewer gives the name and the identifiers printed on the
+   document (VAT id, IBAN); the dialog says that e-mail domains and aliases are added by a tenant admin under
+   Suppliers, and offers the e-mail domain only to `tenant-a-admin` (the API answers 403 to a reviewer who sends one).
+6. **The table, once.** Click Table in the toolbar (the Table tab opens) and drag a box on page 1 from just above and
+   left of "Art.-Nr." down to just above the footer rule and across to the right of "ab 50". The proposal names the
+   columns Article no., Description, Pack as printed, Price, Tier price from 10 and Tier price from 50 and draws the
+   dividers on the page (drag one to move it, or move it with the arrow keys; double-click inside the box to add one;
+   the merge button beside a column removes the divider before it). "Apply to all pages" and "Group headings fill the
+   category" are ticked, and the proposal reads page 1 with them: `Proposal (page 1 only): 22 rows`, the heading
+   "Weißweine" listed under "Group headings on page 1". Read all pages: the page strip shows `412 rows, 0 rejected, 14
+   pages read`, p. 1: 22 rows and p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured
+   again at its header. Write 412 rows: one correction ("412 rows written as one correction."), the rows in the grid
+   "Articles · 412 rows" (100 a page) with their category and tier prices, and the report kept as the Table tab's page
+   strip (also after a reload). The table report resolves `r_table`; only the informational `r_delta` note is left.
+   A box drawn down to the foot of the page holds the footer of every page. It is printed at the same place on all 14
+   pages, so it is left out by itself: still `412 rows, 0 rejected`, and each page says "2 lines printed at the same
+   place on most pages (running titles, page numbers, footers) were left out." and lists them under "Left out on page
+   n". A group heading that opens most pages for another category than the rows above it is read as a heading, not
+   left out. Lines inside the box that are not rows and do not repeat go under "Lines that are not rows" with their reason; "Leave out lines like …" beside a rejected
+   line (or beside a heading under "Group headings on page n", where a title printed on one page only shows up) adds a
+   skip line for that kind of line only, so a footer of two different lines needs two clicks; typing the start of a
+   line under "Leave out lines that start with" (a number stands for any number) does the same, and "On the other
+   pages, read the part of the page from … to … %" cuts off running titles and footers by position instead. A box
+   drawn only around the header row reads every page down to its foot (or the bottom margin). Choosing "(leave out)"
+   for a tier column leaves its prices out of the rows, and its words out of every decision.
+   A reprocess from Classify (Reprocess, From stage = Classify) keeps the type set in review, and with it the rows,
+   and raises no `UNSUPPORTED_TYPE` again (the reviewer set the type and fills it).
+7. **Approve by hand.** Approve: no open flag is left, and the document is Approved. Price lists are always reviewed in
+   this phase (`review.autoApprove: false`, docs/11 §5.8).
+
+The same through the API (`$H` as under "Document types", `$DOC` the price list): `POST $DOC:set-type
+{"typeKey":"price-list"}`, `PATCH $DOC/fields` with a `source` on each correction, `POST $DOC/regions:table` with the box
+`{"x0":45,"y0":280,"x1":945,"y1":935}` on page 1 (the proposal), then again with its `columns`, `headerRow` and
+`rowAnchor`, `pages: "1-*"`, `groupHeader: {"target":"category"}` and `write: true`. `DemoPriceListTableTests`
+(`tests/DocProc.Api.Tests`) runs this on the committed PDF and checks the 412 rows; `DemoFixtureTests` holds the upload
+(the split and classification fixtures, one document of type Other in review); the portal's `ReviewScreen.mapping`,
+`ReviewTools` and `FieldHighlightOverlay.selection` tests and the review package's `MappingTools`, `mapMode` and
+`tableTool` tests hold the screens.
+
+The other review actions of P2 work on the demo data as well. More > Split into documents on the two-page invoice
+2026-131, with page 2 starting a document: the parts are read again and end `Failed` on a replay miss (their pages have
+no fixture); then More > Join parts on page 1 joins page 2 back, and the document is the whole file again, read from its
+fixture as before, as long as no other Bio-Hof Müller document is approved. Once one is (the e-invoice 2026-118, or
+the delivery note of "Demo: types as data", step 7), the extraction carries that supplier's last approved document as
+hints, its request no longer matches the fixture and the joined invoice ends `Failed` on a replay miss too; do the
+split and join first, or on a fresh stack (`DemoFixtureTests` holds both). A value typed into the wrong field of the delivery note moves to the right one when the handle beside
+its label is dragged onto that field (or with the arrows button beside it, "Move value to"): one `move` correction.
+Region OCR (a box without words, on a scan) says "No OCR is configured on this server": no OCR provider ships yet
+(docs/07).
+
+### Demo: outputs and delivery
+
+The P3 demo of docs/11 §23, in the browser: the Nordwind price list of "Demo: manual mapping" is rendered by an
+`article-price-import` mapping built in the visual field map of Settings > Integrations (the mapping of docs/11
+§13.10), previewed on the server (412 rows, tier prices as scales), bound to price lists with a destination at the
+mock ERP's `POST /api/article-prices`, and delivered on approval; a forced 503 is retried and then succeeds, while
+invoices keep going to `erp-ap`. Run it on a fresh compose stack (`docker compose up --build`), portal on
+http://localhost:5173, admin console on http://localhost:5174, the mock ERP's journal on
+http://localhost:8086/__admin/requests.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types on, and Outputs on ("Feature switches saved."). Without Outputs the portal's
+   Settings > Integrations says "Outputs are off for this tenant", the review screen has no Deliveries tab, and
+   approving publishes exactly as before (nothing is rendered or sent).
+2. **The price list, mapped but not yet approved.** Steps 1 to 6 of "Demo: manual mapping" (adopt Price list, upload
+   `Nordwind_Preisliste_2027.pdf`, set the type, map Valid from, Price list no., Currency and the supplier's name,
+   create the supplier from the document, draw the table once: `412 rows, 0 rejected, 14 pages read`, write them).
+   Leave it in Needs review: an approval is delivered to the bindings that exist when it is published.
+3. **The supplier's ERP vendor number.** As `tenant-a-admin`: Suppliers > Nordwind Großhandel GmbH > Attributes:
+   `erpVendorId = V-10042` (one `key = value` per line; mappings read them as `supplier.attributes`) > Save. The
+   mapping below refuses to render without it ("Supplier has no ERP vendor id").
+4. **A lookup table.** Settings > Integrations > Lookup tables > New table `erp-uom` > entries `KAR → KAR`,
+   `ST → ST`, `PCK → PCK`, `Karton → KAR` > Save ("4 entries saved."). `$table("erp-uom", unit, "ST")` reads it; a
+   table that does not exist is a render error, not the default.
+5. **Destinations.** Integrations > Destinations > New destination: `erp-articles`, HTTP (JSON), POST,
+   URL `http://mock-erp:8080/api/article-prices`, response mapping `importId`, update URL
+   `http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}` (method default PUT) > New destination; and
+   `erp-ap`, POST `http://mock-erp:8080/api/ap/invoices`, response mapping `erpId`. The response mapping is compiled
+   when the destination is saved: one that is not JSONata is refused under the field. Plain http to `mock-erp` is allowed only by
+   the Development setting `Delivery:DevelopmentHosts` (compose sets it); anywhere else the URL must be https and public.
+6. **The invoice mapping.** Output mappings > Integration templates > Generic AP JSON > Copy, key `erp-ap-import` >
+   Copy; the editor opens on draft v1 in code mode (the template is written in code) > Publish ("Version 1
+   published.").
+7. **The article-price mapping, in the visual map.** Output mappings > New mapping: key `article-price-import`, name
+   "Article price import", document type `price-list` > New mapping. The editor has three panes: the values view of the
+   preview document (the Nordwind list is chosen; `doc`, `roles`, `supplier`, `entity`, `source`, `meta`, `links`, with
+   `doc.lines · 412 rows`), the visual map, and the server-rendered preview. Add field rows top to bottom as the table
+   lists them, in the fixture's order, so the compiled code is the fixture property for property (Target field ←
+   Source; the gear opens the options: when empty use another field, lookup table and its default, format, constant
+   when empty, required with a message; a click on a field in the source tree fills the row being edited, relative to
+   the list it is in):
+
+   | Target | Kind | Source | Options |
+   |---|---|---|---|
+   | `header.vendorNo` | Field | `supplier.attributes.erpVendorId` | Required: `Supplier has no ERP vendor id` |
+   | `header.priceListId` | Expression | `roles.documentNumber ? roles.documentNumber : supplier.attributes.erpVendorId & "-" & roles.validFrom` | |
+   | `header.validFrom` | Field | `roles.validFrom` | Format Date `yyyyMMdd` |
+   | `header.validTo` | Field | `roles.validUntil` | Format Date `yyyyMMdd`, when empty a constant `99991231` |
+   | `header.currency` | Field | `roles.currency` | |
+   | `header.priceType` | Expression | `doc.priceBasis = "Gross" ? "B" : "N"` | |
+   | `header.mode` | Expression | `doc.listScope = "Changes" ? "UPSERT" : "REPLACE"` | |
+   | `header.dmsId`, `header.revision` | Field | `meta.documentId`, `meta.version` | |
+   | `prices` | List | `doc.lines`, only rows where `$not(status = "Discontinued")` | its rows below |
+   | `vendorArticleNo`, `ean` | Field | `supplierSku`, `gtin` | |
+   | `text` | Field | `description` | Format Shorten text, 40 |
+   | `group` | Field | `category` | |
+   | `orderUnit` | Field | `unit` | Lookup `erp-uom`, else `ST` |
+   | `contentQty` | Field | `packSize` | |
+   | `contentUnit` | Field | `packUnit` | Lookup `erp-uom`, else `ST` |
+   | `priceUnit` | Field | `priceQuantity` | When empty a constant, Number `1` |
+   | `price` | Field | `price.amount` | |
+   | `validFrom` | Field | `lineValidFrom` | When empty use `$root.roles.validFrom`, Format Date `yyyyMMdd` |
+   | `scales` (in `prices`) | List | `tiers` | rows `fromQty ← minQuantity`, `price ← price.amount` |
+   | `delist` | List | `doc.lines`, only rows where `status = "Discontinued"` | one row with an empty target ← `supplierSku` (a list of plain values) |
+
+   The preview renders as you type (and at once with Render again): `Renders`, about 96 KB, `prices: 412 items`,
+   `prices[].scales: 378 items in 309 rows` (the "ab 10" and "ab 50" columns), `delist: 0 items`, and the JSON:
+   `"vendorNo": "V-10042", "priceListId": "PL-2027-01", "validFrom": "20270101", "validTo": "99991231", …` and per
+   article `"vendorArticleNo": "104007", "text": "Riesling trocken 2023", "group": "Weißweine", "orderUnit": "ST",
+   "priceUnit": 1, "price": 9.38, "scales": [{"fromQty": 10, "price": 8.91}, {"fromQty": 50, "price": 8.44}]`. The
+   table tool did not read GTINs, units or pack sizes from this list, so `ean` and `contentQty` are `null` and the
+   units take the lookup's default. Code (JSONata) shows what the map compiles to: the expression of docs/11 §13.10
+   (`fixtures/outputs/article-price-import.fieldmap.jsonata`), headed by the map as a comment; editing the code
+   detaches it from the map (the Visual map tab then offers to replace the code with the map). A target schema (Target
+   schema tab) is checked on every preview and delivery; its errors name the row (`prices[379].price`). Save draft
+   ("Draft v1 saved."), then Publish ("Version 1 published."); a published version is read-only, New version starts v2.
+8. **Bindings.** Integrations > Bindings > New binding: `article-prices`, when Approved, document type `price-list`,
+   output mapping Article price import, version Published, destination `erp-articles`, on re-approval Send as update
+   with the same mapping > New binding; and `ap-invoices`, type `Invoice`, mapping `erp-ap-import`, destination `erp-ap`.
+9. **A 503, then approve.** Make the article-price stub fail once:
+   `curl -X POST http://localhost:8086/__control/article-prices/fail-next`. As `tenant-a-reviewer`, open the price list
+   and Approve. The Deliveries tab lists `erp-articles · article-prices · v1`, Delivered after 2 attempts. The retry
+   waits only about a second (the stub's `Retry-After: 1`), and the tab reads every 1.5 s while its list is empty and
+   every 3 s while a delivery is in flight, so it usually goes straight from an empty list (or Pending) to Delivered;
+   Retry pending (last answer 503) shows only when a read lands in that second (for a screenshot of it, use
+   `__control/article-prices/fail-always`, and `__control/article-prices/reset` afterwards: the next retry delivers).
+   This holds with the tab open before the approval too: the decision makes the tab read again, and it keeps reading
+   an empty list for a minute after the decision, until the worker's publish stage has fanned out. Open the row: the
+   idempotency key (the same for both calls), the external id `AP-IMP-…` (Accepted, from the response mapping), the attempts
+   `503 Will be retried · status` and `202 Delivered` with the first 4 KB of each answer, Show payload, and for an
+   integration admin Redeliver (from the snapshot) and Render again and redeliver. The Timeline shows
+   `document.delivery_failed` then `document.delivery_succeeded`.
+10. **What the mock ERP received.** Two `POST /api/article-prices` with one idempotency key and
+    `X-DocProc-Revision`, a 503 and a 202, each body with 412 prices:
+
+    ```bash
+    curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/article-prices")
+      | {status: .responseDefinition.status, key: .request.headers["Idempotency-Key"],
+         prices: (.request.body | fromjson | .prices | length),
+         scales: (.request.body | fromjson | [.prices[].scales[]] | length)}]'
+    ```
+11. **Invoices still go to erp-ap.** Upload an e-invoice (a copy of `fixtures/demo/tenant-a/Getraenke-Hoffmann_RE-2026-55318.xml`
+    with another invoice number, so it is no duplicate) through Inbox > Upload or `POST /api/v1/ingestions`: it is
+    auto-approved and delivered by `ap-invoices` to `erp-ap` (`POST /api/ap/invoices`, 201); the price-list binding does
+    not match it, the invoice binding did not match the price list. Settings > Integrations > Delivery log lists both,
+    with filters by status and destination.
+
+The same through the API, with `$H` a tenant admin's token and `$DOC` the price list after steps 1 and 2 (the UI
+calls exactly these; steps 3, 4, 5, 7, 8 and 9 in that order, without the invoice side of steps 5, 6 and 11):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'
+# Step 3: the supplier's ERP vendor number (the mapping refuses to render without it).
+SUPPLIER=$(curl -s $API/documents/$DOC -H "$H" | jq -r .supplierId)
+curl -s -X PATCH $API/suppliers/$SUPPLIER -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"}}' | jq .attributes
+# Step 4: the lookup table with its four entries.
+curl -s -X POST $API/lookup-tables -H "$H" -H "$J" -d '{"key":"erp-uom"}' > /dev/null
+REV=$(curl -s -D - -o /dev/null $API/lookup-tables/erp-uom -H "$H" | tr -d '\r' | awk -F': ' 'tolower($1)=="etag"{print $2}')
+curl -s -X PUT $API/lookup-tables/erp-uom/entries -H "$H" -H "$J" -H "If-Match: $REV" \
+  -d '{"entries":[{"from":"KAR","to":"KAR"},{"from":"ST","to":"ST"},{"from":"PCK","to":"PCK"},{"from":"Karton","to":"KAR"}]}' | jq .entryCount
+# Step 5: the destination, with the update URL a re-approval is sent to.
+DEST=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"erp-articles","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/article-prices","responseMapping":"importId","updateUrlTemplate":"http://mock-erp:8080/api/article-prices/{{output.header.priceListId}}"}}' | jq -r .id)
+# Step 7: the compiled visual map (or any JSONata of your own) as draft v1, previewed (no errors, 412 prices), published.
+jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata '{key:"article-price-import",name:"Article price import",sourceTypeKey:"price-list",engine:"jsonata",expression:$e}' \
+  | curl -s -X POST $API/output-mappings -H "$H" -H "$J" -d @- | jq .key
+jq -n --rawfile e fixtures/outputs/article-price-import.fieldmap.jsonata --arg d "$DOC" '{expression:$e,documentId:$d}' \
+  | curl -s -X POST $API/output-mappings:preview -H "$H" -H "$J" -d @- | jq '{errors, n: (.output.prices | length), outputBytes}'
+curl -s -X POST $API/output-mappings/article-price-import/versions/1:publish -H "$H" -H "$J" -d '{}' | jq .publishedVersion
+# Step 8: the binding; a re-approval is sent as an update, rendered with the same mapping.
+curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"article-prices\",\"documentTypeKey\":\"price-list\",\"mappingKey\":\"article-price-import\",\"destinationId\":\"$DEST\",\"onReapproval\":\"Update\",\"updateMappingKey\":\"article-price-import\"}" | jq .id
+# Step 9: one 503, then approve.
+curl -s -X POST http://localhost:8086/__control/article-prices/fail-next
+curl -s -X POST "$API/documents/$DOC:approve" -H "$H" -H "$J" -d '{}' | jq .status
+curl -s "$API/deliveries?documentId=$DOC" -H "$H" | jq '.items[] | {destinationName, status, attempts, lastStatusCode}'
+```
+
+The run behind this section (compose project `p3c`, 2026-11-03) used a Playwright script that clicks through steps 1
+to 11; its screenshots show the switch, the supplier attributes, the lookup table, the destination form, the editor
+with the source tree, the visual map with the preview (`prices: 412 items`, `prices[].scales: 378 items in 309
+rows`), the field options, the compiled code, the bindings, the Deliveries tab with the 503 waiting for its retry and
+then Delivered with both attempts, the payload, and the delivery log with the price list and the invoice. The mock
+ERP journal had the two article-price calls (503, 202; same `Idempotency-Key`, revision 11, 412 prices, 378 scales in
+309 rows each, header `vendorNo` V-10042, `priceListId` PL-2027-01) and one `POST /api/ap/invoices` (201).
+
+### Demo: routing and layouts
+
+The P4 demo of docs/11 §23, in the browser: Nordwind invoices are mailed to the tenant's GreenMail mailbox, routed to
+Nordwind by a sender rule with DMARC, and identified by "Rechnung" in the title and Nordwind's VAT id; an invoice from
+Nordwind's new web shop is held with `NEW_LAYOUT`, matched to Invoice in review with its supplier data, invoice number
+and customer number already filled, and saved as `nordwind-invoice-webshop` by a `MappingAuthor`; the next web-shop
+invoice goes to review as warm-up 1 of 5, filled correctly; after the tenant sets its warm-up to 0 the following one is
+delivered to the mock ERP without review, and so is one in the old design. In tenant B a reviewer without the grant
+saves the same design as a Candidate, and the next web-shop invoice arrives with "Confirm against pending layout".
+Run it on a fresh compose stack (`docker compose up --build`, no LLM key needed: a document no layout fills waits in
+review instead of failing), portal on http://localhost:5173, admin console on http://localhost:5174, the mock ERP's
+journal on http://localhost:8086/__admin/requests, GreenMail's SMTP on `localhost:3025`.
+
+The mails are sent with `fixtures/demo/mail/send-invoice.sh <pdf> <to> [subject] [dmarc]`: it attaches the PDF and
+writes the `Authentication-Results` header the platform's receiving server would (`dmarc=pass` by default, as
+`mx.platform.local`, `RECEIVER` names another; GreenMail writes none, and compose's worker believes only
+`mx.platform.local`, `Mail:TrustedAuthServIds`, for the mailboxes on GreenMail), then sends it with curl. The worker polls the mailboxes every 30 s, so a mail takes up to half a minute to show up.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types, Outputs, Source routing and Supplier layouts on ("Feature switches saved.").
+   Without the last two the portal shows none of the screens below and documents run as in P3.
+2. **Delivery, the customer number and the supplier.** As `tenant-a-admin` (the curl of those sections, and below
+   for the supplier):
+   - the `erp-ap` destination, the `erp-ap-import` copy of Generic AP JSON and the `ap-invoices` binding of "Demo:
+     outputs and delivery" (steps 5, 6 and 8, the invoice side);
+   - `Invoice` forked with the customer number `supplierCustomerRef` of
+     `fixtures/demo/types/invoice-customer-number.field.json` and published ("A custom field, end to end" above);
+   - Suppliers > New supplier: Nordwind Großhandel GmbH, VAT id `DE312456789`, e-mail domain `nordwind.example`.
+3. **Channels.** Settings > Routing > Add mailbox: name `Rechnungen`, address `invoices@tenant-a.local` > Save
+   ("Channel Rechnungen created"); Add watched folder: name `Scanner`, path `scanner`, stable for 5 s > Save. On Linux
+   the worker's user must be able to write the folder: `mkdir -p fixtures/dropzone/tenant-a/scanner && chmod -R a+rwX
+   fixtures/dropzone/tenant-a`.
+4. **The supplier's settings and source rules.** Suppliers > Nordwind Großhandel GmbH > Settings: Layouts required
+   Yes > Save (`settings.layouts.required: true`: Nordwind is layout-managed before its first layout is active, so a
+   design no layout recognises gets `NEW_LAYOUT`). Routing > Add source rule: sender
+   `rechnungsversand@nordwind.example`, pins type Invoice > Save ("Rule saved"); Add source rule: channel Scanner,
+   folder prefix `lieferanten/nordwind/`, pins Invoice > Save. Test routing on the same tab: sender
+   `rechnungsversand@nordwind.example`, DMARC pass > Test: "Routed to Nordwind Großhandel GmbH" with the sender rule
+   held; DMARC fail > Test: "No supplier from the source", the rule listed with "(sender not authenticated)".
+5. **The ERP design's layout, a Candidate.** Post `fixtures/demo/layouts/nordwind-invoice-erp.json` (the identification
+   rule all of "Rechnung" in the page-1 title area and `supplierValue: vatId` on page 1, none of "Gutschrift"; label,
+   region, constant and column-table rules; curl below). Suppliers > Nordwind > Layouts shows "Invoice:
+   nordwind-invoice-erp" with version 1 Candidate and its rule in words. Activate > Activate is refused: "The replay
+   set is empty", since Nordwind has no approved invoice in that design yet (docs/11 §8.3, Correction (P4, part D)).
+6. **The first ERP invoice confirms it.**
+   `fixtures/demo/mail/send-invoice.sh fixtures/demo/uploads/tenant-a/Nordwind_Rechnung_NW-RE-2026-1041.pdf invoices@tenant-a.local`.
+   It is routed by the sender rule (`supplierMatchMethod: SourceRule`) and arrives in Needs review with `NEW_LAYOUT`
+   naming the Candidate, pre-filled from it. As `tenant-a-reviewer` (a `MappingAuthor`): open it; the New layout panel
+   at the top of the Fields tab leads with the pending layout > Confirm against pending layout ("Confirmed against
+   nordwind-invoice-erp") > Approve: the dialog says it confirms the pending layout > Approve and save as layout. The
+   Layout saved dialog shows nordwind-invoice-erp version 1 Active, "the next 5 documents in this design go to review
+   first (warm-up)".
+7. **The second ERP invoice is identified.** Mail `Nordwind_Rechnung_NW-RE-2026-1077.pdf` the same way. It arrives
+   filled by the layout, with only the info flag `LAYOUT_WARMUP` ("Document 1 of the first 5 under layout
+   nordwind-invoice-erp"); the header shows the layout
+   chip. Identify (key I) draws the evidence: "Rechnung" in the title and the VAT id. Approve: both ERP invoices are
+   now in the mock ERP's journal (`POST /api/ap/invoices`).
+8. **A web-shop invoice: NEW_LAYOUT, pre-filled.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000318.pdf` with subject
+   "Ihre Bestellung im Nordwind Webshop". Its title "RECHNUNG / INVOICE" sits top right and the VAT id is on page 2,
+   so the ERP layout's rule does not hold: it arrives with `NEW_LAYOUT`, no layout applied (it is never processed
+   with the ERP layout). Inbox > New layouts lists it with the New layout badge. The New layout panel offers Match to
+   Invoice and shows "Pre-filled: 6 values": the supplier's name, VAT id, the currency and VAT breakdown · Rate (%)
+   from the ERP layout's labels ("other layout's label"), the invoice number `WS-2026-000318` and the customer number
+   from the type's labels ("type's label", docs/11 §9.3, Correction (P4, part D)).
+9. **Fill the rest from the page.** Match to Invoice ("Matched to Invoice."). Map from page (M): focus Issue date and
+   click `23.10.2026`; focus the customer's name and drag a box around "Gasthaus zur Post GmbH"; on page 2 click
+   `83,10` for Subtotal net, `15,79` for Total tax and `98,89` for Total gross; Save. Table tool: drag one box on
+   page 1 from the header "Artikel-Nr." to below the last line's amount, assign the columns (article number,
+   description, quantity, unit price, line total; leave the unit column), untick "Apply to all pages" > Read this
+   page > Write 2 rows: two lines ("Write 2 rows" is enabled once the page was read after the columns are assigned).
+   The pre-filled VAT-breakdown row carries only its rate; its amounts have no currency of their own and raise no
+   currency `INVALID_VALUE` (before P5 fix 4 they showed two warnings "'taxBreakdown[0].taxableAmount' is in  but the
+   document currency is EUR.").
+10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed `text "RECHNUNG / INVOICE" (page 1,
+    title area)`) > Add identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id
+    (last page)") > Add identifier.
+    The Identification tab tests the rule as it changes: "Holds for this document", "Matches 0 of the supplier's last
+    2 documents" (the ERP invoices).
+11. **Approve and save as layout.** Fields: layout key `nordwind-invoice-webshop`, name "Nordwind invoice (web shop)" >
+    Approve > Approve and save as layout. As a `MappingAuthor`'s save it is replayed (the identification test and
+    the field agreement on its replay set) and Active at once with the tenant's warm-up 5; the Layout saved dialog
+    shows the version, its rule in words and the other documents in review it holds on (none here).
+12. **Warm-up 1 of 5.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000342.pdf`. It is identified by
+    nordwind-invoice-webshop and goes to review with only `LAYOUT_WARMUP` ("Document 1 of the first 5 under layout
+    nordwind-invoice-webshop"), filled correctly:
+    number `WS-2026-000342`, total 128.88, three lines, customer number 401187. Approve.
+13. **Warm-up 0.** As `tenant-a-admin`: Settings > General > Layouts and routing: Review warm-up `0` > Save. The Active
+    versions whose warm-up was the tenant's old value follow: Suppliers > Nordwind > Layouts shows "no warm-up" on both.
+14. **Delivered without review.** Mail `Nordwind_Webshop_Rechnung_WS-2026-000377.pdf` and
+    `Nordwind_Rechnung_NW-RE-2026-1102.pdf`. Both are AutoApproved by their layouts with no flags and delivered; the
+    proof is the mock ERP's journal (curl below), and the document's Deliveries tab.
+15. **The watched folder.** Copy `Nordwind_Rechnung_NW-RE-2026-1130.pdf` to
+    `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/` (on Linux `chmod a+rw` it). After two scans it is taken,
+    routed by the folder rule, AutoApproved by nordwind-invoice-erp, and moved to
+    `fixtures/dropzone/tenant-a/scanner/processed/`. On its Timeline, "Supplier identified by source" names the
+    channel, the folder and the rule: "Channel Scanner · folder lieferanten/nordwind/ · Rule: channel Scanner, folder
+    lieferanten/nordwind/ → Nordwind Großhandel GmbH, Exclusive, pins Invoice".
+16. **Tenant B: a Candidate.** As `superadmin`: Pizzeria Napoli d.o.o. > Feature switches: Configurable document
+    types, Source routing, Supplier layouts. As `tenant-b-admin` (curl below): the supplier Nordwind with
+    `layouts.required`, the mailbox `invoices@tenant-b.local` and the sender rule. Mail
+    `Nordwind_Webshop_Rechnung_WS-2026-000318.pdf` to `invoices@tenant-b.local`. As `tenant-b-reviewer` (a Reviewer
+    without `MappingAuthor`): steps 9 to 11 without the table tool (tenant B's `Invoice` is not forked, so the lines are
+    the invoice record's and the table tool is not offered for it). The Layout saved dialog says Candidate: "a mapping
+    author activates it after its replay. Documents in this design wait for it." Mail
+    `Nordwind_Webshop_Rechnung_WS-2026-000342.pdf` to tenant B: it arrives with `NEW_LAYOUT` naming the pending
+    nordwind-invoice-webshop, pre-filled from it ("pending layout"), and the panel offers Confirm against pending
+    layout. As `tenant-b-admin`: Suppliers > Nordwind > Layouts shows the Candidate with the document waiting and
+    "Activate and reprocess 1 document"; `GET /api/v1/notifications` has `layout.candidate_waiting`. The demo invoice
+    is addressed to tenant A's restaurant, so in tenant B it also carries `CUSTOMER_MISMATCH`.
+17. **The rest of the screens.** As `tenant-a-admin`: Settings > General > Attribute schema (for example
+    `{"properties":{"erpVendorId":{"type":"string","title":"ERP vendor id"},"paymentDays":{"type":"integer","title":"Payment days"}},"required":["erpVendorId"]}`)
+    makes Suppliers > Nordwind > Attributes a form; Settings > Receiving entities > Add entity (code `1000`, Gasthaus
+    zur Post GmbH); Suppliers > Supplier groups > Add group. As `tenant-a-reviewer`, an approved web-shop invoice >
+    Mark as golden; as `tenant-a-admin`, Settings > Governance: pick Nordwind and nordwind-invoice-webshop v1 > Run
+    regression ("Passed", one golden document). Sandbox run: paste the id of a document into Document id (for example
+    the approved web-shop invoice WS-2026-000377, its id is in the address bar of its review screen) > Run in sandbox
+    ("identified", with the evidence). Export bundle (a signed JSON file), then Import with a dry run of that file:
+    everything in it is already there, so every item is a skip (the layouts "has this rule and mapping already", the
+    folder rule found with its channel Scanner, by the channel's source or name, "already exists"). A bundle carries a
+    folder rule's channel by name and source, never the channel itself: imported into a tenant without a channel of
+    that name, the rule is an error that names the channel to create first.
+
+The same through the API and SMTP, with `$H` tenant A's admin token, `$R` its reviewer's (Keycloak password grant
+as above) and `$B` tenant B's admin token; the review steps 9 to 11 are the review endpoints of docs/05 "Learning"
+(`:match-layout`, `PATCH …/fields`, `regions:table`, `identifiers:propose`, `:approve {learnLayout}`):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'; MAIL=fixtures/demo/mail/send-invoice.sh; PDF=fixtures/demo/uploads/tenant-a
+tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password -d client_id=docproc-portal -d username=$1 -d password=$1 | jq -r .access_token; }
+H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"; B="authorization: Bearer $(tok tenant-b-admin)"
+# Steps 2 to 4: the supplier, the channels, layouts required, the source rules, and routing:test.
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","ibans":["DE44 2005 0550 1234 5678 90"],"emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local"}}' | jq .id
+SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"settings":{"layouts":{"required":true}}}' | jq .settings
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","pinTypeKey":"Invoice"}' | jq .describe
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/\",\"pinTypeKey\":\"Invoice\"}" | jq .describe
+curl -s -X POST $API/routing:test -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","senderAuth":{"dmarc":"pass"}}' | jq '{supplierName, method, explanation}'
+curl -s -X POST $API/routing:test -H "$H" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","senderAuth":{"dmarc":"fail"}}' | jq '{supplierName, unverifiedRuleIds, explanation}'
+# Step 5: the ERP layout as a Candidate; activating it now is refused (the replay set is empty).
+ERP=$(curl -s -X POST $API/suppliers/$NW/layouts -H "$H" -H "$J" -d @fixtures/demo/layouts/nordwind-invoice-erp.json | jq -r .id)
+curl -s -X POST "$API/supplier-layouts/$ERP/versions/1:activate" -H "$H" -H "$J" -d '{}' | jq '{status, title, detail}'
+# Step 6: the first ERP invoice waits for the Candidate; the reviewer confirms it, which activates it.
+$MAIL $PDF/Nordwind_Rechnung_NW-RE-2026-1041.pdf invoices@tenant-a.local; sleep 45
+DOC=$(curl -s "$API/documents?flag=NEW_LAYOUT" -H "$R" | jq -r '.items[0].id')
+PENDING=$(curl -s $API/documents/$DOC -H "$R" | jq -r .pendingLayoutVersionId)
+curl -s -X POST "$API/documents/$DOC:approve" -H "$R" -H "$J" -d "{\"learnLayout\":{\"pendingLayoutVersionId\":\"$PENDING\"}}" | jq .status
+curl -s $API/suppliers/$NW/layouts -H "$H" | jq '.[] | {layoutKey, versions: [.versions[] | {version, status, reviewWarmup}]}'
+# Steps 12 to 14: warm-up 1 of 5, then the tenant's warm-up 0, then delivered without review.
+curl -s $API/settings -H "$H" | jq '.settings | .layoutReviewWarmup = 0' | curl -s -X PUT $API/settings -H "$H" -H "$J" -d @- | jq .settings.layoutReviewWarmup
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000377.pdf invoices@tenant-a.local "Ihre Bestellung im Nordwind Webshop"
+$MAIL $PDF/Nordwind_Rechnung_NW-RE-2026-1102.pdf invoices@tenant-a.local; sleep 60
+curl -s "$API/documents?q=2026" -H "$R" | jq '.items[] | {documentNumber, status}'
+# The proof: what the mock ERP received.
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/ap/invoices")
+  | {status: .responseDefinition.status, invoice: (.request.body | fromjson | .header.documentNumber)}]'
+# Step 15: the watched folder.
+mkdir -p fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind && chmod -R a+rwX fixtures/dropzone/tenant-a
+cp $PDF/Nordwind_Rechnung_NW-RE-2026-1130.pdf fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/
+# Step 16: tenant B (switches in the admin console first).
+NWB=$(curl -s -X POST $API/suppliers -H "$B" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NWB -H "$B" -H "$J" -d '{"settings":{"layouts":{"required":true}}}' > /dev/null
+curl -s -X POST $API/channels -H "$B" -H "$J" -d '{"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-b.local"}}' | jq .id
+curl -s -X POST $API/suppliers/$NWB/source-rules -H "$B" -H "$J" -d '{"sender":"rechnungsversand@nordwind.example","pinTypeKey":"Invoice"}' | jq .describe
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000318.pdf invoices@tenant-b.local "Ihre Bestellung im Nordwind Webshop"
+# ... reviewed and saved by tenant-b-reviewer (a Candidate), then:
+$MAIL $PDF/Nordwind_Webshop_Rechnung_WS-2026-000342.pdf invoices@tenant-b.local "Ihre Bestellung im Nordwind Webshop"
+curl -s $API/notifications -H "$B" | jq '.[] | {kind, count}'
+```
+
+The run behind this section (compose project `p4d`, 2026-11-04) used a Playwright script that clicks through steps 1
+to 17 (65 checks, all passed); its screenshots show the switches, the channel forms, Layouts required, the source rules,
+the routing test with DMARC pass and fail, the ERP Candidate and its refused activation, the first ERP invoice
+confirming it, the second identified with its evidence, the New layouts filter, the web-shop invoice's New layout panel
+with the pre-fill, map mode, the table tool, Identify mode and the Identification card, the save, warm-up 1 of 5, the
+warm-up setting, both layouts without warm-up, the auto-approved delivery, the folder drop's timeline, tenant B's
+Candidate and the waiting document, the attribute form, the entities, groups and governance screens. The mock ERP
+journal had a `POST /api/ap/invoices` (201) for every approval and, after the warm-up was set to 0, for WS-2026-000377
+and NW-RE-2026-1102 without review (header `documentNumber`, the supplier with its VAT id, the rows); NW-RE-2026-1130
+from the folder was AutoApproved the same way (the run checked its status and the move to `processed/`).
+
+What the run showed that is not yet as it should be: values the pre-fill placed are Inferred at 75 % and raise
+`LOW_CONFIDENCE` until a reviewer confirms them (the first ERP invoice arrives with several of them); the tax breakdown
+rows are not editable in the generated form (the layout derives a single row's amounts from the totals, docs/11 §8.2,
+Correction (P4, part D)); and the table tool is offered only for a definition-driven type, so a tenant on the built-in
+invoice record learns its lines from the record's values, not from a drawn table.
+
+### Demo: price lists, specials and fallback rules
+
+The three P5 demos of docs/11 §23, in the browser: Nordwind's first price list dropped into a watched folder is
+routed, held with `NEW_LAYOUT`, mapped once and saved as the layout `nordwind-price-list`; next month's list is read
+by that layout, checked against its printed row count and the previous list and delivered to the mock ERP without
+review, and a list with one price up 40 % waits in review with that row shown. A daily specials list sorts to the top
+of the queue as urgent and goes to the POS stub; a copy printed for yesterday is blocked as expired, and a second list
+of the same day is a revision. Last, a ConfigAdmin turns "Preisliste" in the title of a Südhof Feinkost list into a
+fallback rule for every supplier without own layouts; the next Südhof list and one from an unknown sender are typed by
+it, without keywords or the LLM, while Nordwind's lists are still decided by Nordwind's layout. Run it on a fresh compose
+stack (`docker compose up --build`, no LLM key needed), portal on http://localhost:5173, admin console on
+http://localhost:5174, the mock ERP's journal on http://localhost:8086/__admin/requests.
+
+The files are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceLists.cs`, see
+"Price lists, master data and acknowledgements" above): `Nordwind_Preisliste_2027-01.pdf` (the 412 articles of the P2
+list in the design of the later lists, with "Anzahl Artikel: 412" on page 1), `…-02.pdf` (12 prices changed within
+25 %), `…-03.pdf` (article 104539 up 40 %), `…-04.pdf` (February's prices with two small changes), the three
+Tagesangebote lists, the two Südhof lists and Bergquell's. The specials layout is `fixtures/demo/layouts/nordwind-daily-specials.json`.
+The watched folder is `fixtures/dropzone/tenant-a/scanner/`; on Linux the worker's user must be able to write it
+(`mkdir -p fixtures/dropzone/tenant-a/scanner && chmod -R a+rwX fixtures/dropzone/tenant-a`). The worker scans it every
+few seconds and takes a file once it has not changed for 5 s, so a drop shows up within about 15 s.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types, Types of the tenant's own, Outputs, Source routing, Supplier layouts and
+   Configurable steps on. Types of the tenant's own (`customTypes`) gives the tenant's keyword set, which types the
+   first Südhof list; Configurable steps runs the templates' `defaults` step, which dates an undated specials list.
+2. **What the earlier demos leave** (on a fresh stack; curl below): the adopted `price-list` and `daily-specials`;
+   Nordwind (VAT id `DE312456789`, IBAN `DE44 2005 0550 1234 5678 90` as printed in its lists' footer, ERP vendor number
+   `V-10042`, Layouts required) and Südhof Feinkost GmbH (`DE298765432`, `V-20077`) as suppliers; the watched folder channel `Scanner` (path `scanner`, stable for 5 s); the tenant's
+   warm-up 0 (Settings > General > Layouts and routing, the P4 demo's last step); and the P3 demo's outputs: the
+   `erp-uom` lookup table, the `erp-articles` destination, the `article-price-import` mapping (published) and its
+   `article-prices` binding, plus a `pos-hub` destination `http://mock-erp:8080/api/promotions` with the `pos-promotions`
+   mapping of `fixtures/outputs/pos-promotions.jsonata` for `daily-specials` and a binding with the condition
+   `roles.validUntil >= $today()`.
+3. **Auto-approval.** As `tenant-a-admin`: Settings > Document types > Price list (open it). The adopted type says
+   "Auto-approval is off: every document of this type goes to review" (adopting the v2 template keeps it off, docs/11
+   §5.8); Switch auto-approval on ("Auto-approval of price-list is on."). The same for Daily specials.
+4. **The folder rules.** Suppliers > Nordwind Großhandel GmbH > Routing > Add source rule: channel Scanner, folder
+   prefix `lieferanten/nordwind/preislisten/`, pins Price list > Save ("Rule saved: channel Scanner, folder
+   lieferanten/nordwind/preislisten/ → Nordwind Großhandel GmbH, Exclusive, pins price-list"). The same with
+   `lieferanten/nordwind/angebote/`, pinning Daily specials.
+5. **The first list.** Copy `Nordwind_Preisliste_2027-01.pdf` to `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/preislisten/`.
+   It is routed to Nordwind by the folder rule (`supplierMatchMethod: SourceRule`), typed by its pin, kept as one
+   document of 14 pages (the type's split mode is `never`), and held with `NEW_LAYOUT`: Nordwind is layout-managed and
+   has no price-list layout. The New layout panel says "Pre-filled: 5 values": the supplier's name, VAT id and IBAN
+   from master data, Valid from and the printed article count from the type's labels; Approve is blocked by
+   `NEW_LAYOUT`, `r_table` ("not read by a table mapping") and `r_count`.
+6. **Map it once.** As `tenant-a-reviewer` (a `MappingAuthor`), open it from the inbox: Match to Price list ("Matched
+   to price-list."). Map (M): focus Price list no. and click `PL-2027-01`, Enter; Valid from ← `01.01.2027` in "gültig
+   ab 01.01.2027" on page 1 (the pre-fill read it from page 2's running title; a click on page 1 puts the value's place
+   there, and the layout learns it there), Currency ← `EUR`, Printed article count ← `412` in "Anzahl Artikel: 412";
+   Save corrections. Table: drag a box on page 1 from just above and left of "Art.-Nr." to just above the footer rule
+   and right of "ab 50" (as in "Demo: manual mapping", step 6), Read all pages: `412 rows, 0 rejected, 14 pages read`;
+   Write 412 rows. `r_table` and `r_count` resolve.
+7. **Mark the design.** Identify (I): drag a box around "Preisliste" in the title (proposed `text "Preisliste" (page 1,
+   title area)`) > Add identifier; drag a box around "gültig ab" under it > Add identifier. The card: "Holds for this
+   document", "Matches 0 of the supplier's last 0 documents".
+8. **Approve and save as layout.** Fields: the New layout panel's key is `nordwind-price-list`, name "Nordwind price
+   list" > Approve > Approve and save as layout. A `MappingAuthor`'s save is replayed and Active at once: the Layout saved
+   dialog says "Active", "8 fields replayed on 1 documents; lowest agreement 100 %", and with the tenant's warm-up 0
+   no document of the design waits for a warm-up. The approved list is delivered like any other: the mock ERP has
+   `POST /api/article-prices` (202) with `priceListId` `PL-2027-01` (the `article-prices` binding of step 2).
+9. **Next month's list.** Copy `Nordwind_Preisliste_2027-02.pdf` into the same folder. It is identified by
+   `nordwind-price-list` (the header's layout chip; `supplierLayoutVersionId` set, `typeSource` stays `Supplier`, the
+   folder rule's pin), its 412 rows read by the learned `column-table`, "Anzahl Artikel: 412" read and checked (`r_count`),
+   the 12 changed prices within 25 % of January's (`r_delta` passes), and it is AutoApproved with no flag. The
+   Deliveries tab: `erp-articles · article-prices`, Delivered; the mock ERP has `POST /api/article-prices` (202) with
+   412 prices and the header `priceListId` `PL-2027-02`, `validFrom` `20270201`, `vendorNo` `V-10042`.
+10. **One article up 40 %.** Copy `Nordwind_Preisliste_2027-03.pdf` into the folder. It goes to review with two
+    warnings of `r_delta` ("Unusual price change against the last approved list"): the list's, and the row's on
+    "Line 77 · Amount", whose flag row reads "104539: from 39.02 to 54.63 (+40.01%)" (in German "104539: von 39,02 auf
+    54,63 (+40,01 %)"): the article number, February's price, March's, and the change. The Articles grid opens on that row only ("1 of 412
+    rows: the rows a check flagged"); Show all 412 rows shows the others, Only the flagged row (1) goes back.
+11. **Specials.** Post the specials layout (curl below; it reads "gültig am" dates, which a layout learned from an
+    undated list could not, docs/11 §23 Correction (P5, part E)): Suppliers > Nordwind > Layouts shows
+    "nordwind-daily-specials" version 1 Candidate. Copy `Nordwind_Tagesangebote.pdf` (two pages, no date printed) to
+    `…/scanner/lieferanten/nordwind/angebote/`. It arrives with `NEW_LAYOUT` naming the Candidate, valid today (the
+    `defaults` step takes the day received), and its review task is Urgent, due at 23:59:59 today: the Review queue
+    lists it first with the Urgent badge, and the inbox's Urgent first puts it at the top. Open it: Confirm against pending
+    layout ("Confirmed against nordwind-daily-specials.") > Approve > Approve and save as layout: the layout is Active
+    ("4 fields replayed on 1 documents; lowest agreement 100 %": the date the list does not print is not counted). The
+    mock ERP has `POST /api/promotions` (201) with `promotionId` `V-10042-20261105`, valid from today 00:00 to 23:59:59,
+    and the list's 44 rows.
+12. **Yesterday's copy.** Copy `Nordwind_Tagesangebote_2026-11-04.pdf` into the same folder: identified by the specials
+    layout, which reads "gültig am 04.11.2026"; blocked by `r_not_expired` ("These specials have already expired",
+    `DATE_IMPLAUSIBLE` on Valid until). The file is dated 4 November 2026, so it is expired on any later day.
+13. **A second list of the day.** Copy `Nordwind_Tagesangebote_Nachtrag.pdf`: identified, valid today, and held with
+    `REVISION_OF` naming the first list (`GET /documents/{id}` flag message: "An earlier document (Approved) has the
+    same supplier, Valid from, Scope, Price list no.; this one may replace it."); its panel compares both lists side by
+    side and resolves it (supersedes, additional, duplicate).
+14. **A supplier without layouts.** As `tenant-a-admin` (a ConfigAdmin): Inbox > Upload > `Suedhof_Preisliste_2027-01.pdf`.
+    It is matched to Südhof Feinkost by its VAT id and typed `price-list` by the tenant's keyword set ("Preisliste",
+    `typeSource: Rule`); Südhof has no layouts, so nothing fills it. Open it: Identify (I), drag a box around "Preisliste"
+    in the title > Add identifier. The card counts "Matches n of the tenant's last n documents" and notes Nordwind's
+    lists as decided by Nordwind's layouts. Under "Use for all suppliers without own layouts": name `Preisliste im
+    Titel` > Use for all suppliers without own layouts: "Rule Preisliste im Titel is a draft. Would have matched 0
+    documents of this type, 0 other documents (of 3 tested)" (Nordwind's approved lists are left out: Nordwind has own
+    layouts). Activate: "Rule Preisliste im Titel is active".
+15. **Typed by the rule.** Upload `Suedhof_Preisliste_2027-02.pdf` and `Bergquell_Preisliste_2027.pdf` (Bergquell is no
+    supplier of the tenant). Both are typed `price-list` by the rule: `typeSource: Identification`,
+    `identificationRuleVersionId` set, the timeline's "Type identified by tenant rule", no LLM cost, Bergquell with
+    `SUPPLIER_UNMATCHED`. Copy `Nordwind_Preisliste_2027-04.pdf` into the price-list folder: it is decided by
+    `nordwind-price-list` (`identificationRuleVersionId` empty) and AutoApproved. Settings > Document types > Price list
+    > Identification lists the rule with its test.
+
+The same through the API, with `$H` tenant A's admin token and `$R` its reviewer's (Keycloak password grant as in
+"Demo: types as data"); the review of steps 6 to 8 is the review endpoints of "Demo: manual mapping" and "Demo:
+routing and layouts" (`:match-layout`, `PATCH …/fields` with a `source`, `regions:table` with `write: true`, `:approve
+{learnLayout}`):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'; PDF=fixtures/demo/uploads/tenant-a; DROP=fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind
+tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password -d client_id=docproc-portal -d username=$1 -d password=$1 | jq -r .access_token; }
+H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"
+# Step 2: types, suppliers, channel, warm-up 0 (the outputs: "Demo: outputs and delivery", steps 3 to 8, and the pos-hub ones below).
+for t in std.price-list std.daily-specials; do curl -s -X POST $API/document-types -H "$H" -H "$J" -d "{\"from\":{\"template\":\"$t\",\"mode\":\"adopt\"}}" | jq .key; done
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","ibans":["DE44 2005 0550 1234 5678 90"],"emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"},"settings":{"layouts":{"required":true}}}' > /dev/null
+SF=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Südhof Feinkost GmbH","vatId":"DE298765432"}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$SF -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-20077"}}' > /dev/null
+SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
+curl -s $API/settings -H "$H" | jq '.settings | .layoutReviewWarmup = 0' | curl -s -X PUT $API/settings -H "$H" -H "$J" -d @- | jq .settings.layoutReviewWarmup
+POS=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"pos-hub","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/promotions","responseMapping":"promotionId"}}' | jq -r .id)
+jq -n --rawfile e fixtures/outputs/pos-promotions.jsonata '{key:"pos-promotions",name:"POS promotions",sourceTypeKey:"daily-specials",engine:"jsonata",expression:$e}' | curl -s -X POST $API/output-mappings -H "$H" -H "$J" -d @- | jq .key
+curl -s -X POST $API/output-mappings/pos-promotions/versions/1:publish -H "$H" -H "$J" -d '{}' > /dev/null
+curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"pos-specials\",\"documentTypeKey\":\"daily-specials\",\"mappingKey\":\"pos-promotions\",\"destinationId\":\"$POS\",\"condition\":\"roles.validUntil >= \$today()\"}" | jq .id
+# Step 3: auto-approval of the adopted types (ConfigAdmin).
+for k in price-list daily-specials; do curl -s -X POST "$API/document-types/$k:upgrade-base" -H "$H" -H "$J" -d '{"autoApprove":true}' | jq .publishedVersion; done
+# Step 4: the folder rules.
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/preislisten/\",\"pinTypeKey\":\"price-list\"}" | jq .describe
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/angebote/\",\"pinTypeKey\":\"daily-specials\"}" | jq .describe
+# Steps 5, 9, 10, 12, 13 and 15 drop files: wait until each document has left the pipeline (GET $API/documents/{id}
+# answers NeedsReview, AutoApproved or Approved) before the next, since each step depends on the one before.
+mkdir -p $DROP/preislisten $DROP/angebote && chmod -R a+rwX fixtures/dropzone/tenant-a
+cp $PDF/Nordwind_Preisliste_2027-01.pdf $DROP/preislisten/
+# ... steps 6 to 8 in review, then:
+cp $PDF/Nordwind_Preisliste_2027-02.pdf $DROP/preislisten/
+curl -s "$API/documents?type=price-list&limit=10" -H "$R" | jq '.items[] | {documentNumber, status, lineCount}'
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/article-prices")
+  | {status: .responseDefinition.status, list: (.request.body | fromjson | .header.priceListId), prices: (.request.body | fromjson | .prices | length)}]'
+cp $PDF/Nordwind_Preisliste_2027-03.pdf $DROP/preislisten/
+# Step 11: the specials layout as a Candidate, then the first list.
+curl -s -X POST $API/suppliers/$NW/layouts -H "$H" -H "$J" -d @fixtures/demo/layouts/nordwind-daily-specials.json | jq '.versions[0].status'
+cp $PDF/Nordwind_Tagesangebote.pdf $DROP/angebote/
+curl -s "$API/review-tasks?limit=3" -H "$R" | jq '.items[] | {documentId, priority, slaDueAt}'
+# ... confirmed and approved in review (POST $API/documents/{id}:approve {"learnLayout":{"pendingLayoutVersionId":…}}), then:
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/promotions") | .request.body | fromjson | {promotionId, validFrom, validTo, items: (.items | length)}]'
+cp $PDF/Nordwind_Tagesangebote_2026-11-04.pdf $DROP/angebote/
+cp $PDF/Nordwind_Tagesangebote_Nachtrag.pdf $DROP/angebote/
+# Step 14: the Südhof list, and the rule from it (the API the review screen's button calls).
+curl -s -X POST $API/ingestions -H "$H" -F "files=@$PDF/Suedhof_Preisliste_2027-01.pdf;type=application/pdf" | jq .id
+SFDOC=$(curl -s "$API/documents?type=price-list&limit=50" -H "$H" | jq -r '[.items[] | select(.supplierName == "Südhof Feinkost GmbH")][0].id')
+RULE=$(curl -s -X POST "$API/documents/$SFDOC/identification-rules" -H "$H" -H "$J" -d '{"name":"Preisliste im Titel","rule":{"all":[{"text":"Preisliste","page":1,"region":"title"}]}}' | tee /dev/stderr | jq -r .id)
+curl -s -X POST "$API/identification-rules/$RULE/versions/1:activate" -H "$H" -H "$J" -d '{"confirmOtherTypes":false}' | jq '{status, activeVersion}'
+# Step 15.
+for f in Suedhof_Preisliste_2027-02.pdf Bergquell_Preisliste_2027.pdf; do curl -s -X POST $API/ingestions -H "$H" -F "files=@$PDF/$f;type=application/pdf" | jq .id; done
+cp $PDF/Nordwind_Preisliste_2027-04.pdf $DROP/preislisten/
+curl -s "$API/documents?type=price-list&limit=20" -H "$H" | jq -r '.items[].id' | while read id; do curl -s $API/documents/$id -H "$H" | jq -c '{supplierName, documentNumber, status, typeSource, identificationRuleVersionId, supplierLayoutVersionId}'; done
+```
+
+The run behind this section (compose project `p5d`, 2026-11-05, no LLM key, the Replay platform configuration of the
+demo data active) used a Playwright script that clicks through steps 1, 3, 4, 6 to 8, 10, 11 and 14 and drops or
+uploads the files of the other steps, polling for each document before the next step (44 checks, all passed; the queue and inbox screenshots were retaken once their rows had loaded); its
+screenshots show the switches, the auto-approval switch off and on, the folder rule and the Nordwind rules, the January
+list's New layout panel with its pre-fill, map mode on the printed count, the table tool with 412 rows, Identify mode
+with both identifiers, the approve dialog and the Active layout, February auto-approved and its delivery, March's
+flags and the grid filtered to article 104539, the review queue and the inbox with the urgent specials first, the
+pending specials layout, its activation, yesterday's copy blocked, the second list's revision panel, the Südhof
+list's identifiers with the rule's test, the rule active, Bergquell's timeline and the type editor's Identification
+tab. The mock ERP journal had `POST /api/article-prices` (202) for January (`PL-2027-01`, sent when step 8 approves it:
+the `article-prices` binding of step 2 exists by then), February (412 prices, `PL-2027-02`) and April (`PL-2027-04`),
+and `POST /api/promotions` (201) for the first specials list (44 items).
+
+What the run showed that is not yet as it should be: the pre-fill reads Valid from at the first place a type label
+finds it (page 2's running title on this list, where the date ends the line), so the reviewer confirms it on page 1;
+the learned Valid from is a region of page 1 (the label "gültig ab" does not read the date back, since the line goes
+on after it), which holds while the supplier keeps the design; and documents typed by the tenant rule carry
+`UNSUPPORTED_TYPE` and are filled in review, since without an LLM provider no step extracts a type without a layout.
 
 ## Settings reference
 
@@ -193,6 +1572,7 @@ this section does not name.
 | `Authentication:Dev:SigningKeyPath` | unset (a key per process) | PEM file of the dev signing key, created on first start. |
 | `Authentication:Dev:TokenLifetime` | `08:00:00` | Lifetime of a dev token (`DevTokenIssuer`). |
 | `Authentication:Oidc:Authority` | unset | Issuer URL; empty disables metadata discovery (the tests supply keys). Ignored while dev auth is on. |
+| `Authentication:Oidc:MetadataAddress` | unset (`{Authority}/.well-known/openid-configuration`) | Back-channel URL of the discovery document, for a host that cannot reach the issuer URL the browser uses: docker compose sets `http://keycloak:8080/realms/docproc/.well-known/openid-configuration` while `Authority` stays `http://localhost:8080/realms/docproc`, the `iss` of every token. Only where the metadata and keys are read changes, never which issuer is trusted; needs `Authority` and an absolute http(s) URL, or the host refuses to start. `RequireHttpsMetadata` applies to it. |
 | `Authentication:Oidc:Audience` | `docproc-api` | Expected `aud`. |
 | `Authentication:Oidc:RequireHttpsMetadata` | true | False only for the local Keycloak over plain HTTP. |
 | `Authentication:Oidc:RoleClaimType` | `roles` | Claim the roles are read from (also for `/api/v1/me`). |
@@ -218,11 +1598,16 @@ this section does not name.
 | Key | Default | What it does |
 |---|---|---|
 | `Pipeline:RunInProcess` | true outside Production; the worker: true everywhere | Whether this process consumes the in-process queue (docs/03 "Implementation"). |
-| `Pipeline:MaxParallelism` | 2 | Messages the runner processes at the same time. At least 1. |
+| `Pipeline:MaxParallelism` | 2 | Ingestion and document messages the runner processes at the same time (deliveries have their own `Delivery:MaxParallelism`). At least 1. |
 | `Pipeline:RetryBaseDelay` | `00:00:05` | Delay before the second attempt; doubled per attempt. Not negative. |
 | `Pipeline:MaxRetryDelay` | `00:10:00` | Cap of one backoff delay. Not negative. |
 | `Pipeline:MaxAttempts` | 5 | Attempts per stage message, the first included; the last failure ends `Failed`. At least 1. |
 | `Pipeline:ShutdownGracePeriod` | `00:00:30` | How long the runner waits for in-flight messages when the host stops. Not negative. |
+| `Pipeline:PublishSweepInterval` | `00:01:00` | How often the publish sweeper (`PublishSweeperHostedService`, next to the runner) looks for settled documents whose publish message was lost (docs/11 §13.5); the first sweep runs one interval after start. `00:00:00` turns it off. Not negative. |
+| `Pipeline:PublishSweepGrace` | `00:02:00` | How long a settlement may wait for its normal publish message before the sweeper queues one. Not negative. |
+| `Pipeline:PublishSweepLookback` | `7.00:00:00` | How far back the sweeper looks; older settlements are left alone. Longer than the grace. |
+| `Pipeline:PublishSweepBatchSize` | 200 | Most settlements one sweep queues. At least 1. |
+| `Pipeline:Faults:CrashBeforePublishEnqueueMarker` | (unset) | Development only: a file whose presence makes the next decision's publish nudge end the process between the commit and the enqueue, for the publish sweeper demo ("Demo data" above). Ignored in every other environment. |
 | `Pipeline:RenderDpi` | 200 | Page raster resolution of stage 2 (`NormalizeHandler`). At least 1 and at most `DocumentProcessing:Pdf:MaximumRenderDpi`: a higher value would fail every PDF render, so the host refuses to start with it. |
 | `Pipeline:LlmClassificationThreshold` | 0.6 | Stage 4 (`ClassifyHandler`) asks the LLM classifier when the keyword answer is `Unknown` or below this confidence. Between 0 and 1. |
 | `Pipeline:MaxArchiveDepth` | 2 | Archives nested deeper are not expanded (`IngestHandler`, docs/03 stage 2). Not negative. |
@@ -232,6 +1617,7 @@ this section does not name.
 | `Pipeline:MaxUnpackedItemsPerIngestion` | 500 | Files one ingestion may unpack across all its archives (each can become a document). At least 1. |
 | `Pipeline:MaxArchiveCompressionRatio` | 100 | Largest inflated-to-compressed ratio, never below a 1 MiB floor: per entry (a more compressed entry is skipped as a likely zip bomb), per archive (its entries together; the archive stops) and per ingestion (everything unpacked at every level against the archive bytes uploaded; the ingestion's unpack budget runs out). 0 turns all three off; not negative. |
 | `Pipeline:MinimumImageBytes` | 20480 (20 KiB) | Smaller images are logos, signatures and tracking pixels and are ignored with a reason. Not negative. |
+| `Pipeline:MasterDataSyncInterval` | `00:01:00` | How often the master-data sync (`MasterDataSyncHostedService`, docs/11 §14) looks for http sources whose schedule is due and runs them; `00:00:00` turns it off. Not negative. |
 
 **Document processing** (`PdfProcessingOptions`, `KeywordClassifierOptions`, `HeuristicSplitterOptions`; both hosts)
 
@@ -263,6 +1649,77 @@ also sends weak but typed keyword answers to the LLM, and the keyword answer sta
 A pipeline threshold below the classifier's changes nothing, because every answer under the classifier's threshold
 is already `Unknown`.
 
+**Table tool** (`TableToolOptions`; API only). The table tool and region OCR (docs/11 §12.3, §12.4) run in the API
+every tenant shares.
+
+| Key | Default | What it does |
+|---|---|---|
+| `TableTool:ReadBudget` | `00:00:10` | How long one `regions:table` read (proposal, preview or write) may take over all its pages and patterns; past it the request answers 422 `TABLE_READ_TOO_SLOW`. A read also stops when the client goes away. `00:00:00` refuses every read (tests). |
+| `TableTool:ConcurrentReadsPerTenant` | 2 | `regions:table` and `regions:read` requests running at once per tenant (per user in platform scope). At least 1. |
+| `TableTool:QueuedReadsPerTenant` | 4 | Further requests that wait for a free slot; more answer 429. Not negative. |
+
+**Outputs** (`OutputOptions`, `JsonataRendererOptions`; both hosts). Output mappings render in renderer child
+processes (`DocProc.Outputs.Renderer.dll`, next to the host's assembly; docs/11 §13.1), started on the first render.
+
+| Key | Default | What it does |
+|---|---|---|
+| `Outputs:PublicBaseUrl` | unset | The API's public base URL the values view's `links` start with (`https://dms.example`); relative links without it. |
+| `Outputs:Renderer:PoolSize` | processor count, at most 4 | Renderer processes kept, and renders that run at once. |
+| `Outputs:Renderer:TimeLimit` | `00:00:02` | Processor time one render may use from reading its request to its answer; the process is killed past it (`timeLimit`). |
+| `Outputs:Renderer:WallClockLimit` | `00:00:10` | Wall-clock ceiling of one render however little processor time it got. |
+| `Outputs:Renderer:TransferTimeout` | `00:00:30` | Sending a request and the renderer reading it (a 10,000-row price list is about 20 MB of values view). |
+| `Outputs:Renderer:StartTimeout` | `00:00:30` | Starting a new renderer process. |
+| `Outputs:Renderer:QueueTimeout` | `00:01:00` | How long a render waits for a free process of the pool before it answers `unavailable` (the publish stage retries, a preview answers 503). |
+| `Outputs:Preview:ConcurrentPreviewsPerTenant` | 2 | API only: `POST /output-mappings:preview` requests rendering at once per tenant (per user in platform scope). At least 1. |
+| `Outputs:Preview:QueuedPreviewsPerTenant` | 2 | API only: further previews that wait for a free slot; more answer 429. Not negative. |
+| `Outputs:Renderer:HeapHardLimitBytes` | 1073741824 (1 GiB) | The renderer's GC heap (`DOTNET_GCHeapHardLimit`); a render past it is `memoryLimit` and the process is replaced. |
+| `Outputs:Renderer:RendererPath` | `DocProc.Outputs.Renderer.dll` next to the host | The renderer assembly. |
+| `Outputs:Renderer:DotnetHostPath` | the running runtime's `dotnet` | The `dotnet` host that runs it. |
+| `Delivery:RetrySchedule` | empty: 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h | The waits between attempts of a delivery (docs/11 §13.6), each with up to 10 % jitter; the last entry repeats. |
+| `Delivery:MaxParallelism` | 4 | Delivery attempts the runner sends at once, in a lane of their own beside `Pipeline:MaxParallelism` (an attempt waits on a receiver for up to its `timeoutSeconds`, and must not hold up the document stages). Below 1 counts as 1. |
+| `Delivery:MaxParallelismPerTenant` | 2 | Of those, the most one tenant's attempts take. A tenant that holds a slot never takes the last free one, which is kept for a tenant with nothing in flight, so one or two tenants whose receivers never answer leave a slot for the others; it takes three such tenants with the defaults (ceil((MaxParallelism - 1) / MaxParallelismPerTenant) + 1) to fill the lane. Below 1 counts as 1. |
+| `Delivery:MaxAttempts` | 15 | Attempts before a retryable failure is dead-lettered (`DELIVERY_FAILED`). |
+| `Delivery:MaxAge` | `3.00:00:00` | How long after its creation a delivery is still retried. |
+| `Delivery:MaxRetryAfter` | `12:00:00` | The longest `Retry-After` of a receiver that is honoured (the shortest is 1 s). |
+| `Delivery:SweepInterval` | `00:00:30` | How often the delivery sweeper looks for deliveries whose message was lost (a crash after the fan-out's commit, a retry waiting in a process that ended). Zero turns it off. |
+| `Delivery:SweepGrace` | `00:01:00` | How long past its due time a delivery is left to its own message before the sweeper queues it. |
+| `Delivery:SweepBatchSize` | 100 | The most deliveries one sweep queues. |
+| `Delivery:SendLease` | `00:02:00` | How long an attempt holds its delivery on top of the transport's timeout; a process that died mid-send leaves it to the sweeper after that. |
+| `Delivery:DropRoot` | `data/outbound` (content root); `/data/outbound` in compose | The root folder of `blob` destinations' file drop; each tenant writes below `<root>/<tenantId>`. |
+| `Delivery:DevelopmentHosts` | empty; `mock-erp:8080` in compose, `localhost:8086` under the AppHost | `host` or `host:port` entries http destinations may reach over plain http at any address, past `TenantEndpointGuard`. Honoured in the Development environment only. |
+| `Delivery:StatusPollInterval` | `00:01:00` | How often the status poller (`StatusPollerHostedService`, docs/11 §13.8) asks destinations with a `statusPoll` about the documents whose external status is still Pending and due; `00:00:00` turns it off. |
+| `Delivery:StatusPollBatchSize` | 50 | Most references one round of the status poller asks about. |
+
+**Mailboxes** (`MailOptions`; both hosts: the worker's pollers read mail, the API checks a mailbox channel's host)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Mail:ImapHost` | unset; `mail` in compose, the GreenMail container under the AppHost | The platform's IMAP server, which a mailbox channel without a `host` of its own reads (docs/11 §7.1). Unset: such a channel's last error says the platform runs none. |
+| `Mail:ImapPort` | 143; `3143` in compose | Its port. |
+| `Mail:ImapSecurity` | `Auto`; `None` in compose and under the AppHost | `None`, `StartTls`, `SslOnConnect` or `Auto` for the platform server. A tenant's own server is always reached over TLS (`ssl` or `starttls` in its config). |
+| `Mail:AllowedHosts` | empty | IMAP hosts a tenant's mailbox may name past the public-host check (loopback, private and reserved addresses are refused otherwise, as for tenant endpoints). |
+| `Mail:TrustedAuthServIds` | empty (compose and the AppHost: `mx.platform.local`) | `authserv-id`s of the platform's receiving server (the MTA in front of `Mail:ImapHost`, one for every tenant; each server listed must strip or override a header claiming any listed id) whose `Authentication-Results` header is believed, for mailboxes on the platform server only; a channel's `authServId` adds one there. A mailbox on a tenant's own host believes only its channel's `authServId`. With none, no header is read and no sender counts as authenticated (a server that writes none would leave the sender's own header on top). |
+| `Mail:MaxMessageBytes` | 52428800 (50 MB) | The largest message ingested; a larger one is skipped (the cursor moves past it) and named in the channel's last error. |
+| `Mail:Timeout` | `00:00:30` | Connect, login and read timeout of one IMAP operation. |
+
+**Channel pollers** (`IntakeOptions`; the host that runs the pipeline)
+
+| Key | Default | What it does |
+|---|---|---|
+| `Intake:PollersEnabled` | true; false for the API in compose and under the AppHost | Whether this host reads the `Mailbox` and `WatchedFolder` channels of tenants with `sourceRouting` on (docs/11 §7.1). Two hosts polling one channel ingest each message and file once (unique per channel), so one host is enough. |
+| `Intake:PollInterval` | `00:00:30` | How often every polling channel is read; zero turns the pollers off. The first poll runs one interval after start. |
+| `Intake:MaxMessagesPerPoll` | 25 | The most messages one mailbox poll ingests; the rest wait for the next poll. |
+| `Intake:FolderRoot` | `data/dropzone` (content root); `/data/dropzone` in compose (`./fixtures/dropzone` mounted), `fixtures/dropzone` under the AppHost | The drop zone. A tenant's folders are below `<root>/<tenant slug>/`; a channel's `path` is relative to that. |
+| `Intake:FolderStableFor` | `00:00:05` | How long a file's size and time must stay unchanged before it is taken (a channel's `stableSeconds` overrides it). |
+| `Intake:MaxFilesPerScan` | 50 | The most files one folder scan takes. |
+| `Intake:MaxFileBytes` | 52428800 (50 MB) | The largest file taken; a larger one is moved to `failed/`. |
+
+**Configuration bundles** (read by the API's bundle endpoints, docs/11 §15.4)
+
+| Key | Default | What it does |
+|---|---|---|
+| `ConfigBundles:SigningKey` | unset: a fixed development key in Development and Testing; elsewhere none | The HMAC-SHA256 key that signs `GET /config/bundle` and verifies `POST /config/bundle:import`. Set the same secret value in the environments a bundle moves between (staging and production). Unset, Development and Testing sign with the built-in development key; any other environment answers both endpoints with 503 `BUNDLE_SIGNING_KEY_MISSING`, since a published key would let anyone forge a bundle that verifies. |
+
 **LLM providers** (`LlmReplayOptions`, `LlmExtractionOptions`, `ConfigurationLlmCredentialStore`; both hosts).
 Models and providers are not settings: the gateway resolves them per tenant and stage from the database (docs/08).
 
@@ -289,6 +1746,8 @@ Models and providers are not settings: the gateway resolves them per tenant and 
   native dependencies (PDFium, Tesseract, SkiaSharp) are present for both; CI builds and
   tests the amd64 image so a missing native never reaches Azure unnoticed.
 - Allocate at least 8 GB to Docker; SQL Server under emulation is memory-hungry.
+- `docker-compose.yml` pins `sqlserver` and `servicebus` to `platform: linux/amd64`, so they run under Rosetta;
+  the images built from `src/Dockerfile` and `web/Dockerfile` are built for the host's own architecture.
 
 ## Test pyramid
 
@@ -329,7 +1788,10 @@ when the committed `web/packages/api-client/openapi/v1.json` or `src/schema.d.ts
 what the API serves: after changing an endpoint, run the script and commit the result. The script
 starts the API on port 5199 (`OPENAPI_EXPORT_PORT` moves it) and removes the document's `servers`
 entry, which the API fills from that port, so the committed file is the same from any port
-(`web/scripts/strip-openapi-servers.mjs`, tested in `packages/api-client/src/openapi.test.ts`).
+(`web/scripts/strip-openapi-servers.mjs`, tested in `packages/api-client/src/openapi.test.ts`). The same script lists
+`components.schemas` in ordinal order: ASP.NET sorts them with the culture-sensitive comparer, and the API runs with
+ICU ("With Docker Compose", "Globalization"), where the order differs from invariant mode's, so without it the export
+would depend on the machine.
 
 ## PDF fixtures: fonts, PDFsharp and the artifacts switch
 

@@ -3,10 +3,11 @@ import { hasPolicy, hasRole, isPlatformRole, policiesOf, rolesByPolicy, Roles } 
 
 describe("hasPolicy", () => {
   it("mirrors the API's role table (README 'Authentication')", () => {
-    expect(policiesOf([Roles.SuperAdmin])).toEqual(["PlatformAdmin", "Platform", "TenantAdmin", "Review", "Ingest", "Read"]);
+    expect(policiesOf([Roles.SuperAdmin])).toEqual(["PlatformAdmin", "Platform", "TenantAdmin", "ConfigAdmin", "IntegrationAdmin", "DeliveriesRead", "MappingAuthor", "Review", "Ingest", "Read"]);
     expect(policiesOf([Roles.Operator])).toEqual(["Platform", "Review", "Read"]);
-    expect(policiesOf([Roles.TenantAdmin])).toEqual(["TenantAdmin", "Review", "Ingest", "Read"]);
+    expect(policiesOf([Roles.TenantAdmin])).toEqual(["TenantAdmin", "ConfigAdmin", "IntegrationAdmin", "DeliveriesRead", "MappingAuthor", "Review", "Ingest", "Read"]);
     expect(policiesOf([Roles.Reviewer])).toEqual(["Review", "Ingest", "Read"]);
+    expect(policiesOf([Roles.Reviewer, Roles.MappingAuthor])).toEqual(["MappingAuthor", "Review", "Ingest", "Read"]);
     expect(policiesOf([Roles.Viewer])).toEqual(["Read"]);
   });
 
@@ -28,7 +29,7 @@ describe("hasPolicy", () => {
   });
 
   it("lists every policy exactly once", () => {
-    expect(Object.keys(rolesByPolicy)).toHaveLength(6);
+    expect(Object.keys(rolesByPolicy)).toHaveLength(10);
   });
 });
 

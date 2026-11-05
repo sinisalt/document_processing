@@ -274,11 +274,116 @@ public sealed class CanonicalPatcherTests
     [Fact]
     public void Root_types_follow_the_document_type()
     {
-        CanonicalPatcher.RootTypeFor(DocumentType.Invoice).ShouldBe(typeof(Invoice));
-        CanonicalPatcher.RootTypeFor(DocumentType.CreditNote).ShouldBe(typeof(Invoice));
-        CanonicalPatcher.RootTypeFor(DocumentType.PurchaseOrder).ShouldBe(typeof(DocProc.Domain.PurchaseOrders.PurchaseOrder));
-        CanonicalPatcher.RootTypeFor(DocumentType.DeliveryNote).ShouldBe(typeof(DocProc.Domain.DeliveryNotes.DeliveryNote));
-        CanonicalPatcher.RootTypeFor(DocumentType.Statement).ShouldBeNull();
-        CanonicalPatcher.RootTypeFor(DocumentType.Unknown).ShouldBeNull();
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Invoice).ShouldBe(typeof(Invoice));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.CreditNote).ShouldBe(typeof(Invoice));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.PurchaseOrder).ShouldBe(typeof(DocProc.Domain.PurchaseOrders.PurchaseOrder));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.DeliveryNote).ShouldBe(typeof(DocProc.Domain.DeliveryNotes.DeliveryNote));
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Statement).ShouldBeNull();
+        CanonicalPatcher.RootTypeFor(DocumentTypeKey.Unknown).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_correction_source_becomes_the_location_of_the_human_provenance()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+        var source = new CorrectionSource(Method: "word", Page: 2, BBox: new SourceBox(1, 2, 3, 4), RawText: "28.10.2026", Cell: "B7");
+
+        var result = Apply(json, new FieldCorrection("issueDate", Value(new DateOnly(2026, 10, 28)), null, Source: source));
+
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(result.Json);
+        invoice.IssueDate.Source.ShouldBe(new FieldSource(SourceMethod.Human, 2, new BoundingBox(1, 2, 3, 4), "28.10.2026"));
+        var applied = result.Applied.ShouldHaveSingleItem();
+        applied.Op.ShouldBe(CorrectionOps.Set);
+        applied.Source.ShouldBe(source);
+        CorrectionSources.ToJson(applied.Source).ShouldBe("{\"method\":\"word\",\"page\":2,\"bBox\":{\"x0\":1,\"y0\":2,\"x1\":3,\"y1\":4},\"rawText\":\"28.10.2026\",\"cell\":\"B7\"}");
+    }
+
+    [Fact]
+    public void A_source_without_a_page_location_keeps_the_bare_human_provenance()
+    {
+        // A structured-file location (path, cell) has no page place to store in the field; it goes to the Correction row only.
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var result = Apply(json, new FieldCorrection("notes", Value("x"), null, Op: "set", Source: new CorrectionSource(Method: "cell", Cell: "C3")));
+
+        CanonicalDocumentSerializer.DeserializeInvoice(result.Json).Notes.Source.ShouldBe(FieldSource.Human);
+        CorrectionSources.ToJson(null).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Move_between_record_fields_converts_the_value_and_keeps_both_histories()
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        // Two moves in one request, applied in order: a due date that is the delivery date, then the line's quantity
+        // into the other line, whose own quantity goes into its history.
+        var result = Apply(json,
+            new FieldCorrection("deliveryDate", null, "printed as Lieferdatum", Op: "move", From: "dueDate"),
+            new FieldCorrection("lines[1].quantity", null, null, Op: "move", From: "lines[0].quantity"),
+            new FieldCorrection("notes", null, null, Op: "move", From: "subtotalNet"));
+        var invoice = CanonicalDocumentSerializer.DeserializeInvoice(result.Json);
+
+        invoice.DeliveryDate.Value.ShouldBe(new DateOnly(2026, 11, 10));
+        invoice.DeliveryDate.Status.ShouldBe(FieldStatus.Corrected);
+        invoice.DeliveryDate.Source!.Page.ShouldBe(1, "the value keeps the place it was read from");
+        invoice.DeliveryDate.Source.Method.ShouldBe(SourceMethod.Human);
+        invoice.DueDate.Status.ShouldBe(FieldStatus.Missing, "a date field has no empty value, so the moved-out field is Missing");
+        invoice.DueDate.HasValue.ShouldBeFalse();
+        invoice.DueDate.History.ShouldHaveSingleItem().Value.ShouldBe(new DateOnly(2026, 11, 10));
+        invoice.Lines[1].Quantity.Value.ShouldBe(10m);
+        invoice.Lines[1].Quantity.History.ShouldHaveSingleItem().Value.ShouldBe(5m);
+        invoice.Lines[0].Quantity.HasValue.ShouldBeFalse();
+        invoice.Notes.Value.ShouldBe("150.00", "an amount moved into text is its number");
+        result.Applied.Select(a => (a.Path, a.Op, a.From)).ShouldBe([("deliveryDate", "move", "dueDate"), ("lines[1].quantity", "move", "lines[0].quantity"), ("notes", "move", "subtotalNet")]);
+        result.Applied[1].OldValueJson.ShouldBe("5", "the target's value before the move");
+        result.Applied[0].NewValueJson.ShouldBe("\"2026-11-10\"");
+        result.Applied[0].Reason.ShouldBe("printed as Lieferdatum");
+        CorrectionSources.ToJson(result.Applied[0].Source, result.Applied[0].From).ShouldBe("{\"from\":\"dueDate\"}");
+        CorrectionSources.ToJson(new CorrectionSource(Method: "drag"), "dueDate").ShouldBe("{\"method\":\"drag\",\"from\":\"dueDate\"}");
+    }
+
+    [Theory]
+    [InlineData("issueDate", "currency", "does not fit")]
+    [InlineData("lines[0].description", "lines[0].quantity", "does not fit")]
+    [InlineData("supplier.vatId", "notes", "inside a field")]
+    [InlineData("lines[5].quantity", "notes", "no entry at index 5")]
+    [InlineData("originalInvoiceReference", "notes", "has no value to move")]
+    [InlineData("notes", "notes", "onto itself")]
+    public void Move_refuses_what_does_not_fit_a_record(string from, string path, string message)
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid() with { Notes = FieldValue.Extracted("bitte zahlen") });
+        var error = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection(path, null, null, Op: "move", From: from)));
+        error.Message.ShouldContain(message);
+        Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("notes", Value("x"), null, From: "issueDate"))).Message.ShouldContain("'from' belongs to op 'move'");
+    }
+
+    [Theory]
+    [InlineData("append", "does not apply to this document; only 'set', 'move' do")]
+    [InlineData("remove", "does not apply to this document")]
+    [InlineData("move", "names the field the value comes from in 'from'")]
+    [InlineData("setType", "use POST /documents/{id}:set-type")]
+    [InlineData("SET", "not a correction operation")]
+    [InlineData("", "not a correction operation")]
+    public void Operations_other_than_set_and_move_are_refused(string op, string message)
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var error = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection("notes", Value("x"), null, Op: op)));
+
+        error.Path.ShouldBe("notes");
+        error.Message.ShouldContain(message);
+    }
+
+    [Theory]
+    [InlineData("extra")]
+    [InlineData("extra.supplierCustomerRef")]
+    [InlineData("lines[0].extra")]
+    public void The_extension_data_bag_is_not_an_addressable_field(string path)
+    {
+        var json = CanonicalDocumentSerializer.Serialize(TestInvoices.Valid());
+
+        var error = Should.Throw<CanonicalPatchException>(() => Apply(json, new FieldCorrection(path, Value("x"), null)));
+
+        error.Message.ShouldContain("'extra' is not a field");
     }
 }

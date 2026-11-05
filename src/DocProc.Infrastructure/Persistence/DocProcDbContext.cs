@@ -39,6 +39,35 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
     public DbSet<LlmProviderConfigRecord> LlmProviderConfigs => Set<LlmProviderConfigRecord>();
     public DbSet<TenantLlmPolicyRecord> TenantLlmPolicies => Set<TenantLlmPolicyRecord>();
     public DbSet<LlmUsageEntry> LlmUsage => Set<LlmUsageEntry>();
+    public DbSet<DocumentTypeDefinition> DocumentTypeDefinitions => Set<DocumentTypeDefinition>();
+    public DbSet<DocumentTypeVersion> DocumentTypeVersions => Set<DocumentTypeVersion>();
+    public DbSet<DocumentFieldIndexEntry> DocumentFieldIndex => Set<DocumentFieldIndexEntry>();
+    public DbSet<DocumentTableReport> DocumentTableReports => Set<DocumentTableReport>();
+    public DbSet<OutputDestination> OutputDestinations => Set<OutputDestination>();
+    public DbSet<OutputMapping> OutputMappings => Set<OutputMapping>();
+    public DbSet<OutputMappingVersion> OutputMappingVersions => Set<OutputMappingVersion>();
+    public DbSet<OutputBinding> OutputBindings => Set<OutputBinding>();
+    public DbSet<OutboxDelivery> OutboxDeliveries => Set<OutboxDelivery>();
+    public DbSet<DeliveryAttempt> DeliveryAttempts => Set<DeliveryAttempt>();
+    public DbSet<DocumentExternalRef> DocumentExternalRefs => Set<DocumentExternalRef>();
+    public DbSet<LookupTable> LookupTables => Set<LookupTable>();
+    public DbSet<LookupEntry> LookupEntries => Set<LookupEntry>();
+    public DbSet<SupplierGroup> SupplierGroups => Set<SupplierGroup>();
+    public DbSet<ReceivingEntity> ReceivingEntities => Set<ReceivingEntity>();
+    public DbSet<SupplierEntityAttributes> SupplierEntityAttributes => Set<SupplierEntityAttributes>();
+    public DbSet<SupplierSourceRule> SupplierSourceRules => Set<SupplierSourceRule>();
+    public DbSet<SupplierLayout> SupplierLayouts => Set<SupplierLayout>();
+    public DbSet<SupplierLayoutVersion> SupplierLayoutVersions => Set<SupplierLayoutVersion>();
+    public DbSet<TypeIdentificationRule> TypeIdentificationRules => Set<TypeIdentificationRule>();
+    public DbSet<TypeIdentificationRuleVersion> TypeIdentificationRuleVersions => Set<TypeIdentificationRuleVersion>();
+    public DbSet<GoldenDocument> GoldenDocuments => Set<GoldenDocument>();
+    public DbSet<RegressionRun> RegressionRuns => Set<RegressionRun>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<PipelineSnapshot> PipelineSnapshots => Set<PipelineSnapshot>();
+    public DbSet<LookupResult> LookupResults => Set<LookupResult>();
+    public DbSet<LlmBudgetRecord> LlmBudgets => Set<LlmBudgetRecord>();
+    public DbSet<MasterDataSource> MasterDataSources => Set<MasterDataSource>();
+    public DbSet<MasterDataRun> MasterDataRuns => Set<MasterDataRun>();
 
     /// <summary>
     /// Bumps the <see cref="IVersioned.Version"/> token of every modified <see cref="IVersioned"/> row before the
@@ -120,13 +149,46 @@ public sealed class DocProcDbContext(DbContextOptions<DocProcDbContext> options,
         modelBuilder.Entity<DocumentEvent>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<ReviewTask>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<Correction>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentFieldIndexEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentTableReport>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<OutboxMessage>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<IdempotencyKey>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<TenantLlmPolicyRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
         modelBuilder.Entity<LlmUsageEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputDestination>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputBinding>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutboxDelivery>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DeliveryAttempt>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentExternalRef>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierGroup>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<ReceivingEntity>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierEntityAttributes>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierSourceRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierLayout>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<SupplierLayoutVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<TypeIdentificationRule>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<TypeIdentificationRuleVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<GoldenDocument>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<RegressionRun>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<Notification>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<PipelineSnapshot>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupResult>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LlmBudgetRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<MasterDataSource>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<MasterDataRun>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == Tenant.TenantId);
 
         // Platform configs (TenantId null) are visible to every tenant's gateway call; tenant configs only to their tenant.
         modelBuilder.Entity<LlmProviderConfigRecord>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+
+        // The type catalogue (docs/11 §6.1): platform templates (TenantId null) are read by every tenant, a tenant's types only by it.
+        modelBuilder.Entity<DocumentTypeDefinition>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<DocumentTypeVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+
+        // Output mappings and lookup tables (docs/11 §6.7, §6.1): platform integration templates and code lists are read by every tenant.
+        modelBuilder.Entity<OutputMapping>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<OutputMappingVersion>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupTable>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
+        modelBuilder.Entity<LookupEntry>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);
 
         // Profiles are shared through the global registry unless private to a tenant.
         modelBuilder.Entity<ExtractorProfile>().HasQueryFilter(e => Tenant.IsPlatformScope || e.TenantId == null || e.TenantId == Tenant.TenantId);

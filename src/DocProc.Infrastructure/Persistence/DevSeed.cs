@@ -1,3 +1,4 @@
+using DocProc.Infrastructure.Catalogue;
 using DocProc.Domain.Common;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Llm;
@@ -143,6 +144,8 @@ public static class DevSeed
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // The demo tenants adopt the standard types like every tenant (docs/11 §21 step 2).
+        inserted += await TypeCatalogueSeeder.EnsureAllAsync(db, now, cancellationToken).ConfigureAwait(false);
         return inserted;
     }
 

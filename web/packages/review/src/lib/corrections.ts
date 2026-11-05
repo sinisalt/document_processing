@@ -1,0 +1,115 @@
+import { getByPath } from "@docproc/app-shell";
+import type { components } from "@docproc/api-client";
+import type { FieldKind, FieldSpec } from "./formSpec";
+
+export type FieldCorrection = components["schemas"]["FieldCorrection"];
+
+/** Parses what a reviewer typed into a number; accepts a decimal comma. Null when blank, NaN when malformed. */
+export function parseAmount(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const lastComma = trimmed.lastIndexOf(",");
+  const lastDot = trimmed.lastIndexOf(".");
+  let normalized: string;
+  if (lastComma >= 0 && lastDot >= 0) {
+    // Both separators: the last one is the decimal mark, the other groups thousands (1.234,50 or 1,234.50).
+    normalized = lastComma > lastDot ? trimmed.replace(/\./g, "").replace(",", ".") : trimmed.replace(/,/g, "");
+  } else if (lastComma >= 0) {
+    normalized = trimmed.replace(",", ".");
+  } else {
+    normalized = trimmed;
+  }
+  return Number(normalized.replace(/\s/g, ""));
+}
+
+/**
+ * The JSON value `PATCH /documents/{id}/fields` expects for an edited text (docs/05): a bare string for an identifier,
+ * a bare number for an amount (document currency), ISO dates as strings, enums as names or codes, a boolean as
+ * `true`/`false`, and `null` to clear.
+ */
+export function toCorrectionValue(kind: FieldKind, text: string): unknown {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  switch (kind) {
+    case "money":
+    case "number": {
+      const n = parseAmount(trimmed);
+      return n === null || Number.isNaN(n) ? trimmed : n;
+    }
+    case "boolean":
+      return trimmed === "true" ? true : trimmed === "false" ? false : trimmed;
+    default:
+      return trimmed;
+  }
+}
+
+function normalize(text: unknown): string {
+  return typeof text === "string" ? text.trim() : text === null || text === undefined ? "" : String(text);
+}
+
+/**
+ * Whether two texts of a field mean the same value: amounts compare as numbers ("58,80" is the 58.8 on screen), the
+ * rest as trimmed text. A correction to the same value is not one: the API would still mark the field Corrected by a
+ * human with confidence 1 and move the extraction (and its page box) into the history.
+ */
+export function sameValue(kind: FieldKind, before: string, after: string): boolean {
+  if (before === after) return true;
+  if (kind === "money" || kind === "number") {
+    const a = parseAmount(before);
+    const b = parseAmount(after);
+    return a !== null && b !== null && !Number.isNaN(a) && !Number.isNaN(b) && a === b;
+  }
+  return false;
+}
+
+/**
+ * Only what the reviewer changed, as corrections: a spec whose current value differs from its initial value yields one
+ * `{ path, value }`; untouched fields (and fields retyped to the same value) are never sent, so the API keeps their
+ * provenance byte for byte. Read-only specs are never sent.
+ */
+export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, current: unknown, reason?: string | null, mapped?: MappedSources): FieldCorrection[] {
+  const corrections: FieldCorrection[] = [];
+  for (const spec of specs) {
+    if (spec.readOnly) continue;
+    const before = normalize(getByPath(initial, spec.path));
+    const after = normalize(getByPath(current, spec.path));
+    // A value taken from the page (map mode) is saved with the place it was read from, unless it was retyped since.
+    const taken = mapped?.[spec.path];
+    const fromPage = !!taken && normalize(taken.text) === after;
+    // The same value taken from the page is still sent: the reviewer pointed at where it is printed (a pre-filled value
+    // read from a running title on page 2, confirmed on page 1), and a layout saved from the document learns that place.
+    if (sameValue(spec.kind, before, after) && !fromPage) continue;
+    const correction: FieldCorrection = { path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null };
+    if (fromPage) correction.source = taken.source;
+    corrections.push(correction);
+  }
+  return corrections;
+}
+
+/** Values the reviewer took from the page in map mode (docs/11 §12.3), by path: the text put into the form and where it was read. */
+export type MappedSources = Readonly<Record<string, { text: string; source: NonNullable<FieldCorrection["source"]> }>>;
+
+/** The `move` correction (docs/11 §12.3 "match fields"): the value of `from` goes into `path`, `from` is left Missing. */
+export function moveValue(from: string, path: string): FieldCorrection {
+  return { op: "move", path, from, value: null, reason: null };
+}
+
+/** `append` of an empty row to a repeating group (docs/11 §12.8): `{ op: "append", path: "lines" }`. */
+export function appendRow(path: string): FieldCorrection {
+  return { op: "append", path, value: null, reason: null };
+}
+
+/** `append` of an entry to a list, or of nothing to a repeating group, with its value. */
+export function appendEntry(path: string, kind: FieldKind, text: string): FieldCorrection {
+  return { op: "append", path, value: toCorrectionValue(kind, text), reason: null };
+}
+
+/** `remove` of a row (`lines[2]`), a list entry (`orderReferences[0]`) or a bag key (`ext.storeNo`). */
+export function removeAt(path: string): FieldCorrection {
+  return { op: "remove", path, value: null, reason: null };
+}
+
+/** `set` of a new bag key (`ext.storeNo`): the patcher creates a key it does not hold yet. */
+export function setAttribute(path: string, text: string): FieldCorrection {
+  return { path, value: toCorrectionValue("string", text), reason: null };
+}

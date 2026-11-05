@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { ArrowLeft } from "lucide-react";
 import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@docproc/ui";
-import { ApiError, EmptyState, PageHeader, TenantStatusBadge, queryKeys, unwrap, useApi } from "@docproc/app-shell";
+import { ApiError, EmptyState, PageHeader, Policies, TenantStatusBadge, queryKeys, unwrap, useApi, useAuth } from "@docproc/app-shell";
+import { DocumentTypesPanel } from "@docproc/review";
 import { OverviewTab } from "@/components/tenant/OverviewTab";
 import { ChannelsTab } from "@/components/tenant/ChannelsTab";
 import { MembersTab } from "@/components/tenant/MembersTab";
@@ -14,7 +15,7 @@ import { ApiKeysTab } from "@/components/tenant/ApiKeysTab";
 import { LlmTab } from "@/components/tenant/LlmTab";
 import { TenantScopeNotice, useTenantScope } from "@/components/tenant/TenantScope";
 
-export const tenantTabs = ["overview", "channels", "members", "suppliers", "settings", "api-keys", "llm"] as const;
+export const tenantTabs = ["overview", "channels", "members", "suppliers", "settings", "document-types", "api-keys", "llm"] as const;
 type TenantTab = (typeof tenantTabs)[number];
 
 const searchSchema = z.object({ tab: z.enum(tenantTabs).optional().catch(undefined) });
@@ -29,6 +30,7 @@ function TenantDetailPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { client } = useApi();
   const { scoped, canScope } = useTenantScope(tenantId);
+  const { hasPolicy } = useAuth();
 
   const tenant = useQuery({
     queryKey: queryKeys.tenants.detail(tenantId),
@@ -98,6 +100,10 @@ function TenantDetailPage() {
         </TabsContent>
         <TabsContent value="settings" className="pt-4">
           {scopedTab(<SettingsTab />)}
+        </TabsContent>
+        <TabsContent value="document-types" className="pt-4">
+          {/* The tenant's type catalogue (docs/11 §19): a SuperAdmin in the tenant's scope is its ConfigAdmin. */}
+          {tab === "document-types" && scopedTab(<DocumentTypesPanel canEdit={hasPolicy(Policies.ConfigAdmin)} />)}
         </TabsContent>
         <TabsContent value="api-keys" className="pt-4">
           {scopedTab(<ApiKeysTab />)}

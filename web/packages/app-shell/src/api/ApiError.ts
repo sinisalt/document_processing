@@ -5,13 +5,15 @@ import { formatNumber } from "../lib/format";
 /**
  * A field error's code in the UI language (`common:apiErrors.<code>` with its parameters), or null when this build
  * has no text for the code or the text needs a parameter the API did not send: the caller shows the English message.
+ * Numeric parameters are formatted for the language; `value` (the entry the API refused, such as an IBAN) is shown as
+ * sent, so "12345678" does not become "12.345.678".
  */
 export function validationCodeText(error: ValidationErrorCode, language?: string): string | null {
   if (!i18n.isInitialized) return null;
   const key = `apiErrors.${error.code}`;
   if (!i18n.exists(key, { ns: "common", lng: language })) return null;
   const values: Record<string, string> = {};
-  for (const [name, raw] of Object.entries(error.params ?? {})) values[name] = raw !== "" && Number.isFinite(Number(raw)) ? formatNumber(raw, language) : raw;
+  for (const [name, raw] of Object.entries(error.params ?? {})) values[name] = name !== "value" && raw !== "" && Number.isFinite(Number(raw)) ? formatNumber(raw, language) : raw;
   let missing = false;
   const text = i18n.t(key, {
     ns: "common",

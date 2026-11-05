@@ -1,0 +1,6 @@
+{
+  "tenantId": meta.tenantId,
+  "documentId": meta.documentId,
+  "eventType": meta.event,
+  "at": meta.eventAt
+}

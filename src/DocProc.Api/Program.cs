@@ -15,7 +15,7 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<OpenApiSecurityTransformer>());
+builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer<OpenApiSecurityTransformer>().AddSchemaTransformer<DocProc.Api.Documents.DocumentTypeKeySchemaTransformer>());
 builder.Services.AddProblemDetails();
 builder.Services.AddDocProcAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddTenantStatusCache();
@@ -35,6 +35,10 @@ builder.AddDocProcProcessingStack();
 // Development mode only: the demo invoices of fixtures/demo, ingested after the seed (docs/09 "Demo data").
 builder.AddDocProcDemoData();
 builder.Services.AddDocProcApiServices();
+// The table tool and region OCR run in this shared process: a time budget per read and a few reads at a time per tenant.
+DocProc.Api.Documents.TableToolOptions.AddTableToolLimits(builder.Services, builder.Configuration);
+// The output mapping preview renders in the renderer pool the tenants share: a few previews at a time per tenant.
+DocProc.Api.Endpoints.OutputPreviewOptions.AddOutputPreviewLimits(builder.Services, builder.Configuration);
 
 var app = builder.Build();
 
@@ -54,10 +58,14 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
     SuppressDiagnosticsCallback = context => context.HttpContext.Response.StatusCode < StatusCodes.Status500InternalServerError,
 });
 app.UseStatusCodePages();
+// Inside the exception handler: what fails because the client went away is a closed request, not a 500.
+app.UseClientAbortedRequests();
 
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+// After authorization: the table tool's limiter partitions by the tenant the request resolved.
+app.UseRateLimiter();
 
 // Anonymous surface: probes, the OpenAPI document and the Scalar reference. Everything else needs a token (fallback policy).
 app.MapDefaultEndpoints();
@@ -85,10 +93,26 @@ v1.MapDocuments();
 v1.MapReviewTasks();
 v1.MapTenants();
 v1.MapSuppliers();
+v1.MapSupplierGroups();
+v1.MapSourceRules();
+v1.MapLayouts();
+v1.MapLayoutLearning();
+v1.MapTypeIdentificationRules();
+v1.MapGovernance();
 v1.MapChannels();
 v1.MapMembers();
 v1.MapTenantSettings();
+v1.MapDocumentTypes();
+v1.MapOutputMappings();
+v1.MapDestinations();
+v1.MapOutputBindings();
+v1.MapDeliveries();
+v1.MapIntegrations();
+v1.MapMasterData();
+v1.MapLookupTables();
 v1.MapLlmAdmin();
+v1.MapPipelines();
+v1.MapInsights();
 
 // The development token issuer exists only while enabled (never in production: AddDocProcAuthentication refuses to start).
 if (app.Services.GetRequiredService<DevAuthOptions>().Enabled)

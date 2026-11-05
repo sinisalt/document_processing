@@ -1,6 +1,4 @@
-using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
-using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DocProc.AppHost.Tests;
@@ -12,11 +10,22 @@ namespace DocProc.AppHost.Tests;
 /// </summary>
 public class AppModelTests
 {
-    private static async Task<DistributedApplicationModel> BuildModelAsync()
+    private static Task<DistributedApplicationModel> BuildModelAsync() => AppHostModel.ModelAsync(TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// The testing builder runs the AppHost's entry point, whose <c>Run()</c> would start the orchestrator and every
+    /// persistent container of the model; a full <c>dotnet test</c> left six of them running. The model-only build
+    /// stops that run before the host starts.
+    /// </summary>
+    [Fact]
+    public async Task Building_the_model_starts_nothing()
     {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(TestContext.Current.CancellationToken);
-        await using var app = await builder.BuildAsync(TestContext.Current.CancellationToken);
-        return app.Services.GetRequiredService<DistributedApplicationModel>();
+        await using var app = await AppHostModel.BuildAsync(TestContext.Current.CancellationToken);
+
+        await app.RunStopped.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+        var lifetime = app.App.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
+        lifetime.ApplicationStarted.IsCancellationRequested.ShouldBeFalse("the host (and with it the orchestrator) never started");
+        app.Model.Resources.ShouldContain(r => r.Name == "keycloak", "the model is still there to check");
     }
 
     [Fact]
@@ -25,7 +34,7 @@ public class AppModelTests
         var model = await BuildModelAsync();
 
         var names = model.Resources.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        foreach (var expected in new[] { "sql", "DocProc", "storage", "blobs", "messaging", "keycloak", "vault", "mail", "api", "worker" })
+        foreach (var expected in new[] { "sql", "DocProc", "storage", "blobs", "messaging", "keycloak", "vault", "mail", "mock-erp", "api", "worker" })
         {
             names.ShouldContain(expected);
         }
@@ -81,10 +90,9 @@ public class AppModelTests
     [Fact]
     public async Task Api_and_worker_share_one_secret_store_directory()
     {
-        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.DocProc_AppHost>(TestContext.Current.CancellationToken);
-        await using var app = await builder.BuildAsync(TestContext.Current.CancellationToken);
-        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
-        var executionContext = app.Services.GetRequiredService<DistributedApplicationExecutionContext>();
+        await using var app = await AppHostModel.BuildAsync(TestContext.Current.CancellationToken);
+        var model = app.Model;
+        var executionContext = app.ExecutionContext;
 
         async Task<string?> SecretsPathOf(string name)
         {
@@ -129,7 +137,7 @@ public class AppModelTests
         var realm = doc.RootElement;
         realm.GetProperty("realm").GetString().ShouldBe("docproc");
         realm.GetProperty("roles").GetProperty("realm").EnumerateArray().Select(r => r.GetProperty("name").GetString())
-            .ShouldBe(["SuperAdmin", "Operator", "TenantAdmin", "Reviewer", "Viewer"], ignoreOrder: true);
+            .ShouldBe(["SuperAdmin", "Operator", "TenantAdmin", "Reviewer", "Viewer", "MappingAuthor"], ignoreOrder: true);
         realm.GetProperty("clients").EnumerateArray().Select(c => c.GetProperty("clientId").GetString())
             .ShouldBe(["docproc-api", "docproc-portal", "docproc-admin"], ignoreOrder: true);
 
@@ -139,5 +147,37 @@ public class AppModelTests
             .Distinct()
             .ToList();
         tenants.Count.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// A realm import that lists <c>clientScopes</c> gets none of Keycloak's built-in scopes. Every scope a client names
+    /// must therefore be declared in the file, or the apps' sign-in (<c>scope=openid profile email</c>) fails with
+    /// <c>invalid_scope</c>, and the claims the API reads (<c>sub</c>, <c>preferred_username</c>, <c>email</c>) need a mapper.
+    /// </summary>
+    [Fact]
+    public void Keycloak_realm_declares_every_client_scope_its_clients_use_and_the_claims_the_api_reads()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "realms", "docproc-realm.json")));
+        var realm = doc.RootElement;
+        var scopes = realm.GetProperty("clientScopes").EnumerateArray().ToDictionary(s => s.GetProperty("name").GetString()!, StringComparer.Ordinal);
+
+        foreach (var client in realm.GetProperty("clients").EnumerateArray().Where(c => c.TryGetProperty("defaultClientScopes", out _)))
+        {
+            var named = client.GetProperty("defaultClientScopes").EnumerateArray().Select(s => s.GetString()!).ToList();
+            named.Where(s => !scopes.ContainsKey(s)).ShouldBeEmpty($"{client.GetProperty("clientId").GetString()} names client scopes the realm does not declare");
+            named.ShouldContain("profile");
+            named.ShouldContain("email");
+        }
+
+        var mappers = scopes.Values.SelectMany(s => s.GetProperty("protocolMappers").EnumerateArray()).ToList();
+        mappers.Select(m => m.GetProperty("protocolMapper").GetString()).ShouldContain("oidc-sub-mapper");
+        var claims = mappers
+            .Where(m => m.TryGetProperty("config", out var config) && config.TryGetProperty("claim.name", out _))
+            .Select(m => m.GetProperty("config").GetProperty("claim.name").GetString())
+            .ToList();
+        foreach (var claim in new[] { "preferred_username", "email", "tenant_id", "roles" })
+        {
+            claims.ShouldContain(claim);
+        }
     }
 }

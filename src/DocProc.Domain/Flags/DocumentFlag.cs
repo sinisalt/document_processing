@@ -58,6 +58,66 @@ public static class FlagCodes
     public const string InvalidValue = "INVALID_VALUE";
     public const string UnsupportedType = "UNSUPPORTED_TYPE";
 
+    // Definition-driven validation (docs/11 §11).
+    public const string FieldRequired = "FIELD_REQUIRED";
+    public const string FieldInvalid = "FIELD_INVALID";
+    public const string RuleFailed = "RULE_FAILED";
+    public const string RevisionOf = "REVISION_OF";
+
+    /// <summary>Checks the document reached a per-document limit for (docs/11 §11, <c>PatternBudget</c>) did not run.</summary>
+    public const string ChecksSkipped = "CHECKS_SKIPPED";
+
+    /// <summary>A delivery of the document was dead-lettered (docs/11 §13.6): retries ran out or the failure is permanent.</summary>
+    public const string DeliveryFailed = "DELIVERY_FAILED";
+
+    // Source routing and supplier corroboration (docs/11 §7.2, §7.4, P4).
+
+    /// <summary>A sender rule would have matched but the sender is not authenticated (DMARC); the document never auto-approves.</summary>
+    public const string SupplierSourceUnverified = "SUPPLIER_SOURCE_UNVERIFIED";
+
+    /// <summary>Source rules (or VAT and IBAN) of several suppliers match equally; no supplier was assigned.</summary>
+    public const string SupplierAmbiguous = "SUPPLIER_AMBIGUOUS";
+
+    /// <summary>The content names another supplier than an authoritative source rule; the source supplier is kept and review decides.</summary>
+    public const string SupplierConflict = "SUPPLIER_CONFLICT";
+
+    // Supplier layouts and identification (docs/11 §8.4, §8.2, P4).
+
+    /// <summary>The supplier is layout-managed and none of its Active layouts' identification rules holds; the document is held for review.</summary>
+    public const string NewLayout = "NEW_LAYOUT";
+
+    /// <summary>Two Active layouts of the supplier hold with equal priority and specificity; none is applied.</summary>
+    public const string LayoutAmbiguous = "LAYOUT_AMBIGUOUS";
+
+    /// <summary>The layout's identification rule held, but its field rules found less than the layout's usual coverage.</summary>
+    public const string MappingDrift = "MAPPING_DRIFT";
+
+    /// <summary>The document is one of the first under a new layout version (its review warm-up, decision 2 of docs/11 §24); it goes to review.</summary>
+    public const string LayoutWarmup = "LAYOUT_WARMUP";
+
+    // Configurable steps and LLM budgets (docs/11 §10, §16, P5).
+
+    /// <summary>An LLM step was not called because the tenant's LLM budget would have been exceeded; the document went on without it and goes to review.</summary>
+    public const string LlmBudgetExceeded = "LLM_BUDGET_EXCEEDED";
+
+    /// <summary>An <c>http-lookup</c> step could not call its destination or map its answer; the fields it fills stay as they were.</summary>
+    public const string LookupFailed = "LOOKUP_FAILED";
+
+    /// <summary>The supplier's, group's or layout's pipeline overrides were refused (a fixed step, invalid parameters); the type's own pipeline ran.</summary>
+    public const string PipelineInvalid = "PIPELINE_INVALID";
+
+    /// <summary>A table's report lists lines that did not become rows (docs/11 §11 <c>tableComplete</c>): the list is not read completely.</summary>
+    public const string TableRowsRejected = "TABLE_ROWS_REJECTED";
+
+    /// <summary>A page in a table's page range yielded no row (docs/11 §11 <c>tableComplete</c>); blocking with <c>everyPageInRange</c>.</summary>
+    public const string TablePageNoRows = "TABLE_PAGE_NO_ROWS";
+
+    /// <summary>A destination rejected the delivered document asynchronously (callback or status poll, docs/11 §13.8).</summary>
+    public const string ExternalRejected = "EXTERNAL_REJECTED";
+
+    /// <summary>The prefix of definition-scoped codes (<c>X_&lt;RULEID&gt;</c>), which come with their own message.</summary>
+    public static readonly string DefinitionScopedPrefix = "X_";
+
     public sealed record Definition(string Code, FlagSeverity DefaultSeverity, string Description);
 
     public static readonly FrozenDictionary<string, Definition> Catalogue = new Definition[]
@@ -80,19 +140,68 @@ public static class FlagCodes
         new(DateImplausible, FlagSeverity.Warning, "Issue date is in the future or more than a year old."),
         new(InvalidValue, FlagSeverity.Warning, "A value failed its type or format check (for example a malformed currency code)."),
         new(UnsupportedType, FlagSeverity.Warning, "The document type has no extraction path yet; the reviewer handles it by hand."),
+        new(FieldRequired, FlagSeverity.Blocking, "A field the document type requires has no value."),
+        new(FieldInvalid, FlagSeverity.Warning, "A value does not fit its field's definition (format, range, length or code); blocking for a required field."),
+        new(RuleFailed, FlagSeverity.Warning, "A rule of the document type's definition failed; the message is the rule's."),
+        new(RevisionOf, FlagSeverity.Warning, "An earlier document with the same duplicate key exists; this one may replace it."),
+        new(ChecksSkipped, FlagSeverity.Blocking, "Checks were skipped because the document reached a per-document limit (pattern evaluations); a reviewer checks the values."),
+        new(SupplierSourceUnverified, FlagSeverity.Warning, "A source rule for another supplier would have matched, but the sender is not authenticated (DMARC); the document is never auto-approved."),
+        new(SupplierAmbiguous, FlagSeverity.Warning, "Several suppliers match the source rules (or the VAT id and IBAN) equally; review assigns the supplier."),
+        new(SupplierConflict, FlagSeverity.Blocking, "The document's content names another supplier than its authoritative source rule; the source supplier is kept until review decides."),
+        new(NewLayout, FlagSeverity.Blocking, "The supplier sent a design none of its layouts recognises; the document is held for review and not processed with another layout."),
+        new(LayoutAmbiguous, FlagSeverity.Blocking, "Several layouts of the supplier recognise the document equally; none was applied and review decides."),
+        new(MappingDrift, FlagSeverity.Warning, "The layout recognised the document, but its field rules found fewer fields than usual; the supplier may have moved them."),
+        new(LayoutWarmup, FlagSeverity.Info, "The document is one of the first documents under a new layout version and goes to review (the layout's warm-up), already filled by the layout."),
+        new(DeliveryFailed, FlagSeverity.Warning, "A delivery to a destination failed for good (retries ran out or the receiver refused it); an integration admin redelivers it."),
+        new(LlmBudgetExceeded, FlagSeverity.Blocking, "An LLM step was not called because the tenant's LLM budget for the period (or the document) would have been exceeded; a reviewer checks what it would have filled."),
+        new(LookupFailed, FlagSeverity.Warning, "An http-lookup step could not call its destination or map its answer; the fields it fills stay as they were (blocking when the step says so)."),
+        new(TableRowsRejected, FlagSeverity.Blocking, "The table report lists lines that did not become rows; a reviewer checks them before the list is used."),
+        new(TablePageNoRows, FlagSeverity.Warning, "A page in the table's page range yielded no row (blocking when the rule asks for every page)."),
+        new(ExternalRejected, FlagSeverity.Warning, "The receiving system rejected the delivered document (callback or status poll); a reviewer corrects and re-approves it, or resolves the issue with a note."),
+        new(PipelineInvalid, FlagSeverity.Blocking, "The pipeline overrides of the supplier, its group or its layout were refused (a fixed step, invalid parameters); the type's own steps ran and a reviewer checks the document."),
     }.ToFrozenDictionary(d => d.Code, StringComparer.Ordinal);
 
     public static bool IsKnown(string code) => Catalogue.ContainsKey(code);
 
-    /// <summary>Creates a flag with the catalogue's default severity for the code.</summary>
+    /// <summary>
+    /// In a stage's owned codes: every definition-scoped code (<c>X_*</c>, docs/11 §11). The validate checks own the
+    /// definition flags their rules raise, whatever the definition calls them, so a check run again replaces them.
+    /// </summary>
+    public const string DefinitionScopedWildcard = "X_*";
+
+    /// <summary>Whether <paramref name="code"/> is one of <paramref name="ownedCodes"/> (with <see cref="DefinitionScopedWildcard"/> for every <c>X_*</c> code).</summary>
+    public static bool IsOwned(IReadOnlySet<string> ownedCodes, string code)
+    {
+        ArgumentNullException.ThrowIfNull(ownedCodes);
+        return ownedCodes.Contains(code) || (IsDefinitionScoped(code) && ownedCodes.Contains(DefinitionScopedWildcard));
+    }
+
+    /// <summary>Whether the code is a definition-scoped one (<c>X_&lt;RULEID&gt;</c>, docs/11 §11): upper-case letters, digits and underscores after the prefix.</summary>
+    public static bool IsDefinitionScoped(string code) =>
+        code.Length > DefinitionScopedPrefix.Length && code.Length <= 64 && code.StartsWith(DefinitionScopedPrefix, StringComparison.Ordinal)
+        && code.Skip(DefinitionScopedPrefix.Length).All(c => c is (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_');
+
+    /// <summary>
+    /// Creates a flag with the catalogue's default severity for the code. A definition-scoped code (<c>X_*</c>) is not
+    /// in the catalogue: it carries the rule's own message and is a warning unless the caller sets another severity.
+    /// </summary>
     public static DocumentFlag Create(string code, string message, string? field = null, IReadOnlyDictionary<string, string>? parameters = null)
     {
-        if (!Catalogue.TryGetValue(code, out var def))
+        FlagSeverity severity;
+        if (Catalogue.TryGetValue(code, out var def))
+        {
+            severity = def.DefaultSeverity;
+        }
+        else if (IsDefinitionScoped(code))
+        {
+            severity = FlagSeverity.Warning;
+        }
+        else
         {
             throw new ArgumentException($"Unknown flag code '{code}'.", nameof(code));
         }
 
-        return new DocumentFlag(code, def.DefaultSeverity, message, field, Params: parameters is { Count: > 0 } ? parameters : null);
+        return new DocumentFlag(code, severity, message, field, Params: parameters is { Count: > 0 } ? parameters : null);
     }
 }
 

@@ -4,6 +4,7 @@ using Testcontainers.MsSql;
 namespace DocProc.Integration.Tests;
 
 /// <summary>Smoke test for the database the rest of the integration suite will build on: SQL Server 2025 in a container.</summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class SqlServerContainerTests : IAsyncLifetime
 {
     private MsSqlContainer? _container;
@@ -15,8 +16,7 @@ public sealed class SqlServerContainerTests : IAsyncLifetime
             return;
         }
 
-        _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
-        await _container.StartAsync(TestContext.Current.CancellationToken);
+        _container = await SqlServerContainers.StartAsync(TestContext.Current.CancellationToken);
     }
 
     public async ValueTask DisposeAsync()

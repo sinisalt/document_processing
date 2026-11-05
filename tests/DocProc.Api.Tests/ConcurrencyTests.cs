@@ -177,7 +177,7 @@ public sealed class ConcurrencyTests : IDisposable
             Id = Guid.CreateVersion7(),
             TenantId = tenantId,
             IngestionItemId = item.Id,
-            Type = DocumentType.Invoice,
+            Type = DocumentTypeKey.Invoice,
             Status = DocumentStatus.NeedsReview,
             CanonicalJson = CanonicalDocumentSerializer.Serialize(invoice),
             CanonicalSchemaVersion = CanonicalDocumentSerializer.SchemaVersion,

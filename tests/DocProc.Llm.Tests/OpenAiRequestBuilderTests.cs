@@ -22,13 +22,13 @@ public class OpenAiRequestBuilderTests
         chat.Model.ShouldBe("gpt-5");
         chat.Messages.Count.ShouldBe(2);
 
-        var system = Json(chat.Messages[0]);
+        var system = OpenAiTestSupport.Json(chat.Messages[0]);
         system.GetProperty("role").GetString().ShouldBe("system");
         var systemText = system.GetProperty("content").GetString()!;
         systemText.ShouldStartWith("Extract the invoice.");
         systemText.ShouldContain("<example>\n<input>\nRechnung 1\n</input>\n<output>\n{\"invoiceNumber\":\"1\"}\n</output>\n</example>");
 
-        var user = Json(chat.Messages[1]);
+        var user = OpenAiTestSupport.Json(chat.Messages[1]);
         user.GetProperty("role").GetString().ShouldBe("user");
         var content = user.GetProperty("content").EnumerateArray().ToList();
         content.Count.ShouldBe(2);
@@ -38,7 +38,7 @@ public class OpenAiRequestBuilderTests
         content[1].GetProperty("type").GetString().ShouldBe("text");
         content[1].GetProperty("text").GetString().ShouldStartWith("Tenant:");
 
-        var options = Json(chat.Options);
+        var options = OpenAiTestSupport.Json(chat.Options);
         options.GetProperty("max_completion_tokens").GetInt32().ShouldBe(4096);
         options.GetProperty("reasoning_effort").GetString().ShouldBe("medium");
         options.TryGetProperty("user", out _).ShouldBeFalse("DocumentId is correlation only and never reaches the provider");
@@ -55,7 +55,7 @@ public class OpenAiRequestBuilderTests
     {
         var chat = OpenAiRequestBuilder.Build(Request(null), LlmProviderKind.OpenAi, Full);
 
-        var sent = JsonNode.Parse(Json(chat.Options).GetProperty("response_format").GetProperty("json_schema").GetProperty("schema").GetRawText());
+        var sent = JsonNode.Parse(OpenAiTestSupport.Json(chat.Options).GetProperty("response_format").GetProperty("json_schema").GetProperty("schema").GetRawText());
 
         JsonNode.DeepEquals(sent, CanonicalSchemas.InvoiceExtraction.Schema).ShouldBeTrue("the schema sent in strict mode must be exactly the canonical one");
         SchemaPortability.Check(CanonicalSchemas.InvoiceExtraction).ShouldBeEmpty();
@@ -71,7 +71,7 @@ public class OpenAiRequestBuilderTests
             PageTexts = ["Rechnung Nr. 42", "Seite 2"],
         });
 
-        var content = Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Messages[1])
+        var content = OpenAiTestSupport.Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Messages[1])
             .GetProperty("content").EnumerateArray().ToList();
 
         content.Select(c => c.GetProperty("type").GetString()).ShouldBe(["image_url", "image_url", "text", "text"]);
@@ -95,10 +95,10 @@ public class OpenAiRequestBuilderTests
 
         var chat = OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAiCompatible, SelfHosted);
 
-        Json(chat.Messages[1]).GetProperty("content").EnumerateArray().Select(c => c.GetProperty("type").GetString())
+        OpenAiTestSupport.Json(chat.Messages[1]).GetProperty("content").EnumerateArray().Select(c => c.GetProperty("type").GetString())
             .ShouldBe(["image_url", "text", "text"]);
-        Json(chat.Options).GetProperty("response_format").GetProperty("type").GetString().ShouldBe("json_object");
-        Json(chat.Messages[0]).GetProperty("content").GetString()!.ShouldContain(CanonicalSchemas.InvoiceExtraction.Json);
+        OpenAiTestSupport.Json(chat.Options).GetProperty("response_format").GetProperty("type").GetString().ShouldBe("json_object");
+        OpenAiTestSupport.Json(chat.Messages[0]).GetProperty("content").GetString()!.ShouldContain(CanonicalSchemas.InvoiceExtraction.Json);
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class OpenAiRequestBuilderTests
     {
         var request = Request(new DocumentInput { PageImages = [new PageImage(1, new byte[] { 9 }, 100, 100)], PageTexts = ["Rechnung"] });
 
-        var content = Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAiCompatible, SelfHosted with { Vision = false }).Messages[1])
+        var content = OpenAiTestSupport.Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAiCompatible, SelfHosted with { Vision = false }).Messages[1])
             .GetProperty("content").EnumerateArray().Select(c => c.GetProperty("type").GetString()).ToList();
 
         content.ShouldBe(["text", "text"]);
@@ -120,8 +120,8 @@ public class OpenAiRequestBuilderTests
         var chat = OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full);
 
         // A lone text part collapses to plain string content, which every OpenAI-compatible server accepts.
-        Json(chat.Messages[1]).GetProperty("content").GetString().ShouldBe(request.Prompt.Task);
-        var options = Json(chat.Options);
+        OpenAiTestSupport.Json(chat.Messages[1]).GetProperty("content").GetString().ShouldBe(request.Prompt.Task);
+        var options = OpenAiTestSupport.Json(chat.Options);
         options.TryGetProperty("response_format", out _).ShouldBeFalse();
         options.TryGetProperty("reasoning_effort", out _).ShouldBeFalse();
         options.GetProperty("max_completion_tokens").GetInt32().ShouldBe(LlmOptions.Default.MaxOutputTokens);
@@ -135,8 +135,8 @@ public class OpenAiRequestBuilderTests
             Prompt = Request(null).Prompt with { SystemOverrides = new Dictionary<LlmProviderKind, string> { [LlmProviderKind.AzureOpenAi] = "Azure-specific wording." } },
         };
 
-        Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.AzureOpenAi, Full).Messages[0]).GetProperty("content").GetString().ShouldStartWith("Azure-specific wording.");
-        Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Messages[0]).GetProperty("content").GetString().ShouldStartWith("Extract the invoice.");
+        OpenAiTestSupport.Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.AzureOpenAi, Full).Messages[0]).GetProperty("content").GetString().ShouldStartWith("Azure-specific wording.");
+        OpenAiTestSupport.Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Messages[0]).GetProperty("content").GetString().ShouldStartWith("Extract the invoice.");
     }
 
     [Theory]
@@ -149,7 +149,7 @@ public class OpenAiRequestBuilderTests
         OpenAiRequestBuilder.MapEffort(effort)?.ToString().ShouldBe(expected);
 
         var request = Request(null) with { Options = new LlmOptions { Effort = effort } };
-        var options = Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Options);
+        var options = OpenAiTestSupport.Json(OpenAiRequestBuilder.Build(request, LlmProviderKind.OpenAi, Full).Options);
         if (expected is null)
         {
             options.TryGetProperty("reasoning_effort", out _).ShouldBeFalse();
@@ -170,7 +170,7 @@ public class OpenAiRequestBuilderTests
 
         chat.HasReasoningEffort.ShouldBeFalse();
         chat.Options.ReasoningEffortLevel.ShouldBeNull();
-        Json(chat.Options).TryGetProperty("reasoning_effort", out _).ShouldBeFalse();
+        OpenAiTestSupport.Json(chat.Options).TryGetProperty("reasoning_effort", out _).ShouldBeFalse();
     }
 
     [Fact]
@@ -180,6 +180,6 @@ public class OpenAiRequestBuilderTests
 
         chat.Messages[0].ShouldBeOfType<SystemChatMessage>();
         chat.Messages[1].ShouldBeOfType<UserChatMessage>();
-        Should.NotThrow(() => JsonDocument.Parse(Json(chat.Options).GetRawText()));
+        Should.NotThrow(() => JsonDocument.Parse(OpenAiTestSupport.Json(chat.Options).GetRawText()));
     }
 }

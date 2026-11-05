@@ -124,7 +124,8 @@
       "suppliers": "Lieferanten",
       "settings": "Einstellungen",
       "api-keys": "API-Schlüssel",
-      "llm": "KI"
+      "llm": "KI",
+      "document-types": "Dokumenttypen"
     },
     "identity": "Identität",
     "identityDescription": "Wie der Mandant heißt und wo er tätig ist.",
@@ -426,7 +427,15 @@
       "approved": "Freigegeben",
       "rejected": "Abgelehnt",
       "corrected": "Korrigiert",
-      "reprocessed": "Erneut verarbeitet"
+      "reprocessed": "Erneut verarbeitet",
+      "type_set": "Typ festgelegt",
+      "supplier_assigned": "Lieferant zugeordnet",
+      "split": "Aufgeteilt",
+      "joined": "Zusammengeführt",
+      "delivery_succeeded": "Zugestellt",
+      "delivery_failed": "Zustellung fehlgeschlagen",
+      "delivery_skipped": "Zustellung übersprungen",
+      "redelivery_requested": "Erneute Zustellung angefordert"
     },
     "rawJson": "Rohdaten (JSON)",
     "detailKey": {
@@ -597,7 +606,26 @@
     "PO_UNMATCHED": "Bestellung nicht zugeordnet",
     "DATE_IMPLAUSIBLE": "Unplausibles Datum",
     "INVALID_VALUE": "Ungültiger Wert",
-    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt"
+    "UNSUPPORTED_TYPE": "Dokumentart nicht unterstützt",
+    "FIELD_REQUIRED": "Pflichtfeld fehlt",
+    "FIELD_INVALID": "Ungültiger Wert",
+    "RULE_FAILED": "Regel verletzt",
+    "REVISION_OF": "Neufassung eines früheren Dokuments",
+    "CHECKS_SKIPPED": "Prüfungen übersprungen",
+    "DELIVERY_FAILED": "Zustellung fehlgeschlagen",
+    "SUPPLIER_SOURCE_UNVERIFIED": "Absender nicht authentifiziert",
+    "SUPPLIER_AMBIGUOUS": "Lieferant mehrdeutig",
+    "SUPPLIER_CONFLICT": "Lieferantenkonflikt",
+    "NEW_LAYOUT": "Neues Layout",
+    "LAYOUT_AMBIGUOUS": "Layout mehrdeutig",
+    "MAPPING_DRIFT": "Layout-Abweichung",
+    "LAYOUT_WARMUP": "Layout-Anlaufphase",
+    "LLM_BUDGET_EXCEEDED": "LLM-Budget erreicht",
+    "LOOKUP_FAILED": "Abfrage fehlgeschlagen",
+    "PIPELINE_INVALID": "Pipeline-Anpassungen abgelehnt",
+    "TABLE_ROWS_REJECTED": "Tabellenzeilen abgelehnt",
+    "TABLE_PAGE_NO_ROWS": "Seite ohne Zeilen",
+    "EXTERNAL_REJECTED": "Vom Zielsystem abgelehnt"
   },
   "failure": {
     "EncryptedPdf": "Passwortgeschützte PDF",
@@ -605,5 +633,35 @@
     "UnreadablePage": "Seite nicht lesbar",
     "UnsupportedPlatform": "Verarbeitung auf dieser Plattform nicht möglich",
     "TooLarge": "Datei zu groß"
+  },
+  "features": {
+    "title": "Funktionsschalter",
+    "description": "Konfigurierbare Dokumenttypen, Ausgaben, Quellzuordnung und Lieferantenlayouts (docs/11). Standardmäßig aus; wieder ausgeschaltet, arbeitet der Mandant wie zuvor: die übernommenen Standardtypen, keine Zustellung, kein Kanal abgerufen, kein Layout verwendet.",
+    "saved": "Funktionsschalter gespeichert.",
+    "saveFailed": "Die Schalter wurden nicht gespeichert.",
+    "configurableTypes": {
+      "label": "Konfigurierbare Dokumenttypen",
+      "hint": "Der Mandant kann Dokumenttypen übernehmen, kopieren, bearbeiten und veröffentlichen, eigene Felder anlegen und jeden Typ im erzeugten Formular prüfen."
+    },
+    "customTypes": {
+      "label": "Eigene Typen des Mandanten",
+      "hint": "Der Mandant kann auch Typen anlegen, die keine Vorlage abdeckt. Braucht konfigurierbare Dokumenttypen."
+    },
+    "outputs": {
+      "label": "Ausgaben",
+      "hint": "Der Mandant kann Ziele, Ausgabe-Mappings und Verknüpfungen einrichten (Einstellungen > Integrationen); Freigaben und Ablehnungen werden dann zugestellt. Aus: Freigeben und Veröffentlichen wie bisher, es wird nichts zugestellt."
+    },
+    "sourceRouting": {
+      "label": "Quellzuordnung",
+      "hint": "Die Postfächer und überwachten Ordner des Mandanten werden abgerufen; Quellregeln (Absender mit DMARC, Empfänger, Ordner, Betreff) geben Dokumenten beim Eingang Lieferant und Typ; Lieferanteneinstellungen, Gruppen, empfangende Gesellschaften und typisierte Attribute. Aus: Dokumente werden wie bisher über ihren Inhalt zugeordnet, kein Kanal wird abgerufen."
+    },
+    "supplierLayouts": {
+      "label": "Lieferantenlayouts",
+      "hint": "Dokumente eines Lieferanten werden an den Erkennungsregeln seiner Layouts erkannt und von deren Feldzuordnung gefüllt; ein Layout, das keines erkennt, geht als neues Layout in die Prüfung und wird dort als Layout gespeichert. Aus: kein Layout wird verwendet, die Dokumente laufen wie bisher."
+    },
+    "configurableSteps": {
+      "label": "Konfigurierbare Schritte",
+      "hint": "Lieferanten, Lieferantengruppen und Layouts können die Schritte ihrer Dokumente ändern (pipelineOverrides: das LLM abschalten, seinen Aufwand setzen, eine http-lookup-Abfrage an die Systeme des Mandanten einfügen), und die Schrittparameter des Typs gelten. Aus: jedes Dokument läuft wie bisher mit den eingebauten Schritten."
+    }
   }
 }

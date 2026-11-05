@@ -45,12 +45,79 @@ public sealed class Document : ITenantScoped, IVersioned
     /// </summary>
     public BlobReference? EmbeddedXmlBlob { get; set; }
 
-    public DocumentType Type { get; set; } = DocumentType.Unknown;
+    public DocumentTypeKey Type { get; set; } = DocumentTypeKey.Unknown;
+
+    /// <summary>
+    /// The type version the document was processed with (docs/11 §5.7, §6.2): pinned by the Extract stage from the
+    /// tenant's published version of <see cref="Type"/>, back-filled for the documents before the catalogue (the
+    /// adopted v1). Null while the type is Unknown, and for a type without a catalogue entry.
+    /// </summary>
+    public Guid? DocumentTypeVersionId { get; set; }
+
     public double? TypeConfidence { get; set; }
     public TypeSource? TypeSource { get; set; }
 
     public Guid? SupplierId { get; set; }
     public double? SupplierMatchConfidence { get; set; }
+
+    /// <summary>
+    /// How the supplier was found (docs/11 §6.2 <c>SupplierMatchMethod</c>): by the Match stage's signals, or
+    /// <see cref="Entities.SupplierMatchMethod.Human"/> when a reviewer assigned it (<c>:assign-supplier</c>), which the
+    /// Match stage then keeps. Null for documents matched before the column existed, and while there is no supplier.
+    /// </summary>
+    public SupplierMatchMethod? SupplierMatchMethod { get; set; }
+
+    /// <summary>The source rule that routed the document to its supplier (docs/11 §7.2); null unless <see cref="SupplierMatchMethod"/> is <c>SourceRule</c>.</summary>
+    public Guid? SupplierSourceRuleId { get; set; }
+
+    /// <summary>
+    /// The supplier layout version whose identification rule identified the document (docs/11 §6.2, §8.4): its field
+    /// mapping filled the document, and the review gate reads its state and warm-up. Null when no layout identified it.
+    /// </summary>
+    public Guid? SupplierLayoutVersionId { get; set; }
+
+    /// <summary>
+    /// The Candidate layout version a <c>NEW_LAYOUT</c> document waits for (docs/11 §8.4 step 5, §12.10 steps 2 and 7): its
+    /// rule holds on the document, or a reviewer attached the document to it. Never applied; activating the version
+    /// offers to reprocess the documents waiting for it, and the inbox filters by it (<c>?pendingLayoutVersionId=</c>).
+    /// </summary>
+    public Guid? PendingLayoutVersionId { get; set; }
+
+    /// <summary>
+    /// The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; <see cref="TypeSource.Identification"/>
+    /// without a layout): it pins the immutable <c>TypeIdentificationRuleVersion</c>, so a later edit never changes which
+    /// rule typed a past document. Null when no tenant rule typed it.
+    /// </summary>
+    public Guid? IdentificationRuleVersionId { get; set; }
+
+    /// <summary>
+    /// The hash of the pipeline the document's last stage ran (docs/11 §10.1 <c>pipelineHash</c>, P5), whose steps
+    /// <c>PipelineSnapshots</c> keeps; null for a tenant without <c>configurableSteps</c>, where every document runs the
+    /// built-in steps.
+    /// </summary>
+    public string? PipelineHash { get; set; }
+
+    /// <summary>The tenant's company the document is addressed to (docs/11 §6.4): from the source rule, the channel default or the customer VAT id.</summary>
+    public Guid? ReceivingEntityId { get; set; }
+
+    /// <summary>
+    /// The document this one was joined into in review (docs/11 §12.7 <c>:join</c>); set together with
+    /// <see cref="DocumentStatus.Cancelled"/>.
+    /// </summary>
+    public Guid? JoinedIntoDocumentId { get; set; }
+
+    /// <summary>
+    /// The later document that replaces this one (docs/11 §11, <c>REVISION_OF</c> resolved as <c>supersedes</c>): a
+    /// superseded document is never a duplicate match, nor the previous list of <c>deltaToPrevious</c>.
+    /// </summary>
+    public Guid? SupersededByDocumentId { get; set; }
+
+    /// <summary>The earlier document a reviewer resolved this one's <c>REVISION_OF</c> against (docs/11 §11 <c>:resolve-revision</c>).</summary>
+    public Guid? RevisionOfDocumentId { get; set; }
+
+    /// <summary>How the <c>REVISION_OF</c> against <see cref="RevisionOfDocumentId"/> was resolved; null while unresolved.</summary>
+    public RevisionResolution? RevisionResolution { get; set; }
+
     public Guid? ExtractorProfileId { get; set; }
     public ExtractionMethod? ExtractionMethod { get; set; }
 
@@ -69,6 +136,21 @@ public sealed class Document : ITenantScoped, IVersioned
     public string? Currency { get; set; }
     public decimal? TotalGross { get; set; }
 
+    /// <summary>The role <c>validFrom</c> (price lists, docs/11 §6.2), for the inbox.</summary>
+    public DateOnly? ValidFrom { get; set; }
+
+    /// <summary>The role <c>validUntil</c>, for the inbox.</summary>
+    public DateOnly? ValidUntil { get; set; }
+
+    /// <summary>The number of rows of the role <c>lineItems</c>, for the inbox (price lists show rows instead of a total).</summary>
+    public int? LineCount { get; set; }
+
+    /// <summary>
+    /// What the pipeline resolved for the document (docs/11 §6.2 <c>AppliedConfigJson</c>): the type version and its key,
+    /// the LLM schema sent and when it was resolved. Supplier, layout and identification parts arrive with P4.
+    /// </summary>
+    public string? AppliedConfigJson { get; set; }
+
     public DocumentCosts Costs { get; set; } = new();
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -79,10 +161,137 @@ public sealed class Document : ITenantScoped, IVersioned
     public IngestionItem? IngestionItem { get; set; }
     public Supplier? Supplier { get; set; }
     public ExtractorProfile? ExtractorProfile { get; set; }
+    public DocumentTypeVersion? DocumentTypeVersion { get; set; }
+    public SupplierLayoutVersion? SupplierLayoutVersion { get; set; }
     public ICollection<DocumentFlagRecord> Flags { get; } = [];
     public ICollection<DocumentEvent> Events { get; } = [];
     public ICollection<ReviewTask> ReviewTasks { get; } = [];
     public ICollection<Correction> Corrections { get; } = [];
+    public ICollection<DocumentFieldIndexEntry> FieldIndex { get; } = [];
+    public ICollection<DocumentTableReport> TableReports { get; } = [];
+}
+
+/// <summary>Who wrote a <see cref="DocumentTableReport"/> (docs/11 §6.2).</summary>
+public enum TableReportOrigin
+{
+    /// <summary>A supplier layout's <c>column-table</c> rule in the Extract stage (P4).</summary>
+    Layout,
+
+    /// <summary>The review table tool (<c>regions:table</c> with <c>write</c>, docs/11 §12.4).</summary>
+    ReviewTool,
+}
+
+/// <summary>
+/// The table report of a repeating group (docs/11 §6.2 <c>DocumentTableReport</c>, §8.6, §12.4): per page the rows
+/// read, the rejected lines with their text, whether the header was found, the dividers used. Stored next to the tree,
+/// not in the <c>FieldValue</c> envelope, one per document and group path; written by the table tool (and from P4 by a
+/// layout's <c>column-table</c>), replacing the previous one for the path, and deleted when the group is written by
+/// another source (the Extract stage, a reviewer replacing all rows, a new type, a split or join), so the
+/// <c>tableComplete</c> rule (P5) never reads a report about rows that are no longer there.
+/// </summary>
+public sealed class DocumentTableReport : ITenantScoped
+{
+    public const int MaxPathLength = 200;
+    public const int MaxStepIdLength = 64;
+
+    public Guid TenantId { get; set; }
+    public Guid DocumentId { get; set; }
+
+    /// <summary>The repeating group the report describes, a top-level definition path (<c>lines</c>).</summary>
+    public required string Path { get; set; }
+
+    public TableReportOrigin Origin { get; set; }
+
+    /// <summary>The step of the pipeline that wrote it (a layout's <c>column-table</c>, P4); null for the review tool.</summary>
+    public string? StepId { get; set; }
+
+    /// <summary>The Correction the review tool wrote the rows with; null for a layout.</summary>
+    public long? CorrectionId { get; set; }
+
+    /// <summary>The document's <c>Version</c> the rows were written at.</summary>
+    public int ProducedAtVersion { get; set; }
+
+    /// <summary>The report as JSON (an object; see <c>TableReport</c> in DocProc.Mapping).</summary>
+    public required string ReportJson { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public Document? Document { get; set; }
+    public Correction? Correction { get; set; }
+}
+
+/// <summary>
+/// One value of an <c>indexed</c> field of a document (docs/11 §6.2 <c>DocumentFieldIndex</c>): what the inbox filters
+/// on (<c>?field.&lt;key&gt;=value</c>) and the duplicate check reads for key components other than the document number.
+/// <see cref="FieldKey"/> is the field's definition path (<c>supplierCustomerRef</c>, <c>lines[*].supplierSku</c>);
+/// <see cref="Ordinal"/> tells the values of a list or of the rows of an array apart (0 for a single value). Exactly
+/// one of the value columns is set: strings (identifiers by their normalised form) in <see cref="StringValue"/>,
+/// numbers and amounts in <see cref="NumberValue"/>, dates in <see cref="DateValue"/>. Written with the list columns by
+/// <c>DocumentRoleColumns</c>, from the stored tree.
+/// </summary>
+public sealed class DocumentFieldIndexEntry : ITenantScoped
+{
+    public const int MaxFieldKeyLength = 200;
+    public const int MaxStringLength = 400;
+
+    public Guid TenantId { get; set; }
+    public Guid DocumentId { get; set; }
+    public required string FieldKey { get; set; }
+    public int Ordinal { get; set; }
+    public string? StringValue { get; set; }
+    public decimal? NumberValue { get; set; }
+    public DateOnly? DateValue { get; set; }
+
+    public Document? Document { get; set; }
+}
+
+/// <summary>How a document's supplier was found (docs/11 §6.2); the routing methods (<c>Hint</c>, <c>SourceRule</c>) come with P4.</summary>
+public enum SupplierMatchMethod
+{
+    /// <summary>A VAT id printed on the document or carried by the e-invoice.</summary>
+    Vat,
+
+    /// <summary>An IBAN of the supplier.</summary>
+    Iban,
+
+    /// <summary>The sender's e-mail domain.</summary>
+    Domain,
+
+    /// <summary>The supplier's name or an alias on the first page.</summary>
+    Name,
+
+    /// <summary>Assigned by a reviewer (<c>:assign-supplier</c>, create supplier from review).</summary>
+    Human,
+
+    /// <summary>A supplier source rule matched the ingestion's source (docs/11 §7.2); <c>SupplierSourceRuleId</c> names it.</summary>
+    SourceRule,
+
+    /// <summary>The channel's default supplier (docs/11 §7.2 step 4), as <c>DefaultWhenNoContentMatch</c>.</summary>
+    ChannelDefault,
+
+    /// <summary>An authorised hint of the uploader (docs/11 §7.2 step 1).</summary>
+    Hint,
+}
+
+/// <summary>How a reviewer resolved a <c>REVISION_OF</c> (docs/11 §11, <c>POST /documents/{id}:resolve-revision</c>).</summary>
+public enum RevisionResolution
+{
+    /// <summary>This document replaces the earlier one, which gets <see cref="Document.SupersededByDocumentId"/>.</summary>
+    Supersedes,
+
+    /// <summary>Both stand; the pair is not flagged again.</summary>
+    Additional,
+
+    /// <summary>This document is a duplicate of the earlier one and was rejected.</summary>
+    Duplicate,
+}
+
+/// <summary>How urgent a review task is (docs/11 §6.2, from the type's <c>review.priority</c>); the queue sorts by it first.</summary>
+public enum ReviewPriority
+{
+    Normal,
+    High,
+    Urgent,
 }
 
 /// <summary>Persisted <see cref="DocumentFlag"/>.</summary>
@@ -167,6 +376,16 @@ public enum ReviewTaskStatus
     Skipped,
 }
 
+/// <summary>What a review task asks for (docs/11 §13.8).</summary>
+public enum ReviewTaskKind
+{
+    /// <summary>A document waits for review before it is settled.</summary>
+    Document,
+
+    /// <summary>A settled document was rejected by a receiving system (<c>EXTERNAL_REJECTED</c>); the document stays settled.</summary>
+    IntegrationIssue,
+}
+
 public sealed class ReviewTask : ITenantScoped, IVersioned
 {
     public Guid Id { get; set; }
@@ -179,6 +398,16 @@ public sealed class ReviewTask : ITenantScoped, IVersioned
 
     public string? AssignedTo { get; set; }
     public ReviewTaskStatus Status { get; set; } = ReviewTaskStatus.Open;
+
+    /// <summary>From the type's <c>review.priority</c> (docs/11 §6.2); Normal for every task before it existed.</summary>
+    public ReviewPriority Priority { get; set; } = ReviewPriority.Normal;
+
+    /// <summary>
+    /// What the task asks for (docs/11 §13.8): a document to review (every task before the column existed), or an
+    /// <see cref="ReviewTaskKind.IntegrationIssue"/> about a settled document a receiving system rejected.
+    /// </summary>
+    public ReviewTaskKind Kind { get; set; } = ReviewTaskKind.Document;
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? SlaDueAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
@@ -193,8 +422,22 @@ public sealed class Correction : ITenantScoped
     public Guid TenantId { get; set; }
     public Guid DocumentId { get; set; }
     public required string FieldPath { get; set; }
+
+    /// <summary>The correction operation (docs/11 §6.2): <c>set</c> today; <c>append</c>, <c>remove</c>, <c>move</c> and the review actions later.</summary>
+    public string Op { get; set; } = "set";
+
     public string? OldValueJson { get; set; }
     public string? NewValueJson { get; set; }
+
+    /// <summary>
+    /// Where the reviewer took the value from, as a JSON object (<c>{method, page, bBox, rawText, words, path, cell}</c>,
+    /// docs/11 §6.2); null when the correction named no source, and for every row written before the column existed.
+    /// </summary>
+    public string? SourceJson { get; set; }
+
+    /// <summary>The type version of the document when the correction was made (docs/11 §6.2); null for older rows without one.</summary>
+    public Guid? DocumentTypeVersionId { get; set; }
+
     public required string By { get; set; }
     public DateTimeOffset At { get; set; }
     public string? Reason { get; set; }
@@ -204,8 +447,8 @@ public sealed class Correction : ITenantScoped
 
 /// <summary>
 /// Outbox row of docs/05 "Events out" and docs/03 stage 9: one row per published document event, written in the
-/// same transaction as the state change so a delivery job can send webhooks later and mark <see cref="DeliveredAt"/>.
-/// <see cref="PayloadJson"/> is the serialised <c>DocumentEventMessage</c>.
+/// same transaction as the decision that settles the document (approve, reject, auto-approval; docs/11 §13.5), so a
+/// lost queue message can never lose the event. <see cref="PayloadJson"/> is the serialised <c>DocumentEventMessage</c>.
 /// </summary>
 public sealed class OutboxMessage : ITenantScoped
 {
@@ -215,7 +458,17 @@ public sealed class OutboxMessage : ITenantScoped
     public required string EventType { get; set; }
     public required string PayloadJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Deprecated (docs/11 §6.2): never set; deliveries will track their own state.</summary>
     public DateTimeOffset? DeliveredAt { get; set; }
+
+    /// <summary>
+    /// When the publish stage handed the row on (stage 9; in P0 there are no destinations yet, so this is the publish
+    /// itself). Null means the decision committed but the publish has not run: the publish message was lost or is still
+    /// queued, and <c>PublishSweeper</c> picks the row up. A concurrency token, so two publishers cannot both claim it.
+    /// Rows written before the column existed were published when they were written and carry their CreatedAt.
+    /// </summary>
+    public DateTimeOffset? FannedOutAt { get; set; }
 
     public Document? Document { get; set; }
 }

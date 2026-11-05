@@ -2,7 +2,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { i18n } from "@/i18n";
-import { fieldDomId, type CanonicalInvoice } from "@/lib/canonical";
+import { fieldDomId } from "@docproc/review";
+
+type CanonicalInvoice = Record<string, unknown>;
 import type { DocumentDetail, DocumentEvent, DocumentFlag } from "@/lib/queries";
 
 /** What the fake API answers, by path template; anything else is a 404 problem. */
@@ -92,6 +94,13 @@ function documentOf(patch: Partial<DocumentDetail> = {}): DocumentDetail {
     failureReason: null,
     ingestion: null,
     typeConfidence: 1,
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    typeName: null,
+    typeVersion: null,
+    appliedConfig: null,
+    definition: null,
     ...patch,
   };
 }
@@ -293,6 +302,37 @@ describe("approve shortcut hint", () => {
     expect(screen.getByTestId("approve-shortcut")).toHaveTextContent("⌘↵");
     expect(screen.getByTestId("approve-button")).toHaveAttribute("aria-keyshortcuts", "Meta+Enter");
     platform.mockRestore();
+  });
+});
+
+describe("approve refused without a definition (docs/11 §11)", () => {
+  it("disables Approve, says why, and does not open the confirmation from the shortcut", () => {
+    renderScreen(
+      documentOf({
+        type: "Unknown",
+        canonical: null,
+        approvalBlocked: { code: "TYPE_REQUIRED", message: "The document has no type." },
+      }),
+    );
+    expect(screen.getByTestId("approve-button")).toBeDisabled();
+    const note = screen.getByTestId("approve-blocked");
+    expect(note).toHaveAttribute("data-code", "TYPE_REQUIRED");
+    expect(note).toHaveTextContent("Set the type of this document before approving it");
+    expect(screen.getByTestId("approve-button")).toHaveAttribute("aria-describedby", "approve-blocked");
+    fireEvent.keyDown(window.document.body, { key: "Enter", ctrlKey: true });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(client.POST).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the API's message for a code it does not know", () => {
+    renderScreen(documentOf({ approvalBlocked: { code: "SOMETHING_NEW", message: "A reason the API gives." } }));
+    expect(screen.getByTestId("approve-blocked")).toHaveTextContent("A reason the API gives.");
+  });
+
+  it("shows nothing when the document can be approved", () => {
+    renderScreen(documentOf({ approvalBlocked: null }));
+    expect(screen.queryByTestId("approve-blocked")).toBeNull();
+    expect(screen.getByTestId("approve-button")).toBeEnabled();
   });
 });
 

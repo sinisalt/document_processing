@@ -1,0 +1,27 @@
+{
+  "header": {
+    "stage": "Classify",
+    "promptVersion": "classify-document@1",
+    "schema": "document_classification@1",
+    "taskTextHash": "bb6e89c038561bdd3125bf684bd060e567d715fdd7b11800ba88b97b63ed92b0",
+    "model": "claude-haiku-5-5",
+    "recordedAt": "2026-10-30T12:00:00+00:00"
+  },
+  "model": "claude-haiku-5-5",
+  "stopReason": "end_turn",
+  "providerRequestId": "replay-demo-classify-nordwind-preisliste-2027",
+  "latencyMs": 910,
+  "usage": {
+    "inputTokens": 1710,
+    "outputTokens": 41,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0
+  },
+  "json": {
+    "documentType": "Other",
+    "confidence": 0.88,
+    "language": "de",
+    "supplierNameHint": "Nordwind Gro\u00DFhandel GmbH"
+  }
+}

@@ -30,6 +30,9 @@ public sealed class ApiKeyAuthenticationHandler(
     public const string AuthMethodClaimType = "auth_method";
     public const string AuthMethodValue = "apikey";
 
+    /// <summary>The destination a <c>deliveries:read</c> key is restricted to (docs/11 §13.3).</summary>
+    public const string DestinationClaimType = "api_key_destination";
+
     /// <summary>True when the request carries an API key in either accepted place.</summary>
     public static bool HasApiKey(HttpRequest request) => Extract(request) is not null;
 
@@ -79,6 +82,10 @@ public sealed class ApiKeyAuthenticationHandler(
             new("api_key_prefix", identity.Prefix),
         };
         claims.AddRange(identity.Scopes.Select(s => new Claim(ScopeClaimType, s)));
+        if (identity.DestinationId is { } destination)
+        {
+            claims.Add(new Claim(DestinationClaimType, destination.ToString("D")));
+        }
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name, oidc.NameClaimType, oidc.RoleClaimType));
         return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));

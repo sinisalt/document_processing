@@ -1,0 +1,359 @@
+# The whole platform with one command, as an alternative to the Aspire AppHost (README "With Docker Compose",
+# docs/09). From a clean clone:
+#
+#   docker compose up --build        (add -d to run in the background)
+#
+# Portal http://localhost:5173, admin console http://localhost:5174, API http://localhost:5100 (Scalar at /scalar),
+# Keycloak http://localhost:8080 (DOCPROC_KEYCLOAK_PORT in .env moves it). Users = passwords: superadmin, operator, tenant-a-admin, tenant-a-reviewer,
+# tenant-b-admin, tenant-b-viewer. `docker compose down -v` deletes every volume and starts from the seed again.
+#
+# Everything here is for a developer machine only: the passwords below are well-known local defaults (override them
+# in .env, see .env.example), the API runs in the Development environment with the demo seed, and every published
+# port is bound to 127.0.0.1 unless DOCPROC_BIND_ADDRESS says otherwise. The services mirror
+# src/DocProc.AppHost/AppHost.cs, and the hosts get the same configuration keys the AppHost sets.
+#
+# The fixed host ports are part of the contract: the Keycloak realm's redirect URIs name 5173 and 5174. Keycloak's
+# host port is DOCPROC_KEYCLOAK_PORT (default 8080, as in the apps' .env.production): http://localhost:<port>/realms/docproc
+# is the issuer of every token, so KC_HOSTNAME, the API's authority, the apps' VITE_OIDC_AUTHORITY build argument and
+# their CSP (OIDC_ORIGIN) all name the same port.
+
+name: docproc
+
+x-sql-password: &sql-password ${DOCPROC_SQL_PASSWORD:-DocProc-Local-Only-1}
+
+# Connection strings both hosts read; the names are the AppHost's resource names (docs/09 "What the AppHost starts").
+x-connection-strings: &connection-strings
+  ConnectionStrings__DocProc: "Server=sqlserver,1433;Database=DocProc;User ID=sa;Password=${DOCPROC_SQL_PASSWORD:-DocProc-Local-Only-1};TrustServerCertificate=true"
+  # Azurite's well-known development account (not a secret).
+  ConnectionStrings__blobs: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+  # The emulator's fixed development key. Set for parity with the AppHost; no host reads it until the Service Bus
+  # transport replaces the in-process queue (docs/03 "Implementation").
+  ConnectionStrings__messaging: "Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+
+x-host-environment: &host-environment
+  <<: *connection-strings
+  Persistence__Provider: SqlServer
+  Authentication__Dev__Enabled: "false"
+  # Both hosts mount the same volume here: the API writes BYOK keys, the worker's LLM stages read them.
+  Secrets__Path: /data/secrets
+  # Set for parity with the AppHost; no ISecretStore reads it yet (docs/09 "What the AppHost starts").
+  KeyVault__Endpoint: https://vault:8443
+  # The key of the seeded platform Anthropic configuration (secret reference llm-platform-eu); llm-setup enables
+  # that configuration when the key is set and disables it when it is not. Empty: e-invoice XML still works, LLM
+  # stages need another provider.
+  LLM_SECRET_LLM_PLATFORM_EU: ${ANTHROPIC_API_KEY:-}
+  # EF Core logs every SQL statement at Information (the first start's migrations alone are thousands of lines), which
+  # buries the start-up messages in `docker compose logs api`. Information brings them back (docs/09).
+  Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Warning
+  # Deliveries (docs/11 §13.3): the demos' mock-erp answers plain http at a private address, which the endpoint guard
+  # refuses; this Development-only allowance lets http destinations reach it (docs/09 "Outputs"). The file drop of
+  # blob destinations goes to the shared outbound volume.
+  Delivery__DevelopmentHosts__0: mock-erp:8080
+  Delivery__DropRoot: /data/outbound
+
+services:
+  # SQL Server 2025 (amd64 only; Docker Desktop / OrbStack on Apple Silicon emulate it with Rosetta). Also the store
+  # of the Service Bus emulator, which keeps its entities in databases of its own here.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: *sql-password
+    volumes:
+      - sql-data:/var/opt/mssql
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    # SQL Server can exit on its first boot when the machine is busy (AppLoader "Failed to load LSA: 0xc0070102", a
+    # start-up timeout); restarted, it comes up, and the health check's retries cover the wait. Without a restart
+    # policy compose gives up at once: "dependency sqlserver failed to start".
+    restart: unless-stopped
+
+  # Azure Blob Storage → Azurite. The API creates the containers raw, derived and exports at start-up.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    # --skipApiVersionCheck as the AppHost starts it: every Azurite release trails the Blob SDK's service version.
+    command: ["azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0", "--location", "/data", "--skipApiVersionCheck"]
+    volumes:
+      - azurite-data:/data
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:10000:10000"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10000"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Azure Service Bus → the official emulator (amd64 only), with the AppHost's entities: one queue per pipeline stage
+  # and the topic document-events with the subscription webhooks (docker/servicebus/Config.json; ServiceBusEmulatorConfigTests
+  # holds it to the AppHost). Its image has no shell, so servicebus-ready below probes it from outside.
+  servicebus:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.0
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: sqlserver
+      MSSQL_SA_PASSWORD: *sql-password
+    volumes:
+      - ./docker/servicebus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5672:5672"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    # Like sqlserver and keycloak: a crash while starting is retried instead of failing the whole `up`.
+    restart: unless-stopped
+
+  servicebus-ready:
+    image: node:22.23.4-bookworm-slim
+    command:
+      - node
+      - -e
+      - |
+        const deadline = Date.now() + 300_000;
+        (async () => {
+          for (;;) {
+            try { const r = await fetch("http://servicebus:5300/health"); if (r.ok) { console.log("servicebus is healthy"); return; } } catch {}
+            if (Date.now() > deadline) { console.error("servicebus did not become healthy within 5 minutes"); process.exit(1); }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        })();
+    depends_on:
+      servicebus:
+        condition: service_started
+    restart: "no"
+
+  # Keycloak with the realm docproc of the AppHost (users, roles, the clients of the two apps). The issuer is pinned to
+  # the URL the browser uses (KC_HOSTNAME); requests from other containers get back-channel URLs on their own host
+  # name (KC_HOSTNAME_BACKCHANNEL_DYNAMIC), which is how the API reads the keys at http://keycloak:8080.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      # Imported on the first start only; afterwards the realm lives in keycloak-data (down -v re-imports it).
+      - ./src/DocProc.AppHost/realms:/opt/keycloak/data/import:ro
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:${DOCPROC_KEYCLOAK_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    restart: unless-stopped
+
+  # Key Vault → Lowkey Vault (vault name docproc) for the BYOK flow; in memory, like under the AppHost.
+  vault:
+    image: nagyesta/lowkey-vault:7.3.127
+    environment:
+      LOWKEY_ARGS: "--LOWKEY_VAULT_NAMES=docproc --LOWKEY_VAULT_RELAXED_PORTS=true"
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8443:8443"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "/dev/null", "https://127.0.0.1:8443/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # GreenMail: SMTP 3025 / IMAP 3143 with the two tenants' invoice mailboxes, authentication off.
+  mail:
+    image: greenmail/standalone:2.1.15
+    environment:
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local:invoices,invoices@tenant-b.local:invoices"
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:3025:3025"
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:3143:3143"
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8085:8080"
+    # The image has bash but no wget or curl: read the SMTP greeting and say QUIT, so GreenMail closes the session
+    # itself instead of logging a "Connection reset" stack trace every 5 s.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3025 && IFS= read -r -t 3 greeting <&3 && [[ $$greeting == 220* ]] && printf 'QUIT\\r\\n' >&3 && IFS= read -r -t 3 bye <&3 && [[ $$bye == 221* ]]"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # The receiving ERP of the delivery demos (docs/11 §23; P3 onwards sends to it): WireMock with the stubs in
+  # docker/mock-erp/mappings. POST /api/ap/invoices answers 201 (erp-ap), POST /api/article-prices 202. A 503 is forced
+  # with the header X-Mock-Erp-Fail: 503, or with POST /__control/<erp-ap|article-prices>/fail-next (the next call
+  # only), .../fail-always and .../reset. What it received: GET http://localhost:8086/__admin/requests (docs/09).
+  mock-erp:
+    image: wiremock/wiremock:3.13.1
+    command: ["--disable-banner", "--verbose"]
+    volumes:
+      - ./docker/mock-erp:/home/wiremock:ro
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:8086:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/__admin/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # The API applies the migrations, seeds the two demo tenants of the realm (with their upload channels, suppliers and
+  # the disabled platform Anthropic configuration) and, unless DOCPROC_DEMO_DOCUMENTS=false, ingests the demo
+  # documents. It also runs the pipeline in-process (Pipeline:RunInProcess): until the Service Bus transport lands
+  # the queue is in memory, so the process that accepts an upload is the one that processes it (docs/03).
+  api:
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: api
+    environment:
+      <<: *host-environment
+      ASPNETCORE_ENVIRONMENT: Development
+      Persistence__MigrateOnStartup: "true"
+      Persistence__SeedDevData: "true"
+      Persistence__SeedDemoDocuments: ${DOCPROC_DEMO_DOCUMENTS:-true}
+      Pipeline__RunInProcess: "true"
+      # The worker polls the mailboxes and watched folders (docs/11 §7.1); one host is enough.
+      Intake__PollersEnabled: "false"
+      # The AppHost and Bicep own the containers elsewhere; here the API creates raw, derived and exports.
+      Blobs__CreateContainersOnStartup: "true"
+      # Tokens carry the issuer the browser saw; the API reads the realm's metadata and keys over the compose network.
+      Authentication__Oidc__Authority: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
+      Authentication__Oidc__MetadataAddress: http://keycloak:8080/realms/docproc/.well-known/openid-configuration
+      Authentication__Oidc__RequireHttpsMetadata: "false"
+    volumes:
+      - secrets:/data/secrets
+      - outbound:/data/outbound
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5100:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      azurite:
+        condition: service_healthy
+      servicebus-ready:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The worker connects only (the API owns the migrations, hence the wait) and runs its own in-process runner. It has
+  # no HTTP endpoint, so no health check: `docker compose logs worker` shows its start-up.
+  worker:
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: worker
+    environment:
+      <<: *host-environment
+      DOTNET_ENVIRONMENT: Development
+      Mail__ImapHost: mail
+      Mail__ImapPort: "3143"
+      Mail__ImapSecurity: None
+      # GreenMail writes no Authentication-Results header; the demo's mail script writes the one the platform's one
+      # receiving server (in front of GreenMail, for every tenant's mailbox) would, as mx.platform.local. Only a header
+      # of a listed authserv-id is believed, and only for a mailbox on this server, not on a tenant's own host (docs/11 §7.1).
+      Mail__TrustedAuthServIds__0: mx.platform.local
+      # The drop zone of the watched-folder channels (docs/11 §7.1): ./fixtures/dropzone/{tenant slug}/{channel path}/.
+      Intake__FolderRoot: /data/dropzone
+    volumes:
+      - secrets:/data/secrets
+      - outbound:/data/outbound
+      - ./fixtures/dropzone:/data/dropzone
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Makes the platform LLM configurations follow ANTHROPIC_API_KEY / OPENAI_API_KEY in .env through the admin API, then
+  # exits (docker/llm-setup.mjs): enables or creates the configuration of a key that is set, disables the seeded
+  # Anthropic one again when its key is removed. Its log (`docker compose logs llm-setup`) ends with the configuration
+  # in use; a rejected key is logged there without failing the stack.
+  llm-setup:
+    image: node:22.23.4-bookworm-slim
+    command: ["node", "/setup/llm-setup.mjs"]
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+    volumes:
+      - ./docker/llm-setup.mjs:/setup/llm-setup.mjs:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    restart: "no"
+
+  # The customer portal's production build behind an unprivileged nginx on 8080, which proxies /api to the API and
+  # sends the security headers (web/Dockerfile, web/nginx.conf.template).
+  portal:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        APP: customer-portal
+        # The browser's URL of the realm (KC_HOSTNAME), built into the app; its origin is allowed by the CSP.
+        VITE_OIDC_AUTHORITY: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
+    environment:
+      OIDC_ORIGIN: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5173:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The admin console, the same way. It starts once llm-setup is done, so its AI providers screen shows the result.
+  admin:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        APP: admin-console
+        # The browser's URL of the realm (KC_HOSTNAME), built into the app; its origin is allowed by the CSP.
+        VITE_OIDC_AUTHORITY: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}/realms/docproc
+    environment:
+      OIDC_ORIGIN: http://localhost:${DOCPROC_KEYCLOAK_PORT:-8080}
+    ports:
+      - "${DOCPROC_BIND_ADDRESS:-127.0.0.1}:5174:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      api:
+        condition: service_healthy
+      llm-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  sql-data:
+  azurite-data:
+  keycloak-data:
+  secrets:
+  outbound:

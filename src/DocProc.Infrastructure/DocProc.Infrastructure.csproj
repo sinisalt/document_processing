@@ -5,6 +5,14 @@
   <ItemGroup>
     <ProjectReference Include="../DocProc.Application/DocProc.Application.csproj" />
     <ProjectReference Include="../DocProc.Llm/DocProc.Llm.csproj" />
+    <!-- The output renderer runs as a child process (JsonataRenderer); the reference puts its assembly next to the host's. -->
+    <ProjectReference Include="../DocProc.Outputs.Renderer/DocProc.Outputs.Renderer.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The standard template parity test compares the templates' keyword blocks with KeywordRuleSet. -->
+    <InternalsVisibleTo Include="DocProc.Integration.Tests" />
+    <!-- The delivery tests (fan-out ranking, re-approval rules) run in the pipeline test host. -->
+    <InternalsVisibleTo Include="DocProc.Pipeline.Tests" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
@@ -18,11 +26,19 @@
     <PackageReference Include="PdfPig" />
     <PackageReference Include="PDFtoImage" />
     <PackageReference Include="MimeKit" />
+    <PackageReference Include="MailKit" />
     <PackageReference Include="SharpZipLib" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The templates as the TypeCatalogue migration seeds them, frozen with it (see TypeCatalogueSeedSql). -->
+    <EmbeddedResource Include="Persistence/Migrations/Seed/TypeCatalogueV1/*.json" LogicalName="DocProc.Infrastructure.Seed.TypeCatalogueV1.%(Filename)%(Extension)" />
+    <!-- The platform output templates (docs/11 §13.9) and the copy the OutputsAndLookups migration seeds, frozen with it. -->
+    <EmbeddedResource Include="Outputs/Templates/*" LogicalName="DocProc.Infrastructure.OutputTemplates.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Persistence/Migrations/Seed/OutputTemplatesV1/*" LogicalName="DocProc.Infrastructure.Seed.OutputTemplatesV1.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using DocProc.Application.Pipeline;
+using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using DocProc.Pipeline.Queue;
 using DocProc.Pipeline.Stages;
@@ -16,18 +17,29 @@ namespace DocProc.Pipeline.Runner;
 /// (one document, one ingestion) run one after the other through <see cref="KeyedWorkGate"/>, so a message delivered
 /// twice cannot race its twin past the status check. A document stage that succeeds enqueues the next stage; a
 /// failure goes through <see cref="FailurePolicy"/> and is recorded in a fresh scope by <see cref="FailureRecorder"/>.
+/// <para>
+/// Delivery attempts (<see cref="DeliveryWorkItem"/>) run in a lane of their own (<see cref="DeliveryOptions.MaxParallelism"/>
+/// slots, apart from the document pipeline's), each tenant at most <see cref="DeliveryOptions.MaxParallelismPerTenant"/>
+/// of them, and a tenant that holds a slot never takes the last free one (<see cref="DeliveryLaneGate"/>): an attempt
+/// waits on the tenant's receiver for up to its timeout, so a receiver that never answers holds up no document stage,
+/// and slow receivers hold up other tenants' deliveries only when enough tenants have them to fill every slot (three
+/// with the defaults). The reader does not wait for a delivery slot either, so documents queued behind deliveries are
+/// taken at once.
+/// </para>
 /// </summary>
 public sealed class PipelineRunnerHostedService(
     IPipelineQueueReader reader,
     IPipelineQueue queue,
     IServiceScopeFactory scopes,
     IOptions<PipelineOptions> options,
+    IOptions<DeliveryOptions> deliveryOptions,
     ILogger<PipelineRunnerHostedService> logger) : BackgroundService
 {
     private readonly PipelineOptions _options = options.Value;
     private readonly Lock _gate = new();
     private readonly HashSet<Task> _running = [];
     private readonly KeyedWorkGate _keys = new();
+    private readonly DeliveryLaneGate _deliveryLane = new(deliveryOptions.Value.MaxParallelism, deliveryOptions.Value.MaxParallelismPerTenant);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -35,13 +47,19 @@ public sealed class PipelineRunnerHostedService(
         using var slots = new SemaphoreSlim(parallelism, parallelism);
         if (logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation("Pipeline runner started with parallelism {Parallelism}.", parallelism);
+            logger.LogInformation("Pipeline runner started with parallelism {Parallelism}, deliveries {DeliveryParallelism} ({PerTenant} per tenant).", parallelism, _deliveryLane.Slots, _deliveryLane.PerTenant);
         }
 
         try
         {
             await foreach (var item in reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
+                if (item is DeliveryWorkItem delivery)
+                {
+                    Remember(Task.Run(() => RunDeliveryAsync(delivery, stoppingToken), CancellationToken.None));
+                    continue;
+                }
+
                 await slots.WaitAsync(stoppingToken).ConfigureAwait(false);
                 var work = Task.Run(
                     async () =>
@@ -79,6 +97,32 @@ public sealed class PipelineRunnerHostedService(
         logger.LogInformation("Pipeline runner stopped.");
     }
 
+    /// <summary>
+    /// One delivery attempt in the delivery lane: its <c>destination:document</c> key first (a twin waits holding
+    /// nothing), then a slot of the lane its tenant may take (<see cref="DeliveryLaneGate"/>). Every attempt takes
+    /// them in this order, so the waits cannot form a cycle.
+    /// </summary>
+    private async Task RunDeliveryAsync(DeliveryWorkItem item, CancellationToken stoppingToken)
+    {
+        try
+        {
+            using (await _keys.EnterAsync(item.Key, stoppingToken).ConfigureAwait(false))
+            using (await _deliveryLane.EnterAsync(item.TenantId, stoppingToken).ConfigureAwait(false))
+            {
+                await ProcessAsync(item, stoppingToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // The row stays due (or claimed until its lease ends); the delivery sweeper of the next start queues it.
+            logger.LogWarning("Delivery {DeliveryId} of tenant {TenantId} was still waiting for its turn at shutdown; the delivery sweeper queues it again.", item.Message.DeliveryId, item.TenantId);
+        }
+        finally
+        {
+            reader.Acknowledge(item);
+        }
+    }
+
     private async Task ProcessAsync(PipelineWorkItem item, CancellationToken cancellationToken)
     {
         try
@@ -93,6 +137,10 @@ public sealed class PipelineRunnerHostedService(
 
                 case DocumentWorkItem document:
                     await ProcessDocumentAsync(scope.ServiceProvider, document.Message, cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case DeliveryWorkItem delivery:
+                    await ProcessDeliveryAsync(scope.ServiceProvider, delivery.Message, cancellationToken).ConfigureAwait(false);
                     break;
 
                 default:
@@ -126,6 +174,25 @@ public sealed class PipelineRunnerHostedService(
         }
     }
 
+    /// <summary>
+    /// One delivery attempt (docs/11 §13.6). The processor records every outcome on the row itself; a retry is queued
+    /// here after its backoff. An exception (the database is gone) is only logged: the row stays due, or claimed
+    /// until its lease runs out, and the delivery sweeper queues it again.
+    /// </summary>
+    private async Task ProcessDeliveryAsync(IServiceProvider services, ProcessDelivery message, CancellationToken cancellationToken)
+    {
+        var run = await services.GetRequiredService<DeliveryProcessor>().ProcessAsync(message, cancellationToken).ConfigureAwait(false);
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Delivery {DeliveryId} (attempt {Attempt}): {Result}.", message.DeliveryId, message.Attempt, run.Result);
+        }
+
+        if (run.Retry is { } retry)
+        {
+            await queue.EnqueueAsync(retry, run.RetryDelay, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task HandleFailureAsync(PipelineWorkItem item, Exception exception, CancellationToken cancellationToken)
     {
         try
@@ -142,6 +209,10 @@ public sealed class PipelineRunnerHostedService(
 
                 case IngestionWorkItem { Message: var message }:
                     await ApplyAsync(recorder, message, exception, cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case DeliveryWorkItem { Message: var message }:
+                    logger.LogError(exception, "Delivery {DeliveryId} (attempt {Attempt}) failed outside its transport; the delivery sweeper queues it again.", message.DeliveryId, message.Attempt);
                     break;
             }
         }

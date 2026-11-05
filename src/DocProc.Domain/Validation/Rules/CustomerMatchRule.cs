@@ -14,11 +14,24 @@ public sealed class CustomerMatchRule : IInvoiceRule
     {
         if (context.Tenant is null || !invoice.Customer.HasValue)
         {
-            yield break;
+            return [];
         }
 
-        var tenant = context.Tenant;
-        var customer = invoice.Customer.Value!;
+        return Check(invoice.Customer.Value!, "customer", context);
+    }
+
+    /// <summary>
+    /// The check over one party at <paramref name="path"/> (the invoice's <c>customer</c>, or the field a type binds to
+    /// the role <c>customerParty</c>, docs/11 §11): the same comparison and flags for every type.
+    /// </summary>
+    public static IEnumerable<DocumentFlag> Check(Party customer, string path, ValidationContext context)
+    {
+        ArgumentNullException.ThrowIfNull(customer);
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.Tenant is not { } tenant)
+        {
+            yield break;
+        }
 
         var tenantVat = Identifiers.NormalizeCompact(tenant.VatId);
         var customerVat = customer.NormalizedVatId;
@@ -32,14 +45,14 @@ public sealed class CustomerMatchRule : IInvoiceRule
             yield return FlagCodes.Create(
                 FlagCodes.CustomerMismatch,
                 $"Customer VAT id {customer.VatId} does not match the tenant's {tenant.VatId}.",
-                "customer.vatId",
+                $"{path}.vatId",
                 FlagParams.Of((FlagParams.Reason, "vatId"), ("customerVatId", customer.VatId), ("tenantVatId", tenant.VatId)));
             yield break;
         }
 
         if (string.IsNullOrWhiteSpace(customer.Name))
         {
-            yield return FlagCodes.Create(FlagCodes.CustomerMismatch, "The customer block has no name to compare with the tenant.", "customer.name", FlagParams.Of((FlagParams.Reason, "noName")));
+            yield return FlagCodes.Create(FlagCodes.CustomerMismatch, "The customer block has no name to compare with the tenant.", $"{path}.name", FlagParams.Of((FlagParams.Reason, "noName")));
             yield break;
         }
 
@@ -54,7 +67,7 @@ public sealed class CustomerMatchRule : IInvoiceRule
             yield return FlagCodes.Create(
                 FlagCodes.CustomerMismatch,
                 $"Customer '{customer.Name}' does not look like the tenant '{tenant.LegalName}'.",
-                "customer.name",
+                $"{path}.name",
                 FlagParams.Of((FlagParams.Reason, "name"), ("customerName", customer.Name), ("tenantName", tenant.LegalName)));
         }
     }

@@ -6,6 +6,13 @@ public sealed class PipelineOptions
     public const string SectionName = "Pipeline";
     public const string RunInProcessKey = SectionName + ":RunInProcess";
 
+    /// <summary>
+    /// Development only: a file whose presence makes the next decision's publish nudge end the process between the
+    /// commit and the enqueue (<c>CrashBeforePublishEnqueueQueue</c>, the publish sweeper demo of docs/09). Unset in
+    /// every shipped configuration; ignored outside the Development environment.
+    /// </summary>
+    public const string CrashBeforePublishEnqueueMarkerKey = SectionName + ":Faults:CrashBeforePublishEnqueueMarker";
+
     /// <summary>How many messages the runner processes at the same time. Each one gets its own DI scope and DbContext.</summary>
     public int MaxParallelism { get; set; } = 2;
 
@@ -63,6 +70,30 @@ public sealed class PipelineOptions
 
     /// <summary>How long the runner waits for in-flight messages when the host stops.</summary>
     public TimeSpan ShutdownGracePeriod { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How often the publish sweeper looks for settled documents that were never published (docs/11 §13.5). The
+    /// first sweep runs one interval after start. Zero turns the sweeper off.
+    /// </summary>
+    public TimeSpan PublishSweepInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long a settlement may wait for its publish message before the sweeper takes it on: long enough for a busy
+    /// queue to reach it, so the sweeper does not race the normal nudge.
+    /// </summary>
+    public TimeSpan PublishSweepGrace { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// How far back the sweeper looks. Settlements older than this are left alone, so a first start on an old database
+    /// does not publish years of history at once.
+    /// </summary>
+    public TimeSpan PublishSweepLookback { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>The most settlements one sweep queues; the rest wait for the next sweep.</summary>
+    public int PublishSweepBatchSize { get; set; } = 200;
+
+    /// <summary>How often the master-data sync looks for sources whose schedule is due (docs/11 §14); zero turns it off.</summary>
+    public TimeSpan MasterDataSyncInterval { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>Exponential backoff for the attempt that just failed: base × 2^(attempt − 1), capped at <see cref="MaxRetryDelay"/>.</summary>
     public TimeSpan BackoffAfter(int failedAttempt)

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DocProc.Domain.Common;
 using DocProc.Domain.Fields;
 
@@ -30,6 +32,13 @@ public sealed record InvoiceLine
 
     /// <summary>Tenant-side catalog mapping, filled by matching, never by extraction.</summary>
     public Guid? MatchedProductId { get; init; }
+
+    /// <summary>
+    /// Properties of the stored JSON that this record does not declare (custom fields of a tenant type, docs/11 §5.6),
+    /// kept so a typed load, patch and save round trip does not drop them. Null when there are none.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
 
     /// <summary>All provenance-carrying fields with their JSON-path style names, for validation and the review UI.</summary>
     public IEnumerable<(string Path, IFieldValue Field)> EnumerateFields(string prefix)

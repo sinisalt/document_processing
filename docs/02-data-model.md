@@ -1,5 +1,9 @@
 # Canonical data model
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 This is the "internal data we collect" contract. Every extraction path (e-invoice XML,
 supplier extractor profile, LLM) must produce the same canonical shape, so downstream
 code (validation, review UI, exports, webhooks) never cares how a value was obtained.

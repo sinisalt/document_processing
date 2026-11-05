@@ -63,6 +63,7 @@ public static class LlmServiceCollectionExtensions
         services.AddSingleton(extraction);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(PriceTable.Default);
+        services.TryAddSingleton<LlmPriceCheck>();
         services.TryAddSingleton(_ => PromptCatalogue.Load());
 
         if (replay.Scripted)
@@ -86,11 +87,14 @@ public static class LlmServiceCollectionExtensions
             ProviderFactories(sp, replay),
             sp.GetRequiredService<ILlmUsageRecorder>(),
             sp.GetRequiredService<PriceTable>(),
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<ILlmBudgetGuard>()));
 
         services.TryAddSingleton<LlmInvoiceExtractor>();
         // One LLM extractor in the IEnumerable<IDocumentExtractor> however many times a host composes this helper.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IDocumentExtractor, LlmInvoiceExtractor>(sp => sp.GetRequiredService<LlmInvoiceExtractor>()));
+        services.TryAddSingleton<LlmDefinitionExtractor>();
+        services.TryAddSingleton<IDefinitionExtractor>(sp => sp.GetRequiredService<LlmDefinitionExtractor>());
         services.TryAddSingleton<LlmDocumentClassifier>();
         services.TryAddSingleton<IDocumentClassifier>(sp => sp.GetRequiredService<LlmDocumentClassifier>());
         services.TryAddSingleton<LlmDocumentSplitter>();

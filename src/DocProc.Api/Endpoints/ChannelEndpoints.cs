@@ -1,6 +1,9 @@
 using System.Text.Json;
 using DocProc.Api.Auth;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
+using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Mail;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -25,8 +28,26 @@ public sealed record ChannelResponse(
 {
     private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
 
+    /// <summary>The supplier of a document no source rule claims (docs/11 §7.2 step 4).</summary>
+    public Guid? DefaultSupplierId { get; init; }
+
+    /// <summary>The type of a document no source rule pins (<c>TypeSource=Supplier</c>).</summary>
+    public string? DefaultDocumentTypeKey { get; init; }
+
+    /// <summary>The receiving entity of a document no source rule names.</summary>
+    public Guid? DefaultReceivingEntityId { get; init; }
+
+    /// <summary>What a polling channel reads, normalised (<c>imap:platform/invoices@tenant-a.local/inbox</c>); null for upload channels and invalid configs.</summary>
+    public string? SourceKey { get; init; }
+
     internal static ChannelResponse From(IngestionChannel c, ILogger logger) =>
-        new(c.Id, c.Name, c.Type.ToString(), c.Status.ToString(), ParseConfig(c, logger), !string.IsNullOrEmpty(c.SecretRef), c.LastPolledAt, c.LastError, c.CreatedAt);
+        new(c.Id, c.Name, c.Type.ToString(), c.Status.ToString(), ParseConfig(c, logger), !string.IsNullOrEmpty(c.SecretRef), c.LastPolledAt, c.LastError, c.CreatedAt)
+        {
+            DefaultSupplierId = c.DefaultSupplierId,
+            DefaultDocumentTypeKey = c.DefaultDocumentTypeKey,
+            DefaultReceivingEntityId = c.DefaultReceivingEntityId,
+            SourceKey = c.SourceKey,
+        };
 
     /// <summary>
     /// The stored config as a JSON element. A row whose ConfigJson is not valid JSON (written outside this API) must
@@ -57,10 +78,31 @@ public sealed record ChannelResponse(
 /// <see cref="Secret"/> is write-only: the mailbox password or token goes to the secret store under a reference the
 /// server generates; the response only ever says whether one exists.
 /// </summary>
-public sealed record CreateChannelRequest(string Name, string Type, JsonElement? Config, string? Secret);
+public sealed record CreateChannelRequest(string Name, string Type, JsonElement? Config, string? Secret)
+{
+    /// <summary>The channel's default supplier (docs/11 §7.2; needs <c>sourceRouting</c>).</summary>
+    public Guid? DefaultSupplierId { get; init; }
 
-/// <summary>Every field optional; absent fields are left as they are. <see cref="Secret"/> set to a value rotates the credential, set to an empty string removes it.</summary>
-public sealed record PatchChannelRequest(string? Name, string? Status, JsonElement? Config, string? Secret);
+    /// <summary>The channel's default type (needs <c>sourceRouting</c>).</summary>
+    public string? DefaultDocumentTypeKey { get; init; }
+
+    /// <summary>The channel's default receiving entity (needs <c>sourceRouting</c>).</summary>
+    public Guid? DefaultReceivingEntityId { get; init; }
+}
+
+/// <summary>
+/// Every field optional; absent fields are left as they are. <see cref="Secret"/> set to a value rotates the credential,
+/// set to an empty string removes it. The defaults (needs <c>sourceRouting</c>) are cleared with the empty id or an empty
+/// type key.
+/// </summary>
+public sealed record PatchChannelRequest(string? Name, string? Status, JsonElement? Config, string? Secret)
+{
+    public Guid? DefaultSupplierId { get; init; }
+
+    public string? DefaultDocumentTypeKey { get; init; }
+
+    public Guid? DefaultReceivingEntityId { get; init; }
+}
 
 /// <summary>
 /// Ingestion channels of the current tenant (docs/02 §1 IngestionChannel; docs/05: TenantAdmin manages channels).
@@ -93,7 +135,7 @@ public static class ChannelEndpoints
         .WithName("ListChannels")
         .WithSummary("Ingestion channels of the current tenant; credentials are never returned.");
 
-        channels.MapPost("/", async Task<Results<Created<ChannelResponse>, ValidationProblem, ProblemHttpResult>> (CreateChannelRequest request, [FromServices] DocProcDbContext db, ITenantContext tenant, ISecretStore secrets, ILogger<ChannelResponse> logger, TimeProvider clock, CancellationToken ct) =>
+        channels.MapPost("/", async Task<Results<Created<ChannelResponse>, ValidationProblem, ProblemHttpResult>> (CreateChannelRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, ISecretStore secrets, Microsoft.Extensions.Options.IOptions<MailOptions> mail, ILogger<ChannelResponse> logger, TimeProvider clock, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Channels") is { } problem)
             {
@@ -113,9 +155,34 @@ public static class ChannelEndpoints
                 return invalid;
             }
 
-            if (await CurrentTenantAsync(db, ct) is null)
+            var current = await CurrentTenantAsync(db, ct);
+            if (current is null)
             {
                 return UnknownTenant();
+            }
+
+            var routing = await features.IsEnabledAsync(tenant.TenantId!.Value, TenantFeature.SourceRouting, ct);
+            if (!routing && (request.DefaultSupplierId is not null || request.DefaultDocumentTypeKey is not null || request.DefaultReceivingEntityId is not null))
+            {
+                return SupplierConfigSupport.FeatureOff();
+            }
+
+            var configJson = request.Config is { ValueKind: JsonValueKind.Object } given ? given.GetRawText() : "{}";
+
+            // The source key is computed whatever the switch. With sourceRouting on, the config is checked and a source
+            // another channel of this tenant reads is a 409. Without it, the channel is saved as before P4 (a free
+            // config, no 409). A folder's key (below the tenant's own drop zone) is kept when it is free and left empty
+            // when it is not; a mailbox's key is never claimed here: the poller claims it under the same unique index
+            // once the channel has logged in with its own secret (ChannelPollerHostedService), so no tenant can lock or
+            // probe a mailbox it cannot read, and two channels never poll one mailbox or folder.
+            var sourceKey = ConnectorConfig(routing ? errors : new Errors(), type, configJson, current.Slug, mail.Value);
+            if (routing)
+            {
+                await ValidateDefaultsAsync(db, errors, request.DefaultSupplierId, request.DefaultDocumentTypeKey, request.DefaultReceivingEntityId, ct);
+                if (errors.ToProblem() is { } connectorInvalid)
+                {
+                    return connectorInvalid;
+                }
             }
 
             var tenantId = tenant.TenantId!.Value;
@@ -125,9 +192,12 @@ public static class ChannelEndpoints
                 TenantId = tenantId,
                 Name = request.Name.Trim(),
                 Type = type,
-                ConfigJson = request.Config is { ValueKind: JsonValueKind.Object } config ? config.GetRawText() : "{}",
+                ConfigJson = configJson,
                 Status = ChannelStatus.Active,
                 CreatedAt = clock.GetUtcNow(),
+                DefaultSupplierId = request.DefaultSupplierId,
+                DefaultDocumentTypeKey = request.DefaultDocumentTypeKey is null ? null : DocumentTypeKey.Parse(request.DefaultDocumentTypeKey).Value,
+                DefaultReceivingEntityId = request.DefaultReceivingEntityId,
             };
 
             // The secret first, the row second (as /llm-providers does): a failed save leaves an unreferenced secret,
@@ -139,14 +209,18 @@ public static class ChannelEndpoints
             }
 
             db.IngestionChannels.Add(channel);
-            await db.SaveChangesAsync(ct);
+            if (await SaveSourceAsync(db, channel, sourceKey, strict: routing, mail.Value, ct) is { } taken)
+            {
+                return taken;
+            }
+
             return TypedResults.Created($"/api/v1/channels/{channel.Id}", ChannelResponse.From(channel, logger));
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("CreateChannel")
         .WithSummary("Adds a mailbox, watched-folder, API-upload or portal-upload channel to the current tenant; the credential is write-only.");
 
-        channels.MapPatch("/{id:guid}", async Task<Results<Ok<ChannelResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchChannelRequest request, [FromServices] DocProcDbContext db, ITenantContext tenant, ISecretStore secrets, ILogger<ChannelResponse> logger, CancellationToken ct) =>
+        channels.MapPatch("/{id:guid}", async Task<Results<Ok<ChannelResponse>, NotFound, ValidationProblem, ProblemHttpResult>> (Guid id, PatchChannelRequest request, [FromServices] DocProcDbContext db, [FromServices] ITenantFeatures features, ITenantContext tenant, ISecretStore secrets, Microsoft.Extensions.Options.IOptions<MailOptions> mail, ILogger<ChannelResponse> logger, CancellationToken ct) =>
         {
             if (RequireTenant(tenant, "Channels") is { } problem)
             {
@@ -181,6 +255,48 @@ public static class ChannelEndpoints
             if (channel is null)
             {
                 return TypedResults.NotFound();
+            }
+
+            var routing = await features.IsEnabledAsync(channel.TenantId, TenantFeature.SourceRouting, ct);
+            if (!routing && (request.DefaultSupplierId is not null || request.DefaultDocumentTypeKey is not null || request.DefaultReceivingEntityId is not null))
+            {
+                return SupplierConfigSupport.FeatureOff();
+            }
+
+            // The key follows the config on every save, whatever the switch (see the create); with sourceRouting on, a
+            // config sent is checked, and the stored one (perhaps written before the switch) only gives the key.
+            var slug = await db.Tenants.AsNoTracking().Where(t => t.Id == channel.TenantId).Select(t => t.Slug).SingleAsync(ct);
+            var sourceKey = request.Config is { ValueKind: JsonValueKind.Object } c
+                ? ConnectorConfig(routing ? errors : new Errors(), channel.Type, c.GetRawText(), slug, mail.Value)
+                : ConnectorConfig(new Errors(), channel.Type, channel.ConfigJson, slug, mail.Value);
+            if (routing)
+            {
+                await ValidateDefaultsAsync(
+                    db,
+                    errors,
+                    request.DefaultSupplierId is { } s && s != Guid.Empty ? s : null,
+                    string.IsNullOrEmpty(request.DefaultDocumentTypeKey) ? null : request.DefaultDocumentTypeKey,
+                    request.DefaultReceivingEntityId is { } e && e != Guid.Empty ? e : null,
+                    ct);
+                if (errors.ToProblem() is { } connectorInvalid)
+                {
+                    return connectorInvalid;
+                }
+
+                if (request.DefaultSupplierId is { } supplierId)
+                {
+                    channel.DefaultSupplierId = supplierId == Guid.Empty ? null : supplierId;
+                }
+
+                if (request.DefaultDocumentTypeKey is { } typeKey)
+                {
+                    channel.DefaultDocumentTypeKey = typeKey.Length == 0 ? null : DocumentTypeKey.Parse(typeKey).Value;
+                }
+
+                if (request.DefaultReceivingEntityId is { } entityId)
+                {
+                    channel.DefaultReceivingEntityId = entityId == Guid.Empty ? null : entityId;
+                }
             }
 
             if (request.Name is not null)
@@ -219,7 +335,11 @@ public static class ChannelEndpoints
                 channel.SecretRef = null;
             }
 
-            await db.SaveChangesAsync(ct);
+            if (await SaveSourceAsync(db, channel, sourceKey, strict: routing, mail.Value, ct) is { } taken)
+            {
+                return taken;
+            }
+
             if (clearedReference is not null)
             {
                 await secrets.DeleteAsync(clearedReference, ct);
@@ -249,6 +369,18 @@ public static class ChannelEndpoints
                 return Conflict("Channel in use", "Ingestions reference this channel; pause it instead of deleting it.");
             }
 
+            // The database refuses it as well (NO ACTION). Clearing the scope instead would widen the binding to every
+            // document of the tenant.
+            if (await db.OutputBindings.AnyAsync(b => b.ChannelId == id, ct))
+            {
+                return Conflict("Channel in use", "Output bindings are scoped to this channel; change or delete them first.");
+            }
+
+            if (await db.SupplierSourceRules.AnyAsync(r => r.ChannelId == id, ct))
+            {
+                return Conflict("Channel in use", "Supplier source rules name this channel; change or delete them first.");
+            }
+
             var reference = SecretReference(channel.TenantId, channel.Id);
             var ownsSecret = OwnsSecret(channel, reference, logger);
             db.IngestionChannels.Remove(channel);
@@ -262,13 +394,135 @@ public static class ChannelEndpoints
         })
         .RequireAuthorization(Policies.TenantAdmin)
         .WithName("DeleteChannel")
-        .WithSummary("Deletes a channel that has never received anything, and its credential; otherwise 409.");
+        .WithSummary("Deletes a channel that has never received anything and no output binding is scoped to, and its credential; otherwise 409.");
 
         return group;
     }
 
     /// <summary>The server-generated secret reference of a channel; never taken from a request.</summary>
-    internal static string SecretReference(Guid tenantId, Guid channelId) => $"tenant/{tenantId}/channel/{channelId}";
+    internal static string SecretReference(Guid tenantId, Guid channelId) => ChannelSecrets.Reference(tenantId, channelId);
+
+    /// <summary>
+    /// A mailbox's or watched folder's config read as its connector's shape (docs/11 §6.3) gives the channel's source
+    /// key; the problems go to <paramref name="errors"/> (with <c>sourceRouting</c> on they refuse the save). Upload
+    /// channels keep a free config and have none.
+    /// </summary>
+    private static string? ConnectorConfig(Errors errors, ChannelType type, string configJson, string tenantSlug, MailOptions mail)
+    {
+        switch (type)
+        {
+            case ChannelType.Mailbox:
+                var mailbox = MailboxChannelConfig.TryParse(configJson, mail.AllowedHosts, out var mailErrors);
+                foreach (var error in mailErrors)
+                {
+                    errors.Add("config", error);
+                }
+
+                return mailbox?.SourceKey;
+            case ChannelType.WatchedFolder:
+                var folder = WatchedFolderChannelConfig.TryParse(configJson, out var folderErrors);
+                foreach (var error in folderErrors)
+                {
+                    errors.Add("config", error);
+                }
+
+                return folder?.SourceKey(tenantSlug);
+            default:
+                return null;
+        }
+    }
+
+    private static async Task ValidateDefaultsAsync(DocProcDbContext db, Errors errors, Guid? supplierId, string? typeKey, Guid? entityId, CancellationToken ct)
+    {
+        if (supplierId is { } s && !await db.Suppliers.AnyAsync(x => x.Id == s, ct))
+        {
+            errors.Add("defaultSupplierId", $"No supplier {s} in this tenant.");
+        }
+
+        if (typeKey is not null && !DocumentTypeKey.TryParse(typeKey, out _))
+        {
+            errors.Add("defaultDocumentTypeKey", $"'{typeKey}' is not a type key.");
+        }
+
+        if (entityId is { } e && !await db.ReceivingEntities.AnyAsync(x => x.Id == e, ct))
+        {
+            errors.Add("defaultReceivingEntityId", $"No receiving entity {e} in this tenant.");
+        }
+    }
+
+    /// <summary>
+    /// Saves the channel with the source key its config gives (<paramref name="sourceKey"/>).
+    /// <para>
+    /// A mailbox's key is never claimed here (docs/11 §6.3): the poller claims it once the channel has logged in with its
+    /// own secret, so a tenant can neither lock a mailbox of another tenant nor learn whether another tenant reads one. A
+    /// key the channel already holds stays while its config still gives it; a changed source drops it until the poller
+    /// claims the new one. With <paramref name="strict"/> (sourceRouting on) a mailbox another channel of this tenant
+    /// reads, or is configured to read, is a 409; another tenant's channels are not looked at.
+    /// </para>
+    /// <para>
+    /// A folder's key names the tenant's own drop zone, so only the tenant's own channels can hold it: when another one
+    /// already does, 409 if <paramref name="strict"/>, else the channel is saved without a key (the poller claims one
+    /// before it reads, and puts the channel in Error when the source is taken). The source key is unique across tenants
+    /// in the database, which a tenant session cannot query past its own rows.
+    /// </para>
+    /// </summary>
+    private static async Task<ProblemHttpResult?> SaveSourceAsync(DocProcDbContext db, IngestionChannel channel, string? sourceKey, bool strict, MailOptions mail, CancellationToken ct)
+    {
+        if (channel.Type == ChannelType.Mailbox)
+        {
+            if (!string.Equals(channel.SourceKey, sourceKey, StringComparison.Ordinal))
+            {
+                channel.SourceKey = null;
+            }
+
+            if (strict && sourceKey is not null && await TenantReadsMailboxAsync(db, channel.Id, sourceKey, mail, ct))
+            {
+                return Conflict("Source in use", "Another channel of this tenant already reads this mailbox.");
+            }
+
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+
+        channel.SourceKey = sourceKey;
+        if (channel.SourceKey is { } key && await db.IngestionChannels.AnyAsync(c => c.Id != channel.Id && c.Type == channel.Type && c.SourceKey == key, ct))
+        {
+            if (strict)
+            {
+                return Conflict("Source in use", "Another channel of this tenant already reads this mailbox or folder.");
+            }
+
+            channel.SourceKey = null;
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+        catch (DbUpdateException) when (channel.SourceKey is not null)
+        {
+            if (strict)
+            {
+                return Conflict("Source in use", "Another channel already reads this mailbox or folder.");
+            }
+
+            channel.SourceKey = null;
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+    }
+
+    /// <summary>Whether another mailbox channel of this tenant holds <paramref name="key"/> or is configured to read it (a tenant session sees only its own channels).</summary>
+    private static async Task<bool> TenantReadsMailboxAsync(DocProcDbContext db, Guid channelId, string key, MailOptions mail, CancellationToken ct)
+    {
+        var others = await db.IngestionChannels.AsNoTracking()
+            .Where(c => c.Id != channelId && c.Type == ChannelType.Mailbox)
+            .Select(c => new { c.SourceKey, c.ConfigJson })
+            .ToListAsync(ct);
+        return others.Any(o => string.Equals(o.SourceKey, key, StringComparison.Ordinal)
+                               || string.Equals(MailboxChannelConfig.TryParse(o.ConfigJson, mail.AllowedHosts, out _)?.SourceKey, key, StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// Whether the stored reference is the channel's own, the only one this API ever writes or deletes through. A row

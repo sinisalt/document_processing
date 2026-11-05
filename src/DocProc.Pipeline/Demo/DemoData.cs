@@ -71,6 +71,7 @@ public static class DemoData
         new(DevSeed.TenantA, "tenant-a-reviewer", "reviewer@tenant-a.local", "Rea Reviewer", TenantRole.Reviewer),
         new(DevSeed.TenantB, "tenant-b-admin", "admin@tenant-b.local", "Bo Admin", TenantRole.TenantAdmin),
         new(DevSeed.TenantB, "tenant-b-viewer", "viewer@tenant-b.local", "Vic Viewer", TenantRole.Viewer),
+        new(DevSeed.TenantB, "tenant-b-reviewer", "reviewer@tenant-b.local", "Ben Reviewer", TenantRole.Reviewer),
     ];
 
     /// <summary>True once the demo rows were added to this database: a synthetic usage row exists.</summary>

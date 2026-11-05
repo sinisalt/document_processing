@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Info, MapPinOff, OctagonAlert } from "lucide-react";
 import { Badge, Button, cn } from "@docproc/ui";
-import { flagMessage } from "@docproc/app-shell";
+import { flagDetail, flagMessage } from "@docproc/app-shell";
 import type { DocumentFlag } from "@/lib/queries";
 import type { ValidationState } from "@/lib/validation";
 
@@ -50,6 +50,7 @@ export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, 
       {flags.map((flag, index) => {
         const Icon = flag.severity === "Blocking" ? OctagonAlert : flag.severity === "Warning" ? AlertTriangle : Info;
         const selected = index === selectedIndex;
+        const detail = flagDetail(flag, { language: i18n.language });
         return (
           <li key={flag.id}>
             <Button
@@ -76,6 +77,12 @@ export function FlagsList({ flags, selectedIndex, onSelect, onJump, fieldLabel, 
               </span>
               <span className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">
                 {flagMessage(flag, { language: i18n.language, fieldLabel, typeLabel: (type) => t(`documentType.${type}`, { defaultValue: type }) })}
+                {/* The data behind the flag its sentence leaves out (a price row's previous and new value). */}
+                {detail && (
+                  <span className="block text-xs text-muted-foreground tabular-nums" data-testid="flag-detail">
+                    {detail}
+                  </span>
+                )}
               </span>
               {flag.field && <span className="min-w-0 text-xs break-words sm:shrink-0 text-muted-foreground underline-offset-2 hover:underline">{fieldLabel(flag.field)}</span>}
               {flag.field && locatedOnPage && !locatedOnPage(flag.field) && (

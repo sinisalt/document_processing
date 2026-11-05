@@ -28,6 +28,23 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     private static Uri Document(Guid id, string suffix = "") => new($"/api/v1/documents/{id}{suffix}", UriKind.Relative);
 
     [Fact]
+    public void The_inbox_and_the_review_queue_read_no_tree_and_the_detail_reads_its_tree_apart()
+    {
+        // A list reads the summary columns only: a 400-row price list's tree is about 1 MB, and the list read it for
+        // every row (the P5 demo's inbox and review queue took 4 to 6 s with three of them).
+        var list = factory.Query(db => DocumentQueries.Summaries(db, db.Documents.OrderByDescending(d => d.CreatedAt).Take(50)).ToQueryString());
+        foreach (var column in new[] { "CanonicalJson", "AppliedConfigJson", "PageImageKeys" })
+        {
+            list.ShouldNotContain(column);
+        }
+
+        // The detail's row leaves both trees out (they are streamed in after it, LargeDocumentReadSqlTests).
+        var detail = factory.Query(db => DocumentQueries.Rows(db, DocumentJsonColumns.WithoutTrees(db).Where(d => d.Id == Guid.Empty)).ToQueryString());
+        detail.ShouldContain("NULL AS [CanonicalJson]");
+        detail.ShouldContain("NULL AS [AppliedConfigJson]");
+    }
+
+    [Fact]
     public async Task List_filters_by_status_type_supplier_flag_issue_date_and_text()
     {
         // A tenant of its own so other tests' documents do not interfere with the counts.
@@ -40,7 +57,7 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
 
         var metroReview = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Invoice = TestInvoices.Valid("RE-1001", new DateOnly(2026, 10, 1)), SupplierName = "METRO Deutschland GmbH", Flags = [FlagCodes.Create(FlagCodes.TotalsMismatch, "sum off", "totalGross"), FlagCodes.Create(FlagCodes.LowConfidence, "low", "lines[1].quantity")] });
         var metroApproved = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.Approved, Invoice = TestInvoices.Valid("RE-1002", new DateOnly(2026, 10, 15)), SupplierName = "METRO Deutschland GmbH" });
-        var hoffmannCredit = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Type = DocumentType.CreditNote, Invoice = TestInvoices.Valid("GS-77", new DateOnly(2026, 9, 20)), SupplierName = "Getränke Hoffmann GmbH" });
+        var hoffmannCredit = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.NeedsReview, Type = DocumentTypeKey.CreditNote, Invoice = TestInvoices.Valid("GS-77", new DateOnly(2026, 9, 20)), SupplierName = "Getränke Hoffmann GmbH" });
         var failed = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocumentStatus.Failed, Invoice = null, SupplierName = null });
 
         using var client = factory.ClientFor(new TokenSpec("filter-reviewer", [Roles.Reviewer], tenant.ToString()));
@@ -548,6 +565,97 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
         invoice.InvoiceNumber.History.Count.ShouldBe(2);
         invoice.Lines[1].Quantity.Value.ShouldBe(6m);
         stored.DocumentNumberNormalized.ShouldBe("RE-2026-0044");
+    }
+
+    [Fact]
+    public async Task Patch_fields_records_where_the_value_came_from_and_the_operation()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed());
+        using var reviewer = ReviewerA();
+
+        var source = new CorrectionSource(Method: "region", Page: 1, BBox: new SourceBox(610, 912, 760, 926), RawText: "RE-2026-0043", Words: [[1, 17], [1, 18]]);
+        var response = await reviewer.PatchAsJsonAsync(
+            Document(seeded.DocumentId, "/fields"),
+            new CorrectFieldsRequest(
+            [
+                new FieldCorrection("invoiceNumber", JsonSerializer.SerializeToElement("RE-2026-0043"), "picked on the page", Op: "set", Source: source),
+                new FieldCorrection("notes", JsonSerializer.SerializeToElement("typed"), null),
+            ]),
+            Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var canonical = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("canonical");
+        var numberSource = canonical.GetProperty("invoiceNumber").GetProperty("source");
+        numberSource.GetProperty("method").GetString().ShouldBe("Human");
+        numberSource.GetProperty("page").GetInt32().ShouldBe(1);
+        numberSource.GetProperty("bBox").GetProperty("x0").GetDouble().ShouldBe(610);
+        numberSource.GetProperty("rawText").GetString().ShouldBe("RE-2026-0043");
+        var notesSource = canonical.GetProperty("notes").GetProperty("source");
+        notesSource.EnumerateObject().Select(p => p.Name).ShouldBe(["method"], "a correction without a source stores the bare Human provenance, as before");
+
+        var corrections = factory.Query(db => db.Corrections.AsNoTracking().Where(c => c.DocumentId == seeded.DocumentId).OrderBy(c => c.Id).ToList());
+        corrections.Select(c => c.Op).ShouldBe(["set", "set"]);
+        var stored = JsonDocument.Parse(corrections[0].SourceJson!).RootElement;
+        stored.GetProperty("method").GetString().ShouldBe("region");
+        stored.GetProperty("page").GetInt32().ShouldBe(1);
+        stored.GetProperty("bBox").GetProperty("y1").GetDouble().ShouldBe(926);
+        stored.GetProperty("words")[1][1].GetInt32().ShouldBe(18);
+        stored.TryGetProperty("cell", out _).ShouldBeFalse("unset parts are left out");
+        corrections[1].SourceJson.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Patch_fields_refuses_operations_that_do_not_exist_yet_and_sources_off_the_page()
+    {
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed());
+        using var reviewer = ReviewerA();
+        var value = JsonSerializer.SerializeToElement("x");
+
+        async Task<string> Refused(FieldCorrection correction)
+        {
+            var response = await reviewer.PatchAsJsonAsync(Document(seeded.DocumentId, "/fields"), new CorrectFieldsRequest([correction]), Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+            return await response.Content.ReadAsStringAsync(Ct);
+        }
+
+        (await Refused(new FieldCorrection("notes", value, null, Op: "append"))).ShouldContain("does not apply to this document");
+        (await Refused(new FieldCorrection("notes", value, null, Op: "rewrite"))).ShouldContain("is not a correction operation");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(Page: 0)))).ShouldContain("1-based");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(BBox: new SourceBox(10, 10, 1200, 20))))).ShouldContain("bBox");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(BBox: new SourceBox(50, 10, 40, 20))))).ShouldContain("bBox");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(Words: [[1]])))).ShouldContain("pairs");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(Method: "no spaces")))).ShouldContain("source.method");
+        (await Refused(new FieldCorrection("notes", value, null, Source: new CorrectionSource(RawText: new string('x', CorrectionSources.MaxRawTextLength + 1))))).ShouldContain("rawText");
+
+        factory.Query(db => db.Corrections.Count(c => c.DocumentId == seeded.DocumentId)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Patch_fields_keeps_canonical_properties_the_records_do_not_declare()
+    {
+        // A custom field of a tenant type (docs/11 §5.6) and an attribute inside the supplier party survive a correction.
+        var seeded = await factory.SeedDocumentAsync(new DocumentSeed());
+        factory.Run(db =>
+        {
+            var document = db.Documents.Single(d => d.Id == seeded.DocumentId);
+            var root = System.Text.Json.Nodes.JsonNode.Parse(document.CanonicalJson!)!.AsObject();
+            root["supplierCustomerRef"] = new System.Text.Json.Nodes.JsonObject { ["value"] = "123456789", ["status"] = "Extracted" };
+            root["supplier"]!["value"]!.AsObject()["erpVendorId"] = "V-10042";
+            document.CanonicalJson = root.ToJsonString();
+        });
+        using var reviewer = ReviewerA();
+
+        var response = await reviewer.PatchAsJsonAsync(
+            Document(seeded.DocumentId, "/fields"),
+            new CorrectFieldsRequest([new FieldCorrection("supplier.vatId", JsonSerializer.SerializeToElement("DE 811 177 936"), null)]),
+            Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var canonical = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement.GetProperty("canonical");
+        canonical.GetProperty("supplierCustomerRef").GetProperty("value").GetString().ShouldBe("123456789");
+        canonical.GetProperty("supplier").GetProperty("value").GetProperty("erpVendorId").GetString().ShouldBe("V-10042");
+        canonical.GetProperty("supplier").GetProperty("value").GetProperty("vatId").GetString().ShouldBe("DE 811 177 936");
+        canonical.GetProperty("supplier").GetProperty("history")[0].GetProperty("value").GetProperty("erpVendorId").GetString().ShouldBe("V-10042");
     }
 
     [Fact]

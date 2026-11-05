@@ -67,12 +67,13 @@ document_processing/
 ├── docs/                          this plan, ADRs, API notes
 ├── src/
 │   ├── DocProc.Domain/            canonical model, flags, state machine, validation rules (no deps)
-│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain only
+│   ├── DocProc.Definitions/       document type definitions as data and the embedded standard templates (docs/11 §5); references Domain
+│   ├── DocProc.Application/       pure contracts and domain services: stage interfaces (IBlobStore, IOcrProvider, IDocumentClassifier, IDocumentSplitter, IDocumentExtractor, IMailSource), stage inputs/outcomes; references Domain and Definitions
 │   ├── DocProc.Infrastructure/    EF Core + SQL Server, Azure Blob, Key Vault, Wolverine (Service Bus, SQL Server), Graph/MailKit, PdfPig/PDFtoImage, Tesseract, Azure DI
 │   ├── DocProc.Llm/               ILlmGateway, ILlmProvider, prompt bundles, portable schema, and the LLM stage implementations (classifier, splitter, invoice extractor); references Application
 │   ├── DocProc.Llm.Anthropic/     Anthropic API + Claude on Foundry adapter
 │   ├── DocProc.Llm.OpenAi/        OpenAI, Azure OpenAI and OpenAI-compatible adapter
-│   ├── DocProc.Extraction.Profiles/ the deterministic profile engine (pure, heavily unit-tested)
+│   ├── DocProc.Mapping/             the deterministic mapping engine (pure, heavily unit-tested; the table tool's column-table since P2)
 │   ├── DocProc.Extraction.EInvoice/ Factur-X / UBL parsers → canonical model
 │   ├── DocProc.Pipeline/          the stage handlers (docs/03): orchestrate the Application contracts, decide retry vs LLM_PROVIDER_UNAVAILABLE from LlmException; references Domain, Application, Llm, Llm.Anthropic, Llm.OpenAi, Infrastructure and Extraction.EInvoice, and composes them into both hosts
 │   ├── DocProc.Api/               ASP.NET Core host
@@ -80,7 +81,7 @@ document_processing/
 │   └── DocProc.AppHost/           Aspire local orchestration
 ├── tests/
 │   ├── DocProc.Domain.Tests/
-│   ├── DocProc.Extraction.Profiles.Tests/   sample PDFs + expected JSON (snapshot)
+│   ├── DocProc.Mapping.Tests/       synthetic word layouts (and later sample PDFs) with expected rows and reports
 │   ├── DocProc.Integration.Tests/           Testcontainers (SQL Server 2025, Azurite, Service Bus emulator)
 │   └── DocProc.Evals/                       gold-set runner: field accuracy, STP, cost per model/prompt
 ├── web/
@@ -103,8 +104,10 @@ references Llm because it implements the gateway's ports (`EfLlmPolicyStore`, `C
 
 - Tenant id on every row; EF Core global query filters as the first layer; **SQL Server
   row-level security** (a security policy keyed on `SESSION_CONTEXT('TenantId')`, set by the
-  data layer per request) as the second layer so a missed filter cannot leak data; integration
-  tests that assert cross-tenant reads fail.
+  data layer per request) as the second layer so a missed filter cannot leak data; it covers the
+  history tables of the temporal tables too (SQL Server does not carry a table's predicates over to
+  its history) and blocks updates that move a row to another tenant; integration tests that assert
+  cross-tenant reads and writes fail.
 - Azure SQL: Transparent Data Encryption on by default, Always Encrypted or customer-managed
   keys only if a customer contract requires it; temporal tables on `Document` and
   `ExtractorProfile` give the audit history for free.

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createI18n } from "../i18n";
 import en from "../i18n/en/common.json";
 import de from "../i18n/de/common.json";
-import { flagMessage, type FlagText } from "./flagMessage";
+import { flagDetail, flagMessage, type FlagText } from "./flagMessage";
 
 const labels: Record<string, string> = { dueDate: "Due date", invoiceNumber: "Invoice number", totalGross: "Gross total" };
 const deLabels: Record<string, string> = { dueDate: "Fälligkeitsdatum", invoiceNumber: "Rechnungsnummer", totalGross: "Bruttobetrag" };
@@ -24,6 +24,27 @@ beforeAll(() => {
 });
 
 describe("flagMessage", () => {
+  it("phrases the definition flags of docs/11 §11 and keeps a rule's own message", () => {
+    const required: FlagText = { code: "FIELD_REQUIRED", message: "Required field 'validFrom' has no value.", field: "validFrom", params: { field: "validFrom" } };
+    expect(flagMessage(required, { language: "de", fieldLabel: (path) => (path === "validFrom" ? "Gültig ab" : path) })).toBe("Das Pflichtfeld Gültig ab hat keinen Wert.");
+    const rule: FlagText = { code: "RULE_FAILED", message: "Prices must be positive.", field: "lines[0].price.amount", params: { reason: "range", ruleId: "r_price_pos", field: "lines[0].price.amount" } };
+    expect(flagMessage(rule, { language: "de" })).toBe("Prices must be positive.");
+  });
+
+  it("shows a definition flag's own message in the UI language when the definition has one (docs/11 §11)", () => {
+    const own: FlagText = {
+      code: "X_RETURN_IN_FUTURE",
+      message: "The return date lies after the end of the year.",
+      field: "returnDate",
+      params: { reason: "compare", ruleId: "r_late", "message.en": "The return date lies after the end of the year.", "message.de": "Das Rückgabedatum liegt nach dem Jahresende." },
+    };
+    expect(flagMessage(own, { language: "de" })).toBe("Das Rückgabedatum liegt nach dem Jahresende.");
+    expect(flagMessage(own, { language: "en" })).toBe("The return date lies after the end of the year.");
+    expect(flagMessage(own, { language: "fr" })).toBe("The return date lies after the end of the year.");
+    const englishOnly: FlagText = { code: "RULE_FAILED", message: "Pickup after return.", params: { reason: "compare", "message.en": "Pickup after return." } };
+    expect(flagMessage(englishOnly, { language: "de" })).toBe("Pickup after return.");
+  });
+
   it("phrases a flag from its code and parameters, in the UI language", () => {
     expect(plain(flagMessage(lowConfidence, { language: "en", fieldLabel: (path) => labels[path] ?? path }))).toBe(
       "Due date was read with 50% confidence, below the threshold of 80%.",
@@ -46,6 +67,22 @@ describe("flagMessage", () => {
     const split = (count: string): FlagText => ({ code: "MULTI_DOCUMENT_SPLIT", message: `The attachment was split into ${count} documents.`, params: { count } });
     expect(flagMessage(split("3"), { language: "de" })).toBe("Der Anhang wurde in 3 Dokumente aufgeteilt.");
     expect(flagMessage(split("1"), { language: "en" })).toBe("The attachment was split into 1 document.");
+  });
+
+  it("phrases the summary of a capped check and the skipped pattern checks with their count", () => {
+    const notChecked: FlagText = {
+      code: "FIELD_INVALID",
+      message: "250 more values, starting at 'lines[50].code', were not checked: the check stopped after 50 values failed it.",
+      field: "lines[50].code",
+      params: { reason: "notChecked", field: "lines[50].code", keyword: "pattern", count: "250" },
+    };
+    expect(flagMessage(notChecked, { language: "en", fieldLabel: () => "Article 51 · Code" })).toBe(
+      "250 more values, starting at Article 51 · Code, were not checked against the pattern: the check stopped after the first failures.",
+    );
+    const required: FlagText = { code: "FIELD_REQUIRED", message: "x", field: "lines[50].sku", params: { reason: "capped", field: "lines[50].sku", count: "1" } };
+    expect(flagMessage(required, { language: "de", fieldLabel: () => "Art.-Nr." })).toBe("Noch 1 Pflichtwert, bei Art.-Nr., fehlt ebenfalls.");
+    const skipped: FlagText = { code: "CHECKS_SKIPPED", message: "x", params: { reason: "patternBudget", count: "12" } };
+    expect(flagMessage(skipped, { language: "de" })).toBe("12 Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.");
   });
 
   it("falls back to the API's message for an unknown code or variant", () => {
@@ -121,7 +158,43 @@ describe("the flag message catalogue", () => {
       "INVALID_VALUE.currencyCode",
       "INVALID_VALUE.currencyMismatch",
       "UNSUPPORTED_TYPE.default",
+      "UNSUPPORTED_TYPE.definition",
+      "DATE_IMPLAUSIBLE.pathFuture",
+      "DATE_IMPLAUSIBLE.pathTooOld",
+      "FIELD_REQUIRED.default",
+      "FIELD_INVALID.default",
+      "REVISION_OF.default",
+      "DELIVERY_FAILED.default",
+      "SUPPLIER_SOURCE_UNVERIFIED.default",
+      "SUPPLIER_AMBIGUOUS.default",
+      "SUPPLIER_CONFLICT.default",
+      "NEW_LAYOUT.default",
+      "LAYOUT_AMBIGUOUS.default",
+      "MAPPING_DRIFT.default",
+      "LAYOUT_WARMUP.default",
+      // The summaries of the per-check flag cap (FlagCap) and the pattern budget (PatternBudget), plural by `count`.
+      ...["LOW_CONFIDENCE.capped", "DATE_IMPLAUSIBLE.capped", "FIELD_REQUIRED.capped", "FIELD_INVALID.capped", "FIELD_INVALID.notChecked", "CHECKS_SKIPPED.patternBudget"].flatMap((key) => [`${key}_one`, `${key}_other`]),
     ];
     expect(variants.filter((key) => !enMessages.has(key))).toEqual([]);
+  });
+});
+
+describe("flagDetail", () => {
+  const row: FlagText = {
+    code: "X_PRICE_JUMP",
+    message: "Unusual price change against the last approved list",
+    field: "lines[76].price.amount",
+    params: { reason: "deltaRow", key: "104539", previous: "39.02", value: "54.63", changePercent: "40.01", "message.en": "Unusual price change against the last approved list" },
+  };
+
+  it("gives a deltaToPrevious row's key, previous and new value and the signed change, whatever the flag's code", () => {
+    expect(plain(flagDetail(row, { language: "en" }) ?? "")).toBe("104539: from 39.02 to 54.63 (+40.01%)");
+    expect(plain(flagDetail(row, { language: "de" }) ?? "")).toBe("104539: von 39,02 auf 54,63 (+40,01 %)");
+    expect(plain(flagDetail({ ...row, params: { ...row.params, previous: "1.5", value: "1.2", changePercent: "20" } }, { language: "en" }) ?? "")).toBe("104539: from 1.50 to 1.20 (-20%)");
+  });
+
+  it("gives nothing for other flags or a row without its numbers", () => {
+    expect(flagDetail(lowConfidence, { language: "en" })).toBeNull();
+    expect(flagDetail({ ...row, params: { reason: "deltaRow", key: "104539" } }, { language: "en" })).toBeNull();
   });
 });

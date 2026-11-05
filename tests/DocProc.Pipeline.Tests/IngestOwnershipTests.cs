@@ -51,6 +51,8 @@ public class IngestOwnershipTests
                 host.Services.GetRequiredService<PipelineBlobs>(),
                 enqueued,
                 new DocumentTimeline(db, host.Clock),
+                new DocProc.Pipeline.Routing.SourceRouting(db, new DocumentTimeline(db, host.Clock), new DocumentFlagWriter(db, host.Clock)),
+                new DocProc.Infrastructure.Configuration.EfTenantFeatures(db),
                 host.Services.GetRequiredService<IOptions<PipelineOptions>>(),
                 host.Services.GetRequiredService<ILogger<IngestHandler>>());
             await handler.HandleAsync(new ProcessIngestion(PipelineTestHost.TenantA, ingestion.Id), TestContext.Current.CancellationToken);
@@ -160,5 +162,7 @@ public class IngestOwnershipTests
         }
 
         public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => throw new InvalidOperationException("stage 1 never delays a document");
+
+        public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken) => throw new InvalidOperationException("stage 1 never queues a delivery");
     }
 }

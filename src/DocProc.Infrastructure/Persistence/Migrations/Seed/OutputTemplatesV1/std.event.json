@@ -1,0 +1,21 @@
+{
+  "key": "std.event",
+  "version": 1,
+  "name": "Document event",
+  "description": "Today's thin document event ({tenantId, documentId, eventType, at}) for receivers that want only the event and fetch the document themselves (docs/11 §13.5).",
+  "sourceTypeKey": null,
+  "engine": "jsonata",
+  "contentType": "application/json",
+  "targetSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["tenantId", "documentId", "eventType", "at"],
+    "properties": {
+      "tenantId": { "type": "string", "format": "uuid" },
+      "documentId": { "type": "string", "format": "uuid" },
+      "eventType": { "type": "string" },
+      "at": { "type": "string", "format": "date-time" }
+    },
+    "additionalProperties": false
+  }
+}

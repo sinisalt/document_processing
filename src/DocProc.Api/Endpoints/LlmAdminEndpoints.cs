@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using DocProc.Api.Auth;
 using DocProc.Application.Abstractions;
+using DocProc.Infrastructure.Http;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -16,7 +17,11 @@ using static DocProc.Api.Endpoints.EndpointSupport;
 
 namespace DocProc.Api.Endpoints;
 
-/// <summary>A provider configuration without its credential: only the last four characters identify the key (docs/08 "Key handling").</summary>
+/// <summary>
+/// A provider configuration without its credential (docs/08 "Key handling"): the last four characters show which key it
+/// is, and <c>keyFingerprint</c> (the first 16 hex digits of the key's SHA-256) tells whether a key a client holds
+/// is the stored one without the key ever leaving the secret store.
+/// </summary>
 public sealed record LlmProviderResponse(
     Guid Id,
     string Scope,
@@ -30,6 +35,7 @@ public sealed record LlmProviderResponse(
     string DataResidency,
     string Status,
     string? KeyLast4,
+    string? KeyFingerprint,
     DateTimeOffset? ValidatedAt,
     string? LastError,
     DateTimeOffset CreatedAt,
@@ -38,7 +44,7 @@ public sealed record LlmProviderResponse(
     internal static LlmProviderResponse From(LlmProviderConfigRecord c) => new(
         c.Id, c.Scope.ToString(), c.TenantId, c.Kind.ToString(), c.Endpoint, c.ApiVersion, c.AuthType.ToString(),
         new Dictionary<string, string>(c.Models, StringComparer.Ordinal), c.MonthlySpendCapUsd, c.DataResidency.ToString(), c.Status.ToString(),
-        c.KeyLast4, c.ValidatedAt, c.LastError, c.CreatedAt, c.UpdatedAt);
+        c.KeyLast4, c.KeyFingerprint, c.ValidatedAt, c.LastError, c.CreatedAt, c.UpdatedAt);
 }
 
 /// <summary><see cref="ApiKey"/> is write-only: it goes to the secret store and is never returned or persisted in SQL.</summary>

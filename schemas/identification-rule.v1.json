@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.docproc.local/identification-rule.v1.json",
+  "title": "Identification rule",
+  "description": "A boolean combination of identifiers that proves a document\u0027s design (docs/11 \u00A78.5): all, any and none, an implicit AND of the ones present; identifiers text, regex, supplierValue, source, xmlPath and cell, with page, region or bBox inherited key by key from the groups.",
+  "$ref": "#/$defs/group",
+  "$defs": {
+    "text": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "caseSensitive": {
+          "type": "boolean"
+        },
+        "allowOcrErrors": {
+          "type": "boolean"
+        },
+        "page": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            {
+              "enum": [
+                "last",
+                "any"
+              ]
+            }
+          ]
+        },
+        "region": {
+          "enum": [
+            "title",
+            "header",
+            "footer",
+            "body"
+          ]
+        },
+        "bBox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "regex": {
+      "type": "object",
+      "properties": {
+        "regex": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "page": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            {
+              "enum": [
+                "last",
+                "any"
+              ]
+            }
+          ]
+        },
+        "region": {
+          "enum": [
+            "title",
+            "header",
+            "footer",
+            "body"
+          ]
+        },
+        "bBox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "regex"
+      ],
+      "additionalProperties": false
+    },
+    "supplierValue": {
+      "type": "object",
+      "properties": {
+        "supplierValue": {
+          "type": "string",
+          "pattern": "^(vatId|taxId|iban|attributes\\.[A-Za-z_][A-Za-z0-9_]{0,63})$"
+        },
+        "page": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            {
+              "enum": [
+                "last",
+                "any"
+              ]
+            }
+          ]
+        },
+        "region": {
+          "enum": [
+            "title",
+            "header",
+            "footer",
+            "body"
+          ]
+        },
+        "bBox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "supplierValue"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "enum": [
+            "itemKind",
+            "fileName",
+            "subject",
+            "mailbox",
+            "folderPath"
+          ]
+        },
+        "regex": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "equals": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "regex"
+          ]
+        },
+        {
+          "required": [
+            "equals"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "xmlPath": {
+      "type": "object",
+      "properties": {
+        "xmlPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "equals": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "xmlPath"
+      ],
+      "additionalProperties": false
+    },
+    "cell": {
+      "type": "object",
+      "properties": {
+        "cell": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "equals": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "cell"
+      ],
+      "additionalProperties": false
+    },
+    "group": {
+      "type": "object",
+      "properties": {
+        "all": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "any": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "none": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "page": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            {
+              "enum": [
+                "last",
+                "any"
+              ]
+            }
+          ]
+        },
+        "region": {
+          "enum": [
+            "title",
+            "header",
+            "footer",
+            "body"
+          ]
+        },
+        "bBox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 200
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "all"
+          ]
+        },
+        {
+          "required": [
+            "any"
+          ]
+        },
+        {
+          "required": [
+            "none"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "member": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/group"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "$ref": "#/$defs/regex"
+        },
+        {
+          "$ref": "#/$defs/supplierValue"
+        },
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "$ref": "#/$defs/xmlPath"
+        },
+        {
+          "$ref": "#/$defs/cell"
+        }
+      ]
+    }
+  }
+}

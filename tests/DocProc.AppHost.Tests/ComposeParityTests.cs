@@ -1,0 +1,470 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Azure;
+using YamlDotNet.RepresentationModel;
+
+namespace DocProc.AppHost.Tests;
+
+/// <summary>
+/// <c>docker-compose.yml</c> is the second way to run the stack (README "With Docker Compose"). The AppHost stays the
+/// single source of truth: these checks build its application model (nothing starts) and hold the compose file and the
+/// Service Bus emulator's <c>docker/servicebus/Config.json</c> to it, and the published ports to the Keycloak realm's
+/// redirect URIs and the web apps' <c>.env.production</c>, so neither file drifts when the AppHost changes.
+/// </summary>
+public sealed class ComposeParityTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task Service_bus_emulator_config_declares_exactly_the_apphost_entities()
+    {
+        var model = await BuildModelAsync();
+        var queues = model.Resources.OfType<AzureServiceBusQueueResource>().ToList();
+        var topics = model.Resources.OfType<AzureServiceBusTopicResource>().ToList();
+        var subscriptions = model.Resources.OfType<AzureServiceBusSubscriptionResource>().ToList();
+        queues.ShouldNotBeEmpty();
+
+        using var config = JsonDocument.Parse(Read("docker", "servicebus", "Config.json"));
+        var namespaces = config.RootElement.GetProperty("UserConfig").GetProperty("Namespaces").EnumerateArray().ToList();
+        namespaces.Count.ShouldBe(1);
+        var ns = namespaces[0];
+
+        Names(ns, "Queues").ShouldBe(queues.Select(q => q.QueueName), ignoreOrder: true);
+        Names(ns, "Topics").ShouldBe(topics.Select(t => t.TopicName), ignoreOrder: true);
+        foreach (var topic in ns.GetProperty("Topics").EnumerateArray())
+        {
+            var name = topic.GetProperty("Name").GetString();
+            Names(topic, "Subscriptions").ShouldBe(subscriptions.Where(s => s.Parent.TopicName == name).Select(s => s.SubscriptionName), ignoreOrder: true, $"subscriptions of {name}");
+        }
+
+        // The AppHost sets no entity properties (lock duration, delivery count, ...), so the config leaves the emulator's defaults too.
+        queues.ShouldAllBe(q => q.LockDuration == null && q.MaxDeliveryCount == null && q.RequiresSession == null && q.DefaultMessageTimeToLive == null);
+        ns.GetProperty("Queues").EnumerateArray().Where(q => q.TryGetProperty("Properties", out var _)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Compose_runs_the_apphost_images()
+    {
+        var model = await BuildModelAsync();
+        var compose = Compose();
+
+        string AppHostImage(string resource)
+        {
+            var image = model.Resources.Single(r => r.Name == resource).Annotations.OfType<ContainerImageAnnotation>().Last();
+            return $"{(image.Registry is { Length: > 0 } registry ? registry + "/" : string.Empty)}{image.Image}:{image.Tag}";
+        }
+
+        Image(compose, "sqlserver").ShouldBe(AppHostImage("sql"));
+        Image(compose, "azurite").ShouldBe(AppHostImage("storage"));
+        Image(compose, "servicebus").ShouldBe(AppHostImage("messaging"));
+        Image(compose, "keycloak").ShouldBe(AppHostImage("keycloak"));
+        Image(compose, "vault").ShouldEndWith(AppHostImage("vault"));
+        Image(compose, "mail").ShouldEndWith(AppHostImage("mail"));
+        Image(compose, "mock-erp").ShouldBe(AppHostImage("mock-erp"));
+    }
+
+    /// <summary>
+    /// The mock ERP of the delivery demos (docs/11 §23): both stacks run WireMock with the same arguments over the stub
+    /// mappings in <c>docker/mock-erp</c>, mounted read-only, on the same host port.
+    /// </summary>
+    [Fact]
+    public async Task Compose_runs_the_mock_erp_like_the_apphost()
+    {
+        var model = await BuildModelAsync();
+        var appHost = model.Resources.Single(r => r.Name == "mock-erp");
+        var compose = Service(Compose(), "mock-erp");
+
+        var mount = appHost.Annotations.OfType<ContainerMountAnnotation>().ShouldHaveSingleItem();
+        mount.Type.ShouldBe(ContainerMountType.BindMount);
+        mount.IsReadOnly.ShouldBeTrue();
+        Path.GetFullPath(mount.Source!).ShouldBe(RepositoryPath("docker", "mock-erp"));
+        Volumes(compose).ShouldBe([$"./docker/mock-erp:{mount.Target}:ro"]);
+        mount.Target.ShouldBe("/home/wiremock");
+
+        var endpoint = appHost.Annotations.OfType<EndpointAnnotation>().ShouldHaveSingleItem();
+        PublishedPort(compose, endpoint.TargetPort!.Value).ShouldBe(endpoint.Port!.Value);
+
+        var args = new List<object>();
+        foreach (var callback in appHost.Annotations.OfType<CommandLineArgsCallbackAnnotation>())
+        {
+            await callback.Callback(new CommandLineArgsCallbackContext(args, Ct));
+        }
+
+        ((YamlSequenceNode)compose["command"]).Children.Select(c => c.ToString()).ShouldBe(args.Select(a => a.ToString()));
+    }
+
+    /// <summary>
+    /// The stubs the later demos rely on (docs/11 §23, P3 to P5): the erp-ap and article-price endpoints accept JSON, and
+    /// each can be made to answer 503 by a request header, for the next call only, or until reset.
+    /// </summary>
+    [Theory]
+    [InlineData("erp-ap", "/api/ap/invoices", 201)]
+    [InlineData("article-prices", "/api/article-prices", 202)]
+    [InlineData("pos-promotions", "/api/promotions", 201)]
+    public void The_mock_erp_stubs_accept_the_endpoint_and_can_be_forced_to_fail(string name, string path, int success)
+    {
+        var stubs = Directory.GetFiles(RepositoryPath("docker", "mock-erp", "mappings"), "*.json")
+            .SelectMany(file =>
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                return doc.RootElement.GetProperty("mappings").EnumerateArray().Select(m => m.Clone()).ToList();
+            })
+            .ToList();
+
+        static string? Text(JsonElement e, string property) => e.TryGetProperty(property, out var v) ? v.GetString() : null;
+        static int Status(JsonElement stub) => stub.GetProperty("response").GetProperty("status").GetInt32();
+        var endpoint = stubs.Where(s => Text(s.GetProperty("request"), "urlPath") == path && Text(s.GetProperty("request"), "method") == "POST").ToList();
+
+        endpoint.Any(s => Status(s) == success && !s.TryGetProperty("scenarioName", out _)).ShouldBeTrue($"{name} accepts a call");
+        endpoint.Any(s => Status(s) == 503 && s.GetProperty("request").GetProperty("headers").TryGetProperty("X-Mock-Erp-Fail", out _)).ShouldBeTrue($"{name}: forced by header");
+        endpoint.Any(s => Status(s) == 503 && Text(s, "scenarioName") == name && Text(s, "requiredScenarioState") == "fail-next" && Text(s, "newScenarioState") == "Started").ShouldBeTrue($"{name}: fails once");
+        endpoint.Any(s => Status(s) == 503 && Text(s, "scenarioName") == name && Text(s, "requiredScenarioState") == "down").ShouldBeTrue($"{name}: down until reset");
+        endpoint.Where(s => Status(s) == 503).All(s => s.GetProperty("response").GetProperty("headers").TryGetProperty("Retry-After", out _)).ShouldBeTrue($"{name}: every 503 says when to retry");
+
+        foreach (var (control, state) in new[] { ("fail-next", "fail-next"), ("fail-always", "down"), ("reset", "Started") })
+        {
+            stubs.Any(s => Text(s.GetProperty("request"), "urlPath") == $"/__control/{name}/{control}" && Text(s, "scenarioName") == name && Text(s, "newScenarioState") == state).ShouldBeTrue($"{name}: {control}");
+        }
+    }
+
+    [Theory]
+    [InlineData("vault", "LOWKEY_ARGS")]
+    [InlineData("mail", "GREENMAIL_OPTS")]
+    public async Task Compose_configures_the_plain_containers_like_the_apphost(string service, string variable)
+    {
+        var appHost = await EnvironmentOfAsync(service);
+
+        Environment(Compose(), service)[variable].ShouldBe(appHost[variable] as string);
+    }
+
+    /// <summary>
+    /// The hosts read the keys the AppHost sets (docs/09 "Settings reference"); compose must set every one of them, so a
+    /// setting added to the AppHost for the API or the worker is not silently missing from the compose stack.
+    /// </summary>
+    [Theory]
+    [InlineData("api")]
+    [InlineData("worker")]
+    public async Task Compose_sets_every_setting_the_apphost_gives_a_host(string host)
+    {
+        var appHost = await EnvironmentOfAsync(host);
+        var expected = appHost.Keys
+            .Where(key => key.Contains("__", StringComparison.Ordinal) && !IsAspirePlumbing(key))
+            .ToList();
+        expected.ShouldContain("ConnectionStrings__DocProc");
+        expected.ShouldContain("Persistence__Provider");
+
+        var compose = Environment(Compose(), host);
+
+        expected.Where(key => !compose.ContainsKey(key)).ShouldBeEmpty($"docker-compose.yml does not set these AppHost settings for {host}");
+        compose["Persistence__Provider"].ShouldBe(appHost["Persistence__Provider"] as string);
+        compose["Authentication__Dev__Enabled"].ShouldBe(appHost["Authentication__Dev__Enabled"] as string);
+        compose["Secrets__Path"].ShouldBe(Environment(Compose(), host == "api" ? "worker" : "api")["Secrets__Path"], "both hosts share one secret store");
+    }
+
+    [Fact]
+    public void Keycloak_imports_the_apphost_realm_and_publishes_the_issuer_the_apps_and_the_api_use()
+    {
+        var compose = Compose();
+        var keycloak = Service(compose, "keycloak");
+
+        Volumes(keycloak).ShouldContain(v => v.StartsWith("./src/DocProc.AppHost/realms:/opt/keycloak/data/import", StringComparison.Ordinal));
+        Directory.GetFiles(RepositoryPath("src", "DocProc.AppHost", "realms"), "*.json").ShouldNotBeEmpty();
+        PublishedPort(keycloak, 8080).ShouldBe(8080);
+
+        var issuer = $"{Environment(compose, "keycloak")["KC_HOSTNAME"]}/realms/{Realm().GetProperty("realm").GetString()}";
+        Interpolate(issuer).ShouldBe("http://localhost:8080/realms/docproc");
+        Environment(compose, "api")["Authentication__Oidc__Authority"].ShouldBe(issuer);
+        Environment(compose, "api")["Authentication__Oidc__MetadataAddress"].ShouldBe("http://keycloak:8080/realms/docproc/.well-known/openid-configuration");
+        foreach (var (service, app) in new[] { ("portal", "customer-portal"), ("admin", "admin-console") })
+        {
+            // The default of DOCPROC_KEYCLOAK_PORT is the port of .env.production, which `pnpm build` outside Docker uses.
+            DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"].ShouldBe(Interpolate(issuer), app);
+            BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"].ShouldBe(issuer, app);
+        }
+    }
+
+    /// <summary>
+    /// Keycloak's host port is <c>DOCPROC_KEYCLOAK_PORT</c>, because 8080 is often taken by another server. Every URL the
+    /// browser or a token carries must follow it: a value left at 8080 would send sign-in to whatever else listens there.
+    /// </summary>
+    [Fact]
+    public void Every_browser_facing_keycloak_url_follows_DOCPROC_KEYCLOAK_PORT()
+    {
+        const string Port = "${DOCPROC_KEYCLOAK_PORT:-8080}";
+        var compose = Compose();
+
+        ((YamlSequenceNode)Service(compose, "keycloak")["ports"]).Children.Select(p => p.ToString()).ShouldContain($"${{DOCPROC_BIND_ADDRESS:-127.0.0.1}}:{Port}:8080");
+        Environment(compose, "keycloak")["KC_HOSTNAME"].ShouldBe($"http://localhost:{Port}");
+        Environment(compose, "api")["Authentication__Oidc__Authority"].ShouldBe($"http://localhost:{Port}/realms/docproc");
+        foreach (var service in new[] { "portal", "admin" })
+        {
+            BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"].ShouldBe($"http://localhost:{Port}/realms/docproc", service);
+            Environment(compose, service)["OIDC_ORIGIN"].ShouldBe($"http://localhost:{Port}", service);
+        }
+
+        Read("web", "Dockerfile").ShouldContain("ARG VITE_OIDC_AUTHORITY");
+        Read(".env.example").ShouldContain("DOCPROC_KEYCLOAK_PORT=");
+    }
+
+    [Fact]
+    public void The_web_image_holds_every_file_the_web_sources_import_from_outside_web()
+    {
+        // Found by the P1 demo: the review form tests import the template snapshots of schemas/templates by a relative
+        // path, the image build type-checks the tests, and web/Dockerfile copied only web/, so `docker compose up --build`
+        // failed at the portal while every check outside Docker passed.
+        var web = RepositoryPath("web");
+        var root = RepositoryPath();
+        var dockerfile = Read("web", "Dockerfile");
+        var imports = new Regex(@"(?:from|import)\s*\(?\s*""(?<path>\.\.?/[^""]+)""");
+        var outside = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(web, "*.*", SearchOption.AllDirectories)
+                     .Where(f => f.EndsWith(".ts", StringComparison.Ordinal) || f.EndsWith(".tsx", StringComparison.Ordinal))
+                     .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}node_modules{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                                 && !f.Contains($"{Path.DirectorySeparatorChar}dist{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+        {
+            foreach (Match match in imports.Matches(File.ReadAllText(file)))
+            {
+                var target = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, match.Groups["path"].Value));
+                if (!target.StartsWith(web + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                {
+                    outside.Add(Path.GetRelativePath(root, Path.GetDirectoryName(target)!).Replace(Path.DirectorySeparatorChar, '/'));
+                }
+            }
+        }
+
+        outside.ShouldNotBeEmpty("the review tests import schemas/templates; if they no longer do, this test checks nothing");
+        foreach (var folder in outside)
+        {
+            dockerfile.ShouldContain($"COPY {folder}/ /{folder}/", customMessage: $"a web source imports from {folder}, which web/Dockerfile must copy to the same place relative to the sources");
+        }
+    }
+
+    [Theory]
+    [InlineData("portal", "customer-portal")]
+    [InlineData("admin", "admin-console")]
+    public void Each_app_is_published_on_the_port_its_realm_client_redirects_to(string service, string app)
+    {
+        var compose = Compose();
+        var definition = Service(compose, service);
+        ((YamlMappingNode)definition["build"])["args"].ShouldBeOfType<YamlMappingNode>()["APP"].ToString().ShouldBe(app);
+
+        // The unprivileged nginx of web/Dockerfile listens on 8080 inside the container.
+        var origin = $"http://localhost:{PublishedPort(definition, 8080)}";
+        var clientId = DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_CLIENT_ID"];
+        var client = Realm().GetProperty("clients").EnumerateArray().Single(c => c.GetProperty("clientId").GetString() == clientId);
+
+        client.GetProperty("redirectUris").EnumerateArray().Select(u => u.GetString()).ShouldContain($"{origin}/*");
+        client.GetProperty("webOrigins").EnumerateArray().Select(u => u.GetString()).ShouldContain(origin);
+    }
+
+    /// <summary>
+    /// The apps' Content-Security-Policy (web/nginx.conf.template) allows calls to and frames of <c>OIDC_ORIGIN</c> only;
+    /// an authority on another origin would make sign-in fail in the browser with a CSP violation.
+    /// </summary>
+    [Fact]
+    public void The_web_images_allow_the_oidc_authority_of_both_apps_in_their_content_security_policy()
+    {
+        var match = Regex.Match(Read("web", "Dockerfile"), @"OIDC_ORIGIN=(\S+)");
+        match.Success.ShouldBeTrue("web/Dockerfile sets OIDC_ORIGIN");
+        var template = Read("web", "nginx.conf.template");
+        template.ShouldContain("connect-src 'self' ${OIDC_ORIGIN}");
+        template.ShouldContain("frame-src 'self' ${OIDC_ORIGIN}");
+
+        var compose = Compose();
+        foreach (var (service, app) in new[] { ("portal", "customer-portal"), ("admin", "admin-console") })
+        {
+            // The image's default, for a `docker build` without arguments: the authority of .env.production.
+            var authority = new Uri(DotEnv("web", "apps", app, ".env.production")["VITE_OIDC_AUTHORITY"]);
+            match.Groups[1].Value.ShouldBe(authority.GetLeftPart(UriPartial.Authority), app);
+
+            // What compose builds and runs: the origin of the build argument, for any DOCPROC_KEYCLOAK_PORT.
+            var built = BuildArgs(compose, service)["VITE_OIDC_AUTHORITY"];
+            built.ShouldStartWith(Environment(compose, service)["OIDC_ORIGIN"] + "/", Case.Sensitive, service);
+        }
+    }
+
+    [Fact]
+    public void Compose_needs_nothing_outside_the_project()
+    {
+        var compose = Compose();
+
+        foreach (var section in new[] { "networks", "volumes" })
+        {
+            if (compose.Children.TryGetValue(new YamlScalarNode(section), out var node) && node is YamlMappingNode entries)
+            {
+                entries.Children.Values.OfType<YamlMappingNode>()
+                    .ShouldAllBe(e => !e.Children.ContainsKey(new YamlScalarNode("external")), $"an external {section} entry needs something another project created");
+            }
+        }
+
+        foreach (var (name, definition) in Services(compose))
+        {
+            if (!definition.Children.TryGetValue(new YamlScalarNode("ports"), out var ports))
+            {
+                continue;
+            }
+
+            ((YamlSequenceNode)ports).Children.Select(p => p.ToString())
+                .ShouldAllBe(p => p.StartsWith("${DOCPROC_BIND_ADDRESS:-127.0.0.1}:", StringComparison.Ordinal), $"{name} publishes a port on every interface");
+        }
+    }
+
+    /// <summary>
+    /// A container that exits while the stack starts (SQL Server's first boot times out on a busy machine and exits 1)
+    /// fails the whole <c>docker compose up</c> with "dependency failed to start" unless compose restarts it. So every
+    /// long-running service has a restart policy; only the one-shot helpers, which others wait for to complete, have
+    /// <c>restart: "no"</c>.
+    /// </summary>
+    [Fact]
+    public void Every_long_running_service_is_restarted_when_it_exits()
+    {
+        var compose = Compose();
+        var services = Services(compose).ToList();
+        var oneShots = services
+            .SelectMany(s => s.Definition.Children.TryGetValue(new YamlScalarNode("depends_on"), out var deps)
+                ? ((YamlMappingNode)deps).Children
+                : Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
+            .Where(d => ((YamlMappingNode)d.Value)["condition"].ToString() == "service_completed_successfully")
+            .Select(d => d.Key.ToString())
+            .ToHashSet(StringComparer.Ordinal);
+        oneShots.ShouldBe(["servicebus-ready", "llm-setup"], ignoreOrder: true);
+
+        foreach (var (name, definition) in services)
+        {
+            definition.Children.TryGetValue(new YamlScalarNode("restart"), out var restart).ShouldBeTrue($"{name} has no restart policy");
+            if (oneShots.Contains(name))
+            {
+                restart!.ToString().ShouldBe("no", $"{name} is a one-shot helper");
+            }
+            else
+            {
+                restart!.ToString().ShouldBeOneOf(["unless-stopped", "on-failure", "always"], $"{name} must come back when it exits");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("api")]
+    [InlineData("worker")]
+    public void Hosts_do_not_log_every_sql_statement(string host) =>
+        Environment(Compose(), host)["Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command"].ShouldBe("Warning");
+
+    private static bool IsAspirePlumbing(string key) =>
+        key.StartsWith("OTEL_", StringComparison.Ordinal)
+        || key.StartsWith("ASPNETCORE_", StringComparison.Ordinal)
+        || key.StartsWith("DOTNET_", StringComparison.Ordinal)
+        || key.StartsWith("services__", StringComparison.Ordinal)
+        || key.StartsWith("Logging__", StringComparison.OrdinalIgnoreCase);
+
+    private static Task<DistributedApplicationModel> BuildModelAsync() => AppHostModel.ModelAsync(Ct);
+
+    /// <summary>The environment the AppHost gives a resource, evaluated without starting anything (values may be expressions).</summary>
+    private static async Task<Dictionary<string, object>> EnvironmentOfAsync(string name)
+    {
+        await using var app = await AppHostModel.BuildAsync(Ct);
+        var model = app.Model;
+        var executionContext = app.ExecutionContext;
+
+        var resource = (IResourceWithEnvironment)model.Resources.Single(r => r.Name == name);
+        var context = new EnvironmentCallbackContext(executionContext, resource, cancellationToken: Ct);
+        foreach (var callback in resource.Annotations.OfType<EnvironmentCallbackAnnotation>())
+        {
+            await callback.Callback(context);
+        }
+
+        return new Dictionary<string, object>(context.EnvironmentVariables, StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string?> Names(JsonElement parent, string property) =>
+        parent.TryGetProperty(property, out var items) ? items.EnumerateArray().Select(i => i.GetProperty("Name").GetString()) : [];
+
+    private static YamlMappingNode Compose()
+    {
+        var stream = new YamlStream();
+        using var reader = new StringReader(Read("docker-compose.yml"));
+        stream.Load(reader);
+        return (YamlMappingNode)stream.Documents.Single().RootNode;
+    }
+
+    private static IEnumerable<(string Name, YamlMappingNode Definition)> Services(YamlMappingNode compose) =>
+        ((YamlMappingNode)compose["services"]).Children.Select(e => (e.Key.ToString(), (YamlMappingNode)e.Value));
+
+    private static YamlMappingNode Service(YamlMappingNode compose, string name) => (YamlMappingNode)((YamlMappingNode)compose["services"])[name];
+
+    private static string Image(YamlMappingNode compose, string service) => Service(compose, service)["image"].ToString();
+
+    private static List<string> Volumes(YamlMappingNode service) => ((YamlSequenceNode)service["volumes"]).Children.Select(v => v.ToString()).ToList();
+
+    /// <summary>
+    /// The host port a service publishes for <paramref name="containerPort"/> (<c>[address:]host:container</c>), with
+    /// every <c>${NAME:-default}</c> at its default, i.e. without a <c>.env</c>.
+    /// </summary>
+    private static int PublishedPort(YamlMappingNode service, int containerPort)
+    {
+        var mapping = ((YamlSequenceNode)service["ports"]).Children.Select(p => Interpolate(p.ToString()).Split(':'))
+            .Single(parts => parts[^1] == containerPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return int.Parse(mapping[^2], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Replaces each compose variable <c>${NAME:-default}</c> with its default, as compose does when NAME is unset.</summary>
+    private static string Interpolate(string value) => Regex.Replace(value, @"\$\{[A-Z0-9_]+:-([^}]*)\}", m => m.Groups[1].Value);
+
+    private static Dictionary<string, string> BuildArgs(YamlMappingNode compose, string service) =>
+        ((YamlMappingNode)((YamlMappingNode)Service(compose, service)["build"])["args"]).Children
+            .ToDictionary(e => e.Key.ToString(), e => e.Value.ToString(), StringComparer.Ordinal);
+
+    /// <summary>A service's environment with YAML merge keys (<c>&lt;&lt;: *anchor</c>) applied, the way compose reads it.</summary>
+    private static Dictionary<string, string> Environment(YamlMappingNode compose, string service)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        Merge((YamlMappingNode)Service(compose, service)["environment"], result);
+        return result;
+
+        static void Merge(YamlMappingNode mapping, Dictionary<string, string> into)
+        {
+            foreach (var (key, value) in mapping.Children)
+            {
+                if (key.ToString() == "<<")
+                {
+                    var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+                    Merge((YamlMappingNode)value, merged);
+                    foreach (var (k, v) in merged)
+                    {
+                        into.TryAdd(k, v);
+                    }
+                }
+                else
+                {
+                    into[key.ToString()] = value.ToString();
+                }
+            }
+        }
+    }
+
+    private static JsonElement Realm()
+    {
+        using var doc = JsonDocument.Parse(Read("src", "DocProc.AppHost", "realms", "docproc-realm.json"));
+        return doc.RootElement.Clone();
+    }
+
+    private static Dictionary<string, string> DotEnv(params string[] path) =>
+        Read(path).Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#') && line.Contains('=', StringComparison.Ordinal))
+            .Select(line => line.Split('=', 2))
+            .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.Ordinal);
+
+    private static string Read(params string[] path) => File.ReadAllText(RepositoryPath(path)).ReplaceLineEndings("\n");
+
+    private static string RepositoryPath(params string[] path)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "DocProc.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        return Path.Combine([dir?.FullName ?? throw new InvalidOperationException("Could not locate the repository root (DocProc.slnx)."), .. path]);
+    }
+}

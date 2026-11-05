@@ -54,8 +54,16 @@ var mail = builder.AddContainer("mail", "greenmail/standalone", "2.1.15")
     .WithEndpoint(port: 3025, targetPort: 3025, name: "smtp", scheme: "tcp")
     .WithEndpoint(port: 3143, targetPort: 3143, name: "imap", scheme: "tcp")
     .WithHttpEndpoint(port: 8085, targetPort: 8080, name: "api")
-    .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local,invoices@tenant-b.local")
+    .WithEnvironment("GREENMAIL_OPTS", "-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.users=invoices@tenant-a.local:invoices,invoices@tenant-b.local:invoices")
     .WithLifetime(ContainerLifetime.Persistent);
+
+// WireMock as the receiving ERP of the delivery demos (docs/11 §23, docs/09 "Mock ERP"): the stub mappings in
+// docker/mock-erp answer erp-ap and article-prices calls, and can be told to fail with 503. The hosts reach it over
+// plain http through Delivery:DevelopmentHosts (docs/11 §13.3).
+builder.AddContainer("mock-erp", "wiremock/wiremock", "3.13.1")
+    .WithHttpEndpoint(port: 8086, targetPort: 8080, name: "http")
+    .WithBindMount(Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "docker", "mock-erp")), "/home/wiremock", isReadOnly: true)
+    .WithArgs("--disable-banner", "--verbose");
 
 // The file-backed ISecretStore stands in for Key Vault until the Key Vault store is wired. The API writes BYOK keys
 // and the worker reads them, so both get one absolute directory instead of each its own content root's ./data/secrets.
@@ -73,6 +81,9 @@ var api = builder.AddProject<Projects.DocProc_Api>("api")
     .WithEnvironment("Authentication__Oidc__RequireHttpsMetadata", "false")
     .WithEnvironment("KeyVault__Endpoint", vault.GetEndpoint("https"))
     .WithEnvironment("Secrets__Path", secretsPath)
+    .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086") // mock-erp over http (docs/11 §13.3, Development only)
+    // The worker polls the mailboxes and watched folders (docs/11 §7.1); one host is enough.
+    .WithEnvironment("Intake__PollersEnabled", "false")
     .WithHttpHealthCheck("/health/ready")
     .WithExternalHttpEndpoints();
 
@@ -86,6 +97,13 @@ builder.AddProject<Projects.DocProc_Worker>("worker")
     .WithEnvironment("Secrets__Path", secretsPath)
     .WithEnvironment("Mail__ImapHost", mail.GetEndpoint("imap").Property(EndpointProperty.Host))
     .WithEnvironment("Mail__ImapPort", mail.GetEndpoint("imap").Property(EndpointProperty.Port))
+    .WithEnvironment("Mail__ImapSecurity", "None") // GreenMail speaks plain IMAP
+    // GreenMail writes no Authentication-Results; the header a test mail carries is believed when it names the
+    // platform's one receiving server, for the mailboxes on GreenMail only (docs/11 §7.1).
+    .WithEnvironment("Mail__TrustedAuthServIds__0", "mx.platform.local")
+    // The drop zone of the watched-folder channels: ./fixtures/dropzone/{tenant slug}/... (docs/11 §7.1).
+    .WithEnvironment("Intake__FolderRoot", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "fixtures", "dropzone")))
+    .WithEnvironment("Delivery__DevelopmentHosts__0", "localhost:8086")
     .WaitFor(api); // the API applies migrations first
 
 builder.Build().Run();

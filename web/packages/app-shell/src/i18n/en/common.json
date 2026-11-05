@@ -48,7 +48,8 @@
     "Operator": "Operator",
     "TenantAdmin": "Tenant admin",
     "Reviewer": "Reviewer",
-    "Viewer": "Viewer"
+    "Viewer": "Viewer",
+    "MappingAuthor": "Mapping author"
   },
   "scope": {
     "platform": "Platform scope",
@@ -75,7 +76,8 @@
     "NeedsReview": "Needs review",
     "Approved": "Approved",
     "Rejected": "Rejected",
-    "Failed": "Failed"
+    "Failed": "Failed",
+    "Cancelled": "Joined into another document"
   },
   "reviewTaskStatus": {
     "Open": "Open",
@@ -97,6 +99,7 @@
     "Llm": "AI",
     "Ocr": "OCR",
     "Human": "Reviewer",
+    "Lookup": "Lookup",
     "page": "p. {{page}}",
     "onPageTitle": "Located on page {{page}} of the document"
   },
@@ -167,6 +170,9 @@
     "refresh": "Refresh",
     "back": "Back"
   },
+  "flagDetails": {
+    "deltaRow": "{{row}}: from {{previous}} to {{value}} ({{change}})"
+  },
   "flagMessages": {
     "UNREADABLE_PAGES": {
       "region": "Page {{page}}, {{area}}: {{detail}}",
@@ -203,7 +209,9 @@
       "default": "Line {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, but the line net is {{actual}}."
     },
     "LOW_CONFIDENCE": {
-      "default": "{{field}} was read with {{confidence}} confidence, below the threshold of {{threshold}}."
+      "default": "{{field}} was read with {{confidence}} confidence, below the threshold of {{threshold}}.",
+      "capped_one": "{{count}} more value, at {{field}}, was read below the confidence threshold too.",
+      "capped_other": "{{count}} more values, starting at {{field}}, were read below the confidence threshold too."
     },
     "DUPLICATE_SUSPECTED": {
       "default": "Another document of this supplier carries the number {{number}}."
@@ -222,14 +230,83 @@
       "future": "The issue date {{issueDate}} is in the future.",
       "tooOld": "The issue date {{issueDate}} is more than {{maxAgeDays}} days old.",
       "dueBeforeIssue": "The due date {{dueDate}} is before the issue date {{issueDate}}.",
-      "servicePeriodInverted": "The service period ends before it starts."
+      "servicePeriodInverted": "The service period ends before it starts.",
+      "pathFuture": "The date {{field}} ({{date}}) is more than {{maxFutureDays}} days in the future.",
+      "pathTooOld": "The date {{field}} ({{date}}) is more than {{maxAgeDays}} days in the past.",
+      "capped_one": "{{count}} more date, at {{field}}, is implausible too.",
+      "capped_other": "{{count}} more dates, starting at {{field}}, are implausible too."
     },
     "INVALID_VALUE": {
       "currencyCode": "“{{currency}}” is not a valid ISO 4217 currency code.",
       "currencyMismatch": "{{field}} is in {{currency}}, but the document currency is {{documentCurrency}}."
     },
     "UNSUPPORTED_TYPE": {
-      "default": "There is no extraction for the document type {{type}} yet; enter the data by hand."
+      "default": "There is no extraction for the document type {{type}} yet; enter the data by hand.",
+      "definition": "The document type {{type}} has no automatic extraction yet; fill in its fields here."
+    },
+    "FIELD_REQUIRED": {
+      "default": "The required field {{field}} has no value.",
+      "capped_one": "{{count}} more required value, at {{field}}, is missing too.",
+      "capped_other": "{{count}} more required values, starting at {{field}}, are missing too."
+    },
+    "FIELD_INVALID": {
+      "default": "The value of {{field}} does not fit its field definition ({{keyword}}).",
+      "capped_one": "{{count}} more value, at {{field}}, does not fit its field definition ({{keyword}}) either.",
+      "capped_other": "{{count}} more values, starting at {{field}}, do not fit their field definition ({{keyword}}) either.",
+      "notChecked_one": "{{count}} more value, at {{field}}, was not checked against the pattern: the check stopped after the first failures.",
+      "notChecked_other": "{{count}} more values, starting at {{field}}, were not checked against the pattern: the check stopped after the first failures."
+    },
+    "REVISION_OF": {
+      "default": "An earlier document with the same key exists ({{status}}); this one may replace it."
+    },
+    "CHECKS_SKIPPED": {
+      "patternBudget_one": "{{count}} pattern check was skipped: the document reached the limit for pattern checks. Check the values by hand.",
+      "patternBudget_other": "{{count}} pattern checks were skipped: the document reached the limit for pattern checks. Check the values by hand.",
+      "expressionBudget_one": "A rule was not checked to the end: its expressions reached their limit of steps, time or text length on this document. Check the values by hand.",
+      "expressionBudget_other": "A rule was not checked to the end: its expressions reached their limit of steps, time or text length on this document. Check the values by hand."
+    },
+    "DELIVERY_FAILED": {
+      "default": "The delivery to {{destination}} failed for good: {{error}}. An integration admin can send it again."
+    },
+    "SUPPLIER_SOURCE_UNVERIFIED": {
+      "default": "A source rule for another supplier would have matched, but the sender {{sender}} is not authenticated (DMARC); the rule was skipped."
+    },
+    "SUPPLIER_AMBIGUOUS": {
+      "default": "Source rules of several suppliers match this document equally; no supplier was assigned."
+    },
+    "SUPPLIER_CONFLICT": {
+      "default": "The document's content ({{evidence}}) names {{contentSupplierName}}, but its source names {{sourceSupplierName}}; the source supplier is kept until a reviewer decides."
+    },
+    "NEW_LAYOUT": {
+      "default": "The supplier {{supplierName}} sent a design none of its layouts recognises; the document is held for review and was not processed with another layout."
+    },
+    "LAYOUT_AMBIGUOUS": {
+      "default": "Several layouts of the supplier recognise the document equally ({{layouts}}); none was applied."
+    },
+    "MAPPING_DRIFT": {
+      "default": "The layout {{layoutKey}} recognised the document, but its field rules found {{found}} of {{covered}} fields; the supplier may have moved them."
+    },
+    "LAYOUT_WARMUP": {
+      "default": "Document {{ordinal}} of the first {{warmup}} under layout {{layoutKey}} (version {{version}}): it goes to review, already filled by the layout."
+    },
+    "LLM_BUDGET_EXCEEDED": {
+      "default": "{{step}} was not called: the {{period}} LLM budget of {{limitUsd}} USD would be exceeded ({{spentUsd}} USD spent). A reviewer checks what it would have filled.",
+      "unpriced": "{{step}} was not called: the model {{model}} has no price, so its cost cannot be counted against the {{period}} LLM budget of {{limitUsd}} USD. A reviewer checks what it would have filled."
+    },
+    "LOOKUP_FAILED": {
+      "default": "The lookup {{stepId}} failed ({{reason}}); the fields it fills stay as they were."
+    },
+    "PIPELINE_INVALID": {
+      "default": "The pipeline overrides of the supplier, its group or its layout were refused ({{path}}: {{problem}}); the type's own steps ran."
+    },
+    "TABLE_ROWS_REJECTED": {
+      "default": "Page {{page}}: {{rows}} line(s) of the table did not become rows; check them before the list is used."
+    },
+    "TABLE_PAGE_NO_ROWS": {
+      "default": "Page {{page}} is in the table's page range but yielded no row."
+    },
+    "EXTERNAL_REJECTED": {
+      "default": "{{destination}} rejected the document: {{message}}. Correct and re-approve it, or resolve the issue with a note."
     }
   },
   "apiErrors": {
@@ -242,7 +319,10 @@
     "slug": "Lowercase letters, digits and single dashes, at most {{maxLength}} characters.",
     "range": "Between {{min}} and {{max}}.",
     "positive": "Must be greater than zero.",
-    "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters."
+    "httpUrl": "An absolute http(s) URL of at most {{maxLength}} characters.",
+    "maxItems": "At most {{maxItems}} entries.",
+    "iban": "'{{value}}' is not an IBAN: a country code, two check digits and 11 to 30 letters or digits.",
+    "emailDomain": "'{{value}}' is not a domain name such as example.com (without the @)."
   },
   "dateInput": {
     "pick": "Choose a date",

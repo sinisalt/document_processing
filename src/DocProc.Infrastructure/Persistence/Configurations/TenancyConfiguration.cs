@@ -17,7 +17,11 @@ internal sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         b.Property(t => t.DefaultCurrency).HasMaxLength(3).IsFixedLength();
         b.Property(t => t.CountryCode).HasMaxLength(2).IsFixedLength();
         b.Property(t => t.TimeZone).HasMaxLength(64);
-        b.OwnsOne(t => t.Settings, s => s.ToJson());
+        b.OwnsOne(t => t.Settings, s =>
+        {
+            s.ToJson();
+            s.OwnsOne(x => x.Features);
+        });
     }
 }
 
@@ -57,6 +61,12 @@ internal sealed class IngestionChannelConfiguration : IEntityTypeConfiguration<I
         b.Property(c => c.SecretRef).HasMaxLength(200);
         b.Property(c => c.Cursor).HasMaxLength(2000);
         b.Property(c => c.LastError).HasMaxLength(2000);
+        b.Property(c => c.SourceKey).HasMaxLength(400);
+        b.Property(c => c.DefaultDocumentTypeKey).HasMaxLength(64);
+        // Across tenants (docs/11 §6.3): two tenants cannot poll the same mailbox or folder.
+        b.HasIndex(c => new { c.Type, c.SourceKey }).IsUnique().HasFilter("[SourceKey] IS NOT NULL");
         b.HasOne(c => c.Tenant).WithMany(t => t.Channels).HasForeignKey(c => c.TenantId);
+        b.HasOne<Supplier>().WithMany().HasForeignKey(c => c.DefaultSupplierId).OnDelete(DeleteBehavior.NoAction);
+        b.HasOne<ReceivingEntity>().WithMany().HasForeignKey(c => c.DefaultReceivingEntityId).OnDelete(DeleteBehavior.NoAction);
     }
 }

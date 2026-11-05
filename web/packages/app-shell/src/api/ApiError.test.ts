@@ -58,6 +58,25 @@ describe("ApiError field errors", () => {
     expect(new ApiError(400, problem, "/x").validationSummary.title).toBe(en.errors.validation);
   });
 
+  it("name the refused entry of a list as sent, and fall back to English without it", () => {
+    const lists = {
+      status: 400,
+      errors: { ibans: ["'12345678' is not an IBAN: …"], emailDomains: ["'@legacy.example' is not a domain name …"], aliases: ["aliases holds at most 50 entries."] },
+      errorCodes: {
+        ibans: { code: "iban", params: { value: "12345678" } },
+        emailDomains: { code: "emailDomain", params: { value: "@legacy.example" } },
+        aliases: { code: "maxItems", params: { maxItems: "1000" } },
+      },
+    };
+    const errors = localizedFieldErrors(lists, "de");
+    expect(errors.ibans).toEqual(["„12345678“ ist keine IBAN: ein Ländercode, zwei Prüfziffern und 11 bis 30 Buchstaben oder Ziffern."]);
+    expect(errors.emailDomains).toEqual(["„@legacy.example“ ist kein Domainname wie beispiel.de (ohne das @)."]);
+    expect(errors.aliases).toEqual(["Höchstens 1.000 Einträge."]);
+    // An API before the parameter: the English text, which names the entry.
+    const older = localizedFieldErrors({ ...lists, errorCodes: { ibans: { code: "iban", params: {} } } }, "de");
+    expect(older.ibans).toEqual(["'12345678' is not an IBAN: …"]);
+  });
+
   it("are the API's text when it sends no codes at all", () => {
     const error = new ApiError(400, { status: 400, errors: { reason: ["A reason is required."] } }, "/x");
     expect(error.fieldErrors).toEqual({ reason: ["A reason is required."] });
@@ -73,7 +92,7 @@ describe("the apiErrors texts", () => {
 
   it("cover every code EndpointSupport.ValidationCodes defines", () => {
     // src/DocProc.Api/Endpoints/EndpointSupport.cs, ValidationCodes.
-    const codes = ["requiredMaxLength", "maxLength", "notBlank", "currencyCode", "countryCode", "timeZone", "slug", "range", "positive", "httpUrl"];
+    const codes = ["requiredMaxLength", "maxLength", "notBlank", "currencyCode", "countryCode", "timeZone", "slug", "range", "positive", "httpUrl", "maxItems", "iban", "emailDomain"];
     expect(codes.filter((code) => !(code in en.apiErrors))).toEqual([]);
   });
 });

@@ -125,12 +125,30 @@ export function lastSegment(path: string): PathSegment {
   return segments[segments.length - 1]!;
 }
 
+/**
+ * The row of a repeating group a path lies in (docs/11 §12.2, `lineItemOf` generalised): for `group` `lines` (the
+ * default), `lines[2].quantity` → `{ index: 2, field: 'quantity' }`; for `group` `lines[0].tiers`,
+ * `lines[0].tiers[1].price` → `{ index: 1, field: 'price' }`. Null for a path outside the group.
+ */
+export function rowOf(path: string, group = "lines"): { index: number; field: string | null } | null {
+  let segments: PathSegment[];
+  let prefix: PathSegment[];
+  try {
+    segments = parsePath(path);
+    prefix = parsePath(group);
+  } catch {
+    return null;
+  }
+  if (segments.length <= prefix.length || !prefix.every((segment, i) => segment === segments[i])) return null;
+  const index = segments[prefix.length];
+  if (typeof index !== "number") return null;
+  const rest = segments.slice(prefix.length + 1);
+  return { index, field: rest.length ? joinPath(rest) : null };
+}
+
 /** For `lines[2].quantity` → `{ index: 2, field: 'quantity' }`; null for header fields. */
 export function lineItemOf(path: string): { index: number; field: string | null } | null {
-  const segments = parsePath(path);
-  if (segments[0] !== "lines" || typeof segments[1] !== "number") return null;
-  const rest = segments.slice(2);
-  return { index: segments[1], field: rest.length ? joinPath(rest) : null };
+  return rowOf(path, "lines");
 }
 
 /** True when `path` is `prefix` or lies beneath it (`lines[2]` covers `lines[2].quantity`, not `lines[20]`). */

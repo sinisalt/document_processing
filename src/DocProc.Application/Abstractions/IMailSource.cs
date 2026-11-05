@@ -23,6 +23,10 @@ public sealed record InboundMessage(
     IReadOnlyList<string> To,
     string? Subject,
     ReadOnlyMemory<byte> RawEml,
-    IReadOnlyList<InboundAttachment> Attachments);
+    IReadOnlyList<InboundAttachment> Attachments)
+{
+    /// <summary>Why the message is not ingested (over the size limit); its <see cref="RawEml"/> is then empty, and the cursor still moves past it.</summary>
+    public string? SkippedReason { get; init; }
+}
 
 public sealed record InboundAttachment(string FileName, string ContentType, long SizeBytes, ReadOnlyMemory<byte> Content, bool IsInline);

@@ -29,12 +29,16 @@ internal enum KeywordKind
     Negative,
 }
 
-/// <summary>One multilingual keyword rule of the stage 4 classifier (docs/03 "Classify").</summary>
-internal sealed record KeywordRule(DocumentType Type, string Language, KeywordKind Kind, Regex Pattern, double Weight);
+/// <summary>
+/// One multilingual keyword rule of the stage 4 classifier (docs/03 "Classify"). <see cref="Phrases"/> are the phrases
+/// <see cref="Pattern"/> was compiled from, as listed below; the standard templates' classification blocks carry the
+/// same phrases (docs/11 §21 step 2), which the template parity test checks.
+/// </summary>
+internal sealed record KeywordRule(DocumentTypeKey Type, string Language, KeywordKind Kind, Regex Pattern, double Weight, IReadOnlyList<string> Phrases);
 
 /// <summary>
 /// The rule table: German, English, Croatian, Italian and French titles, number labels and negative phrases for the
-/// document types of <see cref="DocumentType"/>. Keywords match whole words only (a letter before or after breaks
+/// document types of <see cref="DocumentTypeKey"/>. Keywords match whole words only (a letter before or after breaks
 /// the match), so "Rechnungsadresse" is not "Rechnung" and compounds like "Rechnungsnummer" are listed as labels.
 /// </summary>
 internal static class KeywordRuleSet
@@ -62,98 +66,158 @@ internal static class KeywordRuleSet
     private static IEnumerable<KeywordRule> Build()
     {
         // Invoice
-        yield return Title(DocumentType.Invoice, DocumentLanguages.German, "Rechnung", "Rechnungen");
-        yield return Title(DocumentType.Invoice, DocumentLanguages.English, "Invoice", "Invoices");
-        yield return Title(DocumentType.Invoice, DocumentLanguages.Croatian, "Račun", "Faktura");
-        yield return Title(DocumentType.Invoice, DocumentLanguages.Italian, "Fattura");
-        yield return Title(DocumentType.Invoice, DocumentLanguages.French, "Facture");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.German, "Rechnungsnummer", "Rechnungs-Nr", "Rechnungsnr");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.English, "Invoice number", "Invoice no", "Invoice #", "Invoice ID");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.Croatian, "Broj računa");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.Italian, "Numero fattura");
-        yield return Label(DocumentType.Invoice, DocumentLanguages.French, "Numéro de facture", "N° de facture");
-        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.German, "Rechnungsdatum", "Rechnungs-Datum");
-        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.English, "Invoice date");
-        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.Croatian, "Datum računa");
-        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.Italian, "Data fattura");
-        yield return DateLabel(DocumentType.Invoice, DocumentLanguages.French, "Date de facture");
-        yield return Negative(DocumentType.Invoice, DocumentLanguages.German, "keine Rechnung", "Rechnung folgt", "nicht als Rechnung", "Proforma", "Pro-forma");
-        yield return Negative(DocumentType.Invoice, DocumentLanguages.English, "not an invoice", "invoice to follow", "invoice will follow", "Proforma", "Pro-forma");
-        yield return Negative(DocumentType.Invoice, DocumentLanguages.Croatian, "nije račun", "Predračun");
-        yield return Negative(DocumentType.Invoice, DocumentLanguages.Italian, "non è una fattura", "Proforma", "Pro-forma");
-        yield return Negative(DocumentType.Invoice, DocumentLanguages.French, "n'est pas une facture", "Proforma", "Pro-forma");
+        yield return Title(DocumentTypeKey.Invoice, DocumentLanguages.German, "Rechnung", "Rechnungen");
+        yield return Title(DocumentTypeKey.Invoice, DocumentLanguages.English, "Invoice", "Invoices");
+        yield return Title(DocumentTypeKey.Invoice, DocumentLanguages.Croatian, "Račun", "Faktura");
+        yield return Title(DocumentTypeKey.Invoice, DocumentLanguages.Italian, "Fattura");
+        yield return Title(DocumentTypeKey.Invoice, DocumentLanguages.French, "Facture");
+        yield return Label(DocumentTypeKey.Invoice, DocumentLanguages.German, "Rechnungsnummer", "Rechnungs-Nr", "Rechnungsnr");
+        yield return Label(DocumentTypeKey.Invoice, DocumentLanguages.English, "Invoice number", "Invoice no", "Invoice #", "Invoice ID");
+        yield return Label(DocumentTypeKey.Invoice, DocumentLanguages.Croatian, "Broj računa");
+        yield return Label(DocumentTypeKey.Invoice, DocumentLanguages.Italian, "Numero fattura");
+        yield return Label(DocumentTypeKey.Invoice, DocumentLanguages.French, "Numéro de facture", "N° de facture");
+        yield return DateLabel(DocumentTypeKey.Invoice, DocumentLanguages.German, "Rechnungsdatum", "Rechnungs-Datum");
+        yield return DateLabel(DocumentTypeKey.Invoice, DocumentLanguages.English, "Invoice date");
+        yield return DateLabel(DocumentTypeKey.Invoice, DocumentLanguages.Croatian, "Datum računa");
+        yield return DateLabel(DocumentTypeKey.Invoice, DocumentLanguages.Italian, "Data fattura");
+        yield return DateLabel(DocumentTypeKey.Invoice, DocumentLanguages.French, "Date de facture");
+        yield return Negative(DocumentTypeKey.Invoice, DocumentLanguages.German, "keine Rechnung", "Rechnung folgt", "nicht als Rechnung", "Proforma", "Pro-forma");
+        yield return Negative(DocumentTypeKey.Invoice, DocumentLanguages.English, "not an invoice", "invoice to follow", "invoice will follow", "Proforma", "Pro-forma");
+        yield return Negative(DocumentTypeKey.Invoice, DocumentLanguages.Croatian, "nije račun", "Predračun");
+        yield return Negative(DocumentTypeKey.Invoice, DocumentLanguages.Italian, "non è una fattura", "Proforma", "Pro-forma");
+        yield return Negative(DocumentTypeKey.Invoice, DocumentLanguages.French, "n'est pas une facture", "Proforma", "Pro-forma");
 
         // Credit note
-        yield return Title(DocumentType.CreditNote, DocumentLanguages.German, "Gutschrift", "Gutschriften", "Rechnungskorrektur", "Stornorechnung", "Storno-Rechnung");
-        yield return Title(DocumentType.CreditNote, DocumentLanguages.English, "Credit note", "Credit memo", "Credit memorandum");
-        yield return Title(DocumentType.CreditNote, DocumentLanguages.Croatian, "Odobrenje", "Knjižno odobrenje", "Storno račun", "Storno");
-        yield return Title(DocumentType.CreditNote, DocumentLanguages.Italian, "Nota di credito", "Nota credito", "Nota di accredito");
-        yield return Title(DocumentType.CreditNote, DocumentLanguages.French, "Avoir", "Note de crédit", "Facture d'avoir");
-        yield return Label(DocumentType.CreditNote, DocumentLanguages.German, "Gutschriftsnummer", "Gutschrift-Nr", "Gutschrifts-Nr", "Gutschriftnummer");
-        yield return Label(DocumentType.CreditNote, DocumentLanguages.English, "Credit note number", "Credit note no", "Credit memo no", "Credit memo number");
-        yield return Label(DocumentType.CreditNote, DocumentLanguages.Croatian, "Broj odobrenja");
-        yield return Label(DocumentType.CreditNote, DocumentLanguages.Italian, "Numero nota di credito");
-        yield return Label(DocumentType.CreditNote, DocumentLanguages.French, "Numéro d'avoir");
+        yield return Title(DocumentTypeKey.CreditNote, DocumentLanguages.German, "Gutschrift", "Gutschriften", "Rechnungskorrektur", "Stornorechnung", "Storno-Rechnung");
+        yield return Title(DocumentTypeKey.CreditNote, DocumentLanguages.English, "Credit note", "Credit memo", "Credit memorandum");
+        yield return Title(DocumentTypeKey.CreditNote, DocumentLanguages.Croatian, "Odobrenje", "Knjižno odobrenje", "Storno račun", "Storno");
+        yield return Title(DocumentTypeKey.CreditNote, DocumentLanguages.Italian, "Nota di credito", "Nota credito", "Nota di accredito");
+        yield return Title(DocumentTypeKey.CreditNote, DocumentLanguages.French, "Avoir", "Note de crédit", "Facture d'avoir");
+        yield return Label(DocumentTypeKey.CreditNote, DocumentLanguages.German, "Gutschriftsnummer", "Gutschrift-Nr", "Gutschrifts-Nr", "Gutschriftnummer");
+        yield return Label(DocumentTypeKey.CreditNote, DocumentLanguages.English, "Credit note number", "Credit note no", "Credit memo no", "Credit memo number");
+        yield return Label(DocumentTypeKey.CreditNote, DocumentLanguages.Croatian, "Broj odobrenja");
+        yield return Label(DocumentTypeKey.CreditNote, DocumentLanguages.Italian, "Numero nota di credito");
+        yield return Label(DocumentTypeKey.CreditNote, DocumentLanguages.French, "Numéro d'avoir");
 
         // Delivery note
-        yield return Title(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferschein", "Lieferscheine", "Warenbegleitschein", "Packzettel");
-        yield return Title(DocumentType.DeliveryNote, DocumentLanguages.English, "Delivery note", "Delivery slip", "Packing slip", "Packing list", "Dispatch note", "Shipping note");
-        yield return Title(DocumentType.DeliveryNote, DocumentLanguages.Croatian, "Otpremnica", "Dostavnica");
-        yield return Title(DocumentType.DeliveryNote, DocumentLanguages.Italian, "Bolla di consegna", "Documento di trasporto", "DDT", "Bolla di accompagnamento");
-        yield return Title(DocumentType.DeliveryNote, DocumentLanguages.French, "Bon de livraison", "Bordereau de livraison", "Bordereau d'expédition");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferscheinnummer", "Lieferschein-Nr", "Lieferscheinnr");
-        yield return DateLabel(DocumentType.DeliveryNote, DocumentLanguages.German, "Lieferscheindatum");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.English, "Delivery note number", "Delivery note no", "Delivery no", "Packing slip no");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.Croatian, "Broj otpremnice");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.Italian, "Numero DDT", "Numero bolla");
-        yield return Label(DocumentType.DeliveryNote, DocumentLanguages.French, "Numéro de bon de livraison", "N° BL");
+        yield return Title(DocumentTypeKey.DeliveryNote, DocumentLanguages.German, "Lieferschein", "Lieferscheine", "Warenbegleitschein", "Packzettel");
+        yield return Title(DocumentTypeKey.DeliveryNote, DocumentLanguages.English, "Delivery note", "Delivery slip", "Packing slip", "Packing list", "Dispatch note", "Shipping note");
+        yield return Title(DocumentTypeKey.DeliveryNote, DocumentLanguages.Croatian, "Otpremnica", "Dostavnica");
+        yield return Title(DocumentTypeKey.DeliveryNote, DocumentLanguages.Italian, "Bolla di consegna", "Documento di trasporto", "DDT", "Bolla di accompagnamento");
+        yield return Title(DocumentTypeKey.DeliveryNote, DocumentLanguages.French, "Bon de livraison", "Bordereau de livraison", "Bordereau d'expédition");
+        yield return Label(DocumentTypeKey.DeliveryNote, DocumentLanguages.German, "Lieferscheinnummer", "Lieferschein-Nr", "Lieferscheinnr");
+        yield return DateLabel(DocumentTypeKey.DeliveryNote, DocumentLanguages.German, "Lieferscheindatum");
+        yield return Label(DocumentTypeKey.DeliveryNote, DocumentLanguages.English, "Delivery note number", "Delivery note no", "Delivery no", "Packing slip no");
+        yield return Label(DocumentTypeKey.DeliveryNote, DocumentLanguages.Croatian, "Broj otpremnice");
+        yield return Label(DocumentTypeKey.DeliveryNote, DocumentLanguages.Italian, "Numero DDT", "Numero bolla");
+        yield return Label(DocumentTypeKey.DeliveryNote, DocumentLanguages.French, "Numéro de bon de livraison", "N° BL");
 
         // Purchase order
-        yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestellung", "Bestellschein", "Einkaufsbestellung");
-        yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.English, "Purchase order", "Order form");
-        yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.Croatian, "Narudžba", "Narudžbenica", "Nalog za nabavu");
-        yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.Italian, "Ordine", "Ordine di acquisto", "Ordine d'acquisto", "Buono d'ordine");
-        yield return Title(DocumentType.PurchaseOrder, DocumentLanguages.French, "Bon de commande", "Commande", "Ordre d'achat");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestellnummer", "Bestell-Nr", "Bestellnr");
-        yield return DateLabel(DocumentType.PurchaseOrder, DocumentLanguages.German, "Bestelldatum");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.English, "Purchase order number", "Purchase order no", "PO number", "PO no", "PO #", "Order number", "Order no");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.Croatian, "Broj narudžbe");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.Italian, "Numero ordine");
-        yield return Label(DocumentType.PurchaseOrder, DocumentLanguages.French, "Numéro de commande", "N° de commande");
+        yield return Title(DocumentTypeKey.PurchaseOrder, DocumentLanguages.German, "Bestellung", "Bestellschein", "Einkaufsbestellung");
+        yield return Title(DocumentTypeKey.PurchaseOrder, DocumentLanguages.English, "Purchase order", "Order form");
+        yield return Title(DocumentTypeKey.PurchaseOrder, DocumentLanguages.Croatian, "Narudžba", "Narudžbenica", "Nalog za nabavu");
+        yield return Title(DocumentTypeKey.PurchaseOrder, DocumentLanguages.Italian, "Ordine", "Ordine di acquisto", "Ordine d'acquisto", "Buono d'ordine");
+        yield return Title(DocumentTypeKey.PurchaseOrder, DocumentLanguages.French, "Bon de commande", "Commande", "Ordre d'achat");
+        yield return Label(DocumentTypeKey.PurchaseOrder, DocumentLanguages.German, "Bestellnummer", "Bestell-Nr", "Bestellnr");
+        yield return DateLabel(DocumentTypeKey.PurchaseOrder, DocumentLanguages.German, "Bestelldatum");
+        yield return Label(DocumentTypeKey.PurchaseOrder, DocumentLanguages.English, "Purchase order number", "Purchase order no", "PO number", "PO no", "PO #", "Order number", "Order no");
+        yield return Label(DocumentTypeKey.PurchaseOrder, DocumentLanguages.Croatian, "Broj narudžbe");
+        yield return Label(DocumentTypeKey.PurchaseOrder, DocumentLanguages.Italian, "Numero ordine");
+        yield return Label(DocumentTypeKey.PurchaseOrder, DocumentLanguages.French, "Numéro de commande", "N° de commande");
 
         // Statement
-        yield return Title(DocumentType.Statement, DocumentLanguages.German, "Kontoauszug", "Offene Posten", "Offene-Posten-Liste", "Saldenbestätigung", "Saldenliste", "Kontoübersicht");
-        yield return Title(DocumentType.Statement, DocumentLanguages.English, "Statement", "Statement of account", "Account statement", "Open items");
-        yield return Title(DocumentType.Statement, DocumentLanguages.Croatian, "Izvod", "Izvod otvorenih stavki", "Otvorene stavke", "IOS obrazac");
-        yield return Title(DocumentType.Statement, DocumentLanguages.Italian, "Estratto conto", "Partite aperte");
-        yield return Title(DocumentType.Statement, DocumentLanguages.French, "Relevé de compte", "Relevé", "Relevé de factures");
+        yield return Title(DocumentTypeKey.Statement, DocumentLanguages.German, "Kontoauszug", "Offene Posten", "Offene-Posten-Liste", "Saldenbestätigung", "Saldenliste", "Kontoübersicht");
+        yield return Title(DocumentTypeKey.Statement, DocumentLanguages.English, "Statement", "Statement of account", "Account statement", "Open items");
+        yield return Title(DocumentTypeKey.Statement, DocumentLanguages.Croatian, "Izvod", "Izvod otvorenih stavki", "Otvorene stavke", "IOS obrazac");
+        yield return Title(DocumentTypeKey.Statement, DocumentLanguages.Italian, "Estratto conto", "Partite aperte");
+        yield return Title(DocumentTypeKey.Statement, DocumentLanguages.French, "Relevé de compte", "Relevé", "Relevé de factures");
 
         // Reminder
-        yield return Title(DocumentType.Reminder, DocumentLanguages.German, "Mahnung", "Zahlungserinnerung", "Mahnbescheid");
-        yield return Title(DocumentType.Reminder, DocumentLanguages.English, "Reminder", "Payment reminder", "Overdue notice", "Final notice", "Dunning letter", "Dunning notice", "Past due notice");
-        yield return Title(DocumentType.Reminder, DocumentLanguages.Croatian, "Opomena", "Podsjetnik na plaćanje");
-        yield return Title(DocumentType.Reminder, DocumentLanguages.Italian, "Sollecito", "Sollecito di pagamento", "Avviso di pagamento scaduto");
-        yield return Title(DocumentType.Reminder, DocumentLanguages.French, "Rappel", "Rappel de paiement", "Relance", "Lettre de relance", "Mise en demeure");
+        yield return Title(DocumentTypeKey.Reminder, DocumentLanguages.German, "Mahnung", "Zahlungserinnerung", "Mahnbescheid");
+        yield return Title(DocumentTypeKey.Reminder, DocumentLanguages.English, "Reminder", "Payment reminder", "Overdue notice", "Final notice", "Dunning letter", "Dunning notice", "Past due notice");
+        yield return Title(DocumentTypeKey.Reminder, DocumentLanguages.Croatian, "Opomena", "Podsjetnik na plaćanje");
+        yield return Title(DocumentTypeKey.Reminder, DocumentLanguages.Italian, "Sollecito", "Sollecito di pagamento", "Avviso di pagamento scaduto");
+        yield return Title(DocumentTypeKey.Reminder, DocumentLanguages.French, "Rappel", "Rappel de paiement", "Relance", "Lettre de relance", "Mise en demeure");
     }
 
-    private static KeywordRule Title(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Title, Compile(phrases), TitleWeight);
+    private static KeywordRule Title(DocumentTypeKey type, string language, params string[] phrases) =>
+        new(type, language, KeywordKind.Title, Compile(phrases), TitleWeight, phrases);
 
-    private static KeywordRule Label(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Label, Compile(phrases), LabelWeight);
+    private static KeywordRule Label(DocumentTypeKey type, string language, params string[] phrases) =>
+        new(type, language, KeywordKind.Label, Compile(phrases), LabelWeight, phrases);
 
-    private static KeywordRule DateLabel(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.DateLabel, Compile(phrases), LabelWeight);
+    private static KeywordRule DateLabel(DocumentTypeKey type, string language, params string[] phrases) =>
+        new(type, language, KeywordKind.DateLabel, Compile(phrases), LabelWeight, phrases);
 
-    private static KeywordRule Negative(DocumentType type, string language, params string[] phrases) =>
-        new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight);
+    private static KeywordRule Negative(DocumentTypeKey type, string language, params string[] phrases) =>
+        new(type, language, KeywordKind.Negative, Compile(phrases), NegativeWeight, phrases);
 
     /// <summary>Whole-word alternation; spaces match any whitespace run, hyphens are optional ("Rechnungs-Nr" and "Rechnungs Nr").</summary>
-    private static Regex Compile(IEnumerable<string> phrases)
+    private static Regex Compile(IEnumerable<string> phrases) => Compile(phrases, compiled: true, Regex.InfiniteMatchTimeout);
+
+    /// <summary>
+    /// <see cref="Compile(IEnumerable{string})"/> for a tenant's phrases (<see cref="KeywordRuleTable"/>): interpreted
+    /// rather than compiled (a table per tenant), with a match timeout. The phrases are escaped literals.
+    /// </summary>
+    internal static Regex Compile(IEnumerable<string> phrases, bool compiled, TimeSpan timeout)
     {
         var alternatives = phrases
             .OrderByDescending(p => p.Length)
-            .Select(p => Regex.Escape(p).Replace(@"\ ", @"\s+", StringComparison.Ordinal).Replace("-", @"[-\s]?", StringComparison.Ordinal));
-        return new Regex($@"(?<!\p{{L}})(?:{string.Join('|', alternatives)})(?!\p{{L}})", Flags);
+            .Select(PhrasePattern)
+            .Where(p => p.Length > 0)
+            .Distinct(StringComparer.Ordinal);
+        var options = compiled ? Flags : Flags & ~RegexOptions.Compiled;
+        return new Regex($@"(?<!\p{{L}})(?:{string.Join('|', alternatives)})(?!\p{{L}})", options, timeout);
+    }
+
+    /// <summary>
+    /// One phrase as a pattern: its words escaped, and each run of separators between them (spaces, hyphens, or both)
+    /// one token: <c>\s+</c> for spaces only, <c>[-\s]*</c> for a run with a hyphen ("Rechnungs-Nr" matches
+    /// "Rechnungs-Nr", "Rechnungs Nr" and "RechnungsNr"). A run is never two quantifiers side by side, so a phrase such
+    /// as "a - - - z" cannot backtrack over a run of white space on the page (the lookbehind keeps the pattern off
+    /// NonBacktracking, so the pattern itself has to stay linear). Separators at the ends are dropped.
+    /// </summary>
+    internal static string PhrasePattern(string phrase)
+    {
+        ArgumentNullException.ThrowIfNull(phrase);
+        var pattern = new System.Text.StringBuilder();
+        var word = new System.Text.StringBuilder();
+        var separatorHasHyphen = false;
+        var inSeparator = false;
+        foreach (var c in phrase.Trim())
+        {
+            if (char.IsWhiteSpace(c) || c == '-')
+            {
+                inSeparator = true;
+                separatorHasHyphen |= c == '-';
+                continue;
+            }
+
+            if (inSeparator)
+            {
+                Flush();
+                if (pattern.Length > 0)
+                {
+                    pattern.Append(separatorHasHyphen ? @"[-\s]*" : @"\s+");
+                }
+
+                inSeparator = false;
+                separatorHasHyphen = false;
+            }
+
+            word.Append(c);
+        }
+
+        Flush();
+        return pattern.ToString();
+
+        void Flush()
+        {
+            if (word.Length > 0)
+            {
+                pattern.Append(Regex.Escape(word.ToString()));
+                word.Clear();
+            }
+        }
     }
 }

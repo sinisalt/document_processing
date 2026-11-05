@@ -1,0 +1,31 @@
+{
+  "UserConfig": {
+    "Namespaces": [
+      {
+        "Name": "sbemulatorns",
+        "Queues": [
+          { "Name": "ingest" },
+          { "Name": "normalize" },
+          { "Name": "split" },
+          { "Name": "classify" },
+          { "Name": "match" },
+          { "Name": "extract" },
+          { "Name": "validate" },
+          { "Name": "publish" },
+          { "Name": "synthesize-profile" }
+        ],
+        "Topics": [
+          {
+            "Name": "document-events",
+            "Subscriptions": [
+              { "Name": "webhooks" }
+            ]
+          }
+        ]
+      }
+    ],
+    "Logging": {
+      "Type": "File"
+    }
+  }
+}

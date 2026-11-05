@@ -8,6 +8,7 @@ import type { components } from "@docproc/api-client";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Checkbox, Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, Input, Label, Skeleton, Switch } from "@docproc/ui";
 import { isApiError, queryKeys, toNumber, unwrap, useApi } from "@docproc/app-shell";
 import { translated } from "@/lib/validation";
+import { FeatureSwitches } from "./FeatureSwitches";
 
 type Settings = components["schemas"]["TenantSettingsDto"];
 type Supplier = components["schemas"]["SupplierResponse"];
@@ -146,7 +147,10 @@ function SettingsForm({ settings, suppliers }: { settings: Settings; suppliers: 
   );
 }
 
-/** Review policy and retention (`GET/PUT /settings`, tenant scope). The supplier list feeds the always-review picker. */
+/**
+ * Review policy and retention (`GET/PUT /settings`, tenant scope), and the feature switches of configurable document
+ * types. The supplier list feeds the always-review picker.
+ */
 export function SettingsTab() {
   const { t } = useTranslation("admin");
   const { client } = useApi();
@@ -157,22 +161,25 @@ export function SettingsTab() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("settings.title")}</CardTitle>
-        <CardDescription>{t("settings.description")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {settings.data ? (
-          <SettingsForm key={settings.dataUpdatedAt} settings={settings.data.settings} suppliers={suppliers.data?.items ?? []} />
-        ) : (
-          <div className="grid gap-3" aria-busy>
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="grid gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.title")}</CardTitle>
+          <CardDescription>{t("settings.description")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {settings.data ? (
+            <SettingsForm key={settings.dataUpdatedAt} settings={settings.data.settings} suppliers={suppliers.data?.items ?? []} />
+          ) : (
+            <div className="grid gap-3" aria-busy>
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <FeatureSwitches />
+    </div>
   );
 }

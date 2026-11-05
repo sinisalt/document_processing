@@ -4,7 +4,7 @@ using DocProc.Llm.Providers;
 namespace DocProc.Llm.Gateway;
 
 /// <summary>
-/// Resolves the provider for a tenant and stage, enforces the spend cap, calls the adapter and records usage
+/// Resolves the provider for a tenant and stage, enforces the spend cap and the tenant's budgets, calls the adapter and records usage
 /// (docs/08 "Provider abstraction"). Rate limiting per config is applied by the worker's concurrency limiter around
 /// this class; batch submission goes through <see cref="ILlmProvider"/> directly from the eval and backfill jobs.
 /// </summary>
@@ -14,8 +14,11 @@ public sealed class LlmGateway(
     IEnumerable<ILlmProviderFactory> factories,
     ILlmUsageRecorder usage,
     PriceTable prices,
-    TimeProvider clock) : ILlmGateway
+    TimeProvider clock,
+    ILlmBudgetGuard? budgets = null) : ILlmGateway
 {
+    private readonly ILlmBudgetGuard _budgets = budgets ?? NoLlmBudgets.Instance;
+
     private readonly IReadOnlyList<ILlmProviderFactory> _factories = factories.ToList();
 
     public async Task<LlmResult> CompleteAsync(Guid tenantId, LlmRequest request, CancellationToken cancellationToken)
@@ -28,6 +31,17 @@ public sealed class LlmGateway(
         if (resolved.Config.Limits.MonthlySpendCapUsd is { } cap && setup.SpentThisMonthUsd >= cap)
         {
             throw new LlmException(LlmErrorKind.Quota, $"Provider configuration {resolved.Config.Id} reached its monthly spend cap of {cap:0.00} USD.");
+        }
+
+        // The tenant's budgets (docs/11 §16): a call that would take a period's spend past its budget is not made, and
+        // the stage goes on without it (LLM_BUDGET_EXCEEDED). Nothing is recorded: no call happened.
+        // The estimate is held until the call's usage row is written, so parallel calls see each other (§16). A model the
+        // price table has no price for would be recorded without a cost, so a budget that applies refuses it (fix 4).
+        var unpriced = prices.TryGet(resolved.Model, out _) ? null : resolved.Model;
+        using var reservation = await _budgets.ReserveAsync(tenantId, request.Stage, request.DocumentId, unpriced, cancellationToken).ConfigureAwait(false);
+        if (!reservation.Verdict.Allowed)
+        {
+            throw new LlmBudgetExceededException(reservation.Verdict);
         }
 
         var factory = _factories.FirstOrDefault(f => f.Supports(resolved.Config.Kind))

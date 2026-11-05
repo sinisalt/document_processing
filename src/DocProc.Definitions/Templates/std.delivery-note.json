@@ -1,0 +1,326 @@
+{
+  "key": "std.delivery-note",
+  "version": 1,
+  "legacyKey": "DeliveryNote",
+  "name": {
+    "en": "Delivery note",
+    "de": "Lieferschein"
+  },
+  "description": "A supplier's delivery note or packing slip. No extraction path fills it yet, so every delivery note goes to review.",
+  "roles": {
+    "documentNumber": "deliveryNoteNumber",
+    "documentDate": "deliveryDate",
+    "supplierParty": "supplier",
+    "customerParty": "recipient",
+    "lineItems": "lines",
+    "lineQuantity": "lines[*].quantityDelivered",
+    "lineSku": "lines[*].supplierSku"
+  },
+  "ui": {
+    "sections": [
+      {
+        "id": "document",
+        "label": {
+          "en": "Document",
+          "de": "Beleg"
+        }
+      },
+      {
+        "id": "parties",
+        "label": {
+          "en": "Parties",
+          "de": "Parteien"
+        }
+      },
+      {
+        "id": "references",
+        "label": {
+          "en": "References",
+          "de": "Bezüge"
+        }
+      },
+      {
+        "id": "lines",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        }
+      }
+    ]
+  },
+  "fields": [
+    {
+      "id": "fld_dn_no",
+      "key": "deliveryNoteNumber",
+      "kind": "identifier",
+      "label": {
+        "en": "Delivery note no.",
+        "de": "Lieferscheinnummer"
+      },
+      "indexed": true,
+      "section": "document"
+    },
+    {
+      "id": "fld_delivery",
+      "key": "deliveryDate",
+      "kind": "date",
+      "label": {
+        "en": "Delivery date",
+        "de": "Lieferdatum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_sup",
+      "key": "supplier",
+      "kind": "party",
+      "label": {
+        "en": "Supplier",
+        "de": "Lieferant"
+      },
+      "section": "parties"
+    },
+    {
+      "id": "fld_recipient",
+      "key": "recipient",
+      "kind": "party",
+      "label": {
+        "en": "Recipient",
+        "de": "Empfänger"
+      },
+      "section": "parties"
+    },
+    {
+      "id": "fld_orders",
+      "key": "orderReferences",
+      "kind": "identifier",
+      "label": {
+        "en": "Order nos.",
+        "de": "Bestellnummern"
+      },
+      "list": true,
+      "section": "references"
+    },
+    {
+      "id": "fld_carrier",
+      "key": "carrier",
+      "kind": "string",
+      "label": {
+        "en": "Carrier",
+        "de": "Spediteur"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_signed",
+      "key": "signedBy",
+      "kind": "string",
+      "label": {
+        "en": "Signed by",
+        "de": "Unterschrieben von"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_temps",
+      "key": "temperatureReadings",
+      "kind": "temperatureReading",
+      "label": {
+        "en": "Temperature readings",
+        "de": "Temperaturmessungen"
+      },
+      "list": true,
+      "section": "document",
+      "readOnly": true,
+      "provenance": false
+    },
+    {
+      "id": "fld_notes",
+      "key": "notes",
+      "kind": "text",
+      "label": {
+        "en": "Notes",
+        "de": "Bemerkungen"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_lines",
+      "key": "lines",
+      "kind": "array",
+      "label": {
+        "en": "Lines",
+        "de": "Positionen"
+      },
+      "section": "lines",
+      "anchor": "description",
+      "item": {
+        "fields": [
+          {
+            "id": "fld_l_no",
+            "key": "lineNumber",
+            "kind": "integer",
+            "label": {
+              "en": "Line no.",
+              "de": "Pos."
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_sku",
+            "key": "supplierSku",
+            "kind": "string",
+            "label": {
+              "en": "Supplier article no.",
+              "de": "Artikelnummer"
+            }
+          },
+          {
+            "id": "fld_l_desc",
+            "key": "description",
+            "kind": "text",
+            "label": {
+              "en": "Description",
+              "de": "Bezeichnung"
+            }
+          },
+          {
+            "id": "fld_l_qty",
+            "key": "quantityDelivered",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity delivered",
+              "de": "Liefermenge"
+            }
+          },
+          {
+            "id": "fld_l_unit",
+            "key": "unit",
+            "kind": "unit",
+            "label": {
+              "en": "Unit",
+              "de": "Einheit"
+            },
+            "codeList": "uom"
+          },
+          {
+            "id": "fld_l_unit_raw",
+            "key": "unitRaw",
+            "kind": "string",
+            "label": {
+              "en": "Unit as printed",
+              "de": "Einheit wie gedruckt"
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_ordered",
+            "key": "quantityOrdered",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity ordered",
+              "de": "Bestellmenge"
+            }
+          },
+          {
+            "id": "fld_l_lot",
+            "key": "lotNumber",
+            "kind": "string",
+            "label": {
+              "en": "Lot no.",
+              "de": "Chargennummer"
+            }
+          },
+          {
+            "id": "fld_l_bbd",
+            "key": "bestBefore",
+            "kind": "date",
+            "label": {
+              "en": "Best before",
+              "de": "Mindesthaltbarkeitsdatum"
+            }
+          },
+          {
+            "id": "fld_l_backorder",
+            "key": "backorderQuantity",
+            "kind": "decimal",
+            "label": {
+              "en": "Back-ordered quantity",
+              "de": "Rückstandsmenge"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "processing": {
+    "review": {
+      "autoApprove": false
+    }
+  },
+  "classification": {
+    "description": "A note that accompanies a delivery of goods.",
+    "keywords": {
+      "de": [
+        "Lieferschein",
+        "Lieferscheine",
+        "Warenbegleitschein",
+        "Packzettel"
+      ],
+      "en": [
+        "Delivery note",
+        "Delivery slip",
+        "Packing slip",
+        "Packing list",
+        "Dispatch note",
+        "Shipping note"
+      ],
+      "hr": [
+        "Otpremnica",
+        "Dostavnica"
+      ],
+      "it": [
+        "Bolla di consegna",
+        "Documento di trasporto",
+        "DDT",
+        "Bolla di accompagnamento"
+      ],
+      "fr": [
+        "Bon de livraison",
+        "Bordereau de livraison",
+        "Bordereau d'expédition"
+      ]
+    },
+    "labels": {
+      "de": [
+        "Lieferscheinnummer",
+        "Lieferschein-Nr",
+        "Lieferscheinnr"
+      ],
+      "en": [
+        "Delivery note number",
+        "Delivery note no",
+        "Delivery no",
+        "Packing slip no"
+      ],
+      "hr": [
+        "Broj otpremnice"
+      ],
+      "it": [
+        "Numero DDT",
+        "Numero bolla"
+      ],
+      "fr": [
+        "Numéro de bon de livraison",
+        "N° BL"
+      ]
+    },
+    "dateLabels": {
+      "de": [
+        "Lieferscheindatum"
+      ]
+    }
+  }
+}

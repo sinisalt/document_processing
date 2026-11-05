@@ -10,10 +10,10 @@ export function eventKind(eventType: string): string {
 }
 
 /** Event kinds that mean something went wrong; the row is highlighted and the summary shows the error. */
-export const failureKinds: readonly string[] = ["stage_failed"];
+export const failureKinds: readonly string[] = ["stage_failed", "delivery_failed"];
 
 /** Event kinds a human caused (the actor is a user, not `pipeline`). */
-export const humanKinds: readonly string[] = ["approved", "rejected", "corrected", "reprocessed"];
+export const humanKinds: readonly string[] = ["approved", "rejected", "corrected", "reprocessed", "type_set", "supplier_assigned", "split", "joined", "redelivery_requested"];
 
 /** The pipeline stage whose output is each progress status (PipelineStages.ResultingStatus, inverted). */
 const stageByStatus: Partial<Record<DocumentStatus, string>> = {

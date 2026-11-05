@@ -1,7 +1,6 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using DocProc.Domain.DeliveryNotes;
+using DocProc.Domain.Documents;
 using DocProc.Domain.Invoices;
 using DocProc.Domain.PurchaseOrders;
 
@@ -15,13 +14,8 @@ public static class CanonicalDocumentSerializer
 {
     public const int SchemaVersion = 1;
 
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-        WriteIndented = false,
-    };
+    /// <summary>The canonical conventions, the same instance as <see cref="CanonicalJson.Options"/>.</summary>
+    public static readonly JsonSerializerOptions Options = CanonicalJson.Options;
 
     public static string Serialize(Invoice invoice) => JsonSerializer.Serialize(invoice, Options);
 

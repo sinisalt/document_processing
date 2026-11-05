@@ -64,8 +64,14 @@ public sealed record FieldValue<T> : IFieldValue
     public static FieldValue<T> Conflict(T? preferred, FieldSource? source = null) =>
         new() { Value = preferred, Status = FieldStatus.Conflict, Source = source, Confidence = 0 };
 
-    /// <summary>Human correction: pushes the current state to the history and returns the corrected field with confidence 1.</summary>
-    public FieldValue<T> Correct(T? newValue, string by, DateTimeOffset at)
+    /// <summary>
+    /// Human correction: pushes the current state to the history and returns the corrected field with confidence 1.
+    /// The new provenance is always <see cref="SourceMethod.Human"/>; when the reviewer took the value from a place on
+    /// the page (map from page, the table tool, docs/11 §12.6), <paramref name="source"/> carries that location (page,
+    /// box, raw text) and is stored with its method replaced by <see cref="SourceMethod.Human"/>. Without it the
+    /// provenance is the bare <see cref="FieldSource.Human"/>, as before.
+    /// </summary>
+    public FieldValue<T> Correct(T? newValue, string by, DateTimeOffset at, FieldSource? source = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(by);
         var history = new List<FieldHistoryEntry<T>>(History) { new(Value, Status, Source, Confidence, at, by) };
@@ -74,7 +80,7 @@ public sealed record FieldValue<T> : IFieldValue
             Value = newValue,
             Status = FieldStatus.Corrected,
             Confidence = 1,
-            Source = FieldSource.Human,
+            Source = source is null ? FieldSource.Human : source with { Method = SourceMethod.Human },
             History = history,
         };
     }

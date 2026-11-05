@@ -48,7 +48,8 @@
     "Operator": "Operator",
     "TenantAdmin": "Mandanten-Admin",
     "Reviewer": "Prüfer",
-    "Viewer": "Betrachter"
+    "Viewer": "Betrachter",
+    "MappingAuthor": "Layout-Freigabe"
   },
   "scope": {
     "platform": "Plattformbereich",
@@ -75,7 +76,8 @@
     "NeedsReview": "Zu prüfen",
     "Approved": "Freigegeben",
     "Rejected": "Abgelehnt",
-    "Failed": "Fehlgeschlagen"
+    "Failed": "Fehlgeschlagen",
+    "Cancelled": "In anderes Dokument zusammengeführt"
   },
   "reviewTaskStatus": {
     "Open": "Offen",
@@ -97,6 +99,7 @@
     "Llm": "KI",
     "Ocr": "OCR",
     "Human": "Prüfer",
+    "Lookup": "Abfrage",
     "page": "S. {{page}}",
     "onPageTitle": "Auf Seite {{page}} des Dokuments gefunden"
   },
@@ -167,6 +170,9 @@
     "refresh": "Aktualisieren",
     "back": "Zurück"
   },
+  "flagDetails": {
+    "deltaRow": "{{row}}: von {{previous}} auf {{value}} ({{change}})"
+  },
   "flagMessages": {
     "UNREADABLE_PAGES": {
       "region": "Seite {{page}}, {{area}}: {{detail}}",
@@ -203,7 +209,9 @@
       "default": "Position {{line}}: {{quantity}} × {{unitPrice}} = {{expected}}, der Positionsbetrag ist aber {{actual}}."
     },
     "LOW_CONFIDENCE": {
-      "default": "{{field}} wurde mit {{confidence}} Sicherheit gelesen, unter dem Schwellenwert von {{threshold}}."
+      "default": "{{field}} wurde mit {{confidence}} Sicherheit gelesen, unter dem Schwellenwert von {{threshold}}.",
+      "capped_one": "Noch {{count}} Wert, bei {{field}}, wurde ebenfalls unter dem Schwellenwert gelesen.",
+      "capped_other": "Noch {{count}} Werte, ab {{field}}, wurden ebenfalls unter dem Schwellenwert gelesen."
     },
     "DUPLICATE_SUSPECTED": {
       "default": "Ein anderes Dokument dieses Lieferanten trägt die Nummer {{number}}."
@@ -222,14 +230,83 @@
       "future": "Das Rechnungsdatum {{issueDate}} liegt in der Zukunft.",
       "tooOld": "Das Rechnungsdatum {{issueDate}} ist mehr als {{maxAgeDays}} Tage alt.",
       "dueBeforeIssue": "Das Fälligkeitsdatum {{dueDate}} liegt vor dem Rechnungsdatum {{issueDate}}.",
-      "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt."
+      "servicePeriodInverted": "Der Leistungszeitraum endet, bevor er beginnt.",
+      "pathFuture": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxFutureDays}} Tage in der Zukunft.",
+      "pathTooOld": "Das Datum {{field}} ({{date}}) liegt mehr als {{maxAgeDays}} Tage zurück.",
+      "capped_one": "Noch {{count}} Datum, bei {{field}}, ist ebenfalls unplausibel.",
+      "capped_other": "Noch {{count}} Daten, ab {{field}}, sind ebenfalls unplausibel."
     },
     "INVALID_VALUE": {
       "currencyCode": "„{{currency}}“ ist kein gültiger ISO-4217-Währungscode.",
       "currencyMismatch": "{{field}} ist in {{currency}}, die Dokumentwährung ist aber {{documentCurrency}}."
     },
     "UNSUPPORTED_TYPE": {
-      "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen."
+      "default": "Für die Dokumentart {{type}} gibt es noch keine Extraktion; bitte die Daten von Hand erfassen.",
+      "definition": "Für die Dokumentart {{type}} gibt es noch keine automatische Erfassung; bitte die Felder hier ausfüllen."
+    },
+    "FIELD_REQUIRED": {
+      "default": "Das Pflichtfeld {{field}} hat keinen Wert.",
+      "capped_one": "Noch {{count}} Pflichtwert, bei {{field}}, fehlt ebenfalls.",
+      "capped_other": "Noch {{count}} Pflichtwerte, ab {{field}}, fehlen ebenfalls."
+    },
+    "FIELD_INVALID": {
+      "default": "Der Wert von {{field}} passt nicht zur Felddefinition ({{keyword}}).",
+      "capped_one": "Noch {{count}} Wert, bei {{field}}, passt ebenfalls nicht zur Felddefinition ({{keyword}}).",
+      "capped_other": "Noch {{count}} Werte, ab {{field}}, passen ebenfalls nicht zur Felddefinition ({{keyword}}).",
+      "notChecked_one": "Noch {{count}} Wert, bei {{field}}, wurde nicht gegen das Muster geprüft: die Prüfung endete nach den ersten Fehlern.",
+      "notChecked_other": "Noch {{count}} Werte, ab {{field}}, wurden nicht gegen das Muster geprüft: die Prüfung endete nach den ersten Fehlern."
+    },
+    "REVISION_OF": {
+      "default": "Ein früheres Dokument mit demselben Schlüssel existiert ({{status}}); dieses ersetzt es womöglich."
+    },
+    "CHECKS_SKIPPED": {
+      "patternBudget_one": "{{count}} Musterprüfung wurde übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
+      "patternBudget_other": "{{count}} Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
+      "expressionBudget_one": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Grenze für Schritte, Zeit oder Textlänge erreicht. Bitte die Werte von Hand prüfen.",
+      "expressionBudget_other": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Grenze für Schritte, Zeit oder Textlänge erreicht. Bitte die Werte von Hand prüfen."
+    },
+    "DELIVERY_FAILED": {
+      "default": "Die Zustellung an {{destination}} ist endgültig fehlgeschlagen: {{error}}. Ein Integrations-Admin kann sie erneut senden."
+    },
+    "SUPPLIER_SOURCE_UNVERIFIED": {
+      "default": "Eine Quellregel für einen anderen Lieferanten hätte gegriffen, aber der Absender {{sender}} ist nicht authentifiziert (DMARC); die Regel wurde übersprungen."
+    },
+    "SUPPLIER_AMBIGUOUS": {
+      "default": "Quellregeln mehrerer Lieferanten passen gleich gut auf dieses Dokument; es wurde kein Lieferant zugeordnet."
+    },
+    "SUPPLIER_CONFLICT": {
+      "default": "Der Inhalt des Dokuments ({{evidence}}) nennt {{contentSupplierName}}, die Quelle aber {{sourceSupplierName}}; der Lieferant der Quelle bleibt, bis die Prüfung entscheidet."
+    },
+    "NEW_LAYOUT": {
+      "default": "Der Lieferant {{supplierName}} hat ein Layout geschickt, das keines seiner Layouts erkennt; das Dokument wartet auf die Prüfung und wurde nicht mit einem anderen Layout verarbeitet."
+    },
+    "LAYOUT_AMBIGUOUS": {
+      "default": "Mehrere Layouts des Lieferanten erkennen das Dokument gleich gut ({{layouts}}); keines wurde angewendet."
+    },
+    "MAPPING_DRIFT": {
+      "default": "Das Layout {{layoutKey}} hat das Dokument erkannt, seine Feldregeln fanden aber nur {{found}} von {{covered}} Feldern; der Lieferant hat sie womöglich verschoben."
+    },
+    "LAYOUT_WARMUP": {
+      "default": "Dokument {{ordinal}} der ersten {{warmup}} unter Layout {{layoutKey}} (Version {{version}}): es geht in die Prüfung, bereits vom Layout ausgefüllt."
+    },
+    "LLM_BUDGET_EXCEEDED": {
+      "default": "{{step}} wurde nicht aufgerufen: das LLM-Budget ({{period}}) von {{limitUsd}} USD wäre überschritten ({{spentUsd}} USD verbraucht). Die Prüfung ergänzt, was es gefüllt hätte.",
+      "unpriced": "{{step}} wurde nicht aufgerufen: für das Modell {{model}} ist kein Preis hinterlegt, seine Kosten können also nicht auf das LLM-Budget ({{period}}) von {{limitUsd}} USD angerechnet werden. Die Prüfung ergänzt, was es gefüllt hätte."
+    },
+    "LOOKUP_FAILED": {
+      "default": "Die Abfrage {{stepId}} ist fehlgeschlagen ({{reason}}); die Felder, die sie füllt, bleiben wie sie waren."
+    },
+    "PIPELINE_INVALID": {
+      "default": "Die Pipeline-Anpassungen des Lieferanten, seiner Gruppe oder seines Layouts wurden abgelehnt ({{path}}: {{problem}}); die Schritte des Typs liefen."
+    },
+    "TABLE_ROWS_REJECTED": {
+      "default": "Seite {{page}}: {{rows}} Zeile(n) der Tabelle wurden nicht gelesen; bitte prüfen, bevor die Liste verwendet wird."
+    },
+    "TABLE_PAGE_NO_ROWS": {
+      "default": "Seite {{page}} liegt im Seitenbereich der Tabelle, ergab aber keine Zeile."
+    },
+    "EXTERNAL_REJECTED": {
+      "default": "{{destination}} hat das Dokument abgelehnt: {{message}}. Korrigieren und erneut freigeben, oder das Problem mit einer Notiz erledigen."
     }
   },
   "apiErrors": {
@@ -242,7 +319,10 @@
     "slug": "Kleinbuchstaben, Ziffern und einzelne Bindestriche, höchstens {{maxLength}} Zeichen.",
     "range": "Zwischen {{min}} und {{max}}.",
     "positive": "Muss größer als null sein.",
-    "httpUrl": "Eine absolute http(s)-URL mit höchstens {{maxLength}} Zeichen."
+    "httpUrl": "Eine absolute http(s)-URL mit höchstens {{maxLength}} Zeichen.",
+    "maxItems": "Höchstens {{maxItems}} Einträge.",
+    "iban": "„{{value}}“ ist keine IBAN: ein Ländercode, zwei Prüfziffern und 11 bis 30 Buchstaben oder Ziffern.",
+    "emailDomain": "„{{value}}“ ist kein Domainname wie beispiel.de (ohne das @)."
   },
   "dateInput": {
     "pick": "Datum wählen",

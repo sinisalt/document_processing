@@ -1,5 +1,9 @@
 # Roadmap
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 Phases are ordered so that each one ships something a customer can use, and so that the
 measurement needed for the next decision (which model, whether profiles pay off) exists
 before the decision is made. Durations assume one to two backend developers and one
@@ -164,6 +168,1892 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Multi-region/self-hosted deployment option if a customer requires it.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
+
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 done (parts A to E)
+
+The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
+
+- **P0, safety seams – done.** No visible behaviour changes; the invoice family, API, UI and tests behave as
+  before (one exception, a fix: approve, reject and reprocess answered 500 on SQL Server, see below).
+  - Done, persistence and safety:
+    - per-tenant feature flags (`TenantSettings.Features`: `configurableTypes`, `outputs`, `sourceRouting`,
+      `supplierLayouts`, `customTypes`, `structuredSources`), all off, read through `ITenantFeatures`;
+    - `[JsonExtensionData]` on `Invoice`, `InvoiceLine`, `Party`, `PurchaseOrder`, `DeliveryNote` and their lines, so
+      unknown canonical properties survive typed round trips;
+    - the single `RoleProjector` (`src/DocProc.Application/Documents/RoleProjector.cs`), written to the list columns
+      by `DocumentRoleColumns`, replacing the Extract stage's and the corrections endpoint's copies;
+    - `FieldValue.Correct(…, source)`, `FieldCorrection.op` and `.source`, `Correction.Op` and `Correction.SourceJson`;
+    - `Ingestion.SourceSender` and `Ingestion.SubmittedBy`, back-filled for uploads (`SourceFrom` still written);
+    - the platform-row RLS predicate (`rls.fn_tenant_or_platform_read`) over `ExtractorProfiles` and its history table;
+    - `TenantEndpointGuard` in `src/DocProc.Infrastructure/Http`.
+  - Done, pipeline seams:
+    - the outbox row written inside the approve, reject and auto-approval transactions (`DocumentOutbox`), the
+      publish stage handing it on (`OutboxMessages.FannedOutAt`, back-filled for existing rows), and
+      `PublishSweeperHostedService`, which queues the publish stage for every tenant's settlements whose publish
+      message was lost; the timeline's publish entry then carries `recoveredBy: "publish-sweeper"`;
+    - the `IFieldSchemaResolver` seam in `CanonicalPatcher` (`ReflectionFieldSchemaResolver`, today's reflection walk),
+      proved identical against the previous patcher over every path of the coded records;
+    - `IDocumentRule`, `RuleRegistry`, `DocumentValidator` and `InvoiceRuleAdapter` wrapping the eight coded invoice
+      rules; the validate stage runs the invoice rule list (`StandardRuleSets`) and raises identical flags;
+    - `ExtractionOutcome(ExtractedDocument, …)` with the compatibility constructor taking an `Invoice`; the Extract
+      stage stores the tree, byte for byte the JSON it stored before.
+  - Done, templates and infrastructure:
+    - the definition format of docs/11 §5.2 (`src/DocProc.Definitions`: records read strictly, `DefinitionChecker` with
+      the structural publish-time checks of §5.7) and the seven standard templates of the legacy keys as embedded JSON
+      (`std.invoice`, `std.credit-note`, `std.purchase-order`, `std.delivery-note`, `std.statement`, `std.reminder`,
+      `std.generic`), with exactly today's field paths; `StandardTemplateParityTests` holds them to the records, the
+      coded rule lists, the role bindings, the required fields, the duplicate check, the extraction path and the
+      keyword classifier's phrases;
+    - `IEffectiveConfigResolver` (`StandardTemplateConfigResolver`: the adopted std template of a document's type); the
+      validate stage takes its rule list and auto-approval switch from it, with identical results;
+    - `mock-erp` (WireMock, `docker/mock-erp`) in compose and the AppHost, held in parity by `ComposeParityTests`, with
+      the erp-ap and article-price stubs and a 503 on demand (docs/09 "Mock ERP");
+    - the P0 demo, run in the compose stack: the demo documents end as designed on the std templates, and an approval
+      interrupted by a crash between commit and enqueue (the Development-only `Pipeline:Faults:CrashBeforePublishEnqueueMarker`)
+      is published by the sweeper after the restart, with `recoveredBy: "publish-sweeper"` in the timeline.
+  - Fixed on the way: approve, reject and reprocess open a transaction, which SQL Server's retrying execution strategy
+    refuses unless it runs it; they answered 500 in the compose stack and under the AppHost (the SQLite tests passed).
+    They now run under the strategy (`DecisionExecutionStrategyTests`).
+  - Fixed after the P0 review:
+    - row-level security over the temporal history tables (`DocumentsHistory`, `ExtractorProfilesHistory`), which a
+      tenant session could read across tenants through `FOR SYSTEM_TIME`, and an after-update block on every strict
+      table, so a tenant cannot move its own row to another tenant (migration `TenantPolicyHistoryAndMoves`);
+    - the idempotent release script (README "Database") compiles and reruns on an existing database: every migration
+      data statement runs through `EXEC` in platform scope (`IdempotentScriptTests` runs it twice, and the compose
+      path once, on a database of the earlier build). The same fix makes `CorrectionValuesAsText` copy the correction
+      values in platform scope; before, both paths copied nothing behind the tenant policy and the values were lost;
+    - a settlement without an outbox row (decided before P0) can no longer get two rows from two publishers: the
+      publish stage claims the document with the insert (`DocumentOutbox.AddMissing`);
+    - auto-approval stamps the decision, the transition and its outbox row with one reading of the clock;
+    - `ExtractedDocument.Root` is the truth: an edited tree is what the Extract stage stores;
+    - documented: in the Production topology the API runs no runner, so every human decision is published by the
+      worker's sweeper after the grace period and logged as recovered, until the Service Bus transport lands
+      (docs/03 "Queue modes", docs/11 §13.5).
+  - Left for P1: the meta-schema file `schemas/document-type-definition.v1.json` (shape checks are the strict reader and
+    `DefinitionChecker` until then), the `ext` bags, the compiler, and the price-list templates; with the catalogue
+    tables, the per-tenant Adopted type rows and the `DocumentTypeVersionId` back-fill (P0's seed is the embedded std
+    templates read through `IEffectiveConfigResolver`); the columns `Documents.DocumentTypeVersionId`,
+    `AppliedConfigJson`, `ValidFrom`, `ValidUntil`, `LineCount`, `Corrections.DocumentTypeVersionId`,
+    `ReviewTasks.Priority` and `TenantSettings.TimeZone`. The routing, supplier and layout columns come with P4
+    (docs/11 §21 step 1).
+- **P1, types as data and custom fields – parts A to D done, the P1 demo runs in the compose stack; the items under
+  "Left" are open.** Part A (the type catalogue backend), part B (pipeline, storage and rules), part C (the web part:
+  the generated review form, the type editor, the inbox filters and the feature switches) and part D (the end-to-end
+  demo of docs/11 §23 and the gaps it exposed) are done.
+  - Done (part A):
+    - the `DocumentTypeKey` string switch in one change: the `DocumentType` enum is gone, `DocumentTypeKey` (a
+      `readonly record struct`) and `WellKnownTypeKeys` replace it; `Documents.Type` keeps its `nvarchar(64)` column and
+      values, the API writes the same strings and reads the legacy names in any case as before, the OpenAPI schema
+      `DocumentTypeKey` is a string of the key syntax, and the document list's `type` filter takes any valid key;
+    - the meta-schema `schemas/document-type-definition.v1.json`, generated from the definition records
+      (`DefinitionMetaSchema`) and snapshot-tested, checked with JsonSchema.Net 8.0.5 (the last MIT release; 9.x binaries
+      come under the json-everything maintenance-fee EULA, docs/11 §5.5); the strict reader now also refuses numbers
+      written as strings;
+    - `DefinitionCompiler` (`src/DocProc.Definitions/Compilation`) with the four artifacts of docs/11 §5.5 (the values-view
+      JSON Schema, the portable LLM schema or `invoice_extraction@1` plus `x_custom` for added header fields, the form
+      spec, the descriptor index with concrete-path lookup), the size caps, the RFC 8785 content hash, and a snapshot
+      of every template's compiled schemas (`schemas/templates`); the invoice family compiles to `invoice_extraction@1`
+      byte for byte;
+    - the publish-time checks of docs/11 §5.7 (`PublishChecks`): meta-schema, strict reader, `DefinitionChecker`, rule
+      parameters against each kind's `ParamsSchema` and the paths they name, indexed `duplicateKey` components, compile
+      caps, LLM portability, and the dependents of removed, retyped and renamed fields (matched by field id; in P1 the
+      dependents are the published version's indexed fields, the hook takes layouts and output mappings later);
+    - the rule-kind catalogue of this deployment (`RuleKinds`: the coded invoice kinds and the generic P1 kinds with
+      their parameter schemas);
+    - `std.price-list` and `std.daily-specials` v1 (P1 rule kinds only, `review.autoApprove: false`), adoptable;
+    - the catalogue tables `DocumentTypeDefinitions` and the temporal `DocumentTypeVersions`, under the platform-row
+      predicates of the new frozen `PolicyV4` together with `LlmProviderConfigs` and the history table; migration
+      `TypeCatalogue` seeds the platform templates (from a copy frozen with it) and every tenant's adopted legacy
+      types at v1, and back-fills `Documents.DocumentTypeVersionId` and `Corrections.DocumentTypeVersionId`;
+      `TypeCatalogueSeeder` adds what is missing on start (migration host, SQLite schema host, development seed)
+      and when a tenant is created;
+    - the catalogue API of docs/11 §18: `GET /document-templates`, `GET|POST /document-types` (adopt, copy, also in place
+      for an adopted legacy type, or a definition of the tenant's own), `GET /document-types/{key}`,
+      `GET|POST …/versions`, `GET|PUT …/versions/{v}` (draft with If-Match, artifacts on `include=`), `POST
+      …/versions/{v}:validate` and `:publish`; reads need Read, writes the new `ConfigAdmin` policy (TenantAdmin and
+      SuperAdmin; there is no separate role yet) and `configurableTypes`, a type of the tenant's own also `customTypes`;
+    - the feature switches in `GET|PUT /settings` (`features`, optional on PUT);
+    - `IEffectiveConfigResolver` over the catalogue (`CatalogueConfigResolver`): the pinned version, else the tenant's
+      published version; with `configurableTypes` off only adopted types count, so such a tenant behaves as before;
+      without a row the embedded templates answer. Extract pins `Documents.DocumentTypeVersionId`, Classify clears the
+      pin when the type changes, Validate resolves it (and pins it when the document has none), corrections record it, and the list columns are refreshed with
+      the resolved role bindings (no caller of `RoleBindings.ForLegacyType` or `StandardRuleSets` is left in `src`).
+  - Done (part B), every new behaviour behind `configurableTypes` except where noted:
+    - canonical storage of docs/11 §5.6 (`DefinitionTree`, `CanonicalStorage`): a definition-driven document is stored
+      as the `FieldValue` tree of its type version with generic leaves, `CanonicalSchemaVersion` 2. With the switch on, a
+      purchase order, a delivery note, an adopted price list or a type of the tenant's own gets the empty tree of its
+      version in Extract (every field Missing; a tree a reviewer filled is kept and completed with fields a newer version
+      added), with `UNSUPPORTED_TYPE` `reason: definition`; a fork of `Invoice` or `CreditNote` is extracted as before and
+      its tree completed with the added fields. An adopted invoice or credit note stays a version 1 tree. Custom fields
+      and the `ext` bags (header and row) are paths of the tree; the values view (`DocumentDataView`: plain values,
+      `roles`, `meta`, `supplier`) is what the structural check and the generic rules read;
+    - `DefinitionPatcher` (docs/11 §12.8) over the descriptor index, used by `PATCH /documents/{id}/fields` for
+      definition-driven documents (version 2, or a definition-driven type without a tree yet): `set` by field kind with
+      the reviewers' shorthands and the history push, creating missing fields, `append` (rows with values, list entries)
+      and `remove` (rows, list entries, `ext` keys); `move`, `setType`, `split` and `join` are refused with the P0
+      message. The patch re-validates the document inline and refreshes the list columns and the field index. Every other
+      document keeps the coded `CanonicalPatcher` exactly as before;
+    - `validate.schema` (`StructuralValidator`: JsonSchema.Net over the values view and the compiled JSON Schema,
+      `FIELD_REQUIRED` blocking, `FIELD_INVALID` blocking on a required field and a warning otherwise, JSON Pointer to the
+      path grammar) and evaluators for the P1 generic kinds (`GenericRules`: `required`, `pattern`, `range`,
+      `enumMember`, `dateOrder`, `datePlausibility`, `lookupExists` over the platform `uom` list, `duplicate` with
+      `onMatch` block or revision (`DUPLICATE_SUSPECTED`, `REVISION_OF`) on the type's `duplicateKey` read from the
+      document number column and `DocumentFieldIndex`, `confidence` over every envelope, `customerMatch` on the
+      `customerParty` role), registered in `RuleRegistry.Default`; a rule's `severity` and `message` apply to its flags,
+      which carry `ruleId`, `ruleKind` and `typeKey`. The validate stage runs the steps `processing.validate` lists
+      through `IEffectiveConfigResolver`; the coded duplicate check is skipped when a `duplicate` rule replaces it. New
+      flag codes `FIELD_REQUIRED`, `FIELD_INVALID`, `RULE_FAILED`, `REVISION_OF` and the `X_<RULEID>` codes;
+    - `x_custom` in the invoice LLM call (docs/11 §9.1): a fork of an invoice-family type with added header fields sends
+      its compiled schema (`invoice_extraction@1+x.<hash8>`) and stores the answers as fields with LLM provenance
+      (`CustomFieldMapper`); without added fields the request is byte for byte today's. A third demo replay fixture
+      answers the demo PDF invoice under the demo custom field (docs/09 "Document types");
+    - `POST /documents/{id}:reprocess` takes `configMode` (`pinned`, the default, or `current`, which drops the pin);
+    - `DocumentFieldIndex` (strict tenant table under the new frozen `PolicyV5`, migration `FieldIndexAndInboxColumns`),
+      written with the list columns by the Extract stage and by corrections for every field marked `indexed` (for every
+      tenant: the standard templates index the document number), and the list filter `?field.<path>=value`;
+    - `Documents.ValidFrom`, `ValidUntil`, `LineCount` (from the roles `validFrom`, `validUntil` and the rows of
+      `lineItems`) and `AppliedConfigJson` (type version, template, LLM schema sent); `ReviewTasks.Priority` from
+      `review.priority`, the review queue sorted urgent, high, normal; `DocumentSummary` gains `validFrom`,
+      `validUntil`, `lineCount`, `reviewPriority`, `reviewDueAt`, `ReviewTaskDto` gains `priority`, `DocumentDetail`
+      gains `validFrom`, `validUntil`, `lineCount`, `typeName`, `typeVersion` and `definition {key, version, versionId,
+      name, formSpec}` (for definition-driven documents and for every document of a tenant with `configurableTypes`);
+      the portal inbox shows a price list's validity and row count instead of a total and an urgent or high badge, and
+      the new flag codes are translated;
+    - run in the compose stack (SQL Server, Keycloak tokens): the demo documents end as docs/09 says; with the switch
+      on, tenant A forks `Invoice` with the demo custom field, the PDF invoice reprocessed with `configMode: current` is
+      answered from the replay fixture and stored as a version 2 tree with the customer number `0815`, found by
+      `?field.supplierCustomerRef=0815` (tenant B finds nothing); the delivery note gets the tree of its type and is
+      filled with `set`, `append` and `remove` (`move` refused), while an adopted invoice still refuses `append`.
+  - Done (part C, web), every new behaviour behind `configurableTypes` as the API gates it:
+    - the generated review form in the new package `web/packages/review` (docs/11 §12.2): `specsFromDefinition` lays
+      out the compiled form spec of `DocumentDetail.definition` (sections, fields, composites with their members,
+      groups, lists, `ext` bags and repeating groups, one spec per stored value); `DefinitionForm`
+      (section and group renderers), `RepeatingGroupGrid` (any array, the line check for the invoice family's rows,
+      a Columns menu, rows added and removed, 100 rows a page above 200 rows) and `FieldInput` (a widget per kind,
+      code and yes/no selects with the definition's labels) replace the portal's `CanonicalForm`, `LineItemGrid` and
+      `lib/canonical.ts`; `useFieldLabel` reads definition labels with the UI language as fallback. The review screen
+      draws every type from its definition, so purchase orders, delivery notes, price lists, tenant types and custom
+      fields are shown and edited in review; on a definition-driven document (`canonicalSchemaVersion` 2) rows, list
+      entries and attributes are added and removed (sent after the unsaved corrections in one `PATCH`), and the header
+      shows type and version. An invoice or credit note of a tenant without definitions is drawn from a built-in form
+      spec with the earlier sections, fields, columns and order (`legacyFormSpec`), and the earlier form tests run
+      against it unchanged; the template snapshots in `schemas/templates` now include the compiled form spec, which the
+      web tests render;
+    - the document types editor (docs/11 §19), shared by both apps: the portal's Settings > Document types (tenant
+      admins, the tenant's ConfigAdmin) and a Document types tab on the admin console's tenant page (a SuperAdmin in
+      the tenant's scope). Templates with Adopt and Copy, the tenant's types with Fork (an adopted type becomes the
+      tenant's copy in place) and Edit, New type with `customTypes`; the editor's tabs Fields (field tree, add, move
+      and remove fields, kind, labels per language, description, section, required, indexed, enum options), Preview
+      (the generated form of the saved version), Versions (versions list, validate, publish with the report: problems,
+      blocking dependents, warnings, changes, extraction schema) and JSON. Drafts are saved with `If-Match`; without
+      `configurableTypes` or ConfigAdmin the catalogue is read only;
+    - the inbox (docs/11 §19 item 7): the type filter lists the tenant's types from `GET /document-types`, a field
+      filter offers the indexed fields (`?field.<path>=value`), the indexed fields of the selected type are columns,
+      and `validFrom`, `validUntil` and `lineCount` are columns too (hidden until picked). For this the API adds
+      `DocumentTypeDetail.indexedFields` and the list parameter `fields=`, which returns `DocumentSummary.fields`
+      (null without it; a correction to docs/11 §18);
+    - the admin console's tenant settings switch `configurableTypes` and `customTypes` (custom types imply the
+      catalogue, and switching the catalogue off switches custom types off);
+    - run in a browser against the dependency-free dev mode (SQLite, dev tokens, demo data; not the compose stack):
+      with the switch on, the demo delivery note reprocessed with `configMode: current` opened in the generated form
+      (type and version in the header), a typed number and an added row were saved in one request; under Settings >
+      Document types the price list was adopted, `CreditNote` forked, the custom field added with English and German
+      labels and indexed, saved, validated (`invoice_extraction@1+x.f68b208b`, the field listed as added) and published
+      as v2; the inbox filtered by `CreditNote` showed the field as a column; the demo PDF invoice was drawn from its
+      definition with the line check. No browser console errors.
+  - Done (part D, the demo and its gaps):
+    - the P1 demo of docs/11 §23 (docs/09 "Demo: types as data"; docs/11's tenant "Acme" is the demo tenant A,
+      Gasthaus zur Post GmbH): a credit note PDF from Getränke Hoffmann that prints "Kd.-Nr. 104 220815"
+      (`fixtures/demo/uploads/tenant-a`, uploaded by hand, not ingested by the demo data), the field of docs/11 §5.3
+      (`fixtures/demo/types/credit-note-supplier-customer-ref.field.json`) and the fourth replay fixture, its
+      extraction with `x_custom` (`invoice_extraction@1+x.58a31050`), captured by `DemoFixtureTests` after forking
+      `CreditNote` and uploading the PDF; `REGENERATE_DEMO_PDFS` also takes a file name;
+    - fixed, found by the demo: a supplier's mailbox `rechnung@…` in a letterhead scored as the title "Rechnung"
+      and pushed the credit note below the keyword threshold; keywords inside e-mail, `://` and `www.` addresses no
+      longer count, for the classifier and the splitter;
+    - fixed: a document of a definition-driven type read before the switch (the demo delivery note) had no tree, and
+      the review screen said "no extracted data" although `PATCH /fields` could fill it. Every document endpoint
+      answers a correctable document without a tree with the empty tree of its version (`canonicalSchemaVersion`
+      2), and a stored version 2 tree completed with the fields its version added (read only, nothing written);
+      approve, reject and reprocess answer with `definition` too;
+    - fixed: the review screen could not move a document onto a newer published type version; the Reprocess dialog
+      offers "Use the published version of the type" (`configMode: current`), ticked when a newer version is
+      published, then from Extract;
+    - the type editor edits a field's extraction hints (printed labels per language and a pattern, docs/11 §5.2),
+      so the field of §5.3 can be entered in the UI as written; they are stored with the type and not sent to the
+      LLM (the schema takes key, kind and description);
+    - fixed: `docker compose up --build` failed at the portal image since part C (the review tests import
+      `schemas/templates` from outside `web/`, which `web/Dockerfile` did not copy); the image copies it and
+      `ComposeParityTests` checks every folder outside `web/` a web source imports from;
+    - fixed: a list query the inbox cancels (a filter changed) made SqlClient throw a `SqlException`, logged as an
+      unhandled error and answered 500 to a client that had gone; an aborted request is a closed request (499, debug
+      log) now (`ClientAbortedRequests`), every other failure is still a logged 500;
+    - run in the compose stack (project `p1d`, a fresh `docker compose up --build`, SQL Server, Keycloak sign-in,
+      Playwright as `superadmin`, `tenant-a-admin` and `tenant-a-reviewer`): the demo documents ended as docs/09
+      says; the switches went on in the admin console; the price list was adopted; `CreditNote` was forked with the
+      field typed in the editor (labels, description, printed labels, pattern, indexed), validated
+      (`invoice_extraction@1+x.58a31050`, the field Added) and published as v2; the uploaded credit note was
+      classified by keywords, extracted from the replay fixture with `supplierCustomerRef` `104 220815` (LLM
+      provenance on page 1), pinned to v2 (checked in SQL with the platform scope), Needs review with
+      `LOW_CONFIDENCE` on the due date only, shown in the generated form, corrected, and found by the inbox field
+      filter with the field as a column (`DocumentFieldIndex` row checked in SQL; tenant B found nothing); the demo
+      delivery note, read before the switch, showed the generated form, `DeliveryNote` was forked with `tour` and
+      `supplierCustomerRef`, the note reprocessed onto v2 from the dialog, filled (number, round, customer number, a
+      row), approved, and found by `?field.tour=Rosenheim Nord`; the METRO credit note stayed on v1 (version 1 tree).
+      No browser console errors and no 5xx after the fixes above; the API log still holds one EF Core "error
+      occurred using the connection" line from the moment of the upload (EF Core logs a cancelled query's
+      `SqlException` itself, outside the exception handler; no request failed).
+  - Fixed after the P1 review:
+    - a tenant's field `pattern` no longer runs in JsonSchema.Net's backtracking regex without a timeout (one
+      `^(a+)+$` could stall the worker every tenant shares): `StructuralValidator` evaluates the schema without the
+      field patterns and checks them itself, non-backtracking with a 100 ms timeout, as `FIELD_INVALID
+      {keyword: pattern}`;
+    - the duplicate checks (the `duplicate` rule's `duplicateKey` and the coded one) name the document's tenant in
+      every query: an operator's correction in platform scope matched, and named, another tenant's document;
+    - marking a field required now always counts: for a type whose definition does not list `validate.schema` (the
+      invoice and credit note forks, purchase orders, delivery notes, new types), the validate stage and the inline
+      re-validation raise `FIELD_REQUIRED` for every required field the template does not already require
+      (`EffectiveType.RequiredOutsideSchemaStep`; the invoice family's own required fields stay `invoice.required`'s).
+      A forked invoice with a missing required custom field auto-approved before;
+    - reprocessing with `configMode: current` (the Reprocess dialog's default when a newer version is published) threw
+      away what a reviewer had entered in a purchase order, delivery note or tenant type: Extract keeps a stored tree
+      whose `AppliedConfigJson.typeKey` is the document's type, and Classify drops a tree when it changes the type;
+      reprocessing from Validate with `configMode: current` pins the version Validate resolves;
+    - the type editor gives a new field a random id (`fld_c_<8 characters>`) instead of the first free `fld_cN` of the
+      draft, which handed a removed field's id to the next new one, so publish took a removed indexed field for a
+      rename and only warned; publish also refuses a field that keeps a published field's id with another key and kind;
+    - a published version runs on the artifacts it stored (descriptors, LLM schema, form spec, JSON Schema;
+      `DefinitionCompiler.FromStored`), compiled again only for a row without them; the compiler tells a copy's added
+      fields apart against the template version in its `base` (a version this build does not carry does not compile);
+    - `customTypes` gates every write to a type of the tenant's own (new draft, save, publish), and the resolver uses
+      such a type only with `customTypes` on;
+    - the start-up back-fill copies a document's version onto its corrections only for the tenants whose catalogue
+      that start added; a correction made without a version later keeps none;
+    - an invoice or credit note type (from `std.invoice` or `std.credit-note`, or with the `invoice_extraction@1`
+      adapter) keeps the key `Invoice` or `CreditNote`: adopt, copy, create and save refuse another key, because the
+      invoice extraction, the coded invoice rules and the invoice record's corrections are chosen by the key until P2;
+    - saving a draft checks the size caps of docs/11 §5.7 (fields, depth, enum codes; later also rules and
+      duplicate-key components) and a length of 1 MiB, and the
+      catalogue write endpoints take at most that much (`RequestSizeLimit`); a 30 MB draft was stored before;
+    - both P1 migrations migrate down on SQL Server (the old policy is created after the drops of the temporal
+      `Documents` columns, `TypeCatalogueSqlTests`);
+    - `DocumentDetail.appliedConfig` carries `AppliedConfigJson`;
+    - docs/09: the demo's step 5 sets the corrected value back, so step 6 finds it; a note on SQL Server crashing on
+      every restart after a first-boot crash.
+  - Fixed after the second P1 review:
+    - a forked invoice or credit note (a version 2 tree the coded `Invoice` record still reads) could be patched into a
+      tree the record cannot read: an appended row had no `lineNumber`, and a unit was stored as any string (`kg`, the
+      UN/ECE `KGM` the form offered); the save went through, the inline re-validation threw and answered a bare 400,
+      every later correction did the same, and approve still settled it. `DefinitionPatcher` now numbers a new row
+      (every definition whose rows carry a bare `lineNumber`), stores an invoice line's unit as the `UnitOfMeasure`
+      name (from the name, a printed alias or a UN/ECE code of `uom`; anything else is a 400 on the field) and refuses
+      a patch whose result the record cannot read as a 400 naming the field, before anything is saved; the review form
+      offers the unit names for every invoice-family tree;
+    - only the invoice family auto-approves: a copied purchase order, delivery note or price list, or a type of the
+      tenant's own, with `review.autoApprove: true` and any rule, auto-approved with every field Missing. Until a type
+      can name the rules that vouch for it (`review.requirePassedRules`, P5, docs/11 §11), `EffectiveType.AutoApprove`
+      also needs an `Invoice`/`CreditNote` type that lists `invoice.totals`, and the publish report warns that
+      `autoApprove` has no effect on any other type;
+    - publishing an invoice-family fork refuses to remove, rename, move or retype a field of the invoice record (its
+      kind, list-ness, envelope, and for `kind` codes the record knows); the forks may still relabel, require,
+      deprecate and add fields. A changed `deliveryDate` (date to string) or `lines[*].unit` published before and made
+      the patcher write trees the record cannot read;
+    - an added `object` or `array` field of an invoice-family fork is no longer put into `x_custom` (the model's
+      answer was dropped): the compile notes it is filled in review; an added `period` is mapped as `{from, to}`;
+    - a renamed field keeps its value when a document moves onto the new version (reprocess with `configMode:
+      current`, or the detail and PATCH completing an earlier tree): publish stores the field's earlier keys in the
+      version's descriptors (`FieldDescriptor.FormerKeys`, matched by field id under the same parent) and
+      `DefinitionTree.Complete` moves the value over; a field moved into another group or table is not followed, and
+      the publish report says so;
+    - the publish sweeper test that counted the settlements of its own sweep raced the hosted sweeper loop, which the
+      fake clock woke too (it swept and published one first); the tests that sweep by hand run without the loop;
+    - docs/09: the demo's step 1 shows the read-only catalogue as `tenant-a-admin` (a reviewer has no Settings), and
+      step 7 gives the delivery note's `supplierCustomerRef` its labels.
+  - Fixed after the third P1 review:
+    - a document reprocessed from Validate with `configMode: current` onto a version that renamed a field kept the
+      value under the old key: only Extract, the detail and PATCH completed the tree, and the checks read the stored
+      tree by key, so a required renamed field raised `FIELD_REQUIRED` while the form showed the value, and an
+      approved document kept the old key in its values view and output. The Validate stage now completes a stored
+      version 2 tree with the version's fields before the checks and stores it when anything moved or was added, with
+      the role columns and the field index rewritten from it; a complete tree is left as it is;
+    - publish refuses a field that takes a key another field (another id) had under the same parent in an earlier
+      published version while that field still exists (renamed): completing an old tree put that field's value into
+      the new field (a string in a date field) and left the renamed one empty. Taking the key of a removed field is
+      allowed with a warning (old documents show the removed field's value as the new field's);
+    - a `pattern` rule's `params.pattern` is compiled at publish as the rule runs it (NonBacktracking); a backreference,
+      lookaround or atomic group passed publish and then threw `NotSupportedException` in every validation of the type
+      (every PATCH of such a document answered 500 after saving). The rule and `StructuralValidator` also treat such a
+      pattern of a version published before as invalid (`RULE_FAILED {reason: invalidPattern}`; a field pattern matches
+      nothing) instead of throwing;
+    - sibling field keys must differ by more than case (`refNo` and `refno`): on SQL Server's case-insensitive
+      collation both fields' index rows share the `DocumentFieldIndex` key, so every save of such a document failed;
+    - the `?field.<path>=` filter compares a number of 10^17 or more as text only (`DocumentFieldFilter`; the index
+      holds no larger number): such a value overflowed the decimal(28,8) parameter on SQL Server and the list answered
+      500 to any reader;
+    - the catalogue reads version summaries: `GET /document-types`, `/document-types/{key}`, `/versions`,
+      `/document-templates` (only keys and templates) and the writes' checks no longer load every version's definition
+      and compiled artifacts (up to several MB each, for as many versions as a type was published); the definition of
+      the one version the indexed fields come from is read, `GET …/versions/{v}` reads that version alone, and publish
+      reads the earlier versions' keys one definition at a time. `PublishedDefinitionCache` is bounded by the size of
+      the stored JSON it holds (64 M characters) as well as by its 2048 entries.
+  - Fixed after the fourth P1 review:
+    - a renamed field could still lose its value: the resolver read the definition from `PublishedDefinitionCache` but
+      looked the version's artifacts up by id only when `EffectiveType.Compiled` was first read; a clear of the shared
+      cache in between (another request's add passing the size budget) compiled the definition again without the
+      stored descriptors, so without `FormerKeys`, and Validate or Extract stored the renamed field as Missing under its
+      new key (`FIELD_REQUIRED`, or an approval without the value) with no later repair. `EffectiveType` now takes the
+      artifacts of the cache entry read at resolve time;
+    - `GET /documents` takes at most 5 `?field.<path>=` filters (`DocumentEndpoints.MaxFieldFilters`), one value
+      each, else a 400 on `field.*` (or on the key given twice): each filter is a correlated EXISTS over the field
+      index, and any reader could send dozens, which kept SQL Server compiling a plan for seconds and then failed with
+      a 500 ("ran out of internal resources"), for every tenant, the feature switched on or not;
+    - the size caps of docs/11 §5.7 also bound the rule list (at most 200 rules) and `roles.duplicateKey` (at most 8
+      components), in the compile, on save and publish, and in the meta-schema (`maxItems`): thousands of `pattern`
+      rules under the 1 MiB length cost seconds of CPU per validation, and dozens of key components made the duplicate
+      check's query as costly as the filters above. A `pattern` rule's regex is compiled once per published version
+      (the rule references are built once per definition object, which the cache shares; `GenericRules.PatternRegexOf`
+      keeps the regex per parameters), not on every evaluation. A version published before the caps keeps running;
+    - two waits failed under load although nothing was wrong (the whole .NET suite and the web tests on the same four
+      cores): `PipelineTestHost.RunUntilIdleAsync` gave the whole run 30 s, which a cold first pipeline run (host
+      start, PDF rendering, JIT) passed while every stage still completed (`SplitPartTests`), and two full-screen
+      review renders passed vitest's 5 s default. The pipeline wait now fails only when no item finishes for 30 s
+      (`InProcessPipelineQueue.Acknowledged`), and the two apps' vitest `testTimeout` is 30 s.
+  - Fixed after the fifth P1 review:
+    - an `indexed` row field (`lines[*].x`) wrote one `DocumentFieldIndex` row per row, up to 20,000 per field and 300
+      fields, all rewritten on every Extract, Validate and correction, and the inbox read every row of every asked-for
+      key of the page to keep the first. `DocumentFieldIndexWriter` now indexes at most the first 100 values of a field
+      and 2,000 rows per document (`FieldIndexLimits`; every field's first value first, so the inbox column and the
+      duplicate check keep theirs), the inbox column reads `Ordinal` 0 only, publishing warns on an indexed row field
+      (docs/11 §5.8), and the type editor's hint says only the first rows are indexed;
+    - pattern checks were bounded per value only (100 ms each), and every failing value raised its own flag: up to 300
+      field patterns and 200 `pattern` rules over 20,000 rows, in the worker and inline on `PATCH …/fields`. One check
+      (a field pattern, a field's schema keyword, one generic rule of any kind) now raises at most 50 flags per document
+      and then one summary of the same code (`reason: capped` with `count`; a pattern stops matching there,
+      `reason: notChecked`), and the field patterns and `pattern` rules share a budget per validation (50,000 matches
+      or 2 s, `PatternBudget`): a value past it is skipped, and one blocking `CHECKS_SKIPPED` keeps the document out of
+      auto-approval. The web phrases the summaries and the new code.
+  - Left for the rest of P1:
+    - restructuring the invoice family (docs/11 §5.1): coded invoice kinds that declare the roles and kinds they need,
+      a publish report that disables them ("invoice.totals disabled: role `net` missing") and the generic `sumEquals`
+      and `compare` replacements (P5). Until then a fork keeps the invoice record's fields as they are;
+    - auto-approval for a type outside the invoice family needs `review.requirePassedRules` (P5); until then such a
+      type always goes to review, whatever its `review.autoApprove` says;
+    - a version published before `FormerKeys` existed, or a row compiled again because it stored no artifacts, carries
+      no earlier keys: a document moved across a rename made then still finds the renamed field Missing; a version
+      published before the reused-key check that gave a renamed field's old key to another field still hands an old
+      tree's value to that other field (a tree records no field ids);
+    - the number of versions a type may have, and the definition bytes a tenant may store, are not capped (the lists
+      read summaries; each draft is capped at 1 MiB);
+    - the ETag on `DocumentDetail.definition` (docs/11 §18) and the client-side Ajv hints over the compiled JSON Schema
+      (§5.5 artifact 1, §11): the review form checks nothing before the save, the server's inline re-validation answers;
+    - invoice compatibility from the definition (docs/11 §9.1 `Definition.IsInvoiceCompatible`): the Extract stage,
+      `LlmInvoiceExtractor.CanHandle`, the coded invoice rules and the invoice record's patcher go by the key
+      `Invoice`/`CreditNote`, so an invoice-compatible type under another key is refused until documents can get one
+      (P2 `:set-type`, P5 the tenant classifier); still open after P2 part A, which can now give a document such a type:
+      an invoice and credit note type keeps the key `Invoice`/`CreditNote` (adopt, copy and create refuse another), so
+      none exists yet;
+    - a type without `validate.schema` gets only the `FIELD_REQUIRED` part of the structural check for the fields
+      its template does not require; `FIELD_INVALID` (pattern, bounds, length) needs the step in the definition;
+    - web gaps of part C: a repeating group inside a row (a price list's `tiers`) is shown as a count and not edited,
+      nor are a row's `ext` bag and composites inside rows; the grid pages instead of virtualising (docs/11 §12.2); the
+      type editor reorders with up and down buttons (no dnd-kit), edits neither sections, roles nor `sensitive`, has no
+      diff view (no `:diff` route) and no Rules, Processing or Classification tab, and its JSON tab is a text area (no
+      Monaco); the extraction hints it edits have no run-time use yet (supplier layouts read them from P4); the inbox
+      shows an indexed value as the field index stores it and filters by that form (identifiers trimmed, spaces
+      collapsed, upper-cased, so `104220815` does not find `104 220815`); a credit note's custom field is read only
+      by the LLM path (an e-invoice XML credit note gets the field Missing, to fill in review); the admin console's document page keeps its own read-only view (the shared review is
+      P6) and its hard-coded type lists (`lib/documents.ts`, `lib/review.ts`); the line check is still computed in the
+      browser (`lineArithmetic.ts`), not from server results per path (`DocumentDetail.validation[]`, docs/11 §11);
+    - retiring `invoice.required`, `invoice.datePlausibility` and `invoice.confidence` from the std templates in favour of
+      `validate.schema` and the generic kinds (needs template v2 of the invoice family with the flag parity test); the
+      invoice family still runs the eight coded rules;
+    - the coded invoice rules (`invoice.lineArithmetic` and the others through `InvoiceRuleAdapter`) are not capped per
+      check like the generic kinds (one `LINE_ARITHMETIC` per wrong line);
+    - `LookupTables`/`LookupEntry` (docs/11 §6.1): `lookupExists` and `enumMember` read the platform `uom` list built in
+      code (`CodeLists.Platform`); tenant aliases need the tables;
+    - `review.dueBy` (setting `SlaDueAt`) and `?sort=reviewDue`; `DocumentSummary.typeName`/`typeVersion`; the
+      `DescriptorFieldSchemaResolver` behind `IFieldSchemaResolver` (the descriptor patcher is a separate class instead);
+      the remaining `AppliedConfigJson` parts (supplier, layout, identification) come with P4;
+    - the API routes `:diff`, `:approve`, `:upgrade-base`, `:upgrade-documents`, `/rule-kinds`, `/step-kinds`,
+      `resolved-pipeline`, four-eyes approval and the config audit log (from part A's list).
+- **P2, track A: manual mapping of Unknown documents – done: part A (the review actions backend), part B (the map
+  mode backend and the table tool engine) and part C (the review UI, the demo price list and the P2 demo, run in the
+  browser on a fresh compose stack).** What is left is listed under "Left for later" at the end of this item.
+  - Done (part A), every review action on a document a reviewer may act on (`NeedsReview`, `Validated`, `Failed`;
+    `409 Document not in review` otherwise), with its timeline event, behind a tracked save whose version token makes
+    a concurrent writer's action answer 409 (docs/05 has the requests and answers):
+    - `POST /documents/{id}:set-type {typeKey, version?, prefill}` (docs/11 §12.1 step 3): the type must have a
+      published definition the tenant can use (an adopted std type, or with `configurableTypes` a copy or a type of the
+      tenant's own); `TypeSource=Human`, the version pinned (`Documents.DocumentTypeVersionId`, the published one or
+      `version`), `AppliedConfigJson` naming the type, a `setType` Correction (old and new type, version, prefill),
+      `TYPE_UNKNOWN` resolved by the reviewer. `prefill: none` stores the empty tree of the type version
+      (`DefinitionTree.CreateEmpty`; for an adopted invoice or credit note of the coded record the empty record of its
+      kind; a type without a data path gets none and `UNSUPPORTED_TYPE`, as Extract leaves it), runs the checks of the
+      type at once and moves the open review task to the type's priority; `prefill: auto` goes back to `Matched` and
+      queues Extract, which reads the document for the type (an invoice by the LLM; a definition-driven type without an
+      extraction path gets its empty tree until P5's definition extractor);
+    - approve refused without a definition (docs/11 §11): with `configurableTypes` on, `:approve` answers `409 Cannot
+      approve` with `code` `TYPE_REQUIRED` (Unknown), `NO_DEFINITION` (no published definition the tenant can use) or
+      `NO_DATA` (no canonical data), and `DocumentDetail.approvalBlocked {code, message}` says the same before the click;
+      the portal's review screen disables Approve (and its Ctrl/Cmd+Enter) and shows the reason under it;
+    - `POST /documents/{id}:assign-supplier {supplierId}` (a supplier of the document's tenant) and `POST
+      /documents/{id}:create-supplier` (the body and the master-data checks of `POST /suppliers`, shared as
+      `SupplierEndpoints.AddAsync`; reviewers may create a supplier this way, docs/11 §14): the supplier is assigned
+      with `Documents.SupplierMatchMethod = Human` (new column; the Match stage now also records `Vat`, `Iban`, `Domain`
+      or `Name`), `SUPPLIER_UNMATCHED` is resolved and the checks run again (a duplicate the supplier reveals shows at
+      once). The Match stage keeps a supplier a reviewer assigned on every later run while it exists;
+    - `POST /documents/{id}:split {parts}` and `POST /documents/{id}:join {documentIds}` (docs/11 §12.7, in
+      `src/DocProc.Pipeline/Review/ReviewPartitioning.cs` next to the pipeline's split): pages to new documents of the same
+      attachment (page images and a text layer of their own, the `MULTI_DOCUMENT_SPLIT` flag with `reason: review`, the
+      `UNREADABLE_PAGES` decision per part), an untyped part to Classify and a typed one (`TypeSource=Human`, pinned,
+      the document's supplier) straight to Extract; the reverse puts consecutive parts back into one document in
+      attachment order, which goes to Classify, and the others become `Cancelled` (new terminal status) with
+      `Documents.JoinedIntoDocumentId`; joined back into the whole attachment, the document gets the normalised file
+      back and the stages read it as the whole file again (a cancelled part is no part of a split). What happens to the rest: the data, list columns, field index and pipeline
+      flags of a document whose pages change are cleared (they described the old pages); its corrections stay with it
+      as its audit and nothing is copied to a new part; open review tasks of every document involved are `Skipped` and
+      the pipeline opens new ones; nothing is published (only unsettled documents are split or joined, so no outbox row
+      of theirs is waiting); a cancelled part keeps its data for the audit but loses its list columns and field index,
+      and the duplicate checks skip `Cancelled` documents. `split` and `join` Corrections and `document.split` /
+      `document.joined` events (a new part's `document.received` names `splitFrom`);
+    - the `move` correction (docs/11 §12.3 "match fields"): `PATCH …/fields` with `{path, op: "move", from}` on every
+      document with data, through both patchers (`DefinitionPatcher` for definition-driven trees, `CanonicalPatcher` for
+      the coded records): the value of `from` goes into `path`, converted to its kind (an identifier's text into a text
+      field, an amount's number into a number, a number's text into a text field) with the place it was read from;
+      `from` is left Missing; both keep their history; one Correction row with op `move` and `SourceJson.from`. A
+      correction naming `setType`, `split` or `join` is told which action to use;
+    - migration `ReviewActions` (`Documents.SupplierMatchMethod`, `JoinedIntoDocumentId`; no new table, the policy
+      stays `PolicyV5`; Down drops the policy around the column drops of the temporal table and runs on SQL Server,
+      `TypeCatalogueSqlTests`); the web shows the `Cancelled` status and the new timeline events;
+    - housekeeping: a full `dotnet test` left six persistent AppHost containers running. Aspire's testing builder runs
+      the AppHost's `Program`, which goes on to `.Run()` once a test builds the model; `ComposeParityTests` never
+      disposed its apps, so that run started the orchestrator and the containers. Every model check now builds through
+      `AppHostModel` (`tests/DocProc.AppHost.Tests/AppHostModel.cs`), which stops the run at `BeforeStartEvent` and
+      disposes the app (`Building_the_model_starts_nothing`); the AppHost is unchanged;
+    - tests: `ReviewActionEndpointsTests` (API), the move cases of `DefinitionPatcherTests` and `CanonicalPatcherTests`,
+      `ReviewPartitioningTests` (pipeline: a typed part is extracted from its own pages without classification, a
+      join is read from all pages, Match keeps a reviewer's supplier), the review actions under a retrying execution
+      strategy (`DecisionExecutionStrategyTests`), the migration down and up on SQL Server, the web's blocked Approve.
+  - Decided in part A where docs/11 left it open (the "Correction (P2)" notes in docs/11 §6.2, §11, §12.1, §12.3,
+    §12.7 and §18):
+    - the approval gate is behind `configurableTypes`, so a tenant without the switch still approves an Unknown
+      document as before; switching it on for every tenant is a product decision;
+    - `:assign-supplier` answers 200 and checks the document again at once instead of reprocessing from Classify
+      (202): without layouts (P4) there is no identification to re-run, and a reprocess would extract an invoice again;
+    - `:join` keeps the id of the document named in the URL; the parts must make one unbroken run of pages.
+  - Done (part B), the server side of map mode and the table tool (docs/11 §12.3, §12.4; docs/05 has the requests and
+    answers):
+    - `src/DocProc.Extraction.Profiles` (an empty project) is now `src/DocProc.Mapping` (docs/11 §20), the pure mapping
+      engine: `PageGeometry` (normalised words, lines by vertical band, hit test, reading order), `PrintedValues` and
+      `ValueLocale` (printed text read by field kind, culture-free: numbers whose separators decide them read the same
+      everywhere, the locale settles `1,250` and `03/11/2026`; dates with German and English month names), the
+      `ColumnTableEngine` and the `ColumnProposer`;
+    - `GET /documents/{id}/pages/{n}/words?bbox=&locale=`: the page's words in page units (0 to 1000) with their index in
+      the stored text layer and `source` (`pdfText`, `ocr`, or `none` for a page without a text layer); with a box the
+      words whose centre is inside it in reading order, their text, their union and the readings of the text per kind
+      (`28.10.2026` gives the date `2026-10-28`, `1.234,50 €` the amount with its currency);
+    - `POST /documents/{id}/regions:read {page, bBox, locale?}`: the page image cut to the box (SkiaSharp, whole pixels,
+      at least 8) and read by the host's `IOcrProvider`, the words placed back in page units, with the same readings;
+      nothing is stored;
+    - `POST /documents/{id}/regions:table`: without `columns` it proposes the dividers from the x gaps of the box and the
+      header words, naming each column from the row field whose label or extraction label its header matches (and a
+      header such as `ab 10` as a tier column), with the rows they read on that page; with `columns` it applies the
+      mapping drawn on one page to the pages named (`pages: "1-*"`): the header row is found again on every page
+      (`repeatHeader: auto`, at least `minAnchors` headers on a line) and the dividers measured again there (shift and
+      scale fitted from the header centres), a page without a header reuses the last measured ones, rows continue across
+      page breaks, a line without a value in the row anchor column continues the row above, a heading fills `category`
+      (`groupHeader`), tier columns become `tiers` entries, `skipRows` and `stopAt` patterns, `pageMargins` and
+      `pageOverrides` apply; values are read by kind and checked against the field's pattern and options, and a row that
+      does not read is rejected with its text and reason. The answer is the table report (rows, rejected rows, pages
+      without rows, per page: rows, rejected lines with text and box, skipped lines, headings, continuation lines,
+      header found, the dividers used and where they came from, the first three rows), i.e. the page strip's data, and
+      the rows (the first 1,000);
+    - the single-Correction write (`write: true`): the server reads the table again and writes every row in one
+      `PATCH`-equivalent through `DefinitionPatcher.SetRows` (each value with Human provenance and its own page, box and
+      printed text; the group's `maxItems`, else 20,000, holds; a coded invoice tree is numbered and must stay readable),
+      one Correction (op `set`, `FieldPath` the group, old and new rows' values, `SourceJson` with `method: table`, the box
+      and `table: {spec, report}`), the report as the group's `DocumentTableReport` (`Origin=ReviewTool`, linked to the
+      Correction), one `document.corrected` event with the counts, the list columns and field index refreshed and the
+      checks run inline. `GET /documents/{id}/table-reports` gives the stored reports (the page strip after a reload);
+    - `PATCH …/fields` takes `set` on a whole repeating group (`{path: "lines", value: [{…}, …]}`, nested groups as
+      arrays): the reviewer replaces every row in one correction, held to `maxItems` as well;
+    - a table report never outlives its rows: it is deleted when the group is written by another source (a `set` of the
+      whole group, the Extract stage writing a new tree, `:set-type`, `:split` and `:join`);
+    - migration `TableReports` (20261103112735): table `DocumentTableReports` (PK document and path, json report, FK to
+      the document with cascade and to the Correction without), a strict tenant table under the new frozen `PolicyV6`;
+      Down drops the policy, the table, and re-creates `PolicyV5`; the SQL Server down/up test runs across it;
+    - tests: `tests/DocProc.Mapping.Tests` (new; the engine on synthetic word layouts for every case above, including a
+      14-page list of 412 rows read with one mapping and nothing rejected, the proposer, and the value readers),
+      `DefinitionPatcherRowsTests`, `MapModeEndpointsTests` and `RegionOcrEndpointsTests` (API, with a scripted OCR
+      provider), a price list PDF read back by PdfPig through the proposal and "apply to all pages"
+      (`PriceListPdfTableTests`), the report's lifecycle in the Extract stage (`DefinitionDrivenPipelineTests`), and on SQL Server the
+      policy, isolation and cascade of the new table (`RowLevelSecuritySqlTests`, `TenantIsolationTests`,
+      `IdempotentScriptTests`, `TypeCatalogueSqlTests`).
+  - Decided in part B where docs/11 left it open (the "Correction (P2)" notes in docs/11 §6.2, §8.6, §12.3, §12.4, §18):
+    - no OCR engine ships in the repository (Tesseract is still open from Phase 1), so `regions:read` answers `501` with
+      `code: OCR_NOT_CONFIGURED` until a host registers an `IOcrProvider`; the endpoint, the crop and the placement of
+      the words are done and tested with a scripted provider;
+    - the readings use the request's `locale`, else the tenant's country: suppliers have no locale before their
+      settings (P4);
+    - the write is `regions:table` with `write: true` (the server reads the rows again, so the stored report is its
+      own, not the client's), not a `PATCH` of 400 rows from the browser;
+    - a line with text but no price is a heading when it is one run of text in the anchor column, or printed across a
+      divider; under a row, one printed inside a text column is a continuation line (docs/11 §8.6 said both);
+    - tier columns are on whenever a row has the tier group (`tiers` with `minQuantity` and `price`); since the fixes
+      after review (below) a column is a tier column only when the mapping names its `tierMinQuantity` (the proposal
+      reads it from a header such as `ab 10`), so a column the reviewer leaves out stays out.
+  - Done (part C), the review UI of P2 in the customer portal (docs/11 §12, §19; docs/09 "Demo: manual mapping" has
+    the steps):
+    - the **Map this document** panel (docs/11 §12.1) in place of the empty form of a document without a form or data
+      that a reviewer may correct: the type (every type of the tenant with a published version) with Start with Empty or
+      Let AI pre-fill (`:set-type` none or auto), the supplier picker (`:assign-supplier`) and Create supplier from this
+      document (`:create-supplier`, the dialog filled from the captured supplier party);
+    - the review actions' More menu: Change type, Assign supplier, Create supplier from this document, Split into
+      documents (the pages where a part starts, a type per part or classify again) and Join parts (the other parts of
+      the attachment, from the new `GET /documents/{id}/parts`, which lists the documents of an attachment in page
+      order with their pages, status, type and the document a cancelled part was joined into);
+    - map mode in the page viewer (docs/11 §12.3): the Map toggle (M), on by itself for a document whose fields hold no
+      value (a type just set in review); the field focused last in the form is the target; a click picks a word,
+      shift-click adds one, a drag draws a box; `GET /pages/{n}/words?bbox=` reads it and the preview above the page shows
+      the text and the reading of the field's kind ("01.01.2027" → 2027-01-01), editable; Enter assigns and moves to the
+      next empty required field, Tab skips, Esc drops the selection; the value is saved with Save corrections, with its
+      page, box, the text layer's words and the printed text as `source`, so it is Corrected by the reviewer with its
+      place drawn on the page; a box without words offers region OCR (`regions:read`), which says when the server has no
+      OCR provider;
+    - the table tool (docs/11 §12.4): the Table toggle and tab; a box drawn on a page asks `regions:table` for the columns;
+      a field (or tier price, or leave out) per column; dividers moved on the page by dragging or with the arrow keys,
+      added by a double-click inside the box, merged from the panel; "Apply to all pages" (`pages: "1-*"`) and group
+      headings into `category`; Read all pages answers the report as a page strip (rows and rejected rows per page,
+      pages without rows, a page's rejected lines with their text and reason, the rejected boxes drawn on the page, a
+      click on a page shows the dividers used there); Write stores every row as one correction (`write: true`); a change
+      to the mapping makes a preview stale, and Write needs a fresh one; after a reload the stored report
+      (`GET /table-reports`) is the strip;
+    - match fields (docs/11 §12.3): a drag handle beside a field's label is dropped on another field, or the arrows
+      button beside it picks the field ("Move value to"): one `move` correction, sent with the unsaved corrections;
+    - the approval gate's refusal (`409 Cannot approve` with its code) is shown in the UI language as well as the reason
+      under the disabled Approve of part A;
+    - map mode, its target field, the page, the tab and the table mapping are kept per document while the reviewer
+      stays in the tab (`lib/reviewSession.ts`): the screen remounts after every save;
+    - the pure parts in `packages/review` (`mapMode.ts`, `tableTool.ts`, `MapPreview`, `TablePageStrip`,
+      `TableToolPanel`, the move handle of `DefinitionForm`), the screen's parts in the portal (`FieldHighlightOverlay`
+      with the selection layer and the dividers, `PageViewer`'s toolbar, `useMapMode`, `useTableTool`,
+      `ReviewDialogs`, `MapDocumentPanel`), with en and de texts;
+    - the demo price list: `fixtures/demo/uploads/tenant-a/Nordwind_Preisliste_2027.pdf`, 14 pages, 412 articles in
+      nine groups, repeated header, continuation lines, two rows continued across a page break, tier columns "ab 10" and
+      "ab 50", drawn reproducibly by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceList.cs` like the other demo PDFs
+      (`REGENERATE_DEMO_PDFS`); two replay fixtures answer its upload (the LLM splitter, since 14 pages are more than the
+      heuristic splitter decides alone, and the LLM classifier), captured by `DemoFixtureTests`, which now treats split
+      fixtures as rendered-page fixtures too; no master data was added: Nordwind is created from the document in the
+      demo;
+    - the P2 demo of docs/11 §23, run with Playwright in the browser on a fresh compose stack: configurable types on
+      (superadmin), price list adopted (tenant admin), the list uploaded through the portal (reviewer), in review as
+      `Other` (see below), set to Price list (empty), the header values and the supplier name taken from the page, the
+      supplier created from the document, the table drawn once on page 1 and applied to all pages: the page strip shows
+      412 rows and no rejected row (22 on page 1, 30 on each other page), written as one correction, approved by hand;
+      split and join of the demo invoice and a move on the demo delivery note in the same session;
+    - fixed from the demo: map mode's default was stored for a document before it had a type (no fields, so off) and
+      kept after the type was set; the move handle was the menu's trigger as well, whose menu opened on pointer down and
+      covered the drop target; the table mapping stayed drawn after Write, because the save remounts the screen before an
+      effect of the old one could store the cleared state; the panel named a failed invoice "without a form";
+    - tests: `DemoPriceListTableTests` (API: the committed PDF read as the Normalize stage reads it, the proposal from a
+      box on page 1, the mapping applied to all pages as the portal sends it: 412 rows, none rejected, the header on all
+      14 pages, nine headings, 13 continuation lines, a row carried across a page break, one correction),
+      `DemoFixtureTests` (the upload: split and classification calls, one document of type Other in review),
+      `DemoPdfClassificationTests`, the parts endpoint in `ReviewActionEndpointsTests`; web: `mapMode`, `tableTool` and
+      `MappingTools` (review package), `FieldHighlightOverlay.selection`, `ReviewTools` and `ReviewScreen.mapping`
+      (portal), and the updated `ReviewScreen.definition` test.
+  - Decided in part C where docs/11 left it open (the "Correction (P2)" notes in docs/11 §12.1, §12.3, §23):
+    - with an LLM classifier (the replay provider in the demo stacks, any configured provider), a document of no type
+      the classifier knows arrives as `Other`, not `Unknown`: the classifier's answer has no Unknown. The Map this
+      document panel is therefore shown for every document without a form or data, `Other` included, and the classifier
+      behaviour is unchanged;
+    - map mode is on by itself for a document none of whose fields holds a value (`DocumentDetail` does not carry
+      `TypeSource`); the type list of the panel is every published type of the tenant (the classifier has no
+      top three, and suppliers have no types before P4);
+    - a mapped value is saved with Save corrections, like a typed one, so several fields can be taken from the page and
+      saved in one patch; a table is written at once (`write: true`).
+  - Fixed after the review of P2 (on top of part C):
+    - Classify keeps a type a reviewer set (`TypeSource=Human`, from `:set-type` or a typed split part; docs/11 §9.4
+      rule 1): a reprocess from Classify or Normalize moves the document to `Classified` without asking the keyword
+      rules or the LLM, so the type, its version pin and the tree (a price list's rows written with the table tool) and
+      its table report survive; the timeline's `Classified` event says `kept: true`. Before, the classifier's answer
+      replaced the type and the rows were dropped with the tree (`DefinitionDrivenPipelineTests`);
+    - the table tool's "Lines that are not rows" (docs/11 §12.4 step 3): lines to leave out wherever they are printed
+      (`skipRows`) and lines the table ends at (`stopAt`), each named by the text it starts with, in which any number
+      stands for any number ("Seite 1 von 14" also leaves out "Seite 2 von 14"); a rejected line of the page strip
+      offers "Leave out lines like this"; the part of the other pages that is read (`pageMargins`, in percent of the
+      page height). Once the reviewer sets such skip lines or margins, a running title of a list that prints its header
+      on page 1 only no longer becomes a heading, and a footer printed inside the box is no longer appended to the last
+      row of every page or rejected on every page (what the defaults leave out by themselves is in the next list);
+    - a box drawn only around the header row (docs/11 §12.4 step 1) reads every page down to the bottom page margin,
+      or the foot of the page; before, it read no row on page 1 and dropped everything below the page-1 box on the
+      other pages. Each page of the report names the band it read (`top`, `bottom`), which the page viewer draws;
+    - a tier column the reviewer leaves out yields no tiers (before, a column headed `ab 10` became tiers whatever the
+      reviewer chose; the header pattern is the proposal's only);
+    - a tier header with a thousands separator (`ab 1.000`, `ab 1 000`) is read as the whole number in the locale of
+      the request (the API's default pattern captures the whole number; the answer of `regions:table` names the
+      `locale` it read in, which the portal reads the header with when a left-out column is made a tier again);
+    - a continuation conflict in a column without a field says "in column 5", not "in the column 5 column";
+    - map mode's Enter moves on to a required composite (the price list's Supplier) whose members are not required
+      one by one: an empty required party counts as its first member (`FieldSpec.inRequired`), tested against the form
+      spec `std.price-list` compiles to.
+  - Fixed after the second review of P2:
+    - a column the reviewer leaves out (no field, no tier) counts for nothing in any row decision: its words are
+      dropped before the heading test, the continuation and conflict checks and the row's cells, and a line with words
+      only there (a wrapped line of that column) is skipped and counted (`leftOutLines`), not taken for a group heading
+      that filled the category of every row below it, nor a continuation conflict that rejected its row
+      (`ColumnTableEngineTests`);
+    - an empty tree is no data (docs/11 §11): the approval gate answers `NO_DATA` for a tree none of whose fields
+      holds a value (every envelope Missing, every repeating group empty or with rows of Missing fields; for the coded
+      invoice record its `kind` does not count), so the document `:set-type` with prefill none leaves can no longer be
+      approved and published empty; the portal's note reads "Nothing was captured yet: none of the fields holds a
+      value" (`ReviewActionEndpointsTests`, `DefinitionStorageTests`);
+    - running titles, page numbers and footers are left out by themselves (`repeatedLines: skip`, the default;
+      `keep` reads them): a line above the first or below the last row of its page, printed at the same height with the
+      same text on at least half of the document's pages (two at least; a number matches when it is the same on both
+      pages or each page's own number, since the third review below), unless it reads as a row. A row with a value in the anchor column only (a footer or title
+      printed there, or a heading read without group headings) is rejected as `anchorOnly`, not taken for an article.
+      Each page of the report lists its group headings (`headings`) and counts the lines left out (`repeatedLines`,
+      `leftOutLines`), and the page strip shows them for the page in view, with "Leave out lines like …" beside each
+      heading. The demo list's footer is left out on all 14 pages without a skip line. A title printed on one page only
+      is still read as a heading (nothing but the reviewer tells it from one) and is listed there;
+    - the P2 review tools are behind `configurableTypes` in the portal (docs/11 principle 6): the Map this document
+      panel, the More menu (set type, assign or create the supplier, split, join), map mode and the table tool. A tenant
+      without the switch sees the review screen as before P2, the empty state "This document type has no form to review
+      yet" included (docs/09 "Demo: types as data", step 1). `DocumentDetail.configurableTypes` tells the screen; the
+      endpoints themselves stay open to API clients of any tenant (nothing before P2 called them);
+    - the inbox names a catalogue type (a price list typed in review) by its catalogue name in the Type column, as the
+      filter does, instead of its key `price-list`;
+    - the proposal reads its page with the group headings the panel starts with (the portal sends `groupHeader`
+      when the row has a category), so the demo's proposal reads 22 rows on page 1, not 23 with "Weißweine" as an
+      article; without group headings the heading is a rejected `anchorOnly` line, not a row;
+    - the grid of a repeating group is named by the definition's label when the group is not called Lines (the price
+      list's "Articles · 412 rows", caption "Articles"); invoices, credit notes, delivery notes and purchase orders keep
+      "N line items";
+    - the table tool is bounded in the shared API: a `skipRows`, `stopAt`, tier header or field pattern whose counted
+      repetitions unroll to more than 500 atoms (`PatternSize`; `(?:[^§]{0,99}\d){0,99}§` is about ten thousand) is
+      refused with 400, at publish too for field patterns, extraction hints and `pattern` rules; a pattern that runs
+      out of time on a line stops the read with 400 instead of counting as "no match" on every line; one read runs
+      within `TableTool:ReadBudget` (10 s) and stops when the client goes away, 422 `TABLE_READ_TOO_SLOW` past the
+      budget; `regions:table` and `regions:read` run at most `TableTool:ConcurrentReadsPerTenant` (2) at a time per
+      tenant, `TableTool:QueuedReadsPerTenant` (4) waiting, 429 beyond (`TableToolLimitsTests`, `PatternSizeTests`);
+    - docs/09's split and join of the demo invoice: joined back, the invoice is read from its fixture only while no other
+      Bio-Hof Müller document is approved, because the extraction then carries the supplier's last approved document
+      as hints and its request changes (`DemoFixtureTests`).
+  - Fixed after the third review of P2:
+    - a group heading that opens most pages at the same height ("Rotweine trocken" at the top of every page, then
+      "Weißweine trocken" further down) is read as a heading again, not left out as a running line: a line above the
+      page's first row that reads as a group heading for another category than the current one is never a running
+      line. Before, the rows under it took the category of the previous page's last heading, with nothing rejected. A
+      repeated heading of the category the rows already have is still left out, which changes nothing;
+    - each page of the table report lists the texts of the lines it left out as running lines (`repeatedTexts`, the
+      first 20), and the page strip shows them under "Left out on page n", so nothing is left out unseen;
+    - running lines are compared token by token: a number matches when it is the same on both pages, or when on each
+      page it is that page's own number. Before, a number equal to one page's number was rewritten on that page only,
+      so a dated footer ("Preise gültig ab 01.04.2026 Seite 1 von 4") was not recognised on page 1 and was appended to
+      the last row's description there (`ColumnTableEngineTests`);
+    - a reprocess (from Classify, which keeps a type set in review) or `:set-type` with prefill auto no longer raises
+      `UNSUPPORTED_TYPE` for a definition-driven type a reviewer set (`TypeSource=Human`): the reviewer who chose the
+      type fills it, as `:set-type` with prefill none already said by raising none (`DefinitionDrivenPipelineTests`);
+    - the table strip's totals and page chips count in the singular and plural ("1 row, 0 rejected, 1 page read");
+    - rows are capped across nesting: a repeating group inside a row without `maxItems` (the price list's `tiers`)
+      holds at most 100 rows (`DefinitionPatcher.DefaultMaxNestedRows`), and a tree at most 100,000 rows across all its
+      groups (`MaxTreeRows`), checked before any row is built, for `set` on a group, `append` and the table tool's
+      write. Before, `set` on `lines` with 50 lines of 20,000 empty tiers (a 3 MB body) took a minute and wrote a 92 MB
+      tree; `PATCH …/fields` takes at most 5,000 corrections and an 8 MB body (413 beyond), `regions:table` 2 MB and
+      `regions:read` 16 KB, and a `pages` expression is at most 200 characters, refused before it is parsed
+      (`DefinitionPatcherRowsTests`, `TableToolLimitsTests`);
+    - `:create-supplier` keeps the master data that steers matching with the tenant admin (docs/11 §14, a permission
+      decision): a reviewer gives the name, VAT id, tax id, IBANs and currency printed on the document; `emailDomains`,
+      `aliases` and `alwaysReview` answer 403 for anyone but a tenant admin, who also sets them under Suppliers. The
+      portal's dialog offers the e-mail domain to a tenant admin only (`ReviewActionEndpointsTests`, `ReviewTools`).
+  - Fixed after the fourth review of P2:
+    - one `PATCH …/fields` of the most corrections it may carry runs in linear time: the tree's row count is taken once
+      per request and kept up to date through removes as well as appends (a remove cleared it, so 2,500 remove/append
+      pairs on a 10,000-line price list recounted the tree 2,500 times and took 84 s), and a correction carries a
+      field's stored history over as it is instead of reading and writing it again (5,000 sets of one cell, each one
+      rewriting a history one entry longer, took over 20 s); both now take about a second (`DefinitionPatcherRowsTests`);
+    - a running title printed above the header row of the mapping page is no longer read as a group heading on the
+      pages that print no header (docs/11 §8.6, lists that print the header on page 1 only): a repeated line whose copy
+      on the mapping page lies above the band read there is a running title and left out, and only a repeated line
+      without such a copy may open a page as a heading. Before, the third review's heading rule made the title the
+      category of every row from page 2 on (`ColumnTableEngineTests`);
+    - a supplier's lists are bounded on every write (`POST` and `PATCH /suppliers`, `:create-supplier`): at most 20
+      IBANs, each checked as an IBAN (country code, two check digits, 11 to 30 letters or digits; the check digits
+      are not verified), 20 e-mail domains, each a domain name, and 50 aliases of at most 300 characters, with
+      `400` validation problems (`maxItems`, `iban`, `emailDomain`, `maxLength`); the supplier writes and the review
+      actions (`:set-type`, `:assign-supplier`, `:create-supplier`, `:split`, `:join`) take at most 64 KB. Before, a
+      reviewer stored 20,000 IBANs of 222 characters through `:create-supplier`, which every Match stage run of the
+      tenant then loaded, or "not an iban at all" (`SupplierEndpointsTests`, `ReviewActionEndpointsTests`);
+    - a supplier stored before those caps (P1) can be edited again from the portal: `PATCH /suppliers/{id}` leaves a
+      list that equals the stored one once both are cleaned as it is, unchecked, so saving a new name or review setting
+      (the portal's dialog sends every list) no longer fails on lists the admin did not touch; a changed list is checked
+      whole, and `iban` and `emailDomain` carry the refused entry (`{value}`), which the portal's text names. Before,
+      every portal save of such a supplier was a `400` whose German text did not say which of 20 lines to fix
+      (`SupplierEndpointsTests`, `ApiError.test.ts`);
+    - the `ReviewActions` migration's Down maps P2's `Cancelled` status back to `Rejected` in `Documents`, in
+      `DocumentsHistory` (with system versioning off for that one update) and in the `FromStatus`/`ToStatus` of
+      `DocumentEvents`, all in platform scope: the build before P2 has no `Cancelled` and reads enums as strings, so a
+      tenant that had joined parts could not list or open its documents after a downgrade. A downgrade past
+      `ReviewActions` therefore leaves a joined-away part `Rejected` (up again it stays so); the document it was
+      joined into stays in its `document.joined` event (`into`) once `JoinedIntoDocumentId` is dropped
+      (`TypeCatalogueSqlTests`, on SQL Server);
+  - Fixed from the final compose demo of P2:
+    - the page viewer draws one box for the fields read from the same place, named after the first of them "and n
+      more fields" (the highlighted one when it is among them). Every row a table mapping writes under a group heading
+      takes the heading's box as its category's source, so page 7 of the demo list drew 55 translucent boxes over
+      "Spirituosen", whose fills stacked into an opaque one that hid the heading (`FieldHighlightOverlay.test.tsx`);
+  - Left for later:
+    - the table tool's skip and stop lines are texts a line starts with, not regular expressions (the API takes
+      expressions); the margins are typed, not drawn on the page; `repeatHeader` and `continuation` keep their
+      defaults in the UI (`auto`, `appendToPrevious`);
+    - an OCR provider (Tesseract or Azure Document Intelligence Layout, docs/01): until one is registered, region OCR
+      answers 501 and an image page has no words;
+    - the row filters of the grid of docs/11 §12.4 ("rejected or low-confidence rows", "rows on page n", "changed against
+      the previous list", P5): the page strip lists the rejected lines per page instead; the grid pages by 100 rows
+      and does not virtualise (docs/11 §12.2); a repeating group inside a row (a price list's `tiers`) is still shown
+      as a count, not edited;
+    - fixing a rejected row in place and `pageOverrides` from the UI: the reviewer moves the dividers of the mapping page
+      and reads again; dividers set for one other page only (`pageOverrides`, which the API takes) have no UI yet, and
+      the header row band cannot be redrawn by hand (the proposal's is used);
+    - running lines are recognised by repetition only: a running title or a footer printed on one page only is read
+      like any line (a heading, a continuation, a rejected line) until the reviewer leaves it out; on a document of one
+      page nothing repeats. A running line above the rows that reads as a group heading (one run of text, or printed
+      across a divider, with no price) for another category than the current one, and that is not printed on the
+      mapping page above the band read there, is read as that heading and listed under the page's headings: a title
+      printed from page 2 on only, or a page-opening "Rotweine trocken, Fortsetzung", cannot be told from a heading
+      that opens every page by its place. "Leave out lines like …" beside it, or a top margin, leaves it out;
+    - the IBANs and VAT id a reviewer gives `:create-supplier` are not checked against the text of the document, and
+      an IBAN's check digits (mod 97) are not verified, only its format;
+    - suppliers stored before the list caps are not trimmed: they keep more than 20 IBANs or domains, more than 50
+      aliases, or entries the format checks refuse, until a write changes that list, which must then bring all of it
+      within the caps; the Match stage reads them as before;
+    - re-running only the pages a `pageOverrides` change affects: every run reads every page named (linear, a 14-page
+      list takes milliseconds); `tierColumns.minQuantityFromGroup` of docs/11 §8.6 and the `transforms` of a layout's
+      `column-table` (P4) are not implemented;
+    - region OCR is not counted in `Costs.OcrPages`;
+    - the proposal names a column from its header and checks that the column's values read as the field's kind; where a
+      template labels two fields alike (`std.price-list`: "Inhalt" for `packSize`, "Inhaltseinheit" for `packUnit`) it
+      can still name the less fitting one, and the reviewer changes it before applying the mapping (the demo list
+      prints "Gebinde", which names `packDescription`);
+    - `:assign-supplier`'s `remember` (source rules: done in P4 part A) and the reprocess through `classify.identification` (P4 part B);
+    - a move into a member of a composite value (`customer.vatId`) or a bag key, moving whole rows, and a drag onto a
+      cell of the grid are not done (a `set` does those); `:set-type` with prefill none replaces the earlier data of
+      another type (the earlier tree stays in the temporal history of `Documents` only);
+    - the review components stay in the customer portal (`PageViewer`, `FieldHighlightOverlay`, the dialogs); docs/11
+      §19 moves them into `packages/review` with the shared review of the admin console (P6); the admin console's
+      document page has none of the P2 actions;
+    - the Identify mode, the New layout panel and "Remember for supplier" (P4).
+- **P3, track B: output mappings and delivery – part A done (data model, values view, renderer, templates, API),
+  part B done (fan-out, delivery, transports, retries, feeds), part C done (the Integrations UI with the visual
+  field map, the Deliveries tab, the P3 demo in the browser); what §19 lists beyond that is under "Left for
+  later".** Every new route needs the tenant's `outputs` switch; a tenant without it behaves exactly as before
+  (approve, publish stage and outbox, publish sweeper unchanged: the fan-out does not run, nothing renders or
+  delivers; the mock-erp stubs of P0 answer as before, with new stubs beside them; the portal shows no Deliveries tab
+  and its Integrations tab says the switch is off).
+  - Decided (part C): the visual field map is stored in the expression as a comment, not as a `fieldmap` engine;
+    the code tab is a text area with the server's syntax errors, not Monaco with the `jsonata` package (docs/11 §6.7
+    and §19 corrections); recipes, batches, Fluid text formats and acknowledgements stay in the later phases as §23
+    and decision 4 of §24 say.
+  - Done (part A):
+    - the spike of docs/11 §13.1 (result recorded there as "Correction (P3, the spike)"): Jsonata.Net.Native 3.0.0 has
+      the functions, depth and tail-recursion caps and no I/O, but cannot stop a running evaluation (an exponential
+      recursion ran past 30 s; aborting the thread crashed the runtime on Linux); the 13.1 fallback, jsonata-js in Jint,
+      enforces limits but took 17 to 20 s for the 10,000-row price list (0.7 s for 412 rows), so it cannot meet the 2 s
+      limit either. Built instead: Jsonata.Net.Native in a renderer **child process** (`src/DocProc.Outputs.Renderer`,
+      `JsonataRenderer` in `src/DocProc.Infrastructure/Outputs`): a pool per host (`Outputs:Renderer:PoolSize`,
+      default the processor count up to 4), one JSON request per line, the process killed at 2 s of its processor time
+      after it read the request (10 s wall-clock ceiling, 30 s to send and read the request), a 1 GB GC heap cap
+      (`DOTNET_GCHeapHardLimit`), 5 MB of output, the library's depth caps, an empty environment, a fresh process after
+      a kill or crash; a renderer that cannot start is `unavailable` (the one retryable render error);
+    - the custom functions `$table` (the tenant's lookup table, else the platform's, else the code lists in code such as
+      `uom`; entries valid on `$today()`; the key a string literal), `$fmtDate`, `$fmtNum`, `$today` (the tenant's time
+      zone), `$field` (the envelopes, sent only when the expression calls it) and `$required` (permanent `required`
+      error with the mapping's message);
+    - the target-schema check (JsonSchema.Net 8.0.5 in the renderer process, because a tenant's schema `pattern` is a
+      backtracking regex; references resolve within the schema only): `schemaErrors [{path, location, keyword,
+      message}]`, at most 100, the path naming the row (`prices[379].price`); an invalid schema is a `schema` error;
+    - the scan of the paths an expression reads (`referencedPaths`, stored with a published version) and of the tables
+      it names;
+    - the output tables of docs/11 §6.7 (`OutputDestinations`, `OutputMappings`, `OutputMappingVersions`,
+      `OutputBindings`, `OutboxDeliveries` with the payload snapshot columns, `DeliveryAttempts`, `DocumentExternalRefs`),
+      the lookup tables of §6.1 (`LookupTables`, `LookupEntries`, left for later by P1) and `Suppliers.AttributesJson`
+      (§6.4, what mappings read as `supplier.attributes`), migration `OutputsAndLookups` under the new frozen
+      `PolicyV7` (the five strict tables, the four platform-row tables), which also seeds the platform templates from a
+      copy frozen with it; its Down runs on SQL Server (`TypeCatalogueSqlTests` migrates down past it with one of every
+      P3 row in place, and up again);
+    - the values view builder (`IDocumentDataViewBuilder`, `DocumentDataViewBuilder`): `doc`, `roles` with
+      `roles.lines` (the rows by line role), `meta` with `tenantId`, `event` and `eventAt`, `supplier` with its
+      attributes, `entity` (the tenant until P4), `source` (channel, connector, sender or uploader, file name, subject,
+      received at and on which day in the tenant's time zone), `links` (under `Outputs:PublicBaseUrl`), and the field
+      envelopes; a coded invoice and a definition tree of the same data give the same view (`ValuesViewTests`);
+    - the platform templates `std.event` (today's thin event) and `generic-ap-json` (header and rows by role, credit
+      notes negative), each with a target schema, seeded as data like the standard document templates, copied by a
+      tenant (`POST /output-mappings {from: {template}}`);
+    - the API (docs/05 "Output endpoints as built"): `/output-templates`, `/output-mappings` with versions, If-Match
+      drafts and `:publish`, `POST /output-mappings:preview` over a document or sample values, `/destinations` with the
+      write-only secret in `ISecretStore` and a two-slot rotation (`PUT …/secret`), `/output-bindings`,
+      `/lookup-tables` with `PUT …/entries`, supplier `attributes`; the policy `IntegrationAdmin` (TenantAdmin,
+      SuperAdmin), lookups under `ConfigAdmin`;
+    - the `article-price-import` mapping of §13.10 renders the price list of that section to its output (one
+      correction: a missing GTIN gives `"ean": null`), and a 10,000-row list of the longest shape renders under 5 MB
+      and within the limit (about 1 s of processor time).
+  - Done (part B, docs/11 §13.3 to §13.6 with the corrections recorded there):
+    - the fan-out in the publish stage (`DeliveryFanOut`): for a tenant with the switch, every approval, auto-approval
+      and rejection the stage hands on goes to the bindings whose events, scope (type, supplier, channel) and
+      condition match, one per exclusive group (most specific, then priority); each renders now with the mapping
+      version it follows and the values view of the event, is checked against the target schema, snapshotted in
+      `BlobContainers.Exports` and added as an `OutboxDelivery` in the save that sets `FannedOutAt`, then nudged
+      (`ProcessDelivery`); a false condition gives a `Skipped` "not applicable" delivery, a permanent render failure
+      a dead letter, an unavailable renderer a retry of the publish stage;
+    - `ProcessDelivery` (`DeliveryProcessor`, run by the runner): the attempt check against copies, the claim under
+      the row's token with a lease, the transports, the attempt log (4 KB excerpts, secret and token masked),
+      `document.delivery_succeeded`, `document.delivery_failed` and `document.delivery_skipped` timeline events, the
+      `DELIVERY_FAILED` flag of a dead letter (resolved when none is left), the external id of `responseMapping`;
+    - retries with backoff and jitter (1 min, 5 min, 15 min, 1 h, 3 h, 6 h, then 12 h; `Retry-After` replaces it),
+      classification (2xx delivered; network, timeout, 408, 425, 429, 5xx retryable; other 4xx, a refused address, a
+      missing secret, a template without a value permanent), dead letter after 15 attempts or 72 h;
+    - the delivery sweeper (`DeliverySweeperHostedService`, next to the runner): due rows whose message was lost (a
+      crash after the commit, a retry that waited in a process that ended) and attempts cut off mid-send, claimed
+      once under the row's token;
+    - ordering: deliveries of one document to one destination run one after the other in a process; an older
+      revision still waiting is skipped once a newer one exists for the binding (at the fan-out and again at send);
+    - `OnReapproval` Resend (new revision, new key), Skip (a `Skipped` delivery), Update (the update mapping,
+      `meta.event = document.updated`, the destination's `updateMethod`/`updateUrlTemplate`);
+    - transports: http through `TenantEndpointGuard` (auth none, apiKeyHeader, basic, bearer, oauth2ClientCredentials
+      with a token cache dropped on 401, hmacSha256; `Idempotency-Key`, `X-DocProc-Document-Id`, `X-DocProc-Revision`,
+      `X-DocProc-Event`; multipart with the original file; `responseMapping`), with the Development-only
+      `Delivery:DevelopmentHosts` allowance set to mock-erp in compose and the AppHost; the blob drop (write, then
+      rename, below `Delivery:DropRoot/<tenant>`, never overwriting); the pull feed (sequence numbers in commit order,
+      `GET /feeds/{id}?after=`, `POST /feeds/{id}:ack`, the API key scope `deliveries:read` optionally restricted to
+      one destination);
+    - the API: `GET /deliveries` (filters, cursor), `GET /deliveries/{id}` with attempts and external id,
+      `GET /deliveries/{id}/payload`, `POST /deliveries/{id}:redeliver` (snapshot or rerender), the feeds, the
+      `DeliveriesRead` policy (mirrored in the web app shell); bindings refuse `document.updated` and
+      `document.needs_review` as events;
+    - migration `DeliveryFeedAndRedelivery` (`OutboxDeliveries.Event`, `RedeliveryOfId`, `FeedSequence`,
+      `OutputDestinations.FeedSequence`, `ApiKeys.DestinationId`); its Down takes the `deliveries:read` scope out of
+      the keys (the build before reads it as a nameless number) and revokes keys left without a scope;
+      `TypeCatalogueSqlTests` migrates down past it with part B's rows in place and up again;
+    - mock-erp: `PUT /api/article-prices/{priceListId}` (the update), multipart on `POST /api/ap/invoices`,
+      `POST /oauth/token`; the `fail-next` scenario of P0 is the demo's 503-then-200; the compose stack mounts an
+      `outbound` volume for the file drop;
+    - tests: the transports against a fake receiver on loopback (every auth variant, classification, Retry-After,
+      timeout, guard, multipart, update, file drop), the pipeline (fan-out, retry, dead letter, attempt limit, lost
+      nudge and the sweeper, an attempt cut off mid-send, ordering, the three re-approval modes, condition and
+      exclusive group, render failure, blob and pull destinations, tenant isolation, a tenant without the switch
+      unchanged), the API (deliveries, redeliver, feeds and keys, isolation), SQL Server (the feed counter under
+      row-level security, the down/up), and the http transport against the real mock-erp image;
+    - the compose stack, through the API (the curl session of docs/09 "Outputs"): with a forced 503 on erp-ap, an
+      auto-approved e-invoice of tenant A was rendered by a copy of `generic-ap-json` in the worker's renderer
+      process, failed once, was retried after the stub's `Retry-After` and delivered (two requests in the mock-erp
+      journal with one idempotency key and the revision header, the ERP id stored as the external id), entered a
+      pull feed, read and acknowledged with a `deliveries:read` key restricted to that feed (403 for another), and
+      was redelivered from its snapshot (`:r1`);
+    - a fix to part A found by that run: the API and worker images did not build (`dotnet publish -a` failed with
+      NETSDK1152, the renderer's `runtimeconfig.json` and `deps.json` built twice, with and without the RID); the
+      renderer project is RID-agnostic now (`IsRidAgnostic`), so it is built once and runs as `dotnet` plus its dll
+      next to the host in the images as well.
+  - Done (part C, the UI and the demo, docs/11 §19 and §23):
+    - Settings > Integrations in the portal (`web/apps/customer-portal/src/components/integrations`), behind the
+      switch: Destinations (a typed form per transport: http with method, URL template, timeout, success codes, every
+      auth variant, headers, `responseMapping`, update method and URL, multipart with the original; file drop; pull
+      feed; the write-only secret and its rotation; enable, disable, delete), Output mappings (the tenant's mappings,
+      the integration templates to copy, a new mapping of the tenant's own; the editor with the values view of a chosen
+      document as a tree, the visual field map or the JSONata code, the server-rendered preview with list sizes,
+      render errors and target-schema errors, versions, `If-Match` drafts, publish with the renderer's errors, new
+      version, target schema), Bindings (events, type, supplier and channel scope, condition, pinned version,
+      exclusive group, priority, re-approval mode), Lookup tables with their entries (left for later by part A as a
+      UI), and the delivery log with filters;
+    - the visual field map (`fieldMap.ts`): field rows with a fallback field, a lookup with its default, a date,
+      number or shorten formatter, a constant when empty and a required check; constants; expressions; lists with a
+      filter, nested lists and lists of plain values; it compiles to JSONata in the browser and travels in the
+      expression as a leading comment, so no `fieldmap` engine is stored (docs/11 §6.7 correction); an expression
+      edited in code mode keeps its code until the user replaces it with the map;
+    - the document's Deliveries tab (status, destination, binding, attempts, last answer, next retry; per delivery
+      the attempts with their answers, the external id, the payload, redelivery from the snapshot or rendered again),
+      shown when `DocumentDetail.outputs` (new) says the tenant has the switch, polled while a delivery is on its way;
+    - the admin console's Outputs feature switch; the supplier sheet's Attributes (`key = value` lines) as a stand-in
+      for P4's attribute form, which the mappings need for `supplier.attributes.erpVendorId`;
+    - the `article-price-import` mapping of docs/11 §13.10 built as a tenant mapping in the visual map
+      (`articlePriceImportMap`); it compiles to `fixtures/outputs/article-price-import.fieldmap.jsonata`, which
+      `ValuesViewTests` renders to exactly what the hand-written expression renders (and the web test checks the map
+      still compiles to that file); `JsonataRendererTests` pins that a block comment is ignored;
+    - the P3 demo of docs/11 §23 in a fresh compose stack (project `p3c`) with Playwright, in the browser where the UI
+      exists (docs/09 "Demo: outputs and delivery"): outputs and configurable types switched on, `std.price-list`
+      adopted, the Nordwind list mapped with the P2 flow (412 rows, 0 rejected), the vendor number given, `erp-uom`
+      created, the destinations `erp-articles` and `erp-ap`, `erp-ap-import` copied from `generic-ap-json`,
+      `article-price-import` built in the visual map and previewed (412 prices, the tier prices as 378 scales in 309
+      rows), the bindings by type; a forced 503 on the article-price stub, the approval, the Deliveries tab with the
+      503 waiting for its retry and then Delivered after two attempts (external id `AP-IMP-…`); the mock ERP journal
+      held two `POST /api/article-prices` (503, 202) with one idempotency key and 412 prices each; an e-invoice
+      uploaded afterwards was auto-approved and delivered to `erp-ap` only;
+    - fixes the demo exposed: "Render again" right after an edit rendered the expression before it (the debounce is
+      flushed now); the schema text, not its parsed object, is debounced (a new object each render restarted the
+      timer for good); the destination hint wrote URL placeholders through i18next, which interpolated them away;
+      layout of the three panes and the kind column; the document's Deliveries tab hides the event and revision
+      columns at first (the column menu shows them);
+    - tests: the field map (compile, comment round trip, problems, row edits, picks relative to the lists, list
+      sizes), the destination form (every transport and auth variant, round trip, errors placed on fields), the
+      Integrations tab against a routed fake client (switch off, destinations with the API's error on its field, the
+      binding bodies, the editor's map, preview, "Render again", save with `If-Match`, picks from the source tree,
+      code mode for a template, read-only for a reviewer), the Deliveries tab (attempts, external id, redelivery, none
+      for a reviewer), the review screen's tab gate, the outputs switch in the admin console, supplier attributes,
+      query keys; API `DocumentDetail.outputs` on and off.
+  - Done (review fixes, recorded as "Correction (P3, review fixes)" in docs/11 §13.1, §13.3, §13.5 and §13.6):
+    - a render failure the expression causes is permanent for that delivery, not "renderer unavailable" for the whole
+      publish: an output nested more than 48 levels (`depthLimit`, checked in the child), an answer the host cannot
+      read, a child that stops twice on one expression (`CRASH`); expressions nesting brackets or minus signs more
+      than 1000 deep are refused up front, and the child serves renders on a 256 MB stack; the host logs the first 20
+      lines of a child's standard error, not a stack overflow's thousands;
+    - render error messages are cut to 2000 characters in the child, in the host and wherever the fan-out writes them
+      (delivery, attempt, timeline, publish entry, flag);
+    - lookup data per render is bounded in total (100,000 entries, 16 M characters);
+    - re-approval counts a redelivery for the dead letter it replaced (`Update` updates, `Skip` skips), and `Skip`
+      no longer skips for a dead letter; a delivered newer revision cancels the older dead letters of its binding and
+      destination ("Superseded by revision N"), so `DELIVERY_FAILED` resolves after the usual recovery;
+    - concurrent redeliveries of one delivery answer 409 instead of 500;
+    - `$fmtDate` reads one-character patterns as custom ones and only ISO 8601 date-times; `$table` matches numbers
+      by value (`10.0` finds `10`);
+    - the review screen's Deliveries tab reads again after an approval or rejection, and polls an empty list for a
+      minute after the decision until the fan-out shows up;
+    - the OAuth token answer is read up to 64 KB (the delivery client buffers at most 1 MB); the response excerpt
+      masks the URL-encoded secret and `base64(username:secret)` too, of any length; a destination's
+      `responseMapping` is compiled when it is saved;
+    - docs/09's demo names the dialogs' buttons as they read (New destination, New mapping, New binding);
+    - the cause of `A_render_past_the_time_limit_is_stopped_and_the_next_render_works` failing now and then: the time
+      limit counts the child's processor time, and a background JIT (tiered compilation) or GC thread in the child
+      added to it, so a render was stopped after 1.7 s of wall-clock time while other tests ran; the child runs with
+      `DOTNET_TieredCompilation=0` and `DOTNET_gcConcurrent=0` now (startup about 0.25 s longer, outside the limit).
+      The host also read an exited child's processor time without catching the `Win32Exception` Linux throws there.
+  - Done (second review, recorded as "Correction (P3, second review)" in docs/11 §13.1, §13.3 and §13.6):
+    - deliveries run in a lane of their own in the runner (`Delivery:MaxParallelism`, default 4, of which one tenant
+      holds at most `Delivery:MaxParallelismPerTenant`, default 2), so a receiver that never answers holds up neither
+      the document pipeline (whose `Pipeline:MaxParallelism` slots deliveries used to take) nor other tenants'
+      deliveries; the OAuth token request counts against the attempt's `timeoutSeconds`; a tenant has at most 25
+      bindings and 25 destinations (409); the renderer pool answers `unavailable` after 60 s without a free process
+      (`Outputs:Renderer:QueueTimeout`); the output mapping preview runs 2 at a time per tenant with 2 queued (429
+      beyond, `Outputs:Preview`);
+    - `PATCH /destinations/{id}` that moves where the secret goes (another origin of a URL or of the token URL,
+      another auth type or header name) needs the secret in the same request, which replaces the stored one and drops
+      the previous one; the portal sends the secret with the change in one request; a cached OAuth token is used only
+      with the secret and auth settings it was obtained with;
+    - `auth.headerName` and `headers` refuse the headers the transport sets or that frame the request (`Host`,
+      `Idempotency-Key`, `X-DocProc-*`, `Content-Length`, hop-by-hop); secrets with CR, LF or NUL are refused, and
+      header-borne ones (`apiKeyHeader`, `bearer`) must be printable ASCII, when saved and again before a send
+      (permanent, not retried); a request the headers cannot carry is a permanent failure;
+    - the response excerpt masks the client secret exactly as the token request's form encoder writes it (a space as
+      `+`, `!()*'` escaped), the JSON-escaped and HTML-encoded forms of each credential, and masks the whole bounded
+      answer before cutting it to 4 KB (a secret echoed across the old byte cut survived in part);
+    - `$fmtNum` refuses separators that would write another number (an empty decimal separator or one equal to the
+      group separator with decimals, a digit or a sign in either), as does the visual field map;
+    - this section's heading still said "P1 in progress".
+  - Done (third review, recorded as "Correction (P3, third review)" in docs/11 §13.1, §13.3 and §13.6):
+    - `urlTemplate` and `updateUrlTemplate` take placeholders in the path and query only (400 when one stands in
+      the scheme or host, where the rendered payload could choose the host the credential goes to); the transport
+      refuses such a template saved earlier (permanent `template`) and an expanded URL whose scheme, host or port
+      differs from the template's (permanent `url`);
+    - `PATCH /destinations/{id}` that moves another auth type to `hmacSha256` needs the secret again (the stored
+      credential would become a signing key for the new host); an `hmacSha256` destination that stays so may still
+      move without it;
+    - `$fmtNum` takes the decimal separator `.` or `,` and a group separator from none, `.`, `,`, `'`, a space,
+      a no-break space or a narrow no-break space (`e` wrote an exponent, `,,` around `,` unreadable text), as does
+      the visual field map;
+    - in the delivery lane a tenant that holds a slot never takes the last free one (`DeliveryLaneGate`), so one or
+      two tenants whose receivers never answer leave a slot for the others; with the defaults it takes three such
+      tenants to fill the lane (before: two). The claim that a slow receiver holds up no other tenant's deliveries was
+      true for one tenant only and is corrected in docs/11 §13.6, docs/09 and the code's comments.
+  - Done (fourth review, recorded as "Correction (P3, fourth review)" in docs/11 §13.1, §13.3 and §13.6):
+    - `:redeliver` with `mode: rerender` answers 409 when the document is no longer at the delivery's version, or no
+      longer in the settled state its event comes from (a reprocessed document's current, unapproved data went out
+      as the old revision's approval); `snapshot` is unchanged;
+    - a URL template value of `.` or `..` is a permanent `template` failure, and the expanded URL's path must start
+      with the template's literal path (a dot segment moved the request to another path of the receiver);
+    - a mapping version's `contentType` is checked against an allowlist on create, save and publish; the payload
+      route sends `nosniff` and serves anything but JSON, CSV and plain text as an attachment; a multipart part whose
+      content type is not a media type fails permanently instead of being retried for 72 h;
+    - `DELETE /suppliers/{id}` and `DELETE /channels/{id}` answer 409 while an output binding is scoped to them (a
+      500 from the foreign key before);
+    - docs/09's API version of the outputs demo sets the supplier's `erpVendorId` (it dead-lettered without it), has
+      the fourth lookup entry and the binding's `onReapproval: Update` with the update URL; step 7 lists the field
+      rows in the fixture's order, and step 9 says what the Deliveries tab reliably shows.
+  - Done (fifth review, recorded as "Correction (P3, fifth review)" in docs/11 §13.1 and §13.3):
+    - a URL template value of `.` or `..` is refused only where it makes a whole path segment `.` or `..` (alone, with
+      another value or with the template's text); in the query, the fragment or beside other text of its segment it
+      is sent (it dead-lettered as a permanent `template` failure before);
+    - a mapping version's `charset` is a token, quoted or not: a quoted one with characters a token cannot hold
+      (`charset="x,text/html"`) is refused on create and save, where before it was stored without its quotes as a
+      value only publish refused.
+  - Left for later:
+    - from docs/11 §19's Integrations: `:test` of a destination (not built in the API either), callback setup
+      (callbacks are P5), recipes and batch schedules on bindings (P6), CSV import of lookup tables, master data
+      sources and conflicts (P5); a binding scoped to a supplier group or receiving entity (P4); the review screen's
+      Output preview and Data tabs and the Re-send output action (the Deliveries tab redelivers); the suppliers
+      sheet's Outputs tab (supplier-scoped bindings are made in Bindings); the admin console's Integrations tab of a
+      tenant and the Output templates editor (P6); the editor's lint for the singleton-array case (§13.2); a code
+      editor with highlighting (the code tab is a text area, see the docs/11 §19 correction);
+    - `DocumentDetail.deliveries[]` and `externalRefs[]` (§18: the tab reads `GET /deliveries?documentId=`), the API key
+      UI for `deliveries:read` (keys with that scope are made through the API);
+    - the pull destination's `retentionDays` (stored, not enforced); masking of a type's
+      `sensitive` fields in response excerpts (§16; only the destination's credentials are masked: the secret and the
+      token in the forms they travel and are echoed in, and the Basic credential); a receiver that echoes a credential
+      in an encoding of its own (base64 of the bearer token, say) is not masked;
+    - the noisy-neighbour limits stop at the delivery lane, the binding cap and the preview's limiter: the renderer pool
+      of a host has no per-tenant share (the worker's renders are bounded by 25 bindings per tenant, each within the
+      render limits, so one approval's fan-out can still keep a pool process busy for that long), `timeoutSeconds`
+      keeps its ceiling of 120 s (it ties up one of the tenant's two lane slots, not the pipeline), there is no budget
+      of delivery attempts per tenant over time, and the document pipeline itself has no per-tenant share either;
+    - the delivery lane guarantees a slot to the other tenants only while fewer than ceil((`Delivery:MaxParallelism`
+      - 1) / `Delivery:MaxParallelismPerTenant`) + 1 tenants (three with the defaults) have receivers that never
+      answer; more of them fill it for up to `timeoutSeconds` per retry round. A fair queue across tenants, or a
+      slower lane for a destination that keeps timing out, would bound that; neither is built;
+    - a cap on the number of lookup tables per tenant (a render's lookup data is bounded in total instead);
+    - multi-call recipes (§13.4) and chunked delivery: docs/11 §23 lists them for P6 and decision 4 of §24 keeps
+      them later; `RecipeJson` stays unused;
+    - `document.needs_review` bindings; group and receiving-entity scopes (P4);
+    - the delivery gate is per process: two hosts (API and worker in compose) can each send one document's
+      deliveries to one destination at the same time; the claim under the row's token keeps one delivery from being
+      sent twice, but the order between two revisions across hosts rests on the skip rule;
+    - in the Production topology the API runs no runner, so a redelivery's nudge is not read; the worker's delivery
+      sweeper sends it after `Delivery:SweepGrace` (as with the publish nudge, docs/11 §13.5);
+    - a settlement whose outbox row the publish stage adds itself (a decision from before the row was written with
+      it, `DocumentOutbox.AddMissing`) claims the document, which moves its version one past the one its deliveries
+      carry; a rerender of such a delivery is refused as "Document changed" (`snapshot` still sends it);
+    - `OutputBatch` and `OutboxDelivery.BatchId` (batches, P6), recipes (`RecipeJson` is a column, the API takes none),
+      the `liquid` engine (a `fieldmap` engine is not needed, the visual map compiles to JSONata), callbacks
+      (`CallbackConfigJson` is a column), `sftp` and `email` transports;
+    - lookup tables: CSV upload, `Source` Import and Sync, aliases per entry (an alias is another entry), the platform
+      code lists as rows (`uom` stays in code, `CodeLists.Platform`); `lookupExists` and `enumMember` still read the code
+      lists in code, not the tenant's tables;
+    - the publish check of a type against the output mappings that read its fields (docs/11 §5.7 dependents; the paths
+      are stored in `ReferencedPathsJson` for it), and the editor's lint for the singleton-array case (§13.2);
+    - (done in P4 part A) the supplier attribute schema (`TenantSettings.SupplierAttributeSchema`), groups, receiving entities and the
+      per-entity attributes (P4);
+    - the values view cache per `(DocumentId, Version)` (§5.6): not built, see the correction there; `$table` takes the
+      table key as a string literal only;
+    - the time limit polls the child's processor time every 25 ms, so a render may run up to that much over; a render
+      that waits on nothing cannot be idle, so the wall-clock ceiling only matters on a starved host.
+- **P4, routing, supplier configuration, layouts and identification – part A done (sources, routing, supplier
+  configuration), part B done (the mapping engine with layouts, identification rules), part C done (learning layouts in
+  review, the new-layout flow, golden documents, sandbox runs, config bundles, as API), part D done (the UI of P4 in
+  the customer portal, the demo fixtures and the compose demo run in the browser, with the fixes it showed).** Everything of part A is behind the tenant's `sourceRouting` switch;
+  a tenant without it behaves exactly as before: its channels are not polled and keep their free config, ingest
+  assigns no supplier and pins no type, Match, Classify and Split run as before, and the new API routes answer 403
+  (docs/05 "Routing and supplier configuration endpoints as built").
+  - Decided (part A, recorded as "Correction (P4, part A)" in docs/11 §6.3 to §7.4, §9.3 and §12.1):
+    - the pollers run only for tenants with `sourceRouting` on (a `Mailbox` channel from before is not read by surprise),
+      next to the runner; compose and the AppHost poll in the worker only (`Intake:PollersEnabled: false` for the API);
+    - "each message once" rests on a message id unique per channel in the database (a hash of the `Message-ID` and
+      the sender, corrected by the review fixes below from `imap:{UIDVALIDITY}:{UID}`; a hash of a file's relative path,
+      size and time), the cursor only saves work; two hosts or a lost cursor ingest nothing twice;
+    - the `Authentication-Results` header trusted is one of a configured `authserv-id` (the review fixes below dropped
+      the topmost-header default); a DMARC pass for another domain than the From domain is not a pass; the original
+      sender of a forward unwrapped from a trusted forwarder counts as authenticated when the forwarder's own message is;
+    - a tenant IMAP host must be public and reached over TLS (`TenantEndpointGuard`, re-checked on the resolved
+      addresses), unless the platform allows it (`Mail:AllowedHosts`);
+    - the drop zone is per tenant (`Intake:FolderRoot/<slug>/`), so a tenant cannot watch another's folder;
+    - a reviewer's `remember` saves a disabled rule (a proposal a ConfigAdmin enables), in line with decision 2;
+    - the folder-prefix specificity counts the prefix's depth, not its length; the attribute schema is a typed subset of
+      JSON Schema checked in the API process (non-backtracking patterns), not a general schema engine;
+    - the Down of the migration maps the `Supplier` type source to `Rule` and the source match methods to none, so the
+      build before reads every document.
+  - Done (part A):
+    - the data model (migration `SourceRoutingAndSupplierConfig`, policy `PolicyV8` with the four new strict tables; its
+      Down runs on SQL Server with P4 rows in place, `TypeCatalogueSqlTests`): the source facts of an ingestion
+      (`SourceRecipientsJson`, `SourceMailbox`, `SourceFolderPath`, `SenderAuthJson`, `ForwardedBy`, the hints), the
+      item's `RouteJson`, the channel's `SourceKey` (unique across tenants) and defaults (supplier, type, receiving
+      entity), the supplier's `GroupId` and `SettingsJson`, the document's `SupplierSourceRuleId` and
+      `ReceivingEntityId`, `SupplierGroups`, `ReceivingEntities`, `SupplierEntityAttributes` and `SupplierSourceRules`
+      (normalised conditions, indexed lookups, a condition hash unique per tenant); `TypeSource.Supplier` and the match
+      methods `SourceRule`, `ChannelDefault` and `Hint`;
+    - the IMAP poller (`MailKitImapMailSource`, MailKit 4.18.2, `ChannelPollerHostedService`): the channel's password from
+      `ISecretStore` under its own reference only, UID tracking, the .eml as raw artefact and its attachments as items,
+      the sender, To and Cc, mailbox, subject, `Authentication-Results` (SPF, DKIM with its domains, DMARC) and forward
+      unwrapping (an attached `message/rfc822`, or an inline "Forwarded message"/"Weitergeleitete Nachricht" block) from
+      the channel's and the tenant's trusted forwarder domains (`MailMessageReader`); size and per-poll limits; the
+      failure reason in the channel's `lastError`; tested against a GreenMail container (`ImapPollerTests`);
+    - the folder watcher: the stable-size check over two scans, the folder path relative to the channel root, the move to
+      `processed/` or `failed/`, links, hidden and partial files skipped, nested channels' folders left to them
+      (`FolderWatcherTests`);
+    - the resolver at ingest (`SupplierSourceResolver`, `SourceRouting`): hint, conditions with the DMARC requirement,
+      specificity and priority, ties (`SUPPLIER_AMBIGUOUS`), the skipped winner (`SUPPLIER_SOURCE_UNVERIFIED`, a warning
+      that never auto-approves), the channel default, the pinned type from the rule, the channel or the supplier's single
+      allowed type, the receiving entity, the timeline event and the item's route; Split keeps a pinned document whole and
+      gives parts the route; Classify keeps a pinned type (not an e-invoice's);
+    - Match as corroboration: VAT or IBAN evidence confirms the routed supplier, keeps an `Exclusive` (or hinted) one with
+      a blocking `SUPPLIER_CONFLICT`, or replaces a default and classifies again a type only the old supplier had pinned;
+    - `POST /routing:test` with candidates, held and failed conditions and an explanation; source rule CRUD (ConfigAdmin);
+      supplier groups, receiving entities and per-entity attributes (TenantAdmin); supplier `settings` (types, locale,
+      review mode, defaults, `layouts.required` with the tenant default `layoutsRequiredByDefault`, `requireSenderAuth`)
+      and `groupId`; the typed attribute schema applied to supplier, group and entity attributes; channel connector
+      configs, source keys and defaults; `:assign-supplier` with `remember`; `:reprocess` from Match; `DocumentDetail`
+      with the match confidence, rule and entity; `review.mode: always` honoured by the review gate;
+    - the values view: `source.mailbox` and `source.folderPath` filled, `entity` from the receiving entity, `supplier.group`,
+      and the attributes merged group, supplier, entity;
+    - the e-invoice extras (`EInvoiceExtrasReader`: buyer reference, accounting cost, project and contract references,
+      the parties' identifications, every line property, each with its element path) and the restricted `xml-path`
+      walker (`XmlPath`) the layouts' rules will use;
+    - the flag labels and messages of `SUPPLIER_SOURCE_UNVERIFIED`, `SUPPLIER_AMBIGUOUS` and `SUPPLIER_CONFLICT` in both
+      apps (en, de); docs/09 "Source routing" and the `Mail` and `Intake` settings; the warm-up passages of docs/11 §8.3,
+      §12.10, §22 and §23 rewritten for decision 2 (default 5; the P4 demo sets the demo tenant's warm-up to 0
+      explicitly), "Correction (P4, warm-up)".
+  - Left for later (part A's scope):
+    - no UI: the supplier sheet's Routing (with the test box), Settings and Attributes tabs, the supplier groups list, the
+      receiving entities, and the typed channel forms are §19 work of the "Supplier sheet tabs" item; the API is complete
+      for them;
+    - `POST /ingestions` does not take `supplierId` and `documentTypeKey` hints yet (the columns and the resolver do), nor
+      the `ingest:hint` API key scope; the portal's upload dialog has no supplier and type pickers;
+    - the blob-prefix folder source, `IngestionItem.Role` and `bodyAsDocument`, the Microsoft Graph mail source,
+      `ConnectorKey` and `GET /connectors`, `ROUTE_DIFFERS`, `:clone-config`, `POST /suppliers:import`;
+    - the receiving entity is taken from the rule or the channel default only, not from the customer VAT id printed on
+      the document; `CustomerMatchRule` still checks the tenant's own VAT id;
+    - `review.autoApproveMinConfidence`, `defaults.currency` and `locale` are stored and returned but not applied yet
+      (the `defaults` step and the parse transforms come with the layouts);
+    - the Match stage still loads every supplier of the tenant; the indexed candidate loading and `SUPPLIER_AMBIGUOUS`
+      for two suppliers with one VAT id or IBAN are not built;
+    - output bindings scoped to a supplier group or a receiving entity (P3 "Left for later") are not built;
+    - the extras are read but not written into the canonical tree; binding them to fields is the layouts' (part B);
+    - the compose demo of part A was not run in the browser; the GreenMail, folder, routing and API scenarios run as
+      tests (`ImapPollerTests`, `FolderWatcherTests`, `SourceRoutingPipelineTests`, `SupplierRoutingEndpointsTests`).
+  - Part B (the mapping engine with layouts, identification) is behind the tenant's `supplierLayouts` switch; a tenant
+    without it is never identified by a layout, no layout fills its documents, its review gate is unchanged and the
+    layout routes answer 403 (docs/05 "Layout endpoints as built", docs/09 "Supplier layouts").
+  - Decided (part B, recorded as "Correction (P4, part B)" in docs/11 §5.8, §6.6, §8.2, §8.4, §8.5, §8.6, §11 and §18):
+    - `classify.identification` runs for a supplier known before Classify (a source rule, the channel default, a hint, a
+      reviewer); `match.layout` for one Match finds by content or that replaces a default source supplier, and that
+      replacement reverts what Classify's layout decided (its flags, its layout, an identified or proposed type);
+    - `NEW_LAYOUT` and `LAYOUT_AMBIGUOUS` carry `stepId` and each step replaces only its own instances
+      (`DocumentFlagWriter.ReplaceForStep`); the review gate refuses them by name, a `Proposed` type, a layout-managed
+      supplier's document without a layout version or with one that is not Active, and a document inside the version's
+      warm-up (`LAYOUT_WARMUP`, info: "document 1 of the first 5");
+    - the warm-up is counted once per document (an atomic increment on the version while below its warm-up, and a
+      timeline event on the document); the default stays 5 (decision 2), stored flat as `TenantSettings.LayoutReviewWarmup`
+      (null for 5) and read at activation;
+    - values written by a layout carry `SourceMethod.Profile` (there is no `Rule`); the rule that filled a field is in
+      `AppliedConfigJson.layout.hits`, not in `FieldSource`;
+    - `SupplierLayoutVersions` is not temporal (rule and mapping never change out of Draft); the layout key is unique per
+      `OwnerId` (the supplier's or the group's id);
+    - three drifting documents in a row make a version Degraded; without an LLM provider a layout's values stand and
+      review fills the rest instead of the document waiting for a provider;
+    - a layout's `column-table` is the table tool's specification; on another document the header row is found by whole
+      word runs of the column headers (a sentence holding "ab 10" is no header).
+  - Done (part B):
+    - `DocProc.Mapping/Identification`: `IdentificationRule` (all, any, none, nesting to 3, inherited page, region and
+      box, at most 20 identifiers, an 8-character hash, a sentence), the meta-schema `schemas/identification-rule.v1.json`
+      (snapshot-tested), `IdentificationRuleEvaluator` (strict: whole words case-insensitive unless asked, phrases on one
+      line, regions and boxes by word centre, `regex` over the region's text with NonBacktracking and a timeout,
+      `supplierValue` compacted, `source` facts, `allowOcrErrors` only on OCR layers and words of six letters or more,
+      evidence per identifier), `IdentificationRuleChecks` (the checks at save), `ILayoutResolver`/`LayoutResolver`
+      (priority, then positive identifiers, ties ambiguous, Candidates only pending, Shadows only counted, group layouts
+      only without an Active own layout, item kinds, receiving entities, a fixed type, e-invoices exempt) and
+      `LayoutSuggester` with `SimilarityProfile` (suggestions only);
+    - `DocProc.Mapping/Layouts`: `LayoutMapping` (fields with rules and transforms, a `column-table` per repeating group,
+      defaults, required fields, locale, coverage) and `LayoutEngine` (`label-right`, `label-below`, `region`,
+      `regex-anywhere`, `constant`, the column table through the review tool's `ColumnTableEngine` across pages with its
+      table report, the drift check);
+    - the data model (migration `SupplierLayoutsAndIdentification`, policy `PolicyV9` with `SupplierLayouts` and
+      `SupplierLayoutVersions` strict; its Down maps `Identification` and `Proposed` back to `Rule` in `Documents` and
+      `DocumentsHistory` and runs on SQL Server with part B rows in place, `TypeCatalogueSqlTests`):
+      `Documents.SupplierLayoutVersionId`, `TypeSource.Identification` and `Proposed`, `TenantSettings.LayoutReviewWarmup`;
+    - the pipeline: `classify.identification` as the first step of Classify (and for a kept Human or pinned type, only the
+      layout), `match.layout`, the split prefilter (a layout whose type is never split keeps a routed item whole),
+      `supplier-mapping` in Extract (`LayoutExtractor`, `LayoutTreeWriter`: fields, composite members, the invoice's tax
+      row, lines with their own place, tier prices, defaults, the coded invoice record checked to read; the table report
+      stored with `Origin=Layout`; the LLM fills only what the layout left Missing; counters and degradation), and the
+      review gate's layout conditions (`LayoutReviewGate`);
+    - the API (docs/05 "Layout endpoints as built"): the layouts and versions of a supplier and a group, one version in
+      full, `layouts:resolve`, `layout-suggestions`, `identification-rules:test` with evidence and overlaps; for a
+      ConfigAdmin a layout written by hand (a Candidate), `:activate` after the identification test with the tenant's or
+      a given warm-up, `:retire`; `layoutReviewWarmup` in the settings; `DocumentDetail.typeSource` and
+      `supplierLayoutVersionId`;
+    - demo PDFs: three Nordwind invoices in the ERP design and three from the web shop (`fixtures/demo/uploads/tenant-a`,
+      drawn by `DemoNordwindInvoices`); the flag labels and messages of `NEW_LAYOUT`, `LAYOUT_AMBIGUOUS`, `MAPPING_DRIFT`
+      and `LAYOUT_WARMUP` in both apps (en, de);
+    - tests: the evaluator, the meta-schema and the checks at save, the resolver's ordering, ambiguity, Candidates,
+      groups, item kinds, entities and e-invoices, the suggester, the engine's strategies, transforms and drift, a column
+      table found again on another document across pages (`DocProc.Mapping.Tests`); the pipeline with the golden values
+      of all six Nordwind invoices, `NEW_LAYOUT` for the web shop with the ERP layout only (owned by Classify, and by Match
+      for a supplier found by content), `layouts.required`, the warm-up (2 to review, the third auto-approved), ambiguity
+      and priority, a pending Candidate, drift and degradation, a tenant without the switch, and the 14-page price list
+      kept whole by the split prefilter and read entirely by one `column-table` (412 rows, its table report,
+      `PriceListLayoutTests`); the API (`LayoutEndpointsTests`); RLS and the migrate down and up on SQL Server.
+  - Part C (learning, lifecycle, review flows, golden documents, bundles) is behind `supplierLayouts` too; a tenant
+    without it approves, assigns suppliers and reprocesses exactly as before (docs/05 "Layout learning, review flows and
+    governance endpoints as built", docs/09 "Supplier layouts").
+  - Decided (part C, recorded as "Correction (P4, part C)" in docs/11 §6.6, §8.3, §9.3, §12.6, §12.9, §12.10, §15.4,
+    §16 and §18):
+    - `MappingAuthor` is a grant the identity provider issues besides a role (the dev realm gives it to
+      `tenant-a-reviewer`); its policy is satisfied by the grant, `TenantAdmin` and `SuperAdmin`. Activating and retiring
+      need it; a `MappingAuthor`'s save from review is activated at once when the replay passes (decision 2), anyone
+      else's is a Candidate; `MappingEditor` is the `Review` policy;
+    - the replay set holds the version's own documents whatever their status (a layout saved in the approval's
+      transaction is replayed before its document is Approved), plus the supplier's approved documents of the type (the
+      last 50) and golden documents, each only when the rule holds; field agreement per covered field, 90 % by default
+      (`layoutAgreementPercent`), on a non-empty set;
+    - a change of the tenant's warm-up applies to the Active versions that carry the old tenant value, so the settled
+      P4 demo (warm-up 1 of 5, then the tenant set to 0, then delivered without review) works;
+    - notifications are a table (`Notifications`, one row per Candidate with documents waiting), and a document waiting
+      for a Candidate names it (`Documents.PendingLayoutVersionId`);
+    - the sandbox runs a stored document in memory (no `IsSandbox` documents); the bundle is HMAC-signed with
+      `ConfigBundles:SigningKey` and imported as drafts, Candidates and disabled rules and bindings;
+    - with `supplierLayouts`, `:assign-supplier` answers 202 and re-runs identification from Classify.
+  - Done (part C):
+    - `DocProc.Mapping/Learning`: `AnchorLearner` (label-right, label-below, region fallback with a tolerance from the
+      neighbours, value patterns from the printed shape, constants where allowed, reuse of an equal learned value's
+      rules, `column-table` from the rows' places or the review tool's specification, every rule checked to read the
+      confirmed value back), `IdentifierProposer` (selections to identifiers, the proposed rule), `LayoutPrefill` and
+      `ValueComparison`;
+    - the data model (migration `LayoutLearningAndGovernance`, policy `PolicyV10` with `GoldenDocuments`,
+      `RegressionRuns` and `Notifications` strict; its Down runs on SQL Server with part C rows in place,
+      `TypeCatalogueSqlTests`): `Documents.PendingLayoutVersionId`, `TenantSettings.LayoutAgreementPercent`;
+    - the pipeline: the `layout-prefill` step in Extract for `NEW_LAYOUT` documents (the pending Candidate as a basis,
+      other layouts' labels without positions, master data and known values; the LLM fills the rest only when
+      configured, so without one the document waits in review), the pending Candidate named on the document with a
+      notification; `LayoutLearning` (draft, replay with the identification test and the field matrix, activation,
+      matching documents, attach) and `LayoutLearningSave` (new layout, new version with the "no longer recognised"
+      check, confirm against a pending Candidate);
+    - the API: `:learn-layout`, `:approve {learnLayout}` (NEW_LAYOUT resolved as `learned` or `approvedWithoutLayout`),
+      `identifiers:propose`, `:match-layout`, hand-written versions, `:replay`, `matching-documents`, activation with the
+      replay and `reprocessWaiting`, retirement, `documents:bulk-reprocess`, notifications, `?pendingLayoutVersionId=`,
+      `:assign-supplier` through Classify, the warm-up applied to Active versions, golden documents, sandbox and
+      regression runs, the configuration bundle with export and import; `DocumentDetail.pendingLayoutVersionId`;
+    - the `MappingAuthor` grant in the Keycloak realm, the dev users, both apps' policy table (`policies.ts`) and the
+      README;
+    - tests: the learner's golden cases and the proposer (`AnchorLearnerTests`); the P4 demo as a pipeline test on the
+      committed Nordwind PDFs (a web-shop invoice pre-filled without an LLM, learned by a `MappingAuthor`, the next one
+      filled by the learned layout as warm-up 1 of 5, the tenant set to 0, the following one auto-approved, the ERP
+      design unchanged), the Candidate path (the next document waits, pre-filled from the Candidate, notified,
+      activation offers it), refusals and an overlapping rule (`LayoutLearningPipelineTests`); the API
+      (`LayoutLearningEndpointsTests`, `GovernanceEndpointsTests`, the updated `LayoutEndpointsTests`); RLS, the
+      idempotent script and the migrate down and up on SQL Server.
+  - Left for later (the rest of P4):
+    - (done in part D) the UI of parts A to C and the compose demo with its Playwright run; the second demo tenant's
+      reviewer without the grant is `tenant-b-reviewer`;
+    - the learner does not use `LlmStage.Synthesize`, definition labels as synonyms, or structured sources; the
+      pre-fill does not seed the table tool's dividers from other layouts' column headers; corrections on mapped fields
+      do not count against a version's `Corrected`;
+    - the sandbox takes no uploaded file and runs no routing, validation or output rendering; regression runs are
+      started by hand for layout versions only (no publish hook, no output hash comparison, no
+      `RequireGreenRegression`); golden documents are not marked automatically;
+    - `documents:bulk-reprocess` runs in the request (at most 200), not as a background job with progress;
+    - the bundle does not carry lookups, flows or tenant identification rules (P5), nor the channels and receiving
+      entities of rules and bindings; its import does not run a regression suite;
+    - the tenant fallback rules (`TypeIdentificationRule`, P5) and therefore their part of the split prefilter;
+    - the structured strategies (`xml-path`, `json-path`, `cell`, `source`), `label-row` and `key-value-block`, the
+      `parseNumber`, `parseDate`, `table` and `sign` transforms, `extFields`, `llmHints`, `ruleOverrides` and
+      `pipelineOverrides` of a mapping; the e-invoice extras are still not bound to fields; Shadow runs are counted, not
+      compared; the reduced LLM schema per layout version (`CoverageJson` is stored);
+    - layouts for a group written through the API, `PATCH /supplier-layouts/{id}`, draft `PUT`, `:shadow`;
+    - part A's and part B's other open items (hints on `POST /ingestions`, the Graph mail source, `ROUTE_DIFFERS`,
+      `:clone-config`, `POST /suppliers:import`, indexed supplier candidates, receiving entities from the customer VAT
+      id) stay as listed above (the warm-up slot taken outside the stage's save was closed by the third review fixes).
+  - Decided (part D, recorded as "Correction (P4, part D)" in docs/11 §8.2, §8.3, §9.3, §12.6, §12.10, §19 and §23):
+    - a layout posted for a supplier without approved documents in that design is not activated (its replay set is
+      empty, docs/11 §8.3 unchanged); it is activated through the Candidate path, by a `MappingAuthor` confirming the
+      first document in that design against it. The demo does that for `nordwind-invoice-erp`
+      (`fixtures/demo/layouts/nordwind-invoice-erp.json`), and docs/09 "Supplier layouts" says so;
+    - the `layout-prefill` step also searches the type's own labels (extraction labels, then display labels) for fields
+      read from digits, so a new design's invoice number and customer number are pre-filled when its labels differ
+      from the other layouts' (source `definitionLabel`);
+    - a non-retryable LLM error (a replay miss, an invalid request) after a layout or the pre-fill leaves their values
+      standing and the document goes to review; before, only an unavailable provider did;
+    - an `Invoice` fork stays the typed invoice record for layouts and replay; a single tax row with only its rate takes
+      its amounts from the printed totals; a column table learned from the review tool's box gets the stop line under
+      its rows;
+    - the default warm-up stays 5; the demo shows warm-up 1 of 5 and then sets the tenant to 0 (as settled for P4);
+    - `settings.layouts.required` is a JSON boolean, as docs/05 says (the strings `"true"`, `"false"` and `"inherit"`
+      stored before are still read).
+  - Done (part D):
+    - customer portal, review: the New layout panel (type picker and Match, suggestions, Confirm against pending
+      layout, save as a new layout or a new version with the not-recognised confirmation, pre-fill source labels), the
+      layout chip and New layout badge in the header, Identify mode on the page viewer (click or box, proposals from
+      `identifiers:propose`) with the Identification tab (chips with all/any, case, must not contain, widen; the live
+      test with overlaps; the evidence of an identified document), "Approve and save as layout" in the approve dialog
+      with the refusals named, the Layout saved dialog with the siblings and their reprocess, Mark as golden; the
+      table tool keeps the row anchor on a mapped column;
+    - customer portal, elsewhere: the inbox's New layouts filter and badge (and `?pendingLayoutVersionId=`); the
+      supplier sheet's Settings, Attributes (a form from the tenant's attribute schema), Routing (source rules and Test
+      routing) and Layouts (cards per type with the rule in words, versions, state, origin, stats, warm-up, the replay
+      matrix, the waiting documents, Replay, Activate with warm-up and reprocess, Retire) tabs; the Supplier groups
+      tab; Settings > Routing (typed mailbox and watched-folder forms, Test routing), Receiving entities, Governance
+      (golden documents, sandbox and regression runs, bundle export, dry run and import) and the layout settings on
+      General (warm-up, agreement, layouts required by default, trusted forwarders, attribute schema); en and de;
+    - admin console: the `sourceRouting` and `supplierLayouts` feature switches;
+    - backend: the fixes above, `tenant-b-reviewer` (Reviewer of tenant B without `MappingAuthor`) in the realm and the
+      dev users, no `LIKE` on SQL Server json columns (the warm-up ordinal and the table specifications are filtered
+      after the read; `JsonColumnQueryTests` keeps it so), `layouts.required` as booleans;
+    - fixtures: four Nordwind invoices per design (NW-RE-2026-1130 and WS-2026-000391 added, drawn by
+      `DemoNordwindInvoices`), the ERP layout as a POST body, `fixtures/demo/mail/send-invoice.sh` (a demo PDF mailed to
+      GreenMail with the `Authentication-Results` header);
+    - the compose demo (project `p4d`) clicked through in Playwright, docs/09 "Demo: routing and layouts" with the UI
+      steps and the curl and SMTP commands;
+    - tests: vitest for the panel, Identify mode, approve and save, the supplier tabs, the routing test box, the
+      settings bodies and the admin switches; .NET tests for the definition-label pre-fill, the LLM failure, the demo
+      configuration end to end in the pipeline (ERP layout fixture, customer number, the learned web-shop layout with
+      its lines), the tax row, the stop line and the boolean settings.
+  - Left for later (part D):
+    - values the pre-fill placed are Inferred at 75 % and raise `LOW_CONFIDENCE` until confirmed; the tax breakdown rows
+      are not editable in the generated form; the table tool is offered for definition-driven types only;
+    - the visual layout editor (a sample document with every rule's hit box), the supplier sheet's Outputs and
+      Activity tabs, attributes per receiving entity, the `REVISION_OF` panel, Re-send output, the Output preview and
+      Data tabs, the audit log and approvals of Settings > Governance, the admin console's tenant tabs for layouts, the
+      inbox grouped per supplier;
+    - the "new version of X" choice tests X's documents only when the approval is sent (the refusal and a
+      confirmation), not when it is chosen;
+    - Playwright specs in `web/e2e` for these screens (the demo run used a script outside the repository).
+  - Review fixes (after part D, recorded as "Correction (P4, review fixes)" in docs/11 §7.1, §7.3, §8.2 and §8.5):
+    - decided: no `Authentication-Results` header is believed unless its `authserv-id` is in `Mail:TrustedAuthServIds`
+      or the channel's `authServId` (a server that writes none leaves the sender's own header on top); with none, every
+      sender is unauthenticated, and a trusted server's header that does not parse fails closed. Compose and the AppHost
+      listed `mx.tenant-a.local` and `mx.tenant-b.local`, the receivers `send-invoice.sh` wrote (one platform receiver,
+      `mx.platform.local`, since the fourth review fixes below);
+    - decided: a mailbox message's id is a hash of its `Message-ID` and sender (`imap:mid:`), or of its bytes
+      (`imap:sha:`), so a folder renumbered by its server (a new UIDVALIDITY) ingests nothing twice (the second review
+      fixes below add the bytes' digest to `imap:mid:`);
+    - done: the review gate refuses auto-approval while `SUPPLIER_AMBIGUOUS` is open (docs/11 §11 layer 3);
+    - done: the files of an attached `message/rfc822` are items whoever sent the mail, for every attached message; only
+      the sender facts are unwrapped from a trusted forwarder;
+    - done: free-mail domains are refused as trusted forwarders (tenant settings, mailbox config) and ignored if stored;
+    - done: a watched-folder channel whose folder, or a folder on the way to it, or its `processed/` or `failed/`, is a
+      link is not read, and no file is moved through a link;
+    - done: the message body is read up to `Mail:MaxMessageBytes` whatever size the server reports, and copied once
+      (the second review fixes below make the fetch itself bounded: before, MailKit buffered the whole body first);
+    - done: a document counts once per layout version towards its statistics and drift (`document.layout_applied`),
+      so reprocessing one drifting document does not degrade its layout;
+    - done: `supplierValue` holds only for the whole value (edges at word boundaries, punctuation or a letter/digit
+      change; the second review fixes below close the spaced-digit-group gap); the rule in words names the keys by
+      their labels ("VAT id", "IBAN", "attribute customerNo");
+    - done: `match.layout` runs only when VAT or IBAN named the supplier; a supplier found by its name or mail domain
+      gets no `NEW_LAYOUT`;
+    - done: with `allowedTypeKeys`, the keyword classification of a document whose supplier is known before Classify
+      (and Match's classification for a replacing supplier) chooses among those types or `Unknown`, and an LLM answer
+      outside them is `Unknown`;
+    - done: the `MappingAuthor` grant counts only together with a role that may review (`Policies.Satisfies`);
+    - done: `POST /config/bundle:import` checks an imported layout as `POST /suppliers/{id}/layouts` does (key, type
+      key the tenant has or the bundle brings, name length, priority, item kinds) and reads every member by its JSON
+      type, so a malformed bundle is an item error or a 400, never a 500;
+    - done: the `document.supplier_identified_by_source` event carries the channel, folder path, sender, mailbox and
+      the rule in words, and the Timeline shows them; every document event type has an en and de Timeline label
+      (`TimelineLabelTests` checks them against the backend's constants);
+    - done: the compose demo re-run in Playwright through step 15 of docs/09 "Demo: routing and layouts" (the sender
+      rule with the trusted receiver's DMARC pass, the identifiers in words, warm-up 1 of 5, warm-up 0, delivery, the
+      folder's Timeline), plus a mail whose `dmarc=pass` names an unlisted `authserv-id`: `SUPPLIER_SOURCE_UNVERIFIED`;
+    - left for later: the LLM classifier's own enum restricted to the allowed types (P5's classifier); forwards
+      unwrapped from the inline `From:` block still count for a trusted forwarder (only the attached form carries the
+      original headers); the UIDVALIDITY change is tested by resetting the cursor to another validity, not on a server
+      that renumbers its folder.
+  - Second review fixes (recorded as "Correction (P4, second review fixes)" in docs/11 §6.6, §7.1, §8.5 and §15.4):
+    - done: a mailbox message's body is fetched as a partial, `BODY.PEEK[]<0.N>` with N one byte past
+      `Mail:MaxMessageBytes`, so a server that under-reports or omits `RFC822.SIZE` can make the worker hold at most
+      the limit plus one byte; a body that fills the partial is skipped with its reason in the channel's last error
+      (a GreenMail test reads the IMAP conversation for the partial fetch);
+    - done: a mailbox message's id (`imap:mid:`) also hashes the raw message's SHA-256: a mailer that reuses a
+      `Message-ID` for another mail has that mail ingested, not dropped as already seen, while the same stored message
+      read again (a lost cursor, a new UIDVALIDITY, a second host) still has the same id; a message or file that is
+      already ingested is logged ("already ingested"), and its blobs are content-addressed, so storing them again adds
+      nothing;
+    - done: `supplierValue` treats a gap (a space between words, or a `.`, `-` or `/` that compacting removes) as a
+      value's edge unless digits are on both sides of it: a value printed in groups no longer holds inside a longer,
+      different number (`12345` in `Tel 040 12345 67890`, `DE811111111` in `DE 811 111 111 9`), and a label glued on
+      with a dot (`USt-IdNr.DE811111111`) is an edge;
+    - done: `POST /config/bundle:import` imports a part only where its feature is on for the tenant (types:
+      `configurableTypes`, plus `customTypes` for a new or own type; layouts: `supplierLayouts`; source rules:
+      `sourceRouting`; output mappings and bindings: `outputs`), else an `error` item; output mappings pass the checks of
+      `POST /output-mappings` (key pattern and length, `std.` keys, name, engine, expression and target-schema limits),
+      bindings their name, events, type key, group and condition length; an `apply` runs in one transaction, so a member
+      of the wrong JSON type is a 400 with nothing written (a binding's `destination` is read as an object like the
+      other members);
+    - done: the import compares a layout's mapping, and a type's definition with its latest published version, as JSON
+      (member order, whitespace and escaping aside), so re-importing an unchanged export skips a hand-posted layout and
+      an unchanged type instead of proposing a new version;
+    - done: the bundle carries a source rule's channel by name, type and `sourceKey`; the import finds the tenant's
+      channel by its source key, else its name and type, and names the channel to create when there is none;
+    - done: outside Development and Testing, an unset `ConfigBundles:SigningKey` is `503 BUNDLE_SIGNING_KEY_MISSING` on
+      export and import, never the public development key;
+    - done: the warm-up place is taken by a compare-and-set (`UPDATE … SET WarmupSeen = n + 1 WHERE WarmupSeen = n`), so
+      documents validated at once each get their own place ("Document 1 of the first 5"); a SQL Server test runs 24
+      workers at once against a warm-up of 5;
+    - done: a channel's `sourceKey` is computed on every create and config change whatever `sourceRouting` (kept only
+      while no other channel holds it, so a tenant without the switch still sees no 409 and keeps its free config), and
+      the poller reads a channel only under the key its config gives: a channel without one (from before P4, or saved
+      while another held the source) or whose key no longer matches claims its key on its next poll, and is put in
+      `Error` when another channel of any tenant holds it. So two tenants never poll one mailbox, also after a switch
+      toggled off and on;
+    - done: the folder watcher reads a file from a handle checked to be the file itself: the way from the tenant's root
+      is checked for links right before opening, and on Linux the opened handle's real path (`/proc/self/fd`) must be
+      the tenant root's real path plus the file's relative path; a file or folder swapped for a link after the scan is
+      neither read nor moved, and the read is bounded by `Intake:MaxFileBytes`; a move checks its source path too;
+    - done: `MailOptions.TrustedAuthServIds`' own documentation says what the code does (empty: no header believed);
+      docs/09 step 7 and 12 quote the warm-up flag as the UI shows it, step 17 says the sandbox run needs a document id
+      and what the dry run of the tenant's own export reports;
+    - done: a compose re-run (steps 1 to 7, 15 and 17 of docs/09 "Demo: routing and layouts", the setup by API, the
+      screens in Playwright; 15 checks, all passed): the ERP layout posted from the pretty-printed fixture, the second
+      ERP invoice's flag "Document 1 of the first 5 under layout nordwind-invoice-erp" on the review screen, the folder
+      drop read in the worker's container and moved to `processed/`, the sandbox run with a document id
+      ("identified"), and the dry run of the tenant's own export with every item a skip (7 types, the hand-posted
+      layout, the folder rule with its channel Scanner, the sender rule);
+    - left for later: on a host other than Linux the folder watcher re-checks the path for links right before opening
+      but cannot check the opened handle (a narrower window, not none); a move (`rename`) of a file whose folder is
+      swapped for a link between its check and the rename is not bound to a handle (closed on Linux x64 and arm64 by
+      the third review fixes below); two channels without a source key that read the same source are resolved by poll
+      order (the first claims it), not by which was created first.
+  - Third review fixes (recorded as "Correction (P4, third review fixes)" in docs/11 §7.1, §8.2 and §8.5):
+    - done: `supplierValue` across a space goes on only into a plain group of digits after a narrow space, so the
+      customer number of a values row (`12345   04.03.2027   RE-1001`) or of its own column holds, and the
+      `supplierValue attributes.<key>` that `identifiers:propose` proposes holds on its own document; spaced phone
+      numbers and VAT ids printed in groups still do not hold inside a longer number;
+    - done: the Validate stage runs in one transaction under the execution strategy, so a warm-up place commits with
+      the `document.layout_warmup` event or is rolled back (a twin dropped as stale, a failure before the save); the
+      publish message is queued after the commit. A pipeline test drops the first save as a twin's, a SQL Server test
+      rolls a place back while a second taker waits on the row;
+    - done: activating a version with a `reviewWarmup` below the tenant's needs a tenant admin (`403`
+      `LAYOUT_WARMUP_BELOW_TENANT` otherwise); a MappingAuthor may keep or raise it;
+    - done: a mailbox's `sourceKey` is never claimed by the API; the poller claims it after the channel logged in with
+      its own secret, the `409` looks only at the tenant's own channels, and a channel whose login is refused gives up
+      its key, so no tenant can lock or probe another tenant's mailbox (a GreenMail test with authentication on). The
+      key names the port connected to (143 for `starttls` without a port);
+    - done: a message MimeKit cannot read is skipped (cursor moved, `lastError` names it, it stays in the mailbox)
+      instead of blocking the mailbox;
+    - done: on Linux (x64, arm64) the folder watcher opens every folder from the tenant's root and the file with
+      `O_NOFOLLOW` relative to the one above, makes target folders with `mkdirat` and moves with `renameat2` between
+      folder handles, so a folder swapped for a link at any moment is neither read nor moved through; files open with
+      `O_NONBLOCK`, so a named pipe no longer hangs the poller (moved to `failed/`);
+    - done: docs/09 step 8 quotes the pre-fill as the panel shows it ("Pre-filled: 6 values", "other layout's label",
+      VAT breakdown · Rate (%));
+    - done: a compose re-run (steps 1 to 8, 13 to 15 of docs/09 "Demo: routing and layouts", the setup by API, the
+      switches and the review screens in Playwright; 32 checks, all passed): the mailbox channel created without a
+      source key and claimed by the worker after its login; the second ERP invoice "Document 1 of the first 5" with
+      one warm-up place counted on SQL Server; the web-shop invoice's New layout panel reading "Pre-filled: 6 values"
+      with "other layout's label" and "type's label"; with warm-up 0, NW-RE-2026-1102 AutoApproved and in the mock ERP's
+      journal; and NW-RE-2026-1130 from the watched folder AutoApproved and moved to `processed/` while a named pipe
+      beside it was moved to `failed/` without stopping the worker. Steps 9 to 12 and 16 to 17 were not re-run (the
+      web-shop layout learned in review, tenant B, the remaining screens), as nothing they use changed;
+    - left for later: a mailbox key claimed by an earlier build of this branch for a channel that is never polled
+      (its tenant has `sourceRouting` off) is not cleared by a data step: it is given up when that channel is polled and
+      its login is refused. GreenMail in compose accepts any password, so there the login proves nothing; a production
+      platform server must check passwords. On hosts other than Linux x64/arm64 the folder watcher keeps the path checks
+      (a narrower window, not none), and a named pipe there still blocks the open.
+  - Fourth review fixes (recorded as "Correction (P4, fourth review fixes)" in docs/11 §7.1, §8.2 and §8.5):
+    - decided: `Mail:TrustedAuthServIds` names the platform's one receiving server in front of `Mail:ImapHost` (global
+      by design: it receives for every tenant's address there and strips or overrides a header claiming a listed id)
+      and is believed only for mailboxes on the platform server; a mailbox on a tenant's own host believes only its
+      channel's `authServId`, and with none no header (fails closed), so a header forged with the platform's id below
+      the tenant provider's own is no longer believed. Compose and the AppHost list the one platform receiver
+      `mx.platform.local` (not one id per tenant, which let tenant B's mailbox believe a header claiming tenant A's
+      receiver); `send-invoice.sh` writes it (`RECEIVER` names another). A reader test covers a tenant-host channel
+      without and with its own `authServId` and the forged platform header;
+    - done: the drift counters (`Applied`, `ConsecutiveFailures`, the move to `Degraded`) commit in one transaction with
+      the Extract stage's save and its `document.layout_applied` event (`LayoutExtractor.SaveCountedAsync`, under the
+      execution strategy; the LLM fill runs before, outside it), so a save that fails or is dropped as a stale twin's
+      takes its count back. A pipeline test drops the first Extract save of a drifting document as a twin's;
+    - done: identification and layout patterns run with a 2 s safety-net timeout (NonBacktracking is linear, so a
+      loaded machine no longer runs out of it, which made `Transforms_apply_in_order` flaky), and a timeout that does
+      happen is reported: an identifier names it in the rule's failures, a layout field or table is named in
+      `LayoutExtraction.TimedOut` (`AppliedConfigJson.layout.drift.timedOut`, a worker warning) and its drift does not
+      count against the layout;
+    - done: `DELETE /receiving-entities/{id}` answers `409 Receiving entity in use` when a supplier layout names the
+      entity (it was a `500` from the foreign key);
+    - done: the known values of the `layout-prefill` step and `matching-documents` (`LayoutLearning.MatchingAsync`)
+      read only the newest documents (the cut at the N-th newest `CreatedAt` made in SQL, ties included, ordered as
+      before in memory), not every approved canonical tree of the supplier;
+    - done: docs/09's compose table describes the `mail` service as the platform IMAP server the worker reads, and
+      the warm-up slot is no longer listed as left for later;
+    - left for later: a tier header pattern of a `column-table` (`ColumnTableEngine.TierQuantity`) that runs out of time
+      still reads as no quantity.
+  - Fifth review fixes (recorded as "Correction (P4, fifth review fixes)" in docs/11 §8.5):
+    - done: the 2 s timeout of the fourth fixes is not a safety net, nor was the 100 ms before it: NonBacktracking
+      checks it only at some points of a match, not while it builds its automaton's states, so `(.{0,15}a){30}x`
+      (481 atoms, accepted) ran about 11 s per match with any timeout and answered "no match", also through a
+      Viewer's `identification-rules:test`. `PatternSize` now also bounds a pattern's variation (how much the length
+      of its varying groups can vary, at most 64; an IBAN is 27, a phone number 22), and every place that checks the
+      500 atoms refuses a pattern above it with "repeats too much" (identification and layout patterns, the table
+      tool, field patterns, extraction hints and `pattern` rules). The slowest accepted patterns found take under a
+      second on a first match over 20,000 characters; the timeout stays as a last resort and is still reported
+      (`PatternSizeTests`, `IdentificationRuleTests`, `LayoutEngineTests`, `LayoutEndpointsTests`,
+      `TableToolLimitsTests`, `DefinitionCompilerTests`);
+    - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
+      schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
+      subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
+- **P5, configurable steps, custom types end to end, rules and master data – done (parts A to E; the three compose demos of docs/11 §23 were run in part E).**
+  - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
+    document runs the built-in steps as before and records no pipeline hash):
+    - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
+      phase with its `ParamsSchema`, fixed and insertable kinds; `GET /step-kinds`), `PipelineDefaults` (the built-in
+      steps, which are the steps the phases ran before; the type's `processing.extract` names the built-in steps' ids and
+      parameters and adds its own steps; the validate list as before) and `PipelineResolver` (the group's, the
+      supplier's and the layout version's `pipelineOverrides` in order, `disable`, `param`, `insertAfter`, `replace`;
+      an override for a step the type's pipeline lacks is skipped and noted; `classify.identification`, the review gate,
+      the match and publish steps are fixed; only `http-lookup` can be inserted, and only into Extract), with a hash per
+      pipeline;
+    - validated at save: supplier and group `settings.pipelineOverrides` (`PATCH`/`POST /suppliers`,
+      `/supplier-groups`) and a layout version's `mapping.pipelineOverrides` (layout creation, new versions, bundle
+      import), with the fixed steps refused at every layer, parameters checked against their kind's schema, and an
+      `http-lookup`'s destination and JSONata checked; refused again when resolved (settings written outside the API, an
+      imported bundle), and then the type's own steps run with a blocking `PIPELINE_INVALID`;
+    - versioned: every pipeline a stage runs is stored once by hash (`PipelineSnapshots`), `Documents.PipelineHash` and
+      `DocumentDetail.pipelineHash` name the last one, `GET /pipelines/{hash}` reads it, and a stage that runs a pipeline
+      that is not the type's own writes `document.pipeline_applied`; `GET /document-types/{key}/resolved-pipeline`;
+    - applied by the stage handlers: Split (`split.heuristic` mode `never`, `perPage`, `llm`; `split.llm` off),
+      Classify (`classify.keyword`, `classify.llm` off, its `threshold`), Extract (`xml`, `map`, `prefill`, `llm` off;
+      `llm` `effort` and `maxCostPerDocument`; `http-lookup`), Validate (`schema`, `rules`, `duplicate` off, also in a
+      correction's inline re-validation); an invoice nothing may extract goes to review with its empty tree;
+    - the `http-lookup` step (`HttpLookupService`, `ExtractLookups`): JSONata in the sandboxed renderer builds the
+      request (URL placeholders of an `http` destination, a POST body) and maps the answer to field assignments written
+      as `Inferred` (`SourceMethod.Lookup`); through the delivery client (public addresses re-checked at connect, TLS,
+      no redirects), at most 5 s per attempt, 256 KB, 2 retries, a breaker per destination, the destination's secret
+      from `ISecretStore`; stored per document, step and request hash (`LookupResults`), so a retry or reprocess with
+      the same request reuses the answer; failures are `LOOKUP_FAILED` (warning, `block`, or `ignore`);
+    - LLM budgets (`LlmBudgets`, `GET`/`PUT /llm-budgets`, TenantAdmin): per tenant, per UTC day, UTC month or
+      document, for every stage or one; the gateway refuses a call that would pass a budget by the stage's average call
+      cost (`EfLlmBudgetGuard`, spend from the usage rows), and the stage goes on without the LLM with a blocking
+      `LLM_BUDGET_EXCEEDED`; the `llm` step's `maxCostPerDocument` per type, supplier or layout;
+    - migration `ConfigurableStepsAndBudgets` (the column, three tables, `PolicyV11`, the flag back-filled off), the
+      admin console's switch, flag and source labels (en, de);
+    - tests: `PipelineResolverTests` (fixed steps refused at type, group, supplier and layout level and in a stored
+      pipeline; the operations; the hash; the save check), `ConfigurableStepsPipelineTests` (each stage's overrides,
+      nothing changed without the switch, a refused pipeline, lookups against a loopback receiver with caching, retries,
+      the guard, oversized and unmappable answers, budgets and `maxCostPerDocument`), `LlmBudgetGuardTests`,
+      `LlmGatewayTests`, `PipelineEndpointsTests`, and RLS, the idempotent script and the migrate down and up on SQL Server.
+  - Decided (part A, recorded as "Correction (P5)" in docs/11 §3, §10.1, §10.2, §10.3, §11, §16 and §18):
+    - a new switch `configurableSteps`, not one of the six of principle 6;
+    - the review gate, the match steps and the publish steps are fixed like `classify.identification`; Match and Publish
+      take no overrides, and Split and Classify take a supplier's only when the source named it;
+    - the built-in extract steps run as one chain in their fixed order (a definition names their ids and parameters and
+      does not remove one by leaving it out); `http-lookup` steps run after that chain, in their order;
+    - the pipeline is resolved per stage and stored by hash, not cached by `(typeVersionId, layoutVersionId,
+      settingsHash)`; documents keep no pinned pipeline (`ProcessDocument.ConfigHash` and `CONFIG_CHANGED` are not
+      built), so a retry resolves the current overrides;
+    - the circuit breaker of `http-lookup` is the step's own (5 failures, 30 s), not `Microsoft.Extensions.Http.Resilience`;
+    - budgets are their own table with day, month and document periods, not a monthly cap in `TenantLlmPolicies`; a
+      refused call is not recorded in the usage rows.
+  - Left for later (part A's scope):
+    - the UI of docs/11 §19 for pipelines and budgets (built in part D: the supplier's Processing tab with a parameter
+      form per step kind from `GET /step-kinds`, and the LLM budgets in Settings > AI; what is still left is the
+      `pipelineOverrides` of a supplier group and of a layout version, which have no UI, see part D's list);
+    - a layout version's `ruleOverrides`, `llmHints` and the reduced LLM schema per layout version (`CoverageJson` is
+      stored, `params.reducedSchema` is not read); a new layout version saved from review does not carry the previous
+      version's `pipelineOverrides` over;
+    - `defaults` (run since part C), `code-list` and `transform` steps (listed, not run), the tenant-currency default
+      still in the mapper,
+      and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5:
+      `defaults.currency`/`locale` were applied in part C, `review.autoApproveMinConfidence` only in fix 1);
+    - `step_completed` timeline events per step with their cost; the alert when a type's Unknown rate or LLM spend passes
+      its 14-day baseline (docs/11 §16);
+    - the parts C onward of P5 (price lists end to end, the processing UI, master data, callbacks, Insights >
+      Onboarding); part B's items are below.
+  - Done, part B (rules, custom types end to end, classification, tenant fallback identification):
+    - the rule kinds `requiredIf`, `compare`, `sumEquals`, `arithmetic` and `expression` (`GenericRules`, registered in
+      `RuleKinds` with their parameter schemas, phase P5), with a bounded expression language evaluated in process
+      (`RuleExpression`: a JSONata subset, size, depth, step, list and string bounds, no function that reads outside the
+      value, the variables `$today` and `$supplier`); publish parses every expression and checks row-relative paths;
+    - definition flags: a definition's `flags` block and a rule's `flag` (an `X_*` code with its severity and messages
+      by locale, shown in the UI language), checked at publish, owned by the validate stage;
+    - the review gate keys `requirePassedRules` (which lets a type outside the invoice family auto-approve),
+      `blockOnWarnings` and `lines` (`ReviewGateRules`), with the hold in the `document.validated` event and the review
+      task's reason; the publish warning about `autoApprove` no longer fires for a type that names its rules;
+    - `LlmDefinitionExtractor` and `DefinitionMapper` (prompt `extract-document`, schema `doc_<key>`, fill-missing over a
+      pre-fill) behind `customTypes`; without a provider the document goes on as before (pre-filled or empty tree);
+    - the tenant keyword set (`KeywordRuleTable`, `TenantClassification`; standard types keep the built-in rules) and the
+      LLM classifier over the tenant's types (`document_classification@1+t.<hash8>`, prompt `classify-tenant-document`),
+      behind `customTypes`;
+    - tenant fallback identification rules: `TypeIdentificationRules` and `TypeIdentificationRuleVersions` (migration
+      `TenantIdentificationRules`, `PolicyV12`), `Documents.IdentificationRuleVersionId`, `TypeIdentificationRuleSet`
+      in `classify.identification` after the supplier's layouts and in the split prefilter, the API of docs/11 §18 with
+      the save-time test against the last 500 approved documents ("would have matched N documents of this type, M
+      others"), activation refused while other types matched unless confirmed, `POST /documents/{id}/identification-rules`
+      ("use for all suppliers without own layouts"), `Matched` and `Overridden` counted, `DocumentDetail.identificationRuleVersionId`;
+    - web: definition-flag messages in the UI language (`flagMessage`), `CHECKS_SKIPPED` `expressionBudget` and the
+      `type_identified_by_rule` timeline label (en, de);
+    - tests: `RuleExpressionTests`, `GenericRuleP5Tests`, the publish checks of the P5 kinds and flags
+      (`DefinitionCompilerTests`), `LlmDefinitionExtractorTests`, `TenantClassifierTests`, `TenantKeywordRulesTests`,
+      `CustomTypesPipelineTests` (a custom type classified, extracted with a recorded answer, auto-approved by its named
+      rules, held by a failing rule or a warning, and without a provider as before), `TenantFallbackRulesPipelineTests`,
+      `TypeIdentificationRuleEndpointsTests`, and RLS, the idempotent script and the migrate down and up on SQL Server.
+  - Decided (part B, recorded as "Correction (P5, part B)" in docs/11 §5.3, §6.6, §8.5, §9.3, §9.4, §11 and §18):
+    - `expression` is a bounded JSONata subset evaluated in process, not the out-of-process JSONata renderer (rules are
+      pure and also run inline in the API); the matched supplier is the variable `$supplier` (§5.3's example read the
+      printed party);
+    - definition flag codes are declared in a `flags` block and named by the rule (not derived from the rule id);
+    - "passed" means no warning and no blocking flag (an info note does not fail a rule);
+    - the LLM extraction of custom types, the tenant keyword set and the classifier enum are behind `customTypes`, so a
+      tenant without it classifies and extracts as before;
+    - tenant fallback rules need `supplierLayouts`; `configApprovals.identificationRules` is not built (P6), so
+      activation is immediate, guarded by the other-types confirmation.
+  - Left for later (part B's scope):
+    - the type editor's Identification tab, the review screen's "use for all suppliers without own layouts" button and the
+      rule test card (docs/11 §19); the API is complete;
+    - the splitter's keyword signals and `LlmDocumentSplitter` still use the built-in table and enum;
+    - tenant rules are loaded per document, not cached by the hashes of the Active versions; `AppliedConfigJson` does not
+      record a tenant rule's identification (the timeline event and the pinned version do);
+    - the LLM does not fill what a layout left Missing on a custom type; rows are not anchored with `LocateLine`;
+    - the line-table rule kinds (`tableComplete`, `unique`, `ordered`, `deltaToPrevious`), templates v2, `REVISION_OF`
+      resolution and the price-list demos (part C); a definition naming them is still refused at publish (all done in
+      part C below, except the compose demo);
+    - no compose demo was run for part B (its demo, the tenant fallback rule on Südhof's price lists, needs part C's
+      fixtures and price-list templates v2).
+  - Done, part C (price lists end to end, specials, master data, acknowledgements):
+    - the line-table rule kinds `tableComplete` (rejected rows per page, pages without rows, rows without a table report
+      unless `allowUnreported`, the printed count at `declaredCount`), `unique`, `ordered` and `deltaToPrevious` (against
+      the last approved, not superseded list of the supplier and type, the changed rows listed for the review grid), in
+      `RuleKinds` with their schemas and the publish checks of their row-relative parameters;
+    - the price-list templates v2 (`std.price-list`, `std.daily-specials`: the rules and review block of docs/11 §5.8);
+      adopted types follow a newer template version with their `autoApprove` kept, a new adoption of an opt-in
+      template starts with it off, and `POST /document-types/{key}:upgrade-base {autoApprove}` switches it;
+    - the `dueBy` review priority (`SlaDueAt` at the end of the date's day in the tenant's time zone; the queue sorts
+      urgent tasks first), an expired specials list blocked by `r_not_expired`, `REVISION_OF` with `POST
+      /documents/{id}:resolve-revision` (`supersedes` with `SupersededByDocumentId` and `meta.supersedes`, `additional`,
+      `duplicate`), superseded documents and resolved pairs no duplicate matches;
+    - the `defaults` step run (`value`, `from` fields or `$source.receivedDate`, `fromSupplierSetting`), the `llm`
+      step's `exclude` and `lines: perPage` (one call per page under `maxCostPerDocument`, `LLM_BUDGET_EXCEEDED` for the
+      pages not read), for definition-driven types with `configurableSteps`;
+    - the platform output template `generic-article-prices-json`, the `pos-promotions` example mapping
+      (`fixtures/outputs`) and the `mock-erp` stubs `POST /api/promotions` and `GET /api/ap/invoices/{id}/status`
+      (posted, rejected, pending by `__control` calls);
+    - acknowledgements: destination settings (`callback`, `statusPoll`), callback secrets with rotation, the anonymous
+      HMAC- or bearer-authenticated callback with its JSONata mapping, the status poller (`StatusPollerHostedService`,
+      the destination's own host only, through the delivery client), `EXTERNAL_REJECTED` with an `IntegrationIssue`
+      review task while the document stays settled, `POST /documents/{id}:resolve-integration-issue`;
+    - master data: `POST /suppliers:import` (CSV with a column map or JSON, dry run first, match keys, conflict policy per
+      attribute, idempotent, the report kept as a `MasterDataRun`), `/master-data-sources` (http or upload, JSONata
+      mapping, cron schedule in a time zone, at most every 15 minutes) with `:run`, `:dry-run` and their runs,
+      `MasterDataSyncHostedService` through the delivery client;
+    - the P3 edge: a settlement the publish stage adds the missing outbox row for claims the document first (one
+      conditional update), so its deliveries carry the version the document keeps and a rerender of one is accepted;
+    - a P4 bug found on the way: an `integer` field a layout read (`declaredLineCount`) was dropped when written;
+    - migration `PriceListsMasterDataCallbacks` (revision columns, the review task's `Kind`, the callback secrets, the
+      poll columns of the external references, `MasterDataSources` and `MasterDataRuns` under `PolicyV13`);
+    - web: the review screen's revision and integration-issue panels, flag labels and messages for
+      `TABLE_ROWS_REJECTED`, `TABLE_PAGE_NO_ROWS` and `EXTERNAL_REJECTED`, timeline labels (en, de);
+    - fixtures: next month's Nordwind list, the copy with one article up 40 %, three specials lists, two Südhof lists and
+      one from an unknown sender, drawn by `DemoPriceLists` and committed;
+    - tests: `LineTableRuleTests`, the template v1/v2 and publish tests, `PriceListsEndToEndTests` (January and February
+      auto-approve, March with one article up 40 % to review with the row; specials urgent until the end of the day, a
+      second list a revision, yesterday's blocked), `LlmDefinitionExtractorTests` (exclude, per page, the cost limit),
+      `DeliveryPipelineTests` (the AddMissing version, the status poll to `EXTERNAL_REJECTED`, the scheduled http sync and
+      a refused address), `IntegrationCallbackEndpointsTests`, `MasterDataEndpointsTests`, `MasterDataTests`,
+      `DocumentRevisionEndpointsTests`, the output template renders, RLS, the idempotent script and the migrate down and
+      up with part C data, web `RevisionPanel.test`.
+  - Decided (part C, recorded as "Correction (P5, part C)" in docs/11 §5.8, §6.8, §11, §13.6, §13.8, §14, §18 and §24):
+    - auto-approval of the price-list templates is opt-in per tenant, also on a new adoption (`:upgrade-base`);
+    - `deltaToPrevious` does not count moves below `ignoreBelowPercent` (5 %) as changed rows, so a yearly 3 % on every
+      row passes `maxChangedRowsPercent`;
+    - the templates' `r_count` is an expression without `appliesWhen`, and `tableComplete` takes `declaredCount` too;
+    - the type's own steps (`defaults`, `exclude`, `lines: perPage`) run with `configurableSteps` only, as part A built
+      the step model;
+    - acknowledgements are built in P5 as the plan says (decision 4 had put callbacks later); the poll goes to the
+      destination's host only; the issue is a review task of kind `IntegrationIssue`, resolved by acceptance, by
+      re-approval (an approval completes every open task of the document) or with a note;
+    - a master-data run keeps its report in the run row, not in a blob; targets are suppliers only.
+  - Left for later (part C's scope):
+    - the compose demo of docs/11 §23 for price lists, specials and the Südhof rule was not run; the pipeline tests run
+      the same files and steps (`PriceListsEndToEndTests`, `TenantFallbackRulesPipelineTests`), and docs/09 "Price
+      lists, master data and acknowledgements" says how to drive each part by hand;
+    - the review grid's filter to the rows `deltaToPrevious` names (the rows are in the flag's parameters), the
+      Integrations UI for acknowledgements, the master-data screens and conflict list, the type's Processing tab for
+      auto-approval (docs/11 §19): the API is complete;
+    - master-data targets other than suppliers (lookup tables, entity attributes, receiving entities) and the blob
+      transport; the `code-list` and `transform` steps (listed, not run);
+    - the tenant's normal review SLA as a cap on `dueBy` (there is no tenant SLA yet); chunked delivery of long lists
+      (P6);
+    - a status poll that runs past `maxPolls` leaves the reference Pending with a message, without a flag.
+  - Done, part D (the screens of docs/11 §19 for P5, and the routes they needed):
+    - routes: `GET /rule-kinds`; `POST /document-types/{key}/versions/{v}:test-rules` (a version's checks, a draft's
+      too, on one document; nothing written); `POST /pipelines/lookups:test` (an `http-lookup`'s save-time checks, then
+      a dry-run call: `LookupCall.DryRun` skips the stored answers, the store and the breaker); `GET
+      /insights/automation` (docs/11 §17 from live queries, at most 92 days); OpenAPI regenerated;
+    - the type editor (`@docproc/review`): Rules (a form per rule kind from its schema, the P5 and line-table kinds,
+      definition flags, the review gate keys, the rule test), Processing (the resolved pipeline) and Identification
+      (the tenant fallback rules: create, edit the Draft, the save-time test, activate with the other-types
+      confirmation, disable, the override share);
+    - the supplier's Processing tab: the resolved pipeline per type and the `pipelineOverrides` (switch off, parameters
+      from the kind's schema, `http-lookup` with its destination and a test call); the LLM budgets in Settings > AI;
+    - review: "use for all suppliers without own layouts" for a `ConfigAdmin` (Identify mode in the tenant's scope on a
+      typed document no layout filled), the `REVISION_OF` panel side by side with a note, the Deliveries tab's
+      `EXTERNAL_REJECTED` and acknowledgement status;
+    - inbox and queue: the review due time, "Urgent first" (`?sort=reviewDue`), superseded lists greyed with a link,
+      Urgent/High and Integration issue badges;
+    - Settings > Integrations: Master data (supplier import with the column map, dry run, report; sources with run,
+      dry run, runs and reports) and a destination's Acknowledgements (callback, its secret, status poll);
+    - Insights > Onboarding (`/insights`) with "open sample", "create layout" and "add source rule"
+      (`/suppliers?supplier=&tab=`);
+    - a bug found on the way: the supplier sheet's Settings tab saved `settings` without the members it does not edit,
+      so saving it deleted the supplier's `pipelineOverrides` (part A); it now keeps them;
+    - tests: `ProcessingUiEndpointsTests` (rule kinds, the rule test, the lookup test call's checks and guard, insights),
+      `ConfigurableStepsPipelineTests` (a dry-run call reaches the receiver each time and stores nothing), web
+      `pipeline.test`, `rulesModel.test`, `TypeEditorP5.test`, `p5.test`, `P5Screens.test` (en and de keys checked by
+      the resources tests).
+  - Decided (part D, recorded as "Correction (P5, part D)" in docs/11 §17, §18 and §19):
+    - parameter forms are drawn from the kinds' schemas with `@docproc/ui` controls, not `@rjsf/core`;
+    - Insights read live, no nightly roll-up; the Unknown rate per channel and source rule, not per type;
+    - the review gate keys are edited on the Rules tab; the type's Processing tab is read-only;
+    - Identify mode in the tenant's scope for a `ConfigAdmin` on any typed document no layout filled (§8.5 "from any
+      document"; P4 had it only under `NEW_LAYOUT`).
+  - Left for later (part D's scope):
+    - the compose demo and a Playwright spec of the P5 screens were not run (the pipeline and component tests cover
+      them); docs/09 says how to drive each screen by hand;
+    - the `pipelineOverrides` of a supplier group and of a layout version have no UI (the API takes them); the type's
+      own `processing.extract` steps are edited in the JSON tab;
+    - the tenant rule's identifiers are edited as JSON in the type editor (the chips only in review's Identify mode);
+      no visual editor;
+    - the review grid's row filters (rejected, low confidence, changed against the previous list, page n) of docs/11
+      §19 item 1;
+    - master data: no separate conflict list with a resolve action (the conflicts are the report's rows), targets other
+      than suppliers;
+    - Insights: no `SupplierDailyStats` roll-up and no 14-day baseline alerts (docs/11 §16); the admin console's tenant
+      tabs for types, layouts and integrations (docs/11 §19 "Admin console") are not built.
+  - Done, part E (the demo fixtures, the three P5 demos of docs/11 §23 run in compose, and what they exposed):
+    - fixtures drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceLists.cs` (the generator of part C): the January
+      list `Nordwind_Preisliste_2027-01.pdf` (the P2 list's 412 articles in the later lists' design, with "Anzahl
+      Artikel: 412") and April's (February's prices with two small changes), next to part C's February, March,
+      Tagesangebote, Südhof and Bergquell lists; the specials layout `fixtures/demo/layouts/nordwind-daily-specials.json`;
+    - the demos run on a fresh compose stack (`p5d`) with Playwright in the portal and the admin console, no LLM key:
+      the folder rule `lieferanten/nordwind/preislisten/` pinning `price-list`, the January list held with `NEW_LAYOUT`
+      and pre-filled from master data and the type's labels, mapped with the table tool (412 rows), identified by
+      "Preisliste" and "gültig ab" and saved Active as `nordwind-price-list` by a `MappingAuthor`; February identified,
+      read (412 rows, the printed count checked), AutoApproved and delivered to `POST /api/article-prices`; March in
+      review with the 40 % row shown alone in the grid; the specials list urgent first in the queue, its posted layout
+      activated by confirming it, delivered to `POST /api/promotions`; yesterday's copy blocked by `r_not_expired`, the
+      second list of the day `REVISION_OF` the first; the Südhof rule from review with its save-time test, then Südhof's
+      next list and Bergquell's typed by it (`TypeSource=Identification`, no LLM), Nordwind's April list by its layout
+      (docs/09 "Demo: price lists, specials and fallback rules", screenshots of the run);
+    - fixed: the learner's `stopAt` (a footer starting like page 2's running title ended a 14-page table on page 1,
+      so the learned layout read 22 of 412 rows and stayed a Candidate) and labels (a label ends at a separator word of
+      the line); the field replay and the drift check count no field the document does not print and a default
+      filled (an undated specials list kept its posted layout a Candidate, and every later one got `MAPPING_DRIFT`);
+      a value taken from the page that equals the stored one is sent with its place (the pre-fill's page-2 place was
+      learned otherwise); `:match-layout` confirming the proposed type keeps the pre-fill's record (the panel said
+      "Nothing could be pre-filled" over five pre-filled values);
+    - built for the demos: the grid's filter to the rows the open flags name (a list over one page opens on them,
+      docs/11 §19 item 1), the auto-approval switch of an adopted type in the type editor (`:upgrade-base`, which section
+      23 asks of a `ConfigAdmin`), and the Identification card's wording in the tenant's scope (documents of suppliers
+      with own layouts are no conflict of a fallback rule);
+    - tests: `AnchorLearnerTests` (2, both failing before the fix), `PriceListDemoFixturesTests` (3: the posted specials
+      layout activated by an undated list, the dated copy expired, the second list without drift and a revision; Südhof
+      and Bergquell typed by the tenant rule and April by Nordwind's layout, no LLM; the January and April fixtures),
+      `LayoutLearningEndpointsTests` (the pre-fill record kept), web: `DefinitionForm` (2 filter cases),
+      `corrections` (a value taken from the page), `DocumentTypesPanel` (the auto-approval switch), `P5Screens` (2,
+      the card in the tenant's scope).
+  - Decided (part E, recorded as "Correction (P5, part E)" in docs/11 §8.3, §12.3, §12.6, §19 and §23):
+    - the price-list demo starts from a January list that prints its count (a layout learns only what the first list
+      shows); the P2 file is unchanged because its LLM replay fixtures key on its bytes;
+    - the specials layout is posted as a Candidate and confirmed in review, as the P4 ERP layout is: a layout learned
+      from an undated list could not read a printed date, so the expired copy would read as valid today;
+    - the specials list arrives through its own folder rule (`lieferanten/nordwind/angebote/`, pinning
+      `daily-specials`), so its review task is urgent from the start;
+    - "37 price lists" of the fallback demo is an example; the demo stack's test says 0, since Nordwind's approved
+      lists belong to a supplier with own layouts.
+  - Left for later (part E's scope):
+    - the grid's other filters (rejected rows, low confidence, page n);
+    - the pre-fill reads a type label's first hit in the document (here page 2's running title); a learned date of a
+      line that goes on after it is a region, not a label rule;
+    - documents typed by a tenant rule or the keyword set without a layout carry `UNSUPPORTED_TYPE` and are filled in
+      review when no LLM provider is configured (the compose default);
+    - the expired specials copy is a fixed date (4 November 2026), expired on any day after it rather than always
+      "yesterday".
+  - Done, fix 1 (the review of P5, recorded as "Correction (P5, fix 1)" in docs/11 §5.8, §7.4, §8.5, §9.4, §11, §13.8,
+    §16 and §23):
+    - `:resolve-revision {supersedes}` records the intent; the earlier list is superseded when the new one is approved
+      and stands again when it is rejected, cancelled or reprocessed (`DocumentRevisions`);
+    - no rule lets an exception out of validation: clamped indexes and `$substring` arguments in `RuleExpression`,
+      `ordered` keys of two kinds as `RULE_FAILED {orderedMixed}`, anything else a rule throws as `RULE_FAILED
+      {expressionError}`; `requiredIf` takes `rows` (its condition per row), `compare` pairs a single value with every
+      row value, and publish refuses the shapes that checked nothing (a row `path` without `rows`, two row paths of
+      different groups);
+    - LLM budgets hold an allowed call's estimate until its usage row is written (per process; across N worker replicas
+      the overshoot is bounded by N - 1 calls, docs/11 §16);
+    - the review queue sorts by priority, then due time; `GET /documents?sort=reviewDue` is the inbox's "Urgent first"
+      across every page;
+    - a supplier's (or its group's) `review.autoApproveMinConfidence` is the confidence threshold of its documents (the
+      tenant's otherwise); the type's `review.minConfidence` stays the threshold of `review.lines`;
+    - Split and Classify take a supplier's `pipelineOverrides` only when the source named it;
+    - Match clears a tenant rule's pin (and its `Matched` count) when the supplier's own layout decides or proposes, or
+      the supplier is replaced; the re-classification after a replaced supplier runs the tenant rules too;
+    - signed callbacks are ordered by their own timestamp per reference (`LastCallbackAt`, `LastCallbackSignature`,
+      migration `AcknowledgementReplayGuard`): a replay or a late callback is answered `replayed` and changes nothing;
+      a status answer applies to the polled reference only; a poll whose URL left the destination's host is not sent,
+      and a destination does not move to another host while its poll names the old one;
+    - tenant classification phrases compile to linear patterns (100 ms per rule, 500 ms per page and table), and
+      publish refuses phrases that are not words;
+    - the P5 Down methods map back the data the build before P5 reads (`P5DowngradeSql`), and a definition without
+      flags is written without `flags`; the down/up test reads the result under those rules;
+    - docs/09: Nordwind's IBAN and Südhof's vendor number in the setup curl, the timeline string of step 15, and the
+      flags of the v2 price list in "Demo: manual mapping".
+  - Done, fix 2 (the second review of P5, recorded as "Correction (P5, fix 2)" in docs/11 §6.8, §11 and §13.8):
+    - rule expressions pay steps in proportion to the data (array items read, nodes compared or serialised, characters
+      read), `$string` of an object or a list stops at the 10,000-character limit before writing more, and time is
+      bounded: 1 s per evaluation, 2 s per rule and document, 5 s for all the rules of one validation
+      (`ValidationContext.ExpressionBudget`); past any bound the rule raises `CHECKS_SKIPPED {expressionBudget}`;
+    - `arithmetic` fails a row whose expression gives no number (`RULE_FAILED {arithmeticAbsent}`) instead of passing
+      it, and takes `when` to leave rows out on purpose; an optional operand is `$sum(discountAmount)`;
+    - signed callbacks: every signature applied in the second of the last callback is kept (`LastCallbackSignatures`,
+      migration `CallbackSignaturesPerSecond`), so a same-second callback replayed is refused;
+    - a tenant rule's `Matched` count is taken back when a document is classified again, and the counts are written
+      after the Classify or Match stage has saved (a retried or dropped attempt counts nothing);
+    - the inbox, the review queue and the review-task detail read the documents' summary columns only, never the
+      canonical tree; the document detail reads the row without its trees and streams them in after it
+      (`DocumentJsonColumns`): SqlClient reads a 1 MB value inside a buffered row asynchronously in about 1.5 s;
+    - a master-data schedule's 15-minute minimum holds on every day it runs (`* * * * 0` was accepted on weekdays), and
+      `DELETE /destinations/{id}` answers 409 naming the master-data source that reads it instead of 500;
+    - docs/09: Nordwind's IBAN in the P5 demo's setup curl, January's delivery in its run summary;
+    - the Integrations test of the destinations list waited 1 s for the tab's first full render (see the test).
+  - Done, fix 3 (the third review of P5, recorded as "Correction (P5, fix 3)" in docs/11 §10.2 and §13.8; migration
+    `AcknowledgementOrderAndLookupAnswers`):
+    - the acknowledgements of one reference are applied in order when they run at the same time: the writer moves the
+      reference's `AcknowledgementVersion` in the transaction of its writes, and the one that commits second applies
+      again on a fresh read (the callback up to 5 times, then 409; a status answer is dropped when a callback settled
+      the reference), so a resent callback is `replayed` and a rejection racing a later acceptance ends accepted, with
+      one flag and one integration issue at most (API, pipeline and SQL Server tests run them concurrently);
+    - an `http-lookup` keeps the destination's answer (`LookupResults.ResponseJson`) and maps it with the step's current
+      `response` on every run, so a changed mapping applies to a reprocess that sends the same request, still without a
+      second call (a row stored before sends its request once more);
+    - a status poll must name the destination's origin (scheme, host and port), not only its host, when it is set, at
+      every poll and when the destination moves;
+    - the callback HMAC covers `<timestamp>.<destinationId>.<body>`, and the platform generates the callback secret
+      (`POST /destinations/{id}/callback-secret`, answered once; the admin's `PUT … {secret}` is gone), so a signed
+      callback does not authenticate at another destination and no two destinations share a secret; the
+      Acknowledgements dialog generates it and shows it once with Copy;
+    - the review screen's flag row of a `deltaToPrevious` row shows the key, the previous and the new value and the
+      signed change ("104539: from 39.02 to 54.63 (+40.01%)"), which a definition's own message left out;
+    - the two 412-row renders of the review package's form tests get a 30 s bound, as the portal's long renders have
+      (they took about 1 s idle and passed 5 s while the .NET suite ran).
+  - Done, fix 4 (the remaining findings of the P5 review, recorded as "Correction (P5, fix 4)" in docs/11 §11, §13.8,
+    §14, §16 and §17; no migration):
+    - a callback that lists one document twice applies its reports in list order: the second finds the reference the
+      first created (the context's own rows first), shares the callback's signature check instead of being a replay of
+      the first, and sees the integration issue the first opened, so `[rejected, accepted]` ends accepted with the
+      flag resolved and the issue done, signed or with a bearer token, with or without a reference beforehand (it was
+      409 "Acknowledgement busy" for good without a reference, and `replayed` when signed);
+    - LLM budgets fail closed for a model the price table has no price for: while a budget applies, the gateway does not
+      call it (`LLM_BUDGET_EXCEEDED {reason: unpriced, model}`), and the llm step's `maxCostPerDocument` does not call
+      it either; a tenant without budgets or caps calls it as before;
+    - a scheduled master-data run stores its counts and only the rows that did something (no `unchanged` rows); each
+      source (and the one-off imports) keeps its newest 200 runs; Insights reads the newest run per source only;
+    - a VAT-breakdown row pre-filled with its rate only no longer raises "'taxBreakdown[0].taxableAmount' is in  but the
+      document currency is EUR.": an amount without a currency of its own is in the document's;
+    - `REVISION_OF` and `DUPLICATE_SUSPECTED` name the duplicate key by its fields' labels and "supplier" ("the same
+      supplier, Valid from, Scope, Price list no."), not the raw paths and `$supplierId`;
+    - the portal shows Insights in the sidebar only with one of `sourceRouting`, `supplierLayouts`, `customTypes` or
+      `configurableSteps` (its address still answers), Insights > Onboarding offers "Create layout" with
+      `supplierLayouts` and "Add source rule" with `sourceRouting` only, and the inbox's "Urgent first" and "Review due"
+      column need `configurableTypes` (an address that already sorts keeps them): a tenant with every switch off sees
+      the sidebar and the inbox of P4;
+    - docs/09: "Read this page > Write 2 rows" in step 9 of "Demo: routing and layouts".
+  - Left for later (fix 4): saving or activating a provider configuration whose model has no price is not refused while
+    the tenant has budgets (its calls are refused instead), `GET /llm-budgets` does not list unpriced calls, and the
+    price table is not bound from configuration yet (docs/08); a callback's reports of one document are not merged
+    into one, so `[rejected, accepted]` writes both events.
+  - Left for later (fix 3): a receiver that only supports one webhook secret for several tenants must now be given
+    one secret per destination; the platform does not import a secret the admin chose.
+  - Left for later (fix 2): a destination that a pipeline `http-lookup` step names (in supplier, group or layout version
+    `pipelineOverrides`) can still be deleted; the step then raises `LOOKUP_FAILED` at run time. The pipeline stages
+    still read the whole document row, the canonical tree included, asynchronously (the per-stage cost of a 1 MB tree
+    above), as the API did before fix 2.
+  - Left for later (fix 1), roll-forward only after a downgrade from P5 to P4: a type adopted (or a tenant type created)
+    under P5 with no earlier version stays on template v2 (the earlier build cannot compile what it lacks, such as a P5
+    rule kind, and reports such rules as not run, which sends the documents to review); the definition flags' codes
+    become `RULE_FAILED` again; the values an `http-lookup` wrote read as `Profile` values; and a closed integration
+    issue stays closed.
+- **P6** – not started.
 
 ## Risks and open questions
 

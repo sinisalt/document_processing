@@ -28,6 +28,11 @@ export function documentSummary(overrides: Partial<DocumentSummary> = {}): Docum
     createdAt: "2026-10-01T08:00:00Z",
     updatedAt: "2026-10-01T08:05:00Z",
     approvedAt: null,
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    reviewPriority: null,
+    reviewDueAt: null,
     ...overrides,
   };
 }
@@ -45,6 +50,7 @@ export function reviewTask(overrides: Partial<ReviewTask> = {}): ReviewTask {
     slaDueAt: null,
     completedAt: null,
     document: documentSummary({ status: "NeedsReview" }),
+    priority: "Normal",
     ...overrides,
   };
 }

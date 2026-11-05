@@ -6,6 +6,8 @@ public static class PromptIds
     public const string ExtractInvoice = "extract-invoice";
     public const string ClassifyDocument = "classify-document";
     public const string SplitDocument = "split-document";
+    public const string ExtractDocument = "extract-document";
+    public const string ClassifyTenantDocument = "classify-tenant-document";
 }
 
 /// <summary>
@@ -19,13 +21,23 @@ public sealed class PromptCatalogue
     public const string ExtractInvoiceVersion = "1";
     public const string ClassifyDocumentVersion = "1";
     public const string SplitDocumentVersion = "1";
+    public const string ExtractDocumentVersion = "1";
+    public const string ClassifyTenantDocumentVersion = "1";
 
-    private PromptCatalogue(PromptBundle extractInvoice, PromptBundle classifyDocument, PromptBundle splitDocument)
+    private PromptCatalogue(PromptBundle extractInvoice, PromptBundle classifyDocument, PromptBundle splitDocument, PromptBundle extractDocument, PromptBundle classifyTenantDocument)
     {
+        ClassifyTenantDocument = classifyTenantDocument;
         ExtractInvoice = extractInvoice;
         ClassifyDocument = classifyDocument;
         SplitDocument = splitDocument;
+        ExtractDocument = extractDocument;
     }
+
+    /// <summary>Stage 6c for definition-driven types (docs/11 §9.3, <c>LlmDefinitionExtractor</c>): generic rules against the schema given.</summary>
+    public PromptBundle ExtractDocument { get; }
+
+    /// <summary>Stage 4 fallback against the tenant's own types (docs/11 §9.4): the enum and descriptions come with the request.</summary>
+    public PromptBundle ClassifyTenantDocument { get; }
 
     /// <summary>Stage 6c: the extraction rules, the schema description and two worked examples.</summary>
     public PromptBundle ExtractInvoice { get; }
@@ -61,6 +73,20 @@ public sealed class PromptCatalogue
             Id = PromptIds.SplitDocument,
             Version = SplitDocumentVersion,
             System = ReadResource("split-document.system.md"),
+            Task = string.Empty,
+        },
+        new PromptBundle
+        {
+            Id = PromptIds.ExtractDocument,
+            Version = ExtractDocumentVersion,
+            System = ReadResource("extract-document.system.md"),
+            Task = string.Empty,
+        },
+        new PromptBundle
+        {
+            Id = PromptIds.ClassifyTenantDocument,
+            Version = ClassifyTenantDocumentVersion,
+            System = ReadResource("classify-tenant-document.system.md"),
             Task = string.Empty,
         });
 

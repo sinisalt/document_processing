@@ -13,7 +13,7 @@ public sealed record DocumentSeed
 {
     public Guid TenantId { get; init; } = ApiFactory.TenantA;
     public DocumentStatus Status { get; init; } = DocumentStatus.NeedsReview;
-    public DocumentType Type { get; init; } = DocumentType.Invoice;
+    public DocumentTypeKey Type { get; init; } = DocumentTypeKey.Invoice;
     public Invoice? Invoice { get; init; } = TestInvoices.Valid();
     public string? SupplierName { get; init; } = "METRO Deutschland GmbH";
     public IReadOnlyList<DocumentFlag> Flags { get; init; } = [];
@@ -39,6 +39,14 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
 
     public IReadOnlyList<ProcessDocument> Documents => _messages.OfType<ProcessDocument>().ToList();
 
+    public IReadOnlyList<ProcessDelivery> Deliveries => _messages.OfType<ProcessDelivery>().ToList();
+
+    /// <summary>
+    /// When set and true for a message, enqueuing it throws instead of recording it: the process dying (or the
+    /// queue failing) between a committed decision and its publish message.
+    /// </summary>
+    public Func<ProcessDocument, bool>? Crash { get; set; }
+
     public Task EnqueueAsync(ProcessIngestion message, CancellationToken cancellationToken)
     {
         _messages.Enqueue(message);
@@ -47,11 +55,22 @@ public sealed class CapturingPipelineQueue : IPipelineQueue
 
     public Task EnqueueAsync(ProcessDocument message, CancellationToken cancellationToken)
     {
+        if (Crash?.Invoke(message) == true)
+        {
+            throw new InvalidOperationException($"Simulated crash before {message.Stage} of document {message.DocumentId} was queued.");
+        }
+
         _messages.Enqueue(message);
         return Task.CompletedTask;
     }
 
     public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => EnqueueAsync(message, cancellationToken);
+
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        _messages.Enqueue(message);
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>A small, arithmetically consistent invoice with LLM provenance on every field (mirrors the domain test fixture).</summary>

@@ -156,7 +156,7 @@ public class FailureAndBoundsTests
         var upload = new UploadFile("rechnung.xml", bogus, ItemKind.Xml, () => new MemoryStream(bytes, writable: false));
 
         var stored = await UploadIntake.StoreAsync(blobs, PipelineTestHost.TenantA, [upload], CancellationToken.None);
-        var ingestion = UploadIntake.CreateIngestion(PipelineTestHost.TenantA, DevSeed.TenantAUploadChannel, null, stored, PipelineTestHost.Now);
+        var ingestion = UploadIntake.CreateIngestion(PipelineTestHost.TenantA, DevSeed.TenantAUploadChannel, new SourceMetadata(), stored, PipelineTestHost.Now);
 
         ingestion.RawBlob.ContentType.ShouldBe("application/octet-stream");
         var item = ingestion.Items.ShouldHaveSingleItem();

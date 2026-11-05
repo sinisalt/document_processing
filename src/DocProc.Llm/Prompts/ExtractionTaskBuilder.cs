@@ -35,6 +35,52 @@ public static class ExtractionTaskBuilder
         return sb.ToString().TrimEnd();
     }
 
+    /// <summary>The longest list of paths a fill-missing task names (docs/11 §9.3); a longer one is cut with a note.</summary>
+    public const int MaxFillPaths = 200;
+
+    /// <summary>
+    /// The task of a definition-driven extraction (docs/11 §9.3, <c>LlmDefinitionExtractor</c>): the same tenant, supplier
+    /// and document blocks as the invoice task, the type's name and the schema to fill, the definition's guidance
+    /// (tenant text, length-capped by the meta-schema) and, in <c>fill-missing</c> mode, the paths still to fill.
+    /// </summary>
+    public static string BuildForDefinition(TenantHints tenant, SupplierHints? supplier, DocumentInput document, string typeName, string schemaName, string? guidance, IReadOnlyList<string>? fillPaths)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(schemaName);
+
+        var sb = new StringBuilder();
+        sb.Append("# Task\n");
+        sb.Append("Extract the attached document (a ").Append(typeName).Append(") into the ").Append(schemaName).Append(" schema.\n\n");
+        if (!string.IsNullOrWhiteSpace(guidance))
+        {
+            sb.Append("## Guidance for this document type\n").Append(guidance.Trim()).Append("\n\n");
+        }
+
+        if (fillPaths is { Count: > 0 })
+        {
+            sb.Append("## Fields to fill\n");
+            sb.Append("Earlier steps already read the other fields; return null for every field not listed here.\n");
+            foreach (var path in fillPaths.Take(MaxFillPaths))
+            {
+                sb.Append("- ").Append(path).Append('\n');
+            }
+
+            if (fillPaths.Count > MaxFillPaths)
+            {
+                sb.Append("- (").Append((fillPaths.Count - MaxFillPaths).ToString(CultureInfo.InvariantCulture)).Append(" more)\n");
+            }
+
+            sb.Append('\n');
+        }
+
+        AppendTenant(sb, tenant);
+        AppendSupplier(sb, supplier);
+        AppendDocument(sb, document);
+
+        return sb.ToString().TrimEnd();
+    }
+
     private static void AppendTenant(StringBuilder sb, TenantHints tenant)
     {
         sb.Append("## Tenant (the expected customer)\n");

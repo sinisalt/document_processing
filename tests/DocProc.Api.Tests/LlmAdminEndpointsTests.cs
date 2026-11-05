@@ -49,6 +49,8 @@ public sealed class LlmAdminEndpointsTests(ApiFactory factory) : IClassFixture<A
         created.AuthType.ShouldBe(nameof(LlmAuthType.ApiKey));
         created.Status.ShouldBe(nameof(ProviderConfigStatus.Active));
         created.KeyLast4.ShouldBe("XYZ9");
+        // A client that holds a key can tell whether it is the stored one (docker/llm-setup.mjs does) without the key leaving the store.
+        created.KeyFingerprint.ShouldBe(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)))[..16]);
         created.DataResidency.ShouldBe(nameof(DataResidency.Eu));
         created.MonthlySpendCapUsd.ShouldBe(250m);
         created.Models.ShouldBe(new Dictionary<string, string>(StringComparer.Ordinal) { ["Extract"] = "claude-opus-5-5", ["Classify"] = "claude-haiku-5-5" });

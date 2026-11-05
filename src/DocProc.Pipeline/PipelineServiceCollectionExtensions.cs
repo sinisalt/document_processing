@@ -1,5 +1,7 @@
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
 using DocProc.Application.Pipeline;
+using DocProc.Domain.Validation;
 using DocProc.Extraction.EInvoice;
 using DocProc.Infrastructure;
 using DocProc.Infrastructure.Blobs;
@@ -39,7 +41,8 @@ public static class PipelineServiceCollectionExtensions
     }
 
     /// <summary>
-    /// The queue, the runner (<see cref="PipelineRunnerHostedService"/>), every stage handler and the structured
+    /// The queue, the runner (<see cref="PipelineRunnerHostedService"/>), the publish sweeper
+    /// (<see cref="PublishSweeperHostedService"/>), every stage handler, the rule validator and the structured
     /// e-invoice extractor, with <see cref="PipelineOptions"/> bound from <c>Pipeline:*</c> and validated at start-up
     /// (<see cref="PipelineOptionsValidator"/>). Expects persistence, blobs,
     /// document processing, e-invoice parsing and the LLM services to be registered by the host; see
@@ -56,11 +59,40 @@ public static class PipelineServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddDocProcPipelineQueue();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PipelineRunnerHostedService>());
+        // Next to the runner: the publish messages it queues go to the queue this host's runner reads.
+        services.TryAddSingleton<PublishSweeperHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PublishSweeperHostedService>(sp => sp.GetRequiredService<PublishSweeperHostedService>()));
+        // The channel pollers (docs/11 §7.1): mailboxes and watched folders of the tenants with sourceRouting on, read next
+        // to the runner that processes what they queue.
+        services.AddOptions<Intake.IntakeOptions>().Configure(o => configuration.GetSection(Intake.IntakeOptions.SectionName).Bind(o));
+        services.TryAddSingleton<Intake.ChannelPollerHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Intake.ChannelPollerHostedService>(sp => sp.GetRequiredService<Intake.ChannelPollerHostedService>()));
+        // And the delivery sweeper (docs/11 §13.6), for deliveries whose message was lost.
+        services.TryAddSingleton<DeliverySweeperHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DeliverySweeperHostedService>(sp => sp.GetRequiredService<DeliverySweeperHostedService>()));
+        // The status poller (docs/11 §13.8): asks destinations with a statusPoll about their Pending documents. And the
+        // scheduled master-data sync (docs/11 §14).
+        services.TryAddSingleton<StatusPollerHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, StatusPollerHostedService>(sp => sp.GetRequiredService<StatusPollerHostedService>()));
+        services.TryAddSingleton<MasterDataSyncHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, MasterDataSyncHostedService>(sp => sp.GetRequiredService<MasterDataSyncHostedService>()));
 
         services.TryAddSingleton<PipelineBlobs>();
+        services.TryAddSingleton(DocumentValidator.Default);
+        // P0: every tenant has adopted the standard templates, so a document's definition is its legacy type's template.
+        services.TryAddSingleton<IEffectiveConfigResolver>(new StandardTemplateConfigResolver(DocProc.Llm.Schema.DefinitionSchemaCompiler.Options));
+        services.TryAddSingleton<IPipelineConfigResolver>(BuiltinPipelineConfigResolver.Instance);
         services.TryAddScoped<DocumentTimeline>();
         services.TryAddScoped<DocumentFlagWriter>();
         services.TryAddScoped<FailureRecorder>();
+        services.TryAddScoped<StagePipeline>();
+        services.TryAddScoped<ExtractLookups>();
+        services.TryAddScoped<Routing.SourceRouting>();
+        services.TryAddScoped<Layouts.LayoutIdentification>();
+        services.TryAddScoped<Layouts.TenantIdentification>();
+        services.TryAddScoped<Layouts.LayoutExtractor>();
+        services.TryAddScoped<Layouts.LayoutReviewGate>();
+        services.TryAddScoped<Layouts.LayoutPrefiller>();
 
         services.TryAddScoped<IIngestionHandler, IngestHandler>();
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IStageHandler, NormalizeHandler>());
@@ -110,6 +142,9 @@ public static class PipelineServiceCollectionExtensions
             services.AddDocProcSecrets(configuration, builder.Environment);
         }
 
+        // The mailbox settings: the pollers read them, and the channel API checks a mailbox's host against them.
+        services.AddOptions<DocProc.Infrastructure.Mail.MailOptions>().Configure(o => configuration.GetSection(DocProc.Infrastructure.Mail.MailOptions.SectionName).Bind(o));
+
         var runInProcess = configuration.GetValue<bool?>(PipelineOptions.RunInProcessKey)
                            ?? runInProcessDefault
                            ?? !builder.Environment.IsProduction();
@@ -120,6 +155,15 @@ public static class PipelineServiceCollectionExtensions
         else
         {
             services.AddDocProcPipelineQueue();
+        }
+
+        // The publish sweeper demo's crash between commit and enqueue (docs/09); never outside Development.
+        if (builder.Environment.IsDevelopment() && configuration[PipelineOptions.CrashBeforePublishEnqueueMarkerKey] is { Length: > 0 } marker)
+        {
+            services.Replace(ServiceDescriptor.Singleton<IPipelineQueue>(sp => new CrashBeforePublishEnqueueQueue(
+                sp.GetRequiredService<InProcessPipelineQueue>(),
+                marker,
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CrashBeforePublishEnqueueQueue>>())));
         }
 
         return builder;

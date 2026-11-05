@@ -30,5 +30,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // A hang guard, not a speed check: the first full-screen render of a file (the review screen under a router) takes
+    // about 1 s on an idle machine and passed vitest's 5 s default when the .NET suite ran on the same cores.
+    testTimeout: 30_000,
   },
 });

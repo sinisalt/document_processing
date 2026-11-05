@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { UserManager, WebStorageStateStore, type User } from "oidc-client-ts";
 import { AuthProvider as OidcProvider, useAuth as useOidc } from "react-oidc-context";
 import { issueDevToken } from "./devAuthApi";
+import { signOutOidc } from "./oidcSignOut";
 import { createTokenStore, safeSessionStorage, type StoredToken } from "./tokenStore";
 import type { AuthSession, OidcConfig, ShellAuthConfig } from "./types";
 
@@ -148,14 +149,7 @@ function OidcSessionBridge({ children }: { children: ReactNode }) {
     await oidc.signinRedirect({ state: { returnTo: window.location.pathname + window.location.search } });
   }, [oidc]);
 
-  const signOut = useCallback(async () => {
-    await oidc.removeUser();
-    try {
-      await oidc.signoutRedirect();
-    } catch {
-      // No end_session_endpoint at the authority: the local session is gone, which is what matters.
-    }
-  }, [oidc]);
+  const signOut = useCallback(() => signOutOidc(oidc), [oidc]);
 
   const busy = oidc.isLoading || oidc.activeNavigator !== undefined;
   const session = useMemo<AuthSession>(

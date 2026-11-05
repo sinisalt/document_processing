@@ -2,7 +2,8 @@ import type { components } from "@docproc/api-client";
 import { fieldStatuses, formatDate, formatMoney, isFieldValue, type FieldValue } from "@docproc/app-shell";
 
 export type DocumentStatus = components["schemas"]["DocumentStatus"];
-export type DocumentType = components["schemas"]["DocumentType"];
+/** A type key (docs/11 §6.2): a string, a legacy name or one of the tenant's own types. */
+export type DocumentType = components["schemas"]["DocumentTypeKey"];
 export type FlagSeverity = components["schemas"]["FlagSeverity"];
 
 /** Every document status, in state-machine order (docs/03). */
@@ -19,6 +20,7 @@ export const documentStatuses: readonly DocumentStatus[] = [
   "Approved",
   "Rejected",
   "Failed",
+  "Cancelled",
 ];
 
 export const documentTypes: readonly DocumentType[] = ["Unknown", "Invoice", "CreditNote", "PurchaseOrder", "DeliveryNote", "Statement", "Reminder", "Other"];

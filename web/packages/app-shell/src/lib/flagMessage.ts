@@ -53,8 +53,14 @@ export function flagMessageValues(params: Readonly<Record<string, string>>, opti
  * value the flag does not carry.
  */
 export function flagMessage(flag: FlagText, options: FlagMessageOptions = {}): string {
-  if (!i18n.isInitialized) return flag.message;
   const params = flag.params ?? {};
+  // A rule's own message from its type definition (docs/11 §11, definition flags): `message.<locale>` in the parameters,
+  // in the UI language when the definition has it, else the definition's English text the API sends as `message`.
+  const language = (options.language ?? (i18n.isInitialized ? i18n.language : undefined) ?? "en").split("-")[0];
+  const own = params[`message.${language}`];
+  if (own) return own;
+  if (Object.keys(params).some((key) => key.startsWith("message."))) return flag.message;
+  if (!i18n.isInitialized) return flag.message;
   const key = `flagMessages.${flag.code}.${params.reason ?? "default"}`;
   const lng = options.language;
   const count = params.count !== undefined && Number.isFinite(Number(params.count)) ? Number(params.count) : undefined;
@@ -73,4 +79,26 @@ export function flagMessage(flag: FlagText, options: FlagMessageOptions = {}): s
     },
   } as Record<string, unknown>);
   return missing || typeof text !== "string" || text.length === 0 ? flag.message : text;
+}
+
+/**
+ * The data behind a flag that its sentence does not show, in the UI language, or null when there is none to show. A
+ * row of `deltaToPrevious` (`reason: deltaRow`, docs/11 §11) carries the row's key, the previous and the new value and
+ * the change, which a definition's own message ("Unusual price change against the last approved list") leaves out:
+ * `104539: from 39.02 to 54.63 (+40.01%)`. It keys on the reason, so a definition flag with its own code shows it too.
+ */
+export function flagDetail(flag: FlagText, options: FlagMessageOptions = {}): string | null {
+  const params = flag.params ?? {};
+  if (params.reason !== "deltaRow" || !i18n.isInitialized) return null;
+  const previous = Number(params.previous);
+  const value = Number(params.value);
+  const change = Number(params.changePercent);
+  if (!params.key || !Number.isFinite(previous) || !Number.isFinite(value) || !Number.isFinite(change)) return null;
+  const lng = options.language;
+  const amount = (n: number) => formatNumber(n, lng, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  // changePercent is the size of the move; the direction is the one from the previous value to the new one.
+  const signed = value < previous ? -Math.abs(change) : Math.abs(change);
+  const percent = new Intl.NumberFormat(lng ?? (i18n.language || "en"), { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 2 }).format(signed / 100);
+  const text = i18n.t("flagDetails.deltaRow", { ns: "common", lng, row: params.key, previous: amount(previous), value: amount(value), change: percent, interpolation: { escapeValue: false } });
+  return typeof text === "string" && text.length > 0 && text !== "flagDetails.deltaRow" ? text : null;
 }

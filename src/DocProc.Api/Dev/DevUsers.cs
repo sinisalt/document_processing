@@ -31,9 +31,10 @@ public static class DevUsers
         new("superadmin", "superadmin@docproc.local", "Sam", "Super", [Roles.SuperAdmin], null),
         new("operator", "operator@docproc.local", "Olga", "Operator", [Roles.Operator], null),
         new("tenant-a-admin", "admin@tenant-a.local", "Anna", "Admin", [Roles.TenantAdmin], TenantA),
-        new("tenant-a-reviewer", "reviewer@tenant-a.local", "Rea", "Reviewer", [Roles.Reviewer], TenantA),
+        new("tenant-a-reviewer", "reviewer@tenant-a.local", "Rea", "Reviewer", [Roles.Reviewer, Roles.MappingAuthor], TenantA),
         new("tenant-b-admin", "admin@tenant-b.local", "Bo", "Admin", [Roles.TenantAdmin], TenantB),
         new("tenant-b-viewer", "viewer@tenant-b.local", "Vic", "Viewer", [Roles.Viewer], TenantB),
+        new("tenant-b-reviewer", "reviewer@tenant-b.local", "Ben", "Reviewer", [Roles.Reviewer], TenantB),
     ];
 
     public static DevUser? Find(string? username) =>

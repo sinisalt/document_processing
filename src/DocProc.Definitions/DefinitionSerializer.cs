@@ -1,0 +1,86 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+
+namespace DocProc.Definitions;
+
+/// <summary>
+/// Reads and writes definitions (docs/11 §5.2). Reading is strict: an unknown property, a missing required one, a
+/// comment or a trailing comma is an error, so a definition either means exactly what it says or does not load. The
+/// meta-schema <c>schemas/document-type-definition.v1.json</c> (<see cref="DefinitionMetaSchema"/>, generated from the
+/// same records) checks the shape of an edited definition first and names every place it breaks; this reader and
+/// <see cref="DefinitionChecker"/> follow.
+/// </summary>
+public static class DefinitionSerializer
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+        ReadCommentHandling = JsonCommentHandling.Disallow,
+        AllowTrailingCommas = false,
+        // A number is a number: the web defaults would also read "1" for 1, and the meta-schema would have to allow it.
+        NumberHandling = JsonNumberHandling.Strict,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { OmitEmptyFlags } },
+        WriteIndented = true,
+    };
+
+    /// <summary>
+    /// A definition without definition flags (docs/11 §11, P5) is written without <c>flags</c>, as before P5: the
+    /// stored JSON of every such definition stays readable by the build before P5, whose reader refuses a member it does
+    /// not know (Correction (P5) fix1).
+    /// </summary>
+    private static void OmitEmptyFlags(JsonTypeInfo info)
+    {
+        if (info.Type != typeof(TypeDefinition))
+        {
+            return;
+        }
+
+        foreach (var property in info.Properties.Where(p => p.Name == "flags"))
+        {
+            property.ShouldSerialize = static (_, value) => value is IReadOnlyCollection<FlagDeclaration> { Count: > 0 };
+        }
+    }
+
+    /// <summary>The definition in <paramref name="json"/>; throws <see cref="DefinitionFormatException"/> when it is not one.</summary>
+    public static TypeDefinition Parse(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        try
+        {
+            return JsonSerializer.Deserialize<TypeDefinition>(json, Options)
+                   ?? throw new DefinitionFormatException("A definition must be a JSON object, not null.");
+        }
+        catch (JsonException e)
+        {
+            throw new DefinitionFormatException($"Not a valid definition: {e.Message}", e);
+        }
+    }
+
+    public static string Write(TypeDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return JsonSerializer.Serialize(definition, Options);
+    }
+}
+
+/// <summary>A definition that does not parse, or a template resource that is missing or malformed.</summary>
+public sealed class DefinitionFormatException : Exception
+{
+    public DefinitionFormatException()
+    {
+    }
+
+    public DefinitionFormatException(string message)
+        : base(message)
+    {
+    }
+
+    public DefinitionFormatException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}

@@ -1,0 +1,26 @@
+# Build context of every image in docker-compose.yml (the repository root). Keep it to sources: build output,
+# dependencies and local state are rebuilt or created inside the images.
+.git
+.github
+.claude
+.vs
+.vscode
+.idea
+**/bin
+**/obj
+**/TestResults
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/data
+artifacts
+docs
+tests
+web/e2e/screenshots
+web/e2e/test-results
+web/e2e/playwright-report
+# Local secrets and overrides: never part of an image.
+.env
+**/*.user
+**/appsettings.*.local.json
+docker-compose.override.yml

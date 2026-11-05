@@ -188,3 +188,77 @@ describe("list errors", () => {
     expect(screen.getByLabelText("Issued to")).toHaveAttribute("aria-invalid", "true");
   });
 });
+
+describe("inbox columns of definition-driven types", () => {
+  const row = (overrides: Record<string, unknown>) => ({
+    id: "d0000000-0000-0000-0000-000000000001",
+    tenantId: "tenant-b",
+    tenantName: null,
+    status: "NeedsReview",
+    type: "Invoice",
+    typeConfidence: null,
+    supplierId: null,
+    supplierName: "Nordwind Großhandel GmbH",
+    documentNumber: "RE-1",
+    issueDate: null,
+    currency: "EUR",
+    totalGross: 119,
+    extractionMethod: null,
+    pageCount: 1,
+    blockingFlagCount: 0,
+    warningFlagCount: 0,
+    createdAt: "2026-11-01T08:00:00Z",
+    updatedAt: "2026-11-01T08:00:00Z",
+    approvedAt: null,
+    validFrom: null,
+    validUntil: null,
+    lineCount: null,
+    reviewPriority: null,
+    reviewDueAt: null,
+    ...overrides,
+  });
+
+  it("shows a price list's validity and row count instead of a total, and an urgent review", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    search.current = { tab: "all" };
+    const items = [
+      row({ id: "d1", documentNumber: "PL-2026-11", type: "price-list", totalGross: null, validFrom: "2026-11-01", validUntil: "2026-11-30", lineCount: 412, reviewPriority: "Urgent" }),
+      row({ id: "d2", documentNumber: "RE-2026-0042", reviewPriority: "Normal" }),
+    ];
+    client.GET.mockImplementation((async (path: string) =>
+      ({ data: { items: path === "/api/v1/documents" ? items : [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200 }) })) as never);
+    try {
+      await renderRoute(inboxRoute);
+      expect((await screen.findAllByText(/412 rows/)).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Nov 1, 2026 – Nov 30, 2026/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Urgent").length).toBe(1);
+      expect(screen.getAllByText("€119.00").length).toBeGreaterThan(0);
+    } finally {
+      client.GET.mockReset();
+      client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
+    }
+  });
+
+  it("takes the types from the catalogue and filters and shows a type's indexed custom field", async () => {
+    auth.user = userOf("Reviewer", "tenant");
+    search.current = { tab: "all", type: "CreditNote", field: "supplierCustomerRef", value: "0815" };
+    const types = [
+      { key: "CreditNote", name: { en: "Credit note" }, indexedFields: [{ path: "supplierCustomerRef", kind: "identifier", label: { en: "Our customer no. at supplier" } }] },
+      { key: "price-list", name: { en: "Price list" }, indexedFields: [] },
+    ];
+    const items = [row({ id: "d3", documentNumber: "GS-1", type: "CreditNote", fields: { supplierCustomerRef: "0815" } })];
+    client.GET.mockImplementation((async (path: string) =>
+      ({ data: path === "/api/v1/document-types" ? types : { items: path === "/api/v1/documents" ? items : [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200 }) })) as never);
+    try {
+      await renderRoute(inboxRoute);
+      expect(await screen.findByRole("columnheader", { name: /Our customer no\. at supplier/ })).toBeInTheDocument();
+      expect(screen.getAllByText("0815").length).toBeGreaterThan(0);
+      expect(screen.getByLabelText("Our customer no. at supplier is")).toBeInTheDocument();
+      const list = client.GET.mock.calls.filter(([path]) => path === "/api/v1/documents").at(-1) as unknown as [string, { params: { query: Record<string, unknown> } }];
+      expect(list[1].params.query).toMatchObject({ type: "CreditNote", fields: "supplierCustomerRef", "field.supplierCustomerRef": "0815" });
+    } finally {
+      client.GET.mockReset();
+      client.GET.mockImplementation(async (path: string) => ({ data: { items: [], nextCursor: null }, error: undefined, response: new Response(null, { status: 200, headers: { "x-path": path } }) }));
+    }
+  });
+});

@@ -1,6 +1,8 @@
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using Azure.Identity;
+using DocProc.Infrastructure.Http;
+using DocProc.Infrastructure.Llm;
 using DocProc.Llm.OpenAi.Pipeline;
 using DocProc.Llm.Providers;
 using OpenAI;
@@ -53,7 +55,7 @@ public sealed class OpenAiCompatibleProviderFactory(PipelineTransport? transport
             throw new ArgumentOutOfRangeException(nameof(config), config.Kind, "This factory serves OpenAI, Azure OpenAI and OpenAI-compatible endpoints only.");
         }
 
-        TenantEndpointGuard.EnsureAllowed(config);
+        LlmEndpointGuard.EnsureAllowed(config);
         var validationModel = config.ModelFor(LlmStage.Classify) ?? config.Models.Values.FirstOrDefault()
             ?? throw new LlmException(LlmErrorKind.InvalidRequest, $"Provider configuration {config.Id} has no models configured.");
 

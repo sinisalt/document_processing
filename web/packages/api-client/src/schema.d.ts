@@ -67,12 +67,393 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deletes a channel that has never received anything, and its credential; otherwise 409. */
+        /** Deletes a channel that has never received anything and no output binding is scoped to, and its credential; otherwise 409. */
         delete: operations["DeleteChannel"];
         options?: never;
         head?: never;
         /** Renames, pauses/resumes or reconfigures a channel; secret rotates (value) or clears (empty string) the credential. */
         patch: operations["UpdateChannel"];
+        trace?: never;
+    };
+    "/api/v1/config/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Exports the tenant's configuration as one signed, versioned JSON bundle (docs/11 §15.4): ?include=types,layouts,sourceRules,outputs,bindings; secrets are never in it. */
+        get: operations["ExportConfigBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/bundle:import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks a bundle's signature and contents and reports per item what an import does (dry-run), or does it (apply): types and output mappings as drafts, layouts as Candidates, source rules and bindings disabled. */
+        post: operations["ImportConfigBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's deliveries, newest first, filtered by document, destination and status. */
+        get: operations["ListDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One delivery with its attempts and the external id. */
+        get: operations["GetDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}:redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a delivery again as a new delivery, from its snapshot or rendered again; a dead letter it replaces is cancelled. */
+        post: operations["RedeliverDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deliveries/{id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The payload snapshot the delivery sends. */
+        get: operations["GetDeliveryPayload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's destinations; secrets are never returned. */
+        get: operations["ListDestinations"];
+        put?: never;
+        /** Adds an http, blob or pull destination; the config is checked per transport, the secret is write-only. */
+        post: operations["CreateDestination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One destination. */
+        get: operations["GetDestination"];
+        put?: never;
+        post?: never;
+        /** Removes a destination no binding and no delivery refers to (409 otherwise: disable it instead), with its secrets. */
+        delete: operations["DeleteDestination"];
+        options?: never;
+        head?: never;
+        /** Renames, disables or reconfigures a destination. */
+        patch: operations["UpdateDestination"];
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets how the destination reports back (docs/11 §13.8): callback {auth: hmacSha256|bearer, mapping?} and/or statusPoll {urlTemplate, intervalMinutes, mapping?, maxPolls?}; an empty object turns both off. */
+        put: operations["SetDestinationAcknowledgements"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}/callback-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generates the destination's callback secret, or a new one (a rotation), and answers it once; the replaced one is still accepted until the next rotation. The platform makes every secret, so no two destinations share one. */
+        post: operations["RotateDestinationCallbackSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/destinations/{id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets or rotates the destination's secret; the replaced secret stays as the previous one until the next rotation. */
+        put: operations["SetDestinationSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The platform templates a tenant can adopt or copy, with the tenant's types that come from each. */
+        get: operations["ListDocumentTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's document types. */
+        get: operations["ListDocumentTypes"];
+        put?: never;
+        /** Adopts or copies a platform template ({from}), or creates a type of the tenant's own ({definition}) as draft version 1. */
+        post: operations["CreateDocumentType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the tenant's types with its versions. */
+        get: operations["GetDocumentType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}:upgrade-base": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moves an adopted type onto the newest version of its template and sets review.autoApprove (docs/11 §5.8: an automatic upgrade never switches auto-approval on; this does, where the template allows it). */
+        post: operations["UpgradeDocumentTypeBase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/identification-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant fallback identification rules of a type (docs/11 §8.5), each with its versions and their tests. */
+        get: operations["ListTypeIdentificationRules"];
+        put?: never;
+        /** Creates a tenant fallback rule for the type: version 1 as a Draft, tested at once against the last 500 approved documents of the tenant. */
+        post: operations["CreateTypeIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/resolved-pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The pipeline a document of the type runs, for a supplier and a layout version (docs/11 §10.1). */
+        get: operations["GetResolvedPipeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The versions of a type, oldest first. */
+        get: operations["ListDocumentTypeVersions"];
+        put?: never;
+        /** Starts the next version of a copied or custom type as a draft, from the published version. */
+        post: operations["CreateDocumentTypeDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version with its definition; include=formSpec,jsonSchema,llmSchema,descriptors adds the compiled artifacts. The ETag is the draft revision. */
+        get: operations["GetDocumentTypeVersion"];
+        /** Replaces a draft's definition (If-Match: the revision read). The meta-schema is checked on save; everything else on validate and publish. */
+        put: operations["SaveDocumentTypeDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}:publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publishes a draft when the publish-time checks pass (422 with the report otherwise); the previous version is deprecated. */
+        post: operations["PublishDocumentTypeVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}:test-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the checks of a version (a draft too) on one document of the type and reports each rule's outcome; nothing is written (docs/11 §19, the type editor's rule test). */
+        post: operations["TestDocumentTypeRules"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-types/{key}/versions/{version}:validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the publish-time checks on a version and returns the report, without publishing. */
+        post: operations["ValidateDocumentTypeVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/documents": {
@@ -82,10 +463,27 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated. */
+        /** Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters, plus field.<key>=value for the indexed fields of the document types (docs/11 §18); cursor-paginated. */
         get: operations["ListDocuments"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents:bulk-reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends up to 200 documents back through the pipeline from a stage (docs/11 §15.5), for example the siblings of a new layout from Classify with configMode current. */
+        post: operations["BulkReprocessDocuments"];
         delete?: never;
         options?: never;
         head?: never;
@@ -126,6 +524,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}:assign-supplier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assigns a supplier of the document's tenant to a document in review (docs/11 §12.1); the Match stage keeps it from then on, and the document is checked again with it. */
+        post: operations["AssignDocumentSupplier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:create-supplier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a supplier from a document in review, with the checks of POST /suppliers, and assigns it to the document (docs/11 §14). A reviewer gives the name, VAT id, tax id, IBANs and currency; emailDomains, aliases, alwaysReview and attributes need a tenant admin (403). */
+        post: operations["CreateSupplierFromDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:golden": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keeps an approved document as a golden document (docs/11 §15.3): a snapshot of its values and its outputs' hashes; replays and regression runs read it. */
+        post: operations["MarkGoldenDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Joins other parts of the same attachment into this document, pages in attachment order (docs/11 §12.7); the others are cancelled with a link to it, and the joined document is classified again. 202. */
+        post: operations["JoinDocuments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:learn-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Saves the reviewed document as a layout (docs/11 §12.6): its identification rule (marked, or proposed) and the field mapping AnchorLearner derives from its confirmed values. A MappingAuthor's save is activated under the condition of §8.3 with the tenant's warm-up; anyone else's is a Candidate the MappingAuthors are notified of. */
+        post: operations["LearnLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:match-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sets the type of a NEW_LAYOUT document (TypeSource Human, a setType correction) and records the basis of its pre-fill (docs/11 §12.10 step 3); the layout-prefill step runs again only when the type or the basis changes (202). */
+        post: operations["MatchLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}:reject": {
         parameters: {
             query?: never;
@@ -154,6 +654,74 @@ export interface paths {
         put?: never;
         /** Sends a failed, rejected, validated or review-pending document back through the pipeline from a stage it has reached (Normalize, Classify, Extract or Validate; default Extract). */
         post: operations["ReprocessDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:resolve-integration-issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves the document's open EXTERNAL_REJECTED flags with a note and completes its integration-issue review tasks; the document stays settled. */
+        post: operations["ResolveDocumentIntegrationIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:resolve-revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves an open REVISION_OF (docs/11 §11): supersedes (the earlier document is superseded and this one carries meta.supersedes), additional (both stand; the pair is not flagged again) or duplicate (this document is rejected). */
+        post: operations["ResolveDocumentRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:set-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Gives a document in review a type (docs/11 §12.1): pinned to the tenant's published version of it (or the version named), with prefill none (the empty fields of the type at once, 200) or auto (extracted again for that type, 202). A setType correction records it. */
+        post: operations["SetDocumentType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}:split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Splits a document in review into several documents by page (docs/11 §12.7): the first part keeps the id, the others are new documents of the same attachment; each is classified again, or extracted for the type a part names. 202. */
+        post: operations["SplitDocument"];
         delete?: never;
         options?: never;
         head?: never;
@@ -194,6 +762,57 @@ export interface paths {
         patch: operations["CorrectDocumentFields"];
         trace?: never;
     };
+    "/api/v1/documents/{id}/identification-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** "Use for all suppliers without own layouts" in review (docs/11 §12.10 step 5): saves the marked rule as a Draft tenant rule of the document's type (or the type named), tested at once; it must hold on the document. */
+        post: operations["CreateTypeIdentificationRuleFromDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/identifiers:propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turns the words picked or the box drawn on a page into an identifier (docs/11 §12.9): a title-area word becomes {text, page, region: title}, other words a bBox, the supplier's VAT id or IBAN supplierValue (never in tenant scope). */
+        post: operations["ProposeIdentifier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/layout-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's layouts ranked by similarity to the document (docs/11 §8.4 step 5); informational, never applied. */
+        get: operations["GetLayoutSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/original": {
         parameters: {
             query?: never;
@@ -228,6 +847,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{id}/pages/{n}/words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The words of a page with their boxes in page units (docs/11 §12.3); with bbox=x0,y0,x1,y1 the words inside it, their text in reading order and its readings per kind (date, number, amount, ...) in the locale (the tenant's country by default). */
+        get: operations["GetDocumentPageWords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The documents of the same attachment as this one, in page order (docs/11 §12.7): what a reviewer can join it with, and the parts a split or a join left, cancelled ones with the document they were joined into. */
+        get: operations["GetDocumentParts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/regions:read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reads the words inside a box of a page image with OCR (docs/11 §12.3), for a scan without a text layer there; 501 when no OCR provider is configured. A few reads run at a time per tenant (429 beyond). */
+        post: operations["ReadDocumentRegion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/regions:table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The table tool (docs/11 §12.4): proposes columns for a box, or reads the rows of a mapping drawn on one page over the pages named, with the table report per page; write: true stores the rows as one correction and the report. One read has a time budget (422 TABLE_READ_TOO_SLOW past it), and a few run at a time per tenant (429 beyond). */
+        post: operations["ReadDocumentTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/table-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stored table reports of the document's repeating groups (docs/11 §6.2 DocumentTableReport): the page strip after a table capture. */
+        get: operations["GetDocumentTableReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/text": {
         parameters: {
             query?: never;
@@ -239,6 +943,195 @@ export interface paths {
         get: operations["GetDocumentText"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feeds/{destinationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The entries of a pull destination's feed after the cursor (without one: from the oldest entry not acknowledged). */
+        get: operations["ReadFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feeds/{destinationId}:ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledges feed entries, which marks their deliveries delivered. */
+        post: operations["AcknowledgeFeed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/golden-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The golden documents, optionally of one supplier (?supplierId=) and type (?typeKey=). */
+        get: operations["ListGoldenDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/golden-documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Removes a golden document (the document stays). */
+        delete: operations["DeleteGoldenDocument"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks an identification rule and evaluates it on documents of a supplier, a group or the tenant: per document whether it holds, with evidence, and the overlaps with other layouts (docs/11 §8.3, §12.9). */
+        post: operations["TestIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One tenant fallback rule with its versions. */
+        get: operations["GetTypeIdentificationRule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Renames a tenant fallback rule or changes its priority (which orders rules of the same type only). */
+        patch: operations["PatchTypeIdentificationRule"];
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disables a tenant fallback rule: it types no document from then on; documents it typed keep their version. */
+        post: operations["DisableTypeIdentificationRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The versions of a tenant fallback rule. */
+        get: operations["ListTypeIdentificationRuleVersions"];
+        put?: never;
+        /** A new Draft version of the rule, tested at once; a rule has at most one Draft. */
+        post: operations["CreateTypeIdentificationRuleVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a Draft's rule (If-Match: the revision read), tested again; a version out of Draft never changes. */
+        put: operations["SaveTypeIdentificationRuleDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}:activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activates a Draft after its test (confirmOtherTypes when it matched documents of other types); the previous Active version is retired. */
+        post: operations["ActivateTypeIdentificationRuleVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identification-rules/{id}/versions/{version}:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the save-time test again: the last 500 approved documents of the tenant, without excluded suppliers and suppliers that have layouts. */
+        post: operations["TestTypeIdentificationRuleVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -273,6 +1166,58 @@ export interface paths {
         /** One ingestion with its items and the documents split from them. */
         get: operations["GetIngestion"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Automation per supplier, suppliers without layouts by volume, Unknown rates, layouts and rules to look at, delivery health and master-data conflicts (docs/11 §17). */
+        get: operations["GetAutomationInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/callbacks/{destinationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<destinationId>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}. */
+        post: operations["ReceiveIntegrationCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's LLM budgets with what was spent in each current period (docs/11 §16). */
+        get: operations["ListLlmBudgets"];
+        /** Replaces the tenant's LLM budgets; a call that would exceed one is not made (LLM_BUDGET_EXCEEDED). */
+        put: operations["PutLlmBudgets"];
         post?: never;
         delete?: never;
         options?: never;
@@ -453,6 +1398,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lookup-tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's lookup tables and the platform code lists. */
+        get: operations["ListLookupTables"];
+        put?: never;
+        /** Adds an empty lookup table to the tenant. */
+        post: operations["CreateLookupTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lookup-tables/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One lookup table with its entries (the tenant's, else the platform's of that key); the ETag is its revision. */
+        get: operations["GetLookupTable"];
+        put?: never;
+        post?: never;
+        /** Removes one of the tenant's lookup tables with its entries. */
+        delete: operations["DeleteLookupTable"];
+        options?: never;
+        head?: never;
+        /** Changes a table's description or case sensitivity. */
+        patch: operations["UpdateLookupTable"];
+        trace?: never;
+    };
+    "/api/v1/lookup-tables/{key}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces every entry of one of the tenant's tables (If-Match: the revision read). */
+        put: operations["PutLookupEntries"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One run with its report. */
+        get: operations["GetMasterDataRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's master-data sources. */
+        get: operations["ListMasterDataSources"];
+        put?: never;
+        /** Adds a master-data source: an http destination read on a schedule (CRON_TZ=<zone> m h dom mon dow) or an upload source, its JSONata mapping to supplier records, match keys and conflict policy. */
+        post: operations["CreateMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One master-data source. */
+        get: operations["GetMasterDataSource"];
+        put?: never;
+        post?: never;
+        /** Removes a master-data source and its runs. */
+        delete: operations["DeleteMasterDataSource"];
+        options?: never;
+        head?: never;
+        /** Changes a master-data source. */
+        patch: operations["UpdateMasterDataSource"];
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}:dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the source without changing anything: the report says what a run would create, update and flag. */
+        post: operations["DryRunMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}:run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the source now and applies its records (an upload source takes them in the body); answers the run with its report. */
+        post: operations["RunMasterDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/master-data-sources/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The source's runs, newest first (at most 50). */
+        get: operations["ListMasterDataRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -506,6 +1610,304 @@ export interface paths {
         patch: operations["ChangeMemberRole"];
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The open notifications for the permissions the caller holds (MappingAuthor: Candidate layouts with documents waiting); ?all=true includes resolved ones. */
+        get: operations["ListNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}:dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves a notification the caller may see. */
+        post: operations["DismissNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's output bindings. */
+        get: operations["ListOutputBindings"];
+        put?: never;
+        /** Binds events and a scope (type, supplier, channel, condition) to a mapping and a destination. */
+        post: operations["CreateOutputBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-bindings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One output binding. */
+        get: operations["GetOutputBinding"];
+        put?: never;
+        post?: never;
+        /** Removes a binding without deliveries (409 otherwise: disable it instead). */
+        delete: operations["DeleteOutputBinding"];
+        options?: never;
+        head?: never;
+        /** Changes a binding; absent fields stay. */
+        patch: operations["UpdateOutputBinding"];
+        trace?: never;
+    };
+    "/api/v1/output-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's output mappings and the platform templates, with their versions. */
+        get: operations["ListOutputMappings"];
+        put?: never;
+        /** Copies a platform template ({from: {template}}) or creates a mapping of the tenant's own; version 1 is a draft. */
+        post: operations["CreateOutputMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renders a mapping version or an expression over a document's values view (or sample values) on the server, without delivering; returns the output, render and target-schema errors and the paths it reads. A few previews run at a time per tenant (429 beyond). */
+        post: operations["PreviewOutputMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One mapping (the tenant's, else the platform template of that key) with its versions. */
+        get: operations["GetOutputMapping"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Renames, describes, scopes to a type or archives one of the tenant's mappings. */
+        patch: operations["UpdateOutputMapping"];
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts the next version as a draft, from the published version (409 when a draft exists). */
+        post: operations["CreateOutputMappingDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version with its expression and target schema; the ETag is the draft revision. */
+        get: operations["GetOutputMappingVersion"];
+        /** Replaces a draft (If-Match: the revision read). The expression and target schema are checked on publish. */
+        put: operations["SaveOutputMappingDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-mappings/{key}/versions/{version}:publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publishes a draft when its expression parses and its target schema is one (422 with the errors otherwise); the previous version is deprecated. */
+        post: operations["PublishOutputMappingVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/output-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The platform integration templates a tenant can copy (std.event, generic-ap-json), with the tenant's mappings copied from each. */
+        get: operations["ListOutputTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/{hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The steps of a pipeline documents ran, by its hash (Documents.pipelineHash). */
+        get: operations["GetPipelineSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/lookups:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Calls an http-lookup step's destination for one document and maps the answer, without writing or storing anything (docs/11 §10.2, §19). */
+        post: operations["TestLookup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receiving-entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's receiving entities (its own companies and branches), by code. */
+        get: operations["ListReceivingEntities"];
+        put?: never;
+        /** Creates a receiving entity: a code unique in the tenant, a name, VAT ids, addresses and attributes (docs/11 §6.4). */
+        post: operations["CreateReceivingEntity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receiving-entities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One receiving entity. */
+        get: operations["GetReceivingEntity"];
+        put?: never;
+        post?: never;
+        /** Deletes a receiving entity no document, source rule, channel, supplier attribute or supplier layout names (409 otherwise). */
+        delete: operations["DeleteReceivingEntity"];
+        options?: never;
+        head?: never;
+        /** Changes a receiving entity. */
+        patch: operations["UpdateReceivingEntity"];
+        trace?: never;
+    };
+    "/api/v1/regression-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the golden documents of a layout's supplier and type through one of its versions and compares the values with the snapshots (docs/11 §15.3). */
+        post: operations["CreateRegressionRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/regression-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A regression run. */
+        get: operations["GetRegressionRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/review-tasks": {
         parameters: {
             query?: never;
@@ -513,7 +1915,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The review queue oldest first (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary. */
+        /** The review queue, urgent then high then normal priority, oldest first within each (Open and InProgress by default; filter by status or assignedTo=me), each with its document summary. */
         get: operations["ListReviewTasks"];
         put?: never;
         post?: never;
@@ -557,6 +1959,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/routing:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-runs the tenant's source rules against a source (channel, sender, recipients, mailbox, folder, subject, file name, sender authentication) and explains the result: winner, runners-up, conflicts and the type (docs/11 §18). */
+        post: operations["TestRouting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rule-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The rule kinds a definition may name, with their parameter schemas (docs/11 §11, §18). */
+        get: operations["ListRuleKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs a stored document through a draft layout (a version, or a rule and mapping) without side effects (docs/11 §15.3): the identification evidence, or NEW_LAYOUT with the identifiers that failed, the values the mapping reads and its drift. */
+        post: operations["CreateSandboxRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A sandbox run. */
+        get: operations["GetSandboxRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings": {
         parameters: {
             query?: never;
@@ -564,10 +2034,200 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Review policy and retention of the current tenant, with its read-only identity. */
+        /** Review policy, retention and feature switches of the current tenant, with its read-only identity. */
         get: operations["GetTenantSettings"];
-        /** Replaces the review policy and retention of the current tenant. */
+        /** Replaces the review policy and retention of the current tenant, and its feature switches when features is given. */
         put: operations["PutTenantSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/step-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The step kinds per phase with their parameter schemas (docs/11 §10.2). */
+        get: operations["ListStepKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tenant's supplier groups, by name, with their member count. */
+        get: operations["ListSupplierGroups"];
+        put?: never;
+        /** Creates a supplier group whose attributes and settings its members inherit (docs/11 §6.4). */
+        post: operations["CreateSupplierGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-groups/{groupId}/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The layouts of a supplier group, used by members without layouts of their own. */
+        get: operations["ListGroupLayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One supplier group. */
+        get: operations["GetSupplierGroup"];
+        put?: never;
+        post?: never;
+        /** Deletes a supplier group without members (409 otherwise). */
+        delete: operations["DeleteSupplierGroup"];
+        options?: never;
+        head?: never;
+        /** Renames a supplier group or replaces its attributes or settings. */
+        patch: operations["UpdateSupplierGroup"];
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One layout with its versions. */
+        get: operations["GetSupplierLayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}:retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retires a layout: it identifies no document from then on; documents it identified keep their version. */
+        post: operations["RetireSupplierLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adds a version written by hand to a layout: its identification rule and field mapping, saved as a Candidate. */
+        post: operations["CreateSupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One layout version in full: identification rule, field mapping, coverage, replay report and similarity profile. */
+        get: operations["GetSupplierLayoutVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}:activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activates a version under the condition of docs/11 §8.3 (the identification test passes and the field replay agrees on a non-empty replay set), with the tenant's review warm-up; the previous Active version is retired, and the documents waiting for it can be reprocessed. */
+        post: operations["ActivateSupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}:replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the dry-run replay of docs/11 §8.3: the identification test and the field replay over the replay set, stored on the version. */
+        post: operations["ReplaySupplierLayoutVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/supplier-layouts/{layoutId}/versions/{version}/matching-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's documents the version's rule holds on (?state=pending: in review with NEW_LAYOUT, the sibling re-test; approved: approved ones; ?holds=false: those it does not hold on). */
+        get: operations["GetLayoutMatchingDocuments"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -593,6 +2253,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/suppliers:import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Imports suppliers from CSV (with a column map) or JSON (docs/11 §14): matched by attributes.erpVendorId, vatId, then IBAN, each attribute under its conflict policy (externalWins, localWins, flag). A dry run (the default) answers the report only; the same file twice changes nothing. */
+        post: operations["ImportSuppliers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/suppliers/{id}": {
         parameters: {
             query?: never;
@@ -604,7 +2281,7 @@ export interface paths {
         get: operations["GetSupplier"];
         put?: never;
         post?: never;
-        /** Deletes a supplier no document references; otherwise 409. */
+        /** Deletes a supplier no document, extractor profile, output binding or channel default references, with its source rules and entity attributes; otherwise 409. */
         delete: operations["DeleteSupplier"];
         options?: never;
         head?: never;
@@ -624,6 +2301,113 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/entity-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's attributes per receiving entity. */
+        get: operations["ListSupplierEntityAttributes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/entity-attributes/{entityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets the supplier's attributes in one receiving entity (the vendor number in company 1000); the values view merges them over the supplier's. */
+        put: operations["PutSupplierEntityAttributes"];
+        post?: never;
+        /** Removes the supplier's attributes in one receiving entity. */
+        delete: operations["DeleteSupplierEntityAttributes"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's layouts (docs/11 §6.6), optionally of one type (?type=), each with its versions. */
+        get: operations["ListSupplierLayouts"];
+        put?: never;
+        /** Adds a layout written by hand or imported: version 1 with its identification rule and field mapping, saved as a Candidate (docs/11 §8.3). */
+        post: operations["CreateSupplierLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/layouts:resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dry-runs the layout resolver for a document (?documentId=) against the supplier's layouts and explains every candidate; changes nothing. */
+        get: operations["ResolveSupplierLayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/source-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The supplier's source rules (docs/11 §6.5), by priority, then oldest first. */
+        get: operations["ListSourceRules"];
+        put?: never;
+        /** Adds a source rule: conditions on the channel, recipient, sender, sender domain, folder, subject and file name that route a document to the supplier, with its mode, sender authentication, priority, pinned type and receiving entity. */
+        post: operations["CreateSourceRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/suppliers/{supplierId}/source-rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One source rule of the supplier. */
+        get: operations["GetSourceRule"];
+        /** Replaces a source rule (the body of POST); it routes new ingestions from then on. */
+        put: operations["ReplaceSourceRule"];
+        post?: never;
+        /** Deletes a source rule; the documents it routed keep their supplier and name it in their timeline. */
+        delete: operations["DeleteSourceRule"];
         options?: never;
         head?: never;
         patch?: never;
@@ -720,6 +2504,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description The body of `:activate`: the version's review warm-up, the tenant's (`layoutReviewWarmup`, 5 by default) when
+         *     left out, and whether the documents waiting for the version (its pending siblings) are reprocessed from Classify at once
+         *     ("Activate and reprocess N documents", docs/11 §19).
+         */
+        ActivateLayoutRequest: {
+            reprocessWaiting?: null | boolean;
+            /** Format: int32 */
+            reviewWarmup?: null | number | string;
+        };
+        /** @description What `:activate` did: the layout, the replay that allowed it, the documents waiting for the version and the ones reprocessed. */
+        ActivateLayoutResponse: {
+            layout: components["schemas"]["SupplierLayoutResponse"];
+            replay: components["schemas"]["ReplayReport"];
+            reprocessed: string[];
+            waiting: string[];
+        };
+        /** @description The body of `:activate`: a rule whose test matched documents of other types is activated only when confirmed. */
+        ActivateTypeIdentificationRuleRequest: {
+            /** @default false */
+            confirmOtherTypes: boolean;
+        };
         AddMemberRequest: {
             displayName: null | string;
             email: null | string;
@@ -733,6 +2539,11 @@ export interface components {
         ApiKeySummary: {
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: uuid
+             * @description The pull destination a `deliveries:read` key is restricted to; null for all of the tenant's.
+             */
+            destinationId?: null | string;
             /** Format: uuid */
             id: string;
             isActive?: boolean;
@@ -744,8 +2555,128 @@ export interface components {
             revokedAt: null | string;
             scopes: string[];
         };
+        /**
+         * @description What keeps a document from being approved: `code` is `TYPE_REQUIRED` (the type is Unknown),
+         *     `NO_DEFINITION` (the type has no published definition the tenant can use) or `NO_DATA` (nothing was
+         *     captured: the document has no canonical data); `message` says it in English.
+         */
+        ApprovalBlock: {
+            code: string;
+            message: string;
+        };
+        /**
+         * @description `:approve` (docs/05): an optional comment and, for a document of a known supplier, LearnLayoutRequest? ApproveDocumentRequest.LearnLayout
+         *     ("Approve and save as layout", docs/11 §12.10 step 6): the approval and the saved layout commit together. Without it a
+         *     `NEW_LAYOUT` document is approved alone and the flag is resolved as `approvedWithoutLayout`.
+         */
         ApproveDocumentRequest: {
             comment: null | string;
+            learnLayout?: null | components["schemas"]["LearnLayoutRequest"];
+        };
+        /**
+         * @description Remember the assignment as a source rule (docs/11 §12.1): IReadOnlyList&lt;string&gt; AssignSupplierRemember.Conditions names the facts of the document's
+         *     ingestion the rule matches on, any of `sender`, `senderDomain`, `recipient` (the mailbox, else the
+         *     first recipient), `folder` (the folder path within its channel) and `channel`; string? AssignSupplierRemember.Mode is
+         *     `Exclusive` (the default) or `DefaultWhenNoContentMatch`; bool? AssignSupplierRemember.PinType also pins the document's type.
+         *     A reviewer's rule is saved disabled, a proposal a config admin enables; a config admin's is enabled at once.
+         */
+        AssignSupplierRemember: {
+            conditions: string[];
+            mode?: null | string;
+            pinType?: null | boolean;
+            requireSenderAuth?: null | boolean;
+        };
+        /**
+         * @description `POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant, and optionally
+         *     AssignSupplierRemember? AssignSupplierRequest.Remember: a source rule made from the document's own source (docs/11 §18, needs `sourceRouting`).
+         */
+        AssignSupplierRequest: {
+            remember?: null | components["schemas"]["AssignSupplierRemember"];
+            /** Format: uuid */
+            supplierId: string;
+        };
+        /**
+         * @description `GET /insights/automation` (docs/11 §17, the Insights &gt; Onboarding screen): what to onboard next and what
+         *     needs attention, for the window `[from, to]` (UTC dates, at most int InsightsEndpoints.MaxDays days).
+         */
+        AutomationInsights: {
+            /** Format: int32 */
+            autoApproved: number | string;
+            candidatesWaiting: components["schemas"]["LayoutAttention"][];
+            degradedLayouts: components["schemas"]["LayoutAttention"][];
+            destinations: components["schemas"]["DestinationHealth"][];
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: date */
+            from: string;
+            masterDataConflicts: components["schemas"]["MasterDataConflicts"][];
+            overriddenRules: components["schemas"]["OverriddenRule"][];
+            staleLayouts: components["schemas"]["LayoutAttention"][];
+            suppliers: components["schemas"]["SupplierAutomation"][];
+            suppliersWithoutLayouts: components["schemas"]["SupplierAutomation"][];
+            /** Format: date */
+            to: string;
+            /** Format: int32 */
+            unknown: number | string;
+            unknownByChannel: components["schemas"]["UnknownRate"][];
+            unknownBySourceRule: components["schemas"]["UnknownRate"][];
+        };
+        /** @description One document of a bulk reprocess: queued, or why not. */
+        BulkReprocessItem: {
+            /** Format: uuid */
+            documentId: string;
+            problem: null | string;
+            queued: boolean;
+        };
+        /** @description `POST /documents:bulk-reprocess` (docs/11 §15.5, §12.10 step 7): the documents, the stage and the configuration mode. */
+        BulkReprocessRequest: {
+            configMode?: null | string;
+            documentIds: string[];
+            fromStage?: null | string;
+        };
+        /** @description One item of an import report: its kind and key, what the import does or did (`create`, `newVersion`, `skip`, `error`) and why. */
+        BundleImportItem: {
+            action: string;
+            detail: null | string;
+            key: string;
+            kind: string;
+        };
+        /** @description `POST /config/bundle:import` (docs/11 §15.4): the bundle as exported and `dry-run` (default) or `apply`. */
+        BundleImportRequest: {
+            bundle: components["schemas"]["JsonElement"];
+            mode?: null | string;
+        };
+        /** @description The import report: whether the signature verified, the mode, and per item what happens. */
+        BundleImportResponse: {
+            items: components["schemas"]["BundleImportItem"][];
+            mode: string;
+            signatureValid: boolean;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination. */
+        CallbackResponse: {
+            /** Format: int32 */
+            applied: number | string;
+            /** Format: int32 */
+            pending: number | string;
+            problems: string[];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            replayed: number | string;
+            /** Format: int32 */
+            unknown: number | string;
+        };
+        /**
+         * @description `POST /destinations/{id}/callback-secret`: the destination with its new callback secret, which the platform
+         *     generated (the HMAC key or bearer token the receiver signs its callbacks with). The secret is shown only in this
+         *     answer; it is never read back.
+         */
+        CallbackSecretResponse: {
+            destination: components["schemas"]["DestinationResponse"];
+            secret: string;
         };
         ChangeMemberRoleRequest: {
             role: string;
@@ -755,6 +2686,18 @@ export interface components {
             config: components["schemas"]["JsonElement"];
             /** Format: date-time */
             createdAt: string;
+            /** @description The type of a document no source rule pins (`TypeSource=Supplier`). */
+            defaultDocumentTypeKey?: null | string;
+            /**
+             * Format: uuid
+             * @description The receiving entity of a document no source rule names.
+             */
+            defaultReceivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The supplier of a document no source rule claims (docs/11 §7.2 step 4).
+             */
+            defaultSupplierId?: null | string;
             hasSecret: boolean;
             /** Format: uuid */
             id: string;
@@ -762,13 +2705,35 @@ export interface components {
             /** Format: date-time */
             lastPolledAt: null | string;
             name: string;
+            /** @description What a polling channel reads, normalised (`imap:platform/invoices@tenant-a.local/inbox`); null for upload channels and invalid configs. */
+            sourceKey?: null | string;
             status: string;
             type: string;
         };
         CorrectFieldsRequest: {
             corrections: components["schemas"]["FieldCorrection"][];
         };
+        /**
+         * @description Where a corrected value came from (docs/11 §6.2 `Correction.SourceJson`). Every part is optional.
+         *     `method` names how the reviewer picked it (for example `word`, `region`, `ocr`); `page` is
+         *     1-based; `bBox` is in the text layer's 1000 × 1000 page units; `rawText` is the text as printed;
+         *     `words` lists the picked words as `[page, wordIndex]` pairs; `path` and `cell` locate a value
+         *     in a structured file (an XML element path, a spreadsheet cell such as `B7`).
+         */
+        CorrectionSource: {
+            bBox?: null | components["schemas"]["SourceBox"];
+            cell?: null | string;
+            method?: null | string;
+            /** Format: int32 */
+            page?: null | number | string;
+            path?: null | string;
+            rawText?: null | string;
+            words?: null | (number | string)[][];
+        };
+        /** @description Guid? CreateApiKeyRequest.DestinationId restricts a `deliveries:read` key to one pull destination (docs/11 §13.3). */
         CreateApiKeyRequest: {
+            /** Format: uuid */
+            destinationId?: null | string;
             name: string;
             scopes: string[];
         };
@@ -779,6 +2744,18 @@ export interface components {
          */
         CreateChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
+            /** @description The channel's default type (needs `sourceRouting`). */
+            defaultDocumentTypeKey?: null | string;
+            /**
+             * Format: uuid
+             * @description The channel's default receiving entity (needs `sourceRouting`).
+             */
+            defaultReceivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The channel's default supplier (docs/11 §7.2; needs `sourceRouting`).
+             */
+            defaultSupplierId?: null | string;
             name: string;
             secret: null | string;
             type: string;
@@ -788,11 +2765,50 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             /** Format: uuid */
+            destinationId?: null | string;
+            /** Format: uuid */
             id: string;
             key: string;
             name: string;
             prefix: string;
             scopes: string[];
+        };
+        /** @description `POST /destinations`: a name, a transport (`http`, `blob`, `pull`), its config and, write-only, the secret. */
+        CreateDestinationRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: string;
+            secret: null | string;
+            transport: string;
+        };
+        /**
+         * @description `POST /document-types` (docs/11 §18): DocumentTypeSource? CreateDocumentTypeRequest.From to adopt or copy a template (under string? CreateDocumentTypeRequest.Key,
+         *     or its legacy key or its id without `std.`), or JsonElement? CreateDocumentTypeRequest.Definition for a type of the tenant's own.
+         */
+        CreateDocumentTypeRequest: {
+            definition: null | components["schemas"]["JsonElement"];
+            from: null | components["schemas"]["DocumentTypeSource"];
+            key: null | string;
+        };
+        /**
+         * @description The body of `POST /suppliers/{id}/layouts` (docs/11 §18): a layout written by hand or imported, version 1 with its
+         *     identification rule (`schemas/identification-rule.v1.json`) and field mapping (§8.1), saved as a Candidate.
+         */
+        CreateLayoutRequest: {
+            documentTypeKey: string;
+            identification: components["schemas"]["JsonElement"];
+            itemKinds?: null | string[];
+            layoutKey: string;
+            mapping: components["schemas"]["JsonElement"];
+            name: string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            /** Format: uuid */
+            receivingEntityId?: null | string;
+        };
+        /** @description `POST /supplier-layouts/{id}/versions`: a new version written by hand, its rule and field mapping (saved as a Candidate). */
+        CreateLayoutVersionRequest: {
+            identification: components["schemas"]["JsonElement"];
+            mapping: components["schemas"]["JsonElement"];
         };
         /** @description string CreateLlmProviderRequest.ApiKey is write-only: it goes to the secret store and is never returned or persisted in SQL. */
         CreateLlmProviderRequest: {
@@ -807,13 +2823,85 @@ export interface components {
             /** Format: double */
             monthlySpendCapUsd: null | number | string;
         };
+        CreateLookupTableRequest: {
+            caseSensitive: null | boolean;
+            description: null | string;
+            key: string;
+        };
+        /**
+         * @description `POST /output-bindings` (docs/11 §6.7, §13.5). IReadOnlyList&lt;string&gt;? CreateOutputBindingRequest.Events defaults to `document.approved`;
+         *     the scope fields are optional (none: every document of the tenant); string? CreateOutputBindingRequest.Condition is a JSONata boolean
+         *     over the values view. string CreateOutputBindingRequest.MappingKey names the tenant's mapping or a platform template;
+         *     int? CreateOutputBindingRequest.PinnedMappingVersion keeps a published version instead of following the latest. Batch mode and
+         *     recipes come in P6.
+         */
+        CreateOutputBindingRequest: {
+            /** Format: uuid */
+            channelId: null | string;
+            condition: null | string;
+            /** Format: uuid */
+            destinationId: string;
+            documentTypeKey: null | string;
+            enabled: null | boolean;
+            events: null | string[];
+            exclusiveGroup: null | string;
+            mappingKey: string;
+            mode: null | string;
+            name: string;
+            onReapproval: null | string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: null | number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            updateMappingKey: null | string;
+        };
+        /**
+         * @description `POST /output-mappings`: OutputMappingSource? CreateOutputMappingRequest.From copies a platform template (under string? CreateOutputMappingRequest.Key, or the
+         *     template's key), or a mapping of the tenant's own from string? CreateOutputMappingRequest.Key, string? CreateOutputMappingRequest.Name and an optional first
+         *     draft (string? CreateOutputMappingRequest.Engine, string? CreateOutputMappingRequest.Expression, JsonElement? CreateOutputMappingRequest.TargetSchema). Either way version 1 is a draft.
+         */
+        CreateOutputMappingRequest: {
+            contentType: null | string;
+            description: null | string;
+            engine: null | string;
+            expression: null | string;
+            from: null | components["schemas"]["OutputMappingSource"];
+            key: null | string;
+            name: null | string;
+            sourceTypeKey: null | string;
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /** @description The body of `POST /receiving-entities`. */
+        CreateReceivingEntityRequest: {
+            addresses?: unknown;
+            attributes?: null | Record<string, never>;
+            code: string;
+            name: string;
+            vatIds?: null | string[];
+        };
+        /** @description The body of `POST /supplier-groups`. */
+        CreateSupplierGroupRequest: {
+            attributes?: null | Record<string, never>;
+            name: string;
+            settings?: unknown;
+        };
         CreateSupplierRequest: {
             aliases: null | string[];
             alwaysReview: null | boolean;
+            /** @description The supplier's attributes: at most 50 keys, each a string (at most 400 characters), a number, a boolean or null; checked against the tenant's attribute schema when it has one. */
+            attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
+            /**
+             * Format: uuid
+             * @description The supplier group (docs/11 §6.4; needs `sourceRouting`).
+             */
+            groupId?: null | string;
             ibans: null | string[];
             name: string;
+            settings?: null | components["schemas"]["JsonElement"];
             taxId: null | string;
             vatId: null | string;
         };
@@ -825,6 +2913,132 @@ export interface components {
             slug: string;
             timeZone: string;
             vatId: null | string;
+        };
+        /** @description The body of "use for all suppliers without own layouts" in review (docs/11 §12.10 step 5): the rule, and the type when it is not the document's. */
+        CreateTypeIdentificationRuleFromDocumentRequest: {
+            name?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+            typeKey?: null | string;
+        };
+        /** @description The body of creating a tenant fallback rule (docs/11 §8.5, §18): its name, priority, rule and excluded suppliers. */
+        CreateTypeIdentificationRuleRequest: {
+            excludedSupplierIds?: null | string[];
+            name: string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+        };
+        DefinitionProblemDto: {
+            message: string;
+            where: string;
+        };
+        /** @description One attempt at a delivery: when, how long, the status code, the error class and the response excerpt (4 KB, secrets masked). */
+        DeliveryAttemptDto: {
+            /** Format: date-time */
+            at: string;
+            /** Format: int32 */
+            durationMs: number | string;
+            errorClass: null | string;
+            responseExcerpt: null | string;
+            /** Format: int32 */
+            statusCode: null | number | string;
+            step: null | string;
+        };
+        /** @description A delivery with its attempts and the document's external id at its destination. */
+        DeliveryDetail: {
+            attempts: components["schemas"]["DeliveryAttemptDto"][];
+            delivery: components["schemas"]["DeliverySummary"];
+            externalRef: null | components["schemas"]["ExternalRefDto"];
+        };
+        /** @description One delivery as the API shows it (docs/11 §13.6): what was rendered with what, for which binding and destination, and where it stands. */
+        DeliverySummary: {
+            /** Format: int32 */
+            attempts: number | string;
+            /** Format: uuid */
+            bindingId: string;
+            bindingName: null | string;
+            contentType: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            deliveredAt: null | string;
+            /** Format: uuid */
+            destinationId: string;
+            destinationName: null | string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: int32 */
+            documentVersion: number | string;
+            event: string;
+            /** Format: int64 */
+            feedSequence: null | number | string;
+            /** Format: uuid */
+            id: string;
+            idempotencyKey: string;
+            lastError: null | string;
+            /** Format: int32 */
+            lastStatusCode: null | number | string;
+            /** Format: int32 */
+            mappingVersion: null | number | string;
+            /** Format: uuid */
+            mappingVersionId: string;
+            /** Format: date-time */
+            nextAttemptAt: null | string;
+            payloadSha256: null | string;
+            /** Format: uuid */
+            redeliveryOfId: null | string;
+            status: string;
+            transport: null | string;
+        };
+        DependentReferenceDto: {
+            fieldId: null | string;
+            kind: string;
+            name: string;
+            path: string;
+        };
+        /** @description Deliveries of one destination in the window: total, failed, dead-lettered and the failure rate. */
+        DestinationHealth: {
+            /** Format: int32 */
+            deadLettered: number | string;
+            /** Format: uuid */
+            destinationId: string;
+            /** Format: int32 */
+            failed: number | string;
+            /** Format: double */
+            failureRate: number | string;
+            name: string;
+            /** Format: int32 */
+            total: number | string;
+        };
+        /**
+         * @description A destination as the API shows it. The secret is write-only: bool DestinationResponse.HasSecret and DateTimeOffset? DestinationResponse.SecretSetAt
+         *     are all a client learns, bool DestinationResponse.HasPreviousSecret whether the one it replaced is still kept for the overlap.
+         */
+        DestinationResponse: {
+            acknowledgements?: null | components["schemas"]["JsonElement"];
+            config: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Whether a callback secret is set (it is never returned). */
+            hasCallbackSecret?: boolean;
+            /** @description Whether the previous callback secret is still accepted (the overlap of a rotation). */
+            hasPreviousCallbackSecret?: boolean;
+            hasPreviousSecret: boolean;
+            hasSecret: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            lastTestAt: null | string;
+            lastTestResult: null | string;
+            name: string;
+            /** Format: date-time */
+            secretSetAt: null | string;
+            status: string;
+            transport: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         DocumentCostsDto: {
             /** Format: double */
@@ -842,13 +3056,35 @@ export interface components {
             ocrPages: number | string;
         };
         /**
+         * @description The type version a document is shown with (docs/11 §18 `DocumentDetail.definition`): its key, version and
+         *     catalogue row, the display name by locale and the compiled form spec the review form renders (docs/11 §5.5, artifact
+         *     3). Sent for definition-driven documents and for every document of a tenant with `configurableTypes` on.
+         */
+        DocumentDefinitionRef: {
+            formSpec: components["schemas"]["JsonElement"];
+            key: string;
+            name: {
+                [key: string]: string;
+            };
+            /** Format: int32 */
+            version: number | string;
+            /** Format: uuid */
+            versionId: null | string;
+        };
+        /**
          * @description The review screen's payload (docs/05 "canonical data + flags + provenance"): every summary column plus the
          *     canonical model exactly as stored (`Canonical`: the Invoice / PurchaseOrder / DeliveryNote JSON, null until
          *     extraction has run), so every `FieldValue` keeps its provenance and history verbatim. `PageImageUrls` are
          *     API-relative, in page order (`/api/v1/documents/{id}/pages/{n}.png`). `TenantId` / `TenantName` name
          *     the owning tenant like the summary's, so a platform-scope detail page can say whose document it is.
+         *     `CanonicalSchemaVersion` 2 marks a definition-driven tree (docs/11 §5.6); `TypeName` (English, else the first
+         *     locale), `TypeVersion` and `Definition` describe the type version it is shown with when the API resolved one.
+         *     `AppliedConfig` is what the pipeline resolved for the document (docs/11 §6.2, §18 `AppliedConfigJson`): the
+         *     type version and its key, the template, and after an LLM extraction the schema it was sent; null before Extract.
          */
         DocumentDetail: {
+            appliedConfig: null | components["schemas"]["JsonElement"];
+            approvalBlocked?: null | components["schemas"]["ApprovalBlock"];
             /** Format: date-time */
             approvedAt: null | string;
             approvedBy: null | string;
@@ -857,36 +3093,112 @@ export interface components {
             canonical: null | components["schemas"]["JsonElement"];
             /** Format: int32 */
             canonicalSchemaVersion: null | number | string;
+            /**
+             * @description Whether the document's tenant has `configurableTypes` on (docs/11 §3 principle 6): the review screen offers the
+             *     review tools of P2 (the Map this document panel, set type, assign or create the supplier, split and join) only
+             *     then, so a tenant that is not on the feature reviews as before.
+             */
+            configurableTypes?: boolean;
             costs: components["schemas"]["DocumentCostsDto"];
             /** Format: date-time */
             createdAt: string;
             currency: null | string;
+            definition: null | components["schemas"]["DocumentDefinitionRef"];
             documentNumber: null | string;
             extractionMethod: null | components["schemas"]["ExtractionMethod"];
             failureReason: null | string;
             flags: components["schemas"]["DocumentFlagDto"][];
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description The tenant fallback rule version that decided the type (docs/11 §6.2, §8.5; `GET /identification-rules/{id}`); null when none did.
+             */
+            identificationRuleVersionId?: null | string;
             ingestion: null | components["schemas"]["DocumentIngestionRef"];
             /** Format: date */
             issueDate: null | string;
+            /**
+             * Format: uuid
+             * @description The document a reviewer joined this one into (`:join`, docs/11 §12.7); set on a `Cancelled` part.
+             */
+            joinedIntoDocumentId?: null | string;
+            /** Format: int32 */
+            lineCount: null | number | string;
+            /**
+             * @description Whether the document's tenant has `outputs` on (docs/11 §3 principle 6, P3): the review screen shows the
+             *     Deliveries tab (`GET /deliveries?documentId=`) only then, so a tenant that is not on the feature sees the
+             *     screen as before.
+             */
+            outputs?: boolean;
             /** Format: int32 */
             pageCount: number | string;
             pageImageUrls: string[];
+            /**
+             * Format: uuid
+             * @description The Candidate layout version the document waits for (docs/11 §12.10); never applied.
+             */
+            pendingLayoutVersionId?: null | string;
+            /**
+             * @description The hash of the pipeline the document's last stage ran (docs/11 §10.1, P5; `GET /pipelines/{hash}` lists its
+             *     steps); null for a tenant without `configurableSteps`.
+             */
+            pipelineHash?: null | string;
+            /**
+             * Format: uuid
+             * @description The tenant's company the document is addressed to (docs/11 §6.4), from a source rule or the channel default.
+             */
+            receivingEntityId?: null | string;
+            /**
+             * Format: uuid
+             * @description The earlier document this one's `REVISION_OF` was resolved against, and how (`supersedes`, `additional`, `duplicate`).
+             */
+            revisionOfDocumentId?: null | string;
+            revisionResolution?: null | components["schemas"]["RevisionResolution"];
             status: components["schemas"]["DocumentStatus"];
+            /**
+             * Format: uuid
+             * @description The later document that replaces this one (`REVISION_OF` resolved as `supersedes`, docs/11 §11); null otherwise.
+             */
+            supersededByDocumentId?: null | string;
             /** Format: uuid */
             supplierId: null | string;
+            /**
+             * Format: uuid
+             * @description The supplier layout version whose identification rule identified the document (docs/11 §8.4); its layout, the
+             *     evidence and the rule that filled each field are in `appliedConfig.layout`.
+             */
+            supplierLayoutVersionId?: null | string;
+            /**
+             * Format: double
+             * @description How sure the supplier match is (docs/11 §7.2: 0.99 for an Exclusive source rule, 0.7 for a default; 1.0 when a reviewer assigned it).
+             */
+            supplierMatchConfidence?: null | number | string;
+            supplierMatchMethod?: null | components["schemas"]["SupplierMatchMethod"];
             supplierName: null | string;
+            /**
+             * Format: uuid
+             * @description The source rule that routed the document to its supplier (`SupplierMatchMethod` `SourceRule`, docs/11 §7.2).
+             */
+            supplierSourceRuleId?: null | string;
             /** Format: uuid */
             tenantId: string;
             tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
-            type: components["schemas"]["DocumentType"];
+            type: components["schemas"]["DocumentTypeKey"];
             /** Format: double */
             typeConfidence: null | number | string;
+            typeName: null | string;
+            typeSource?: null | components["schemas"]["TypeSource"];
+            /** Format: int32 */
+            typeVersion: null | number | string;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validUntil: null | string;
             /** Format: int32 */
             warningFlagCount: number | string;
         };
@@ -936,14 +3248,38 @@ export interface components {
             sourceFrom: null | string;
         };
         /**
+         * @description One document of an attachment (`GET /documents/{id}/parts`, docs/11 §12.7): its pages within the attachment
+         *     (1-based, inclusive), status, type and number; a part cancelled by a join names the document it was joined into.
+         */
+        DocumentPartDto: {
+            /** Format: uuid */
+            documentId: string;
+            documentNumber: null | string;
+            /** Format: uuid */
+            joinedIntoDocumentId: null | string;
+            /** Format: int32 */
+            pageCount: number | string;
+            /** Format: int32 */
+            pageEnd: number | string;
+            /** Format: int32 */
+            pageStart: number | string;
+            status: components["schemas"]["DocumentStatus"];
+            type: string;
+        };
+        /**
          * @description Document lifecycle states (docs/03-pipeline.md "Document state machine").
          * @enum {unknown}
          */
-        DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed";
+        DocumentStatus: "Received" | "Normalized" | "Split" | "Classified" | "Matched" | "Extracted" | "Validated" | "AutoApproved" | "NeedsReview" | "Approved" | "Rejected" | "Failed" | "Cancelled";
         /**
          * @description One row of the inbox (docs/05 "Inbox"): the denormalised columns plus flag counts, never the canonical JSON.
          *     `TenantId` / `TenantName` name the owning tenant, so a platform-scope list (the admin console's
-         *     cross-tenant documents list and global review queue) can show whose row it is.
+         *     cross-tenant documents list and global review queue) can show whose row it is. `ValidFrom`, `ValidUntil` and
+         *     `LineCount` are the denormalised roles of docs/11 §6.2 (a price list shows its validity and row count instead of a
+         *     total); `ReviewPriority` and `ReviewDueAt` are the open review task's priority and due time, null without one.
+         *     `Fields` holds the indexed field values the list request asked for with `fields=` (docs/11 §19, the inbox
+         *     columns of indexed custom fields), keyed by definition path, as `DocumentFieldIndex` stores them (identifiers and
+         *     strings normalised, numbers invariant, dates ISO); null when the request named none.
          */
         DocumentSummary: {
             /** Format: date-time */
@@ -955,13 +3291,26 @@ export interface components {
             currency: null | string;
             documentNumber: null | string;
             extractionMethod: null | components["schemas"]["ExtractionMethod"];
+            fields?: null | {
+                [key: string]: string;
+            };
             /** Format: uuid */
             id: string;
             /** Format: date */
             issueDate: null | string;
             /** Format: int32 */
+            lineCount: null | number | string;
+            /** Format: int32 */
             pageCount: number | string;
+            /** Format: date-time */
+            reviewDueAt: null | string;
+            reviewPriority: null | components["schemas"]["ReviewPriority"];
             status: components["schemas"]["DocumentStatus"];
+            /**
+             * Format: uuid
+             * @description The later document that replaces this one (docs/11 §18 `supersededBy`, `REVISION_OF` resolved as supersedes); null otherwise.
+             */
+            supersededBy?: null | string;
             /** Format: uuid */
             supplierId: null | string;
             supplierName: null | string;
@@ -970,34 +3319,220 @@ export interface components {
             tenantName: null | string;
             /** Format: double */
             totalGross: null | number | string;
-            type: components["schemas"]["DocumentType"];
+            type: components["schemas"]["DocumentTypeKey"];
             /** Format: double */
             typeConfidence: null | number | string;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validUntil: null | string;
             /** Format: int32 */
             warningFlagCount: number | string;
         };
-        /** @enum {unknown} */
-        DocumentType: "Unknown" | "Invoice" | "CreditNote" | "PurchaseOrder" | "DeliveryNote" | "Statement" | "Reminder" | "Other";
+        /**
+         * @description A stored table report (docs/11 §6.2 `DocumentTableReport`): the group, who wrote it, the Correction that wrote
+         *     the rows, the document version it describes, when, and the report.
+         */
+        DocumentTableReportDto: {
+            /** Format: int64 */
+            correctionId: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            origin: components["schemas"]["TableReportOrigin"];
+            path: string;
+            /** Format: int32 */
+            producedAtVersion: number | string;
+            report: components["schemas"]["TableReportDto"];
+        };
+        /**
+         * @description A platform template in the catalogue (`GET /document-templates`): its key and version, its name and
+         *     description, the legacy key existing tenants adopted it under (if any), the key adopting or copying it uses when
+         *     the request names none (`DefaultKey`) and the tenant's type keys that come from it (`AdoptedAs`).
+         */
+        DocumentTemplateSummary: {
+            adoptedAs: string[];
+            defaultKey: string;
+            description: null | string;
+            key: string;
+            legacyKey: null | string;
+            name: {
+                [key: string]: string;
+            };
+            /** Format: int32 */
+            version: number | string;
+        };
+        /**
+         * @description A tenant's document type (docs/11 §6.1) with its versions, and the fields the inbox can filter by
+         *     (`IndexedFields`).
+         */
+        DocumentTypeDetail: {
+            baseTemplate: null | string;
+            /** Format: int32 */
+            baseVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            description: null | string;
+            /** Format: int32 */
+            draftVersion: null | number | string;
+            indexedFields: components["schemas"]["IndexedFieldDto"][];
+            key: string;
+            name: {
+                [key: string]: string;
+            };
+            origin: string;
+            /** Format: int32 */
+            publishedVersion: null | number | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["DocumentTypeVersionSummary"][];
+        };
+        /** @description A document type key: a legacy type (Unknown, Invoice, CreditNote, PurchaseOrder, DeliveryNote, Statement, Reminder, Other) or a key of one of the tenant's types. */
+        DocumentTypeKey: string;
+        /** @description Where a new type comes from: a platform template, adopted (follows it) or copied (a fork). */
+        DocumentTypeSource: {
+            mode: string;
+            template: string;
+        };
+        /** @description One version with its definition and, on request (`include=formSpec,jsonSchema,llmSchema,descriptors`), its compiled artifacts. */
+        DocumentTypeVersionDetail: {
+            definition: components["schemas"]["JsonElement"];
+            descriptors: null | components["schemas"]["JsonElement"];
+            formSpec: null | components["schemas"]["JsonElement"];
+            jsonSchema: null | components["schemas"]["JsonElement"];
+            key: string;
+            llmSchema: null | components["schemas"]["JsonElement"];
+            version: components["schemas"]["DocumentTypeVersionSummary"];
+        };
+        /** @description One version of a tenant's type, without its JSON. */
+        DocumentTypeVersionSummary: {
+            changeNote: null | string;
+            contentHash: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            llmSchema: null | string;
+            /** Format: date-time */
+            publishedAt: null | string;
+            publishedBy: null | string;
+            /** Format: int32 */
+            revision: number | string;
+            state: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description The receiving system's id of the document at the delivery's destination (`responseMapping`). */
+        ExternalRefDto: {
+            externalId: string;
+            message: null | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @enum {unknown} */
         ExtractionMethod: "StructuredXml" | "Profile" | "Llm" | "Manual" | null;
+        /**
+         * @description `POST /feeds/{destinationId}:ack`: acknowledges every entry up to and including long? FeedAckRequest.UpTo, and/or the
+         *     listed IReadOnlyList&lt;Guid&gt;? FeedAckRequest.DeliveryIds. Acknowledging an entry twice is not an error.
+         */
+        FeedAckRequest: {
+            deliveryIds: null | string[];
+            /** Format: int64 */
+            upTo: null | number | string;
+        };
+        /** @description How many entries this call acknowledged, and whether entries up to `upTo` are left for another call. */
+        FeedAckResponse: {
+            /** Format: int32 */
+            acknowledged: number | string;
+            more: boolean;
+        };
+        /**
+         * @description One entry of a pull feed (docs/11 §13.3): its long FeedEntry.Sequence (the `after` cursor), the delivery, and
+         *     the payload, as JSON in JsonElement? FeedEntry.Payload or, for any other content type, base64 in string? FeedEntry.PayloadBase64.
+         */
+        FeedEntry: {
+            acknowledged: boolean;
+            contentType: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            deliveryId: string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: int32 */
+            documentVersion: number | string;
+            event: string;
+            idempotencyKey: string;
+            payload: null | components["schemas"]["JsonElement"];
+            payloadBase64: null | string;
+            payloadSha256: null | string;
+            /** Format: int64 */
+            sequence: number | string;
+        };
+        /** @description A page of a feed: the entries after the cursor, long FeedPage.Next to pass as `after` next time, and whether more are waiting. */
+        FeedPage: {
+            hasMore: boolean;
+            items: components["schemas"]["FeedEntry"][];
+            /** Format: int64 */
+            next: number | string;
+        };
+        FieldChangeDto: {
+            change: string;
+            fieldId: string;
+            newKind: null | string;
+            newPath: null | string;
+            oldKind: null | string;
+            oldPath: null | string;
+        };
         /**
          * @description One human correction (docs/05 "PATCH /documents/{id}/fields"). string FieldCorrection.Path is a canonical field path as
          *     `Invoice.EnumerateAllFields` produces it (`invoiceNumber`, `lines[2].quantity`, `supplier`) or a
          *     property inside such a field's value (`supplier.vatId`); JsonElement? FieldCorrection.Value is the new value in the JSON
          *     shape of the field (a number for an amount with the document currency, a string for an identifier) or null to
-         *     clear it.
+         *     clear it. `op` is the correction operation: `set` (the default); `move` (docs/11 §12.3 "match
+         *     fields", every document with data): the value of the field `from` names goes into string FieldCorrection.Path, converted
+         *     to that field's kind, with its place on the page, and `from` is left without a value; both fields keep their
+         *     previous state in their history, and the move is one Correction row (op `move`, the source path in its
+         *     `SourceJson.from`). For a definition-driven document (`canonicalSchemaVersion` 2) also `append` (a
+         *     row of a repeating group, with an optional object of row values, or a list entry) and `remove` (a row, a list
+         *     entry or a bag key). `setType`, `split` and `join` are review actions of their own
+         *     (`:set-type`, `:split`, `:join`), not corrections. `source` optionally says where on the page
+         *     or in the file the reviewer took the value from; it is stored with the field's provenance and on the Correction row.
          */
         FieldCorrection: {
+            from?: null | string;
+            op?: null | string;
             path: string;
             reason: null | string;
+            source?: null | components["schemas"]["CorrectionSource"];
             value: null | components["schemas"]["JsonElement"];
         };
         /** @enum {unknown} */
         FlagOrigin: "Pipeline" | "Human";
         /** @enum {unknown} */
         FlagSeverity: "Info" | "Warning" | "Blocking";
+        /** @description A golden document (docs/11 §6.9): the document, its type, supplier and layout version, the values it was approved with and its outputs' hashes. */
+        GoldenDocumentDto: {
+            /** Format: date-time */
+            addedAt: string;
+            addedBy: null | string;
+            /** Format: uuid */
+            documentId: string;
+            expectedOutputs: null | components["schemas"]["JsonElement"];
+            expectedValues: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            id: string;
+            note: null | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: uuid */
+            supplierLayoutVersionId: null | string;
+            typeKey: string;
+        };
         HttpValidationProblemDetails: {
             detail?: null | string;
             errors?: {
@@ -1008,6 +3543,86 @@ export interface components {
             status?: null | number | string;
             title?: null | string;
             type?: null | string;
+        };
+        /** @description Why an identifier held (docs/11 §8.5 evidence): which one, what it is, the page, the box and the words matched. */
+        IdentificationEvidenceDto: {
+            bBox: null | (number | string)[];
+            description: string;
+            kind: string;
+            /** Format: int32 */
+            page: null | number | string;
+            path: string;
+            positive: boolean;
+            text: null | string;
+        };
+        /** @description Documents another layout identified on which the rule under test holds too: an overlap that blocks activation (docs/11 §8.3). */
+        IdentificationOverlap: {
+            documentIds: string[];
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+        };
+        /** @description One document of a rule test: whether the rule holds on it, with evidence, and the layout that identified it so far. */
+        IdentificationTestDocument: {
+            /** Format: uuid */
+            documentId: string;
+            evidence: components["schemas"]["IdentificationEvidenceDto"][];
+            failed: string[];
+            fileName: null | string;
+            /** Format: uuid */
+            layoutId: null | string;
+            layoutKey: null | string;
+            matched: boolean;
+            status: string;
+            /** Format: uuid */
+            supplierId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description The body of `POST /identification-rules:test` (docs/11 §12.9 step 4, §18): the rule, the scope, and either the
+         *     documents to test (at most 100) or the last `lastN` of the scope (50 by default, at most 200), optionally of one type.
+         */
+        IdentificationTestRequest: {
+            documentIds?: null | string[];
+            /** Format: int32 */
+            lastN?: null | number | string;
+            rule: components["schemas"]["JsonElement"];
+            scope?: null | components["schemas"]["IdentificationTestScope"];
+            typeKey?: null | string;
+        };
+        /** @description The answer of `POST /identification-rules:test`. */
+        IdentificationTestResponse: {
+            describe: string;
+            documents: components["schemas"]["IdentificationTestDocument"][];
+            hash: string;
+            /** Format: int32 */
+            matched: number | string;
+            overlaps: components["schemas"]["IdentificationOverlap"][];
+            /** Format: int32 */
+            positiveIdentifiers: number | string;
+            /** Format: int32 */
+            tested: number | string;
+        };
+        /** @description Where a rule under test is run (docs/11 §18): a supplier's documents, a group's members' documents, or the tenant's. */
+        IdentificationTestScope: {
+            /** Format: uuid */
+            groupId?: null | string;
+            /** Format: uuid */
+            supplierId?: null | string;
+            tenant?: null | boolean;
+        };
+        /**
+         * @description A field of a type that `DocumentFieldIndex` holds (docs/11 §6.2): its definition path, which is the key of the
+         *     document list's `?field.&lt;path&gt;=value` filter and of its `fields` columns, its kind and its label by locale.
+         */
+        IndexedFieldDto: {
+            kind: string;
+            label: null | {
+                [key: string]: string;
+            };
+            path: string;
         };
         IngestionCreated: {
             /** Format: uuid */
@@ -1084,6 +3699,19 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description A layout of a supplier as Insights lists it: its type, key, the state of its newest version and the documents waiting for a Candidate. */
+        InsightLayout: {
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            name: string;
+            state: string;
+            typeKey: string;
+            /** Format: int32 */
+            version: null | number | string;
+        };
         /**
          * @description What stage 1 decided about an item. ItemDisposition.Candidate is the undecided state the channels store; every other
          *     value is final. Exactly one ItemDisposition.Accepted item per tenant and SHA-256 may exist: the filtered unique index
@@ -1093,9 +3721,166 @@ export interface components {
         ItemDisposition: "Candidate" | "Ignored" | "Unpacked" | "Duplicate" | "Accepted";
         /** @enum {unknown} */
         ItemKind: "Pdf" | "Image" | "Xml" | "Office" | "Text" | "Archive" | "Other";
+        /** @description `POST /documents/{id}:join` (docs/11 §12.7): the other parts of the same attachment to join into this one. */
+        JoinDocumentsRequest: {
+            documentIds: string[];
+        };
         JsonElement: unknown;
+        JsonObject: Record<string, never>;
         /** @enum {unknown} */
         KeyOwner: "Platform" | "Tenant" | null;
+        /** @description A layout worth a look: degraded, not matched for 180 days, or a Candidate with documents waiting for its activation. */
+        LayoutAttention: {
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: uuid */
+            ownerId: string;
+            state: string;
+            supplierName: null | string;
+            typeKey: string;
+            /** Format: int32 */
+            version: null | number | string;
+            /** Format: int32 */
+            waiting: number | string;
+        };
+        /** @description One layout version as the resolver evaluated it for a document (`layouts:resolve`). */
+        LayoutEvaluationDto: {
+            documentTypeKey: string;
+            evidence: components["schemas"]["IdentificationEvidenceDto"][];
+            failed: string[];
+            holds: boolean;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: int32 */
+            positiveIdentifiers: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            scope: string;
+            state: string;
+            /** Format: int32 */
+            version: number | string;
+            /** Format: uuid */
+            versionId: string;
+        };
+        /**
+         * @description The answer of `GET /suppliers/{id}/layouts:resolve?documentId=` (docs/11 §18): what `ILayoutResolver`
+         *     decides for the document now (`Identified`, `Ambiguous`, `NewLayout`, `NotManaged`,
+         *     `Exempt`), the layout it selects, the tied ones, a pending Candidate, every candidate's result and the
+         *     suggestions. It changes nothing.
+         */
+        LayoutResolveResponse: {
+            /** Format: uuid */
+            documentId: string;
+            evaluated: components["schemas"]["LayoutEvaluationDto"][];
+            layoutManaged: boolean;
+            pending: null | components["schemas"]["LayoutEvaluationDto"];
+            resolution: string;
+            selected: null | components["schemas"]["LayoutEvaluationDto"];
+            suggestions: components["schemas"]["LayoutSuggestionDto"][];
+            /** Format: uuid */
+            supplierId: string;
+            tied: components["schemas"]["LayoutEvaluationDto"][];
+        };
+        /** @description A layout a reviewer may look at for a document no layout identified (docs/11 §8.4 step 5): shown, never applied. */
+        LayoutSuggestionDto: {
+            differences: string[];
+            documentTypeKey: string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: double */
+            similarity: number | string;
+            /** Format: uuid */
+            versionId: string;
+        };
+        /** @description A field the learner turned into rules: its strategies in order, the label and value pattern, and whether the rules read the confirmed value back. */
+        LearnedFieldDto: {
+            label: null | string;
+            path: string;
+            pattern: null | string;
+            strategies: string[];
+            verified: boolean;
+        };
+        /**
+         * @description `POST /documents/{id}:learn-layout` (docs/11 §12.6, §18): string? LearnLayoutRequest.SaveAs `newLayout` (default) or
+         *     `newVersion` of Guid? LearnLayoutRequest.TargetLayoutId; string? LearnLayoutRequest.LayoutKey and string? LearnLayoutRequest.Name for a new layout
+         *     (a free key is derived otherwise); JsonElement? LearnLayoutRequest.Identification, the rule the reviewer marked (else one is proposed,
+         *     or the target's for a new version); IReadOnlyList&lt;string&gt;? LearnLayoutRequest.Fields, the paths to learn (every value by default);
+         *     bool? LearnLayoutRequest.ConfirmNotRecognised, the confirmation that the target's current design will no longer be recognised;
+         *     Guid? LearnLayoutRequest.PendingLayoutVersionId, "confirm against pending layout" instead of a new one; AssignSupplierRemember? LearnLayoutRequest.SourceRules,
+         *     the source rule to save with it (as `:assign-supplier`'s `remember`).
+         */
+        LearnLayoutRequest: {
+            confirmNotRecognised?: null | boolean;
+            fields?: null | string[];
+            identification?: unknown;
+            layoutKey?: null | string;
+            name?: null | string;
+            /** Format: uuid */
+            pendingLayoutVersionId?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            saveAs?: null | string;
+            sourceRules?: null | components["schemas"]["AssignSupplierRemember"];
+            /** Format: uuid */
+            targetLayoutId?: null | string;
+        };
+        /**
+         * @description The answer of `:learn-layout` (docs/11 §12.6, §12.10): the layout with the version saved and its status
+         *     (Active when a `MappingAuthor` saved it and the activation condition held, else Candidate), the rule (proposed or
+         *     marked) and its sentence, the learned fields and the ones left out, the replay, why the version was not activated,
+         *     the pending siblings (attached to a Candidate, or to reprocess for an Active version), the documents of the target
+         *     layout its new rule no longer recognises, the proposed source rules and the source rule saved with it.
+         */
+        LearnLayoutResponse: {
+            describe: string;
+            fields: components["schemas"]["LearnedFieldDto"][];
+            identification: components["schemas"]["JsonElement"];
+            layout: components["schemas"]["SupplierLayoutResponse"];
+            noLongerRecognised: string[];
+            notActivated: null | string;
+            notes: string[];
+            proposedSourceRules: components["schemas"]["ProposedSourceRuleDto"][];
+            replay: null | components["schemas"]["ReplayReport"];
+            ruleProposed: boolean;
+            siblings: string[];
+            skipped: components["schemas"]["LearnSkipDto"][];
+            /** Format: uuid */
+            sourceRuleId: null | string;
+            status: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description A field the learner left out, and why. */
+        LearnSkipDto: {
+            path: string;
+            reason: string;
+        };
+        /** @description One LLM budget (docs/11 §16): `day`, `month` (UTC) or `document`; every stage, or one (`Classify`, `Split`, `Extract`, `Synthesize`). */
+        LlmBudgetDto: {
+            /** Format: double */
+            limitUsd: number | string;
+            period: string;
+            stage?: null | string;
+        };
+        /** @description A budget with what was spent in its current period (a document budget has no period total). */
+        LlmBudgetResponse: {
+            /** Format: double */
+            limitUsd: number | string;
+            period: string;
+            /** Format: date-time */
+            periodStart: null | string;
+            /** Format: double */
+            spentUsd: null | number | string;
+            stage: null | string;
+        };
+        LlmBudgetsResponse: {
+            budgets: components["schemas"]["LlmBudgetResponse"][];
+        };
         LlmPolicyResponse: {
             allowPlatformKeyAtAll: boolean;
             /** Format: uuid */
@@ -1105,7 +3890,11 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /** @description A provider configuration without its credential: only the last four characters identify the key (docs/08 "Key handling"). */
+        /**
+         * @description A provider configuration without its credential (docs/08 "Key handling"): the last four characters show which key it
+         *     is, and `keyFingerprint` (the first 16 hex digits of the key's SHA-256) tells whether a key a client holds
+         *     is the stored one without the key ever leaving the secret store.
+         */
         LlmProviderResponse: {
             apiVersion: null | string;
             authType: string;
@@ -1115,6 +3904,7 @@ export interface components {
             endpoint: null | string;
             /** Format: uuid */
             id: string;
+            keyFingerprint: null | string;
             keyLast4: null | string;
             kind: string;
             lastError: null | string;
@@ -1161,6 +3951,179 @@ export interface components {
             to: string;
             total: components["schemas"]["LlmUsageBucket"];
         };
+        /** @description One entry: from, to, valid from and to (inclusive, `yyyy-MM-dd`), labels by locale. */
+        LookupEntryDto: {
+            from: string;
+            labels: null | {
+                [key: string]: string;
+            };
+            to: string;
+            /** Format: date */
+            validFrom: null | string;
+            /** Format: date */
+            validTo: null | string;
+        };
+        /** @description A lookup table with its entries; the ETag is the revision. */
+        LookupTableDetail: {
+            entries: components["schemas"]["LookupEntryDto"][];
+            table: components["schemas"]["LookupTableSummary"];
+        };
+        /** @description A lookup table without its entries: the tenant's (`Platform` false) or a platform code list. */
+        LookupTableSummary: {
+            caseSensitive: boolean;
+            description: null | string;
+            /** Format: int32 */
+            entryCount: number | string;
+            key: string;
+            platform: boolean;
+            /** Format: int32 */
+            revision: number | string;
+            source: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /**
+         * @description `POST /pipelines/lookups:test`: an `http-lookup` step's parameters, tried against one document (the
+         *     processing UI's "Test call"). `StepId` names the step in the request headers (default `lookupTest`).
+         */
+        LookupTestRequest: {
+            /** Format: uuid */
+            documentId: string;
+            params: components["schemas"]["JsonElement"];
+            stepId?: null | string;
+        };
+        /**
+         * @description What the test call gave: whether it succeeded, the field assignments the response mapping made (nothing is written
+         *     to the document and nothing is stored), or the reason it failed with the destination's status and the attempts.
+         */
+        LookupTestResponse: {
+            assignments: components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            attempts: number | string;
+            /** Format: int32 */
+            httpStatus: null | number | string;
+            message: null | string;
+            reason: null | string;
+            succeeded: boolean;
+        };
+        /** @description `POST /documents/{id}:golden`: an optional note. */
+        MarkGoldenRequest: {
+            note?: null | string;
+        };
+        /** @description The last run of a master-data source when it left conflicts open. */
+        MasterDataConflicts: {
+            /** Format: date-time */
+            at: string;
+            /** Format: int32 */
+            conflicts: number | string;
+            name: string;
+            /** Format: uuid */
+            runId: string;
+            /** Format: uuid */
+            sourceId: null | string;
+        };
+        /** @description One run with its report. */
+        MasterDataRunDto: {
+            /** Format: date-time */
+            at: string;
+            by: string;
+            /** Format: int32 */
+            conflicts: number | string;
+            /** Format: int32 */
+            created: number | string;
+            dryRun: boolean;
+            /** Format: int32 */
+            errors: number | string;
+            /** Format: uuid */
+            id: string;
+            report: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            sourceId: null | string;
+            status: components["schemas"]["MasterDataRunStatus"];
+            trigger: components["schemas"]["MasterDataTrigger"];
+            /** Format: int32 */
+            unchanged: number | string;
+            /** Format: int32 */
+            updated: number | string;
+        };
+        /** @description `:run` and `:dry-run`: the records of an upload source (JSON, before the source's mapping). */
+        MasterDataRunRequest: {
+            records: null | components["schemas"]["JsonElement"];
+        };
+        /** @enum {unknown} */
+        MasterDataRunStatus: "Succeeded" | "Failed";
+        /** @description A master-data source as the API shows it (docs/11 §6.8). */
+        MasterDataSourceDto: {
+            conflictPolicy: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            destinationId: null | string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            lastResult: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            lastRunAt: null | string;
+            mapping: null | string;
+            matchKeys: string[];
+            name: string;
+            /** Format: date-time */
+            nextRunAt: null | string;
+            schedule: null | string;
+            target: string;
+            transport: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description Create or change a master-data source; on PATCH a property left out keeps its value. */
+        MasterDataSourceRequest: {
+            conflictPolicy: null | {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            destinationId: null | string;
+            enabled: null | boolean;
+            mapping: null | string;
+            matchKeys: null | string[];
+            name: null | string;
+            schedule: null | string;
+            target: null | string;
+            transport: null | string;
+        };
+        /**
+         * @description How a master-data run started.
+         * @enum {unknown}
+         */
+        MasterDataTrigger: "Manual" | "Schedule" | "Import";
+        /** @description A document a version's rule holds on (or, for the "no longer recognised" check, does not hold on). */
+        MatchingDocumentDto: {
+            /** Format: uuid */
+            documentId: string;
+            failed: string[];
+            fileName: null | string;
+            holds: boolean;
+            /** Format: uuid */
+            pendingLayoutVersionId: null | string;
+            status: string;
+            /** Format: uuid */
+            supplierLayoutVersionId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description `POST /documents/{id}:match-layout` (docs/11 §12.10 step 3): the type of a `NEW_LAYOUT` document, a layout
+         *     whose labels seed the pre-fill, how it will be saved, and a pending Candidate to confirm against.
+         */
+        MatchLayoutRequest: {
+            /** Format: uuid */
+            basedOnLayoutId?: null | string;
+            /** Format: uuid */
+            pendingLayoutVersionId?: null | string;
+            saveAs?: null | string;
+            /** Format: uuid */
+            targetLayoutId?: null | string;
+            typeKey: string;
+        };
         MemberResponse: {
             /** Format: date-time */
             createdAt: string;
@@ -1181,6 +4144,188 @@ export interface components {
             subject: string;
             /** Format: uuid */
             tenantId: null | string;
+        };
+        /** @description A notification (docs/11 §12.10 step 6): documents waiting for a Candidate layout. */
+        NotificationDto: {
+            audience: string;
+            /** Format: int32 */
+            count: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            entityId: null | string;
+            entityType: null | string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            message: string;
+            payload: null | components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            resolvedAt: null | string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A binding as the API shows it: events, scope, the mapping (by key) and the destination. */
+        OutputBindingResponse: {
+            /** Format: uuid */
+            channelId: null | string;
+            condition: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            destinationId: string;
+            documentTypeKey: null | string;
+            enabled: boolean;
+            events: string[];
+            exclusiveGroup: null | string;
+            /** Format: uuid */
+            id: string;
+            mappingKey: string;
+            mode: string;
+            name: string;
+            onReapproval: string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: date-time */
+            updatedAt: string;
+            updateMappingKey: null | string;
+        };
+        /** @description Why a version cannot be published: the expression's or the target schema's error. */
+        OutputMappingCheckReport: {
+            errors: components["schemas"]["RenderErrorDto"][];
+            referencedPaths: string[];
+            tables: string[];
+        };
+        /** @description An output mapping of the tenant, or a platform template (`Origin` Platform, read-only), with its versions. */
+        OutputMappingDetail: {
+            baseTemplate: null | string;
+            /** Format: int32 */
+            baseVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            description: null | string;
+            /** Format: int32 */
+            draftVersion: null | number | string;
+            /** Format: uuid */
+            id: string;
+            key: string;
+            name: string;
+            origin: string;
+            /** Format: int32 */
+            publishedVersion: null | number | string;
+            sourceTypeKey: null | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["OutputMappingVersionSummary"][];
+        };
+        /** @description Where a new mapping comes from: a platform template to copy. */
+        OutputMappingSource: {
+            template: string;
+        };
+        /** @description One version with its expression, target schema and what it reads. */
+        OutputMappingVersionDetail: {
+            expression: string;
+            fileNameTemplate: null | string;
+            key: string;
+            referencedPaths: string[];
+            sampleDocumentIds: string[];
+            targetSchema: null | components["schemas"]["JsonElement"];
+            version: components["schemas"]["OutputMappingVersionSummary"];
+        };
+        /** @description One version of an output mapping, without its expression. */
+        OutputMappingVersionSummary: {
+            changeNote: null | string;
+            contentType: string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            engine: string;
+            hasTargetSchema: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            publishedAt: null | string;
+            publishedBy: null | string;
+            /** Format: int32 */
+            revision: number | string;
+            state: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /**
+         * @description `POST /output-mappings:preview` (docs/11 §13.1, §18): a mapping version (Guid? OutputPreviewRequest.MappingVersionId) or an
+         *     expression (string? OutputPreviewRequest.Expression, with string? OutputPreviewRequest.Engine and JsonElement? OutputPreviewRequest.TargetSchema), rendered over a
+         *     document's values view (Guid? OutputPreviewRequest.DocumentId) or over JsonElement? OutputPreviewRequest.SampleValues, without delivering.
+         *     string? OutputPreviewRequest.Event sets `meta.event` (default `document.approved`); bool? OutputPreviewRequest.IncludeValues returns
+         *     the values view rendered over, for the editor's source tree.
+         */
+        OutputPreviewRequest: {
+            /** Format: uuid */
+            documentId: null | string;
+            engine: null | string;
+            event: null | string;
+            expression: null | string;
+            includeValues: null | boolean;
+            /** Format: uuid */
+            mappingVersionId: null | string;
+            sampleValues: null | components["schemas"]["JsonElement"];
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /**
+         * @description What the preview rendered: the output (null with `undefined` when the expression yields nothing), its size,
+         *     the render errors, the target-schema errors, the values-view paths and lookup tables the expression reads, how long
+         *     the render took and, on request, the values view.
+         */
+        OutputPreviewResponse: {
+            /** Format: int64 */
+            elapsedMs: number | string;
+            errors: components["schemas"]["RenderErrorDto"][];
+            output: null | components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            outputBytes: number | string;
+            referencedPaths: string[];
+            schemaErrors: components["schemas"]["TargetSchemaErrorDto"][];
+            tables: string[];
+            undefined: boolean;
+            values: null | components["schemas"]["JsonElement"];
+        };
+        /** @description A platform integration template (`GET /output-templates`, docs/11 §13.9) and the tenant's mappings copied from it. */
+        OutputTemplateSummary: {
+            contentType: string;
+            copiedAs: string[];
+            description: null | string;
+            engine: string;
+            key: string;
+            name: string;
+            sourceTypeKey: null | string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @description A tenant identification rule with how often reviewers overrode the type it gave. */
+        OverriddenRule: {
+            /** Format: int32 */
+            matched: number | string;
+            name: string;
+            /** Format: int32 */
+            overridden: number | string;
+            /** Format: double */
+            rate: number | string;
+            /** Format: uuid */
+            ruleId: string;
+            typeKey: string;
+        };
+        /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
+        PageOfDeliverySummary: {
+            items: components["schemas"]["DeliverySummary"][];
+            nextCursor: null | string;
         };
         /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
         PageOfDocumentSummary: {
@@ -1207,21 +4352,134 @@ export interface components {
             items: components["schemas"]["TenantResponse"][];
             nextCursor: null | string;
         };
-        /** @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential, set to an empty string removes it. */
+        /** @description A word of a page in page units (0 to 1000), with its index in the text layer's word list of that page (null for a word OCR just read). */
+        PageWordDto: {
+            bBox: components["schemas"]["SourceBox"];
+            /** Format: double */
+            confidence?: null | number | string;
+            /** Format: int32 */
+            index: null | number | string;
+            text: string;
+        };
+        /**
+         * @description `GET /documents/{id}/pages/{n}/words?bbox=` and `POST /documents/{id}/regions:read` (docs/11 §12.3): the
+         *     page's words in page units. `source` says where they come from: `pdfText` (the PDF's own text layer),
+         *     `ocr` (an OCR text layer, or the region OCR just ran) or `none` (the page has no text layer: draw a box
+         *     and read it with `regions:read`). With a box, `words` are the words whose centre lies inside it, `text`
+         *     is them joined in reading order, `bBox` their union and `candidates` the readings of `text` per kind
+         *     in `locale`; without one, every word of the page and no candidates. `provider` names the OCR that read a
+         *     region.
+         */
+        PageWordsResponse: {
+            bBox: null | components["schemas"]["SourceBox"];
+            candidates: components["schemas"]["ValueCandidateDto"][];
+            locale: string;
+            /** Format: int32 */
+            page: number | string;
+            provider?: null | string;
+            source: string;
+            text: null | string;
+            words: components["schemas"]["PageWordDto"][];
+        };
+        /**
+         * @description Every field optional; absent fields are left as they are. string? PatchChannelRequest.Secret set to a value rotates the credential,
+         *     set to an empty string removes it. The defaults (needs `sourceRouting`) are cleared with the empty id or an empty
+         *     type key.
+         */
         PatchChannelRequest: {
             config: null | components["schemas"]["JsonElement"];
+            defaultDocumentTypeKey?: null | string;
+            /** Format: uuid */
+            defaultReceivingEntityId?: null | string;
+            /** Format: uuid */
+            defaultSupplierId?: null | string;
             name: null | string;
             secret: null | string;
             status: null | string;
+        };
+        /**
+         * @description Every field optional. A config replaces the stored one; string? PatchDestinationRequest.Status is Active or Disabled. A config that
+         *     would send the stored secret somewhere else (another host of a URL or of the token URL, another auth type or header
+         *     name) needs `secret` in the same request (400 under `secret` otherwise), which then replaces the stored
+         *     secret and drops the previous one; without such a change `secret` rotates the secret as
+         *     `PUT /destinations/{id}/secret` does.
+         */
+        PatchDestinationRequest: {
+            config: null | components["schemas"]["JsonElement"];
+            name: null | string;
+            secret?: null | string;
+            status: null | string;
+        };
+        PatchLookupTableRequest: {
+            caseSensitive: null | boolean;
+            description: null | string;
+        };
+        /**
+         * @description Every field optional; absent fields are left as they are. A string set to empty clears an optional one
+         *     (`documentTypeKey`, `condition`, `exclusiveGroup`, `updateMappingKey`); `clearSupplier`,
+         *     `clearChannel` and `clearPinnedVersion` clear the others.
+         */
+        PatchOutputBindingRequest: {
+            /** Format: uuid */
+            channelId: null | string;
+            clearChannel: null | boolean;
+            clearPinnedVersion: null | boolean;
+            clearSupplier: null | boolean;
+            condition: null | string;
+            /** Format: uuid */
+            destinationId: null | string;
+            documentTypeKey: null | string;
+            enabled: null | boolean;
+            events: null | string[];
+            exclusiveGroup: null | string;
+            mappingKey: null | string;
+            name: null | string;
+            onReapproval: null | string;
+            /** Format: int32 */
+            pinnedMappingVersion: null | number | string;
+            /** Format: int32 */
+            priority: null | number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            updateMappingKey: null | string;
+        };
+        /** @description Every field optional; an empty string? PatchOutputMappingRequest.SourceTypeKey clears it (any type). string? PatchOutputMappingRequest.Status is Active or Archived. */
+        PatchOutputMappingRequest: {
+            description: null | string;
+            name: null | string;
+            sourceTypeKey: null | string;
+            status: null | string;
+        };
+        /** @description The body of `PATCH /receiving-entities/{id}`: every member optional; lists and attributes replace the stored ones. */
+        PatchReceivingEntityRequest: {
+            addresses?: unknown;
+            attributes?: null | Record<string, never>;
+            code?: null | string;
+            name?: null | string;
+            vatIds?: null | string[];
+        };
+        /** @description The body of `PATCH /supplier-groups/{id}`: every member optional; attributes and settings replace the stored ones. */
+        PatchSupplierGroupRequest: {
+            attributes?: null | Record<string, never>;
+            name?: null | string;
+            settings?: unknown;
         };
         /** @description Every field optional; absent fields are left as they are. A string set to empty clears it; a list replaces the stored list. */
         PatchSupplierRequest: {
             aliases: null | string[];
             alwaysReview: null | boolean;
+            /** @description The supplier's attributes, replacing the stored ones (an empty object clears them). */
+            attributes?: null | Record<string, never>;
             defaultCurrency: null | string;
             emailDomains: null | string[];
+            /**
+             * Format: uuid
+             * @description The supplier group; the empty id (`00000000-0000-0000-0000-000000000000`) takes the supplier out of its group (needs `sourceRouting`).
+             */
+            groupId?: null | string;
             ibans: null | string[];
             name: null | string;
+            settings?: null | components["schemas"]["JsonElement"];
             taxId: null | string;
             vatId: null | string;
         };
@@ -1233,6 +4491,59 @@ export interface components {
             status: null | string;
             vatId: null | string;
         };
+        /** @description The body of `PATCH /identification-rules/{id}`. */
+        PatchTypeIdentificationRuleRequest: {
+            name?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+        };
+        /** @description A refusal of a layer of overrides: where, and why. */
+        PipelineProblemResponse: {
+            message: string;
+            path: string;
+        };
+        /** @description A pipeline as it ran (`GET /pipelines/{hash}`): the steps a document with this `pipelineHash` ran. */
+        PipelineSnapshotResponse: {
+            /** Format: date-time */
+            createdAt: string;
+            hash: string;
+            steps: components["schemas"]["JsonElement"];
+        };
+        /** @description A source rule `:learn-layout` proposes from the document's ingestion (docs/11 §12.6): the conditions (as `remember` names them), a sentence, and whether the supplier has it already. */
+        ProposedSourceRuleDto: {
+            conditions: string[];
+            describe: string;
+            exists: boolean;
+        };
+        /** @description `POST /documents/{id}/identifiers:propose` (docs/11 §12.9 step 2): the page and either the box drawn or the words picked (indexes in the page's text layer), and the scope. */
+        ProposeIdentifierRequest: {
+            bBox?: null | components["schemas"]["SourceBox"];
+            /** Format: int32 */
+            page: number | string;
+            scope?: null | string;
+            words?: null | (number | string)[];
+        };
+        /** @description The proposed identifier, its sentence, whether it holds on the document, and warnings for the Identification card. */
+        ProposeIdentifierResponse: {
+            describe: string;
+            holds: boolean;
+            identifier: components["schemas"]["JsonElement"];
+            warnings: string[];
+        };
+        /** @description The publish-time checks' report (docs/11 §5.7): what blocks, what to know, which fields changed. */
+        PublishReportDto: {
+            blockingDependents: components["schemas"]["DependentReferenceDto"][];
+            canPublish: boolean;
+            changes: components["schemas"]["FieldChangeDto"][];
+            contentHash: null | string;
+            llmSchema: null | string;
+            problems: components["schemas"]["DefinitionProblemDto"][];
+            warnings: components["schemas"]["DefinitionProblemDto"][];
+        };
+        /** @description The tenant's LLM budgets, as a whole: the list replaces the stored one (an empty list removes every budget). */
+        PutLlmBudgetsRequest: {
+            budgets: null | components["schemas"]["LlmBudgetDto"][];
+        };
         PutLlmPolicyRequest: {
             /** Format: uuid */
             defaultConfigId: null | string;
@@ -1241,13 +4552,245 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** @description `PUT /lookup-tables/{key}/entries`: every entry of the table (replacing the stored ones), If-Match: the revision. */
+        PutLookupEntriesRequest: {
+            entries: components["schemas"]["LookupEntryDto"][];
+        };
+        /**
+         * @description `POST /documents/{id}/regions:read` (docs/11 §12.3): the box (page units) on page `page` to read with OCR,
+         *     for a scan whose text layer has no words there; `locale` reads the candidates (the tenant's country by default).
+         */
+        ReadRegionRequest: {
+            bBox: components["schemas"]["SourceBox"];
+            locale?: null | string;
+            /** Format: int32 */
+            page: number | string;
+        };
+        /**
+         * @description `POST /documents/{id}/regions:table` (docs/11 §12.4). Without `columns`: the dividers proposed from the box
+         *     drawn on `page` (word gaps and header words, each column named from the field labels its header matches), with
+         *     the rows they read on that page. With `columns`: the rows the mapping reads on `pages` (`1-*`,
+         *     `2-5,7`; just `page` by default), and the table report. `path` is the repeating group (the type's
+         *     line items by default), `rowAnchor` the field that starts a row (the group's anchor by default),
+         *     `repeatHeader` `auto` (default) or `none`, `continuation` `appendToPrevious` (default) or
+         *     `none`, `skipRows` and `stopAt` regular expressions over a line's text, `pageMargins` the band
+         *     of the other pages that is read (a box drawn only around the header row reads every page down to the bottom margin,
+         *     or the foot of the page). `repeatedLines` `skip` (default) leaves out lines printed at the same height with
+         *     the same text on at least half of the document's pages (running titles, page numbers, footers; a number stands for any
+         *     number) unless they read as a row, `keep` reads them. A column is a tier column only when it names
+         *     `tierMinQuantity` (the proposal reads it from a header such as `ab 10`); one without a field or a quantity
+         *     is left out, and its words count for nothing. `write: true` writes the
+         *     rows into the document as one correction (op `set` on `path`, the specification and report in its source)
+         *     and stores the report (docs/11 §6.2 `DocumentTableReport`).
+         */
+        ReadTableRequest: {
+            bBox: components["schemas"]["SourceBox"];
+            columns?: null | components["schemas"]["TableColumnDto"][];
+            continuation?: null | string;
+            groupHeader?: null | components["schemas"]["TableGroupHeaderDto"];
+            headerRow?: null | components["schemas"]["TableBandDto"];
+            locale?: null | string;
+            /** Format: int32 */
+            minAnchors?: null | number | string;
+            /** Format: int32 */
+            page: number | string;
+            pageMargins?: null | components["schemas"]["TableMarginsDto"];
+            pageOverrides?: null | components["schemas"]["TablePageOverrideDto"][];
+            pages?: null | string;
+            path?: null | string;
+            reason?: null | string;
+            repeatedLines?: null | string;
+            repeatHeader?: null | string;
+            rowAnchor?: null | string;
+            skipRows?: null | string[];
+            stopAt?: null | string[];
+            tierColumns?: null | components["schemas"]["TableTierColumnsDto"];
+            /** @default false */
+            write: boolean;
+        };
+        /**
+         * @description What `regions:table` answers: the repeating group, whether the columns were proposed, the columns and header row
+         *     used (to draw the dividers), the row anchor, the report, the rows (the first 1,000; `rowsTruncated` when there
+         *     were more), with `write` the document as stored after the write, and the locale the values were read in
+         *     (`de-DE`: the request's, or the tenant country's).
+         */
+        ReadTableResponse: {
+            columns: components["schemas"]["TableColumnDto"][];
+            document?: null | components["schemas"]["DocumentDetail"];
+            headerRow: null | components["schemas"]["TableBandDto"];
+            locale?: null | string;
+            path: string;
+            proposed: boolean;
+            report: components["schemas"]["TableReportDto"];
+            rowAnchor: null | string;
+            rows: components["schemas"]["TableRowDto"][];
+            rowsTruncated: boolean;
+            written: boolean;
+        };
+        /** @description A receiving entity (docs/11 §6.4): one of the tenant's own companies or branches. */
+        ReceivingEntityResponse: {
+            addresses: null | components["schemas"]["JsonElement"];
+            attributes: Record<string, never>;
+            code: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date-time */
+            updatedAt: string;
+            vatIds: string[];
+        };
+        /**
+         * @description `POST /deliveries/{id}:redeliver` (docs/11 §13.6): `snapshot` (the default) sends the stored payload
+         *     again; `rerender` renders the document again, with int? RedeliverRequest.MappingVersion of the binding's mapping or the
+         *     version the binding follows now.
+         */
+        RedeliverRequest: {
+            /** Format: int32 */
+            mappingVersion: null | number | string;
+            mode: null | string;
+        };
+        /** @description A sandbox or regression run as stored: what ran, whether it passed, and its trace or report. */
+        RegressionRunDto: {
+            candidateConfig: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            /** Format: uuid */
+            documentId: null | string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            passed: boolean;
+            result: components["schemas"]["JsonElement"];
+            trigger: string;
+        };
+        /** @description `POST /regression-runs` (docs/11 §15.3): the golden documents of a layout's supplier and type through one of its versions. */
+        RegressionRunRequest: {
+            /** Format: uuid */
+            layoutId: string;
+            /** Format: int32 */
+            version: number | string;
+        };
         RejectDocumentRequest: {
             reason: string;
         };
-        /** @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run"). */
+        /** @description A render error as the API shows it: its kind (`syntax`, `runtime`, `required`, `timeLimit`, ...), the engine's code, the message and the position in the expression. */
+        RenderErrorDto: {
+            code: null | string;
+            kind: string;
+            message: string;
+            /** Format: int32 */
+            position: null | number | string;
+        };
+        /** @description One document of the replay set: whether the rule holds, and per covered field `hit`, `mismatch`, `missing` or `skipped`. */
+        ReplayDocument: {
+            /** Format: uuid */
+            documentId: string;
+            fields: {
+                [key: string]: string;
+            };
+            fileName: null | string;
+            holds: boolean;
+            status: string;
+        };
+        /** @description Per field of the replay (docs/11 §8.3): hits, mismatches and misses on the replay set, and the agreement. */
+        ReplayFieldStat: {
+            /** Format: double */
+            agreement: number | string;
+            /** Format: int32 */
+            hits: number | string;
+            /** Format: int32 */
+            mismatches: number | string;
+            /** Format: int32 */
+            missing: number | string;
+            path: string;
+        };
+        /** @description `…/versions/{v}:replay`: more documents for the replay set, and how many of the supplier's approved documents of the type (50 by default). */
+        ReplayLayoutRequest: {
+            documentIds?: null | string[];
+            /** Format: int32 */
+            lastN?: null | number | string;
+        };
+        /** @description A document of another layout (or a pending Candidate) the rule under test holds on: an overlap that blocks activation. */
+        ReplayOverlap: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            layoutId: null | string;
+            layoutKey: null | string;
+            reason: string;
+        };
+        /**
+         * @description The dry-run replay of a layout version (docs/11 §8.3, stored in `ReplayJson`): the identification test (the rule
+         *     holds on the documents it was built from, and on no approved document of the owner's other layouts nor a pending
+         *     document of another Candidate), and the field replay over the replay set (the approved documents of the supplier and
+         *     type, golden documents and the version's own documents on which the rule holds), with the per-field matrix and the
+         *     activation condition: identification passes and every field agrees on at least double ReplayReport.Threshold of a
+         *     non-empty set.
+         */
+        ReplayReport: {
+            /** Format: date-time */
+            at: string;
+            documents: components["schemas"]["ReplayDocument"][];
+            fields: components["schemas"]["ReplayFieldStat"][];
+            fieldsPassed: boolean;
+            identificationPassed: boolean;
+            overlaps: components["schemas"]["ReplayOverlap"][];
+            passed?: boolean;
+            sourceNotMatched: string[];
+            /** Format: double */
+            threshold: number | string;
+        };
+        /**
+         * @description Which stage to rerun; the document is reset to the state before it (docs/03 "any stage can be re-run").
+         *     `configMode` (docs/11 §18): `pinned` (the default) reruns with the type version the document is pinned to;
+         *     `current` drops the pin, so the rerun takes the tenant's published version of the type now (for example a fork
+         *     with a custom field published after the document arrived).
+         */
         ReprocessDocumentRequest: {
+            configMode?: null | string;
             fromStage: null | string;
         };
+        /**
+         * @description The pipeline a document of the type would run (docs/11 §18 `GET /document-types/{key}/resolved-pipeline`):
+         *     its hash, whether the tenant is on `configurableSteps`, every step per phase, the overrides skipped (named a step
+         *     this pipeline does not have) and, when the layers were refused, why (the type's own steps run then).
+         */
+        ResolvedPipelineResponse: {
+            configurable: boolean;
+            hash: string;
+            overridden: boolean;
+            refused: components["schemas"]["PipelineProblemResponse"][];
+            skipped: string[];
+            steps: components["schemas"]["ResolvedStepResponse"][];
+        };
+        /** @description One step of a resolved pipeline: its id, kind, phase, parameters, whether it runs, and the layer that last changed it. */
+        ResolvedStepResponse: {
+            enabled: boolean;
+            fixed: boolean;
+            id: string;
+            kind: string;
+            params: components["schemas"]["JsonElement"];
+            phase: string;
+            runs: boolean;
+            source: string;
+        };
+        /** @description `POST /documents/{id}:resolve-integration-issue`: the reviewer's note (required). */
+        ResolveIntegrationIssueRequest: {
+            note: null | string;
+        };
+        /**
+         * @description `:resolve-revision` (docs/11 §11): `resolution` is `supersedes`, `additional` or `duplicate`;
+         *     `note` is kept in the timeline (and is the rejection reason of a duplicate).
+         */
+        ResolveRevisionRequest: {
+            note?: null | string;
+            resolution: null | string;
+        };
+        /** @enum {unknown} */
+        ReviewPriority: "Normal" | "High" | "Urgent" | null;
         /** @description A review-queue entry; `TenantId` / `TenantName` name the owning tenant (see DocumentSummary). */
         ReviewTaskDto: {
             assignedTo: null | string;
@@ -1260,6 +4803,9 @@ export interface components {
             documentId: string;
             /** Format: uuid */
             id: string;
+            /** @description What the task asks for: a document to review, or an integration issue (a settled document a receiving system rejected, docs/11 §13.8). */
+            kind?: components["schemas"]["ReviewTaskKind"];
+            priority: components["schemas"]["ReviewPriority"];
             reason: string;
             /** Format: date-time */
             slaDueAt: null | string;
@@ -1268,8 +4814,268 @@ export interface components {
             tenantId: string;
             tenantName: null | string;
         };
+        /**
+         * @description What a review task asks for (docs/11 §13.8).
+         * @enum {unknown}
+         */
+        ReviewTaskKind: "Document" | "IntegrationIssue";
         /** @enum {unknown} */
         ReviewTaskStatus: "Open" | "InProgress" | "Done" | "Skipped";
+        /** @enum {unknown} */
+        RevisionResolution: "Supersedes" | "Additional" | "Duplicate" | null;
+        /** @description How one rule fared in a routing test. */
+        RoutingTestCandidate: {
+            describe: string;
+            failed: string[];
+            held: string[];
+            matched: boolean;
+            mode: string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            ruleId: string;
+            /** Format: int32 */
+            specificity: number | string;
+            /** Format: uuid */
+            supplierId: string;
+            supplierName: null | string;
+            unverified: boolean;
+        };
+        /** @description The source facts of `POST /routing:test` (docs/11 §18): what an ingestion would carry. */
+        RoutingTestRequest: {
+            /** Format: uuid */
+            channelId?: null | string;
+            fileName?: null | string;
+            folderPath?: null | string;
+            mailbox?: null | string;
+            recipients?: null | string[];
+            sender?: null | string;
+            senderAuth?: null | components["schemas"]["RoutingTestSenderAuth"];
+            subject?: null | string;
+        };
+        /**
+         * @description The answer of `POST /routing:test`: the supplier and how it was found (`sourceRule`, `channelDefault`),
+         *     the winning rule, its mode and confidence, the type and entity the source decides, whether the top candidates tie
+         *     (`ambiguous`, no supplier), the rules skipped for an unauthenticated sender that would have won
+         *     (`SUPPLIER_SOURCE_UNVERIFIED`), every rule looked at with the conditions that held and failed, and a sentence.
+         */
+        RoutingTestResponse: {
+            ambiguous: boolean;
+            ambiguousSupplierIds: string[];
+            candidates: components["schemas"]["RoutingTestCandidate"][];
+            /** Format: double */
+            confidence: null | number | string;
+            explanation: string;
+            flags: string[];
+            method: null | string;
+            mode: null | string;
+            pinTypeFrom: null | string;
+            pinTypeKey: null | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            /** Format: uuid */
+            ruleId: null | string;
+            senderVerified: boolean;
+            /** Format: uuid */
+            supplierId: null | string;
+            supplierName: null | string;
+            unverifiedRuleIds: string[];
+        };
+        /** @description The sender authentication a routing test assumes: the SPF, DKIM and DMARC results and the DKIM signing domains. */
+        RoutingTestSenderAuth: {
+            dkim?: null | string;
+            dkimDomains?: null | string[];
+            dmarc?: null | string;
+            spf?: null | string;
+        };
+        /** @description One rule kind of this deployment (`GET /rule-kinds`, docs/11 §18): what the type editor's rule form is drawn from. */
+        RuleKindResponse: {
+            description: string;
+            expressionParams: string[];
+            kind: string;
+            paramsSchema: components["schemas"]["JsonElement"];
+            pathParams: string[];
+            phase: string;
+        };
+        /** @description One flag a check raised in a rule test. */
+        RuleTestFlag: {
+            code: string;
+            field: null | string;
+            message: string;
+            params: null | {
+                [key: string]: string;
+            };
+            severity: string;
+        };
+        /** @description `POST /document-types/{key}/versions/{v}:test-rules`: the document of the type the version's checks run on. */
+        RuleTestRequest: {
+            /** Format: uuid */
+            documentId: string;
+        };
+        /**
+         * @description The rule test of the type editor (docs/11 §19): every rule's outcome on the document, every flag the checks raised
+         *     (the structural check and the coded duplicate check too) and whether one blocks. The document is not changed.
+         */
+        RuleTestResponse: {
+            blocking: boolean;
+            /** Format: uuid */
+            documentId: string;
+            flags: components["schemas"]["RuleTestFlag"][];
+            rules: components["schemas"]["RuleTestRuleResult"][];
+            typeKey: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /**
+         * @description One rule of the version: `passed` (ran, raised nothing but notes), `warned`, `failed` (blocking) or
+         *     `notRun` (the validate step is off, or the kind has no evaluator), with the flags it raised.
+         */
+        RuleTestRuleResult: {
+            flags: components["schemas"]["RuleTestFlag"][];
+            id: string;
+            kind: string;
+            outcome: string;
+        };
+        /**
+         * @description `POST /sandbox/runs` (docs/11 §15.3): a stored document run through a draft configuration without side effects:
+         *     a layout version (Guid? SandboxRunRequest.LayoutVersionId), or a draft rule and field mapping of string? SandboxRunRequest.TypeKey (the
+         *     document's type by default).
+         */
+        SandboxRunRequest: {
+            /** Format: uuid */
+            documentId: string;
+            identification?: unknown;
+            /** Format: uuid */
+            layoutVersionId?: null | string;
+            mapping?: unknown;
+            typeKey?: null | string;
+        };
+        /** @description A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision). */
+        SaveOutputMappingDraftRequest: {
+            contentType: null | string;
+            engine: string;
+            expression: null | string;
+            fileNameTemplate: null | string;
+            sampleDocumentIds: null | string[];
+            targetSchema: null | components["schemas"]["JsonElement"];
+        };
+        /** @description `PUT /destinations/{id}/secret`: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16). */
+        SetDestinationSecretRequest: {
+            secret: string;
+        };
+        /**
+         * @description `POST /documents/{id}:set-type` (docs/11 §12.1 step 3): the type key, optionally a published version of it
+         *     (the tenant's published version otherwise), and `prefill`: `none` (the default; the document gets the
+         *     empty tree of the type version, every field Missing, at once) or `auto` (the document goes back through the
+         *     Extract stage for that type, which fills what it can; 202).
+         */
+        SetDocumentTypeRequest: {
+            prefill?: null | string;
+            typeKey: string;
+            /** Format: int32 */
+            version?: null | number | string;
+        };
+        /** @description An axis-aligned box in page units (0 to 1000 on both axes, origin top left), as the canonical JSON stores boxes. */
+        SourceBox: {
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+            /** Format: double */
+            y0: number | string;
+            /** Format: double */
+            y1: number | string;
+        };
+        /**
+         * @description The body of `POST` and `PUT /suppliers/{id}/source-rules` (docs/11 §6.5): the conditions, all of which must
+         *     hold (at least one of `channelId`, `recipient`, `sender` and `senderDomain`; a
+         *     `folderPrefix` needs its `channelId`), and what the rule decides. `mode` is `Exclusive` (the
+         *     default) or `DefaultWhenNoContentMatch`; `requireSenderAuth` defaults to true for a sender rule (decision
+         *     1 of docs/11 §24), or to the supplier's `settings.requireSenderAuth`.
+         */
+        SourceRuleRequest: {
+            /** Format: uuid */
+            channelId?: null | string;
+            enabled?: null | boolean;
+            fileNameRegex?: null | string;
+            folderPrefix?: null | string;
+            mode?: null | string;
+            pinTypeKey?: null | string;
+            /** Format: int32 */
+            priority?: null | number | string;
+            /** Format: uuid */
+            receivingEntityId?: null | string;
+            recipient?: null | string;
+            requireSenderAuth?: null | boolean;
+            sender?: null | string;
+            senderDomain?: null | string;
+            subjectRegex?: null | string;
+        };
+        /** @description A supplier source rule (docs/11 §6.5) with its conditions in their normalised form and a sentence describing it. */
+        SourceRuleResponse: {
+            /** Format: uuid */
+            channelId: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            describe: string;
+            enabled: boolean;
+            fileNameRegex: null | string;
+            folderPrefix: null | string;
+            /** Format: uuid */
+            id: string;
+            mode: string;
+            pinTypeKey: null | string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            recipient: null | string;
+            requireSenderAuth: boolean;
+            sender: null | string;
+            senderDomain: null | string;
+            subjectRegex: null | string;
+            /** Format: uuid */
+            supplierId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description The parts of a split, in page order; together they cover every page of the document exactly once. */
+        SplitDocumentRequest: {
+            parts: components["schemas"]["SplitPartRequest"][];
+        };
+        SplitDocumentResponse: {
+            parts: components["schemas"]["SplitPartResult"][];
+        };
+        /**
+         * @description One part of `POST /documents/{id}:split` (docs/11 §12.7): its pages, 1-based within the document and
+         *     consecutive, and optionally the type a reviewer already knows it has (the part then skips classification).
+         */
+        SplitPartRequest: {
+            pages: (number | string)[];
+            typeKey?: null | string;
+        };
+        /** @description A part a split produced: the first keeps the document's id, the others are new documents of the same attachment. */
+        SplitPartResult: {
+            /** Format: uuid */
+            documentId: string;
+            pages: (number | string)[];
+            status: components["schemas"]["DocumentStatus"];
+            typeKey: null | string;
+        };
+        /** @description One step kind of the catalogue (docs/11 §10.2 `GET /step-kinds`): what the UI renders a parameter form from. */
+        StepKindResponse: {
+            defaultId: string;
+            description: string;
+            fixed: boolean;
+            insertable: boolean;
+            kind: string;
+            paramsSchema: components["schemas"]["JsonElement"];
+            phase: string;
+            runs: boolean;
+        };
         /** @description One recent document of a supplier, for the supplier activity view (docs/05 "Suppliers: ... activity"). */
         SupplierActivityItem: {
             /** Format: date-time */
@@ -1285,24 +5091,353 @@ export interface components {
             totalGross: null | number | string;
             type: string;
         };
+        /**
+         * @description One supplier's automation in the window (docs/11 §17): documents, auto-approved, corrections per document, LLM cost,
+         *     its layouts with their state (none, Candidate, Active, Degraded), the open `NEW_LAYOUT` documents and a sample
+         *     document to open.
+         */
+        SupplierAutomation: {
+            /** Format: double */
+            autoApprovalRate: number | string;
+            /** Format: int32 */
+            autoApproved: number | string;
+            /** Format: double */
+            correctionsPerDocument: number | string;
+            /** Format: int32 */
+            documents: number | string;
+            layouts: components["schemas"]["InsightLayout"][];
+            /** Format: double */
+            llmCostUsd: number | string;
+            name: string;
+            /** Format: int32 */
+            openNewLayout: number | string;
+            /** Format: uuid */
+            sampleDocumentId: null | string;
+            /** Format: uuid */
+            supplierId: string;
+        };
+        /** @description The body of `PUT /suppliers/{id}/entity-attributes/{entityId}`: the attributes, replacing the stored ones. */
+        SupplierEntityAttributesRequest: {
+            attributes: Record<string, never>;
+        };
+        /** @description A supplier's attributes in one receiving entity (`SupplierEntityAttributes`, docs/11 §6.4). */
+        SupplierEntityAttributesResponse: {
+            attributes: Record<string, never>;
+            receivingEntityCode: null | string;
+            /** Format: uuid */
+            receivingEntityId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description What `POST /documents/{id}:create-supplier` answers: the new supplier and the document it was assigned to. */
+        SupplierFromReviewResponse: {
+            document: components["schemas"]["DocumentDetail"];
+            supplier: components["schemas"]["SupplierResponse"];
+        };
+        /** @description A supplier group (docs/11 §6.4) with the number of its members. */
+        SupplierGroupResponse: {
+            attributes: Record<string, never>;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            settings: components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            supplierCount: number | string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /**
+         * @description `POST /suppliers:import` (docs/11 §14): supplier records as CSV with a column map, or as JSON, matched by
+         *     `matchKeys` (default `attributes.erpVendorId`, `vatId`, `iban`) under the per-attribute
+         *     `conflictPolicy`; `dryRun` (the default) answers the report without changing anything.
+         */
+        SupplierImportRequest: {
+            columns: null | {
+                [key: string]: string;
+            };
+            conflictPolicy: null | {
+                [key: string]: string;
+            };
+            content: null | string;
+            dryRun: null | boolean;
+            format: null | string;
+            matchKeys: null | string[];
+            records: null | components["schemas"]["JsonElement"];
+        };
+        /** @description A supplier or group layout (docs/11 §6.6 `SupplierLayout`) with its versions, newest first. */
+        SupplierLayoutResponse: {
+            /** Format: int32 */
+            activeVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            documentTypeKey: string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: uuid */
+            id: string;
+            itemKinds: string[];
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            layoutKey: string;
+            name: string;
+            /** Format: int32 */
+            priority: number | string;
+            /** Format: uuid */
+            receivingEntityId: null | string;
+            scope: string;
+            /** Format: int32 */
+            shadowVersion: null | number | string;
+            status: string;
+            /** Format: uuid */
+            supplierId: null | string;
+            versions: components["schemas"]["SupplierLayoutVersionSummary"][];
+        };
+        /** @description One layout version in full: its identification rule, field mapping, coverage, replay report and similarity profile as stored. */
+        SupplierLayoutVersionResponse: {
+            coverage: string[];
+            identification: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            mapping: components["schemas"]["JsonElement"];
+            replay: null | components["schemas"]["JsonElement"];
+            similarityProfile: null | components["schemas"]["JsonElement"];
+            summary: components["schemas"]["SupplierLayoutVersionSummary"];
+        };
+        /** @description A version of a layout in a list: its lifecycle, origin, rule hash and sentence, warm-up and counters (docs/11 §6.6). */
+        SupplierLayoutVersionSummary: {
+            /** Format: int32 */
+            agreed: number | string;
+            /** Format: int32 */
+            applied: number | string;
+            /** Format: date-time */
+            approvedAt: null | string;
+            approvedBy: null | string;
+            /** Format: int32 */
+            consecutiveFailures: number | string;
+            /** Format: int32 */
+            corrected: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            describe: string;
+            /** Format: uuid */
+            id: string;
+            identificationHash: string;
+            /** Format: int32 */
+            identified: number | string;
+            origin: string;
+            /** Format: int32 */
+            reviewWarmup: number | string;
+            status: string;
+            /** Format: int32 */
+            version: number | string;
+            /** Format: int32 */
+            warmupSeen: number | string;
+        };
+        /** @enum {unknown} */
+        SupplierMatchMethod: "Vat" | "Iban" | "Domain" | "Name" | "Human" | "SourceRule" | "ChannelDefault" | "Hint" | null;
         SupplierResponse: {
             aliases: string[];
             alwaysReview: boolean;
+            /** @description The tenant's attributes of the supplier (docs/11 §6.4, `{"erpVendorId": "V-10042"}`), what output mappings read as `supplier.attributes`. */
+            attributes?: Record<string, never>;
             /** Format: date-time */
             createdAt: string;
             defaultCurrency: null | string;
             emailDomains: string[];
+            /** @description The supplier's attributes per receiving entity (docs/11 §6.4); only on `GET /suppliers/{id}` and the writes of one supplier, empty in the list. */
+            entityAttributes?: components["schemas"]["SupplierEntityAttributesResponse"][];
             /** Format: uuid */
             globalSupplierId: null | string;
+            /**
+             * Format: uuid
+             * @description The supplier group whose attributes and settings the supplier inherits (docs/11 §6.4); null for none.
+             */
+            groupId?: null | string;
             ibans: string[];
             /** Format: uuid */
             id: string;
             name: string;
             normalizedName: string;
+            /** @description The supplier's own settings (docs/11 §6.4): an object of the members set, every other one inherited. */
+            settings?: components["schemas"]["JsonElement"];
             taxId: null | string;
             /** Format: date-time */
             updatedAt: string;
             vatId: null | string;
+        };
+        /** @description A vertical band in page units (the header row). */
+        TableBandDto: {
+            /** Format: double */
+            y0: number | string;
+            /** Format: double */
+            y1: number | string;
+        };
+        /** @description A value of a row: field, printed text, the value read (shape of a correction), its page and box. */
+        TableCellDto: {
+            bBox: components["schemas"]["SourceBox"];
+            field: string;
+            /** Format: int32 */
+            page: number | string;
+            text: string;
+            value: null | components["schemas"]["JsonElement"];
+        };
+        /** @description The dividers of one column on one page. */
+        TableColumnBoundsDto: {
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+        };
+        /** @description A column of a table mapping in page units of the mapping page: its dividers, the row field it fills (none to leave it out), its printed header, and a tier column's minimum quantity. */
+        TableColumnDto: {
+            field?: null | string;
+            header?: null | string;
+            /** Format: double */
+            tierMinQuantity?: null | number | string;
+            /** Format: double */
+            x0: number | string;
+            /** Format: double */
+            x1: number | string;
+        };
+        /** @description Group headings (docs/11 §8.6): `target` is the row field a heading fills; `when` the column whose emptiness makes a line a heading (the first amount column by default). */
+        TableGroupHeaderDto: {
+            target: string;
+            when?: null | string;
+        };
+        /** @description The part of every page the table uses (docs/11 §8.6 `pageMargins`), in page units: running headers above `top` and footers below `bottom` are left out. */
+        TableMarginsDto: {
+            /** Format: double */
+            bottom?: null | number | string;
+            /** Format: double */
+            top?: null | number | string;
+        };
+        /** @description Dividers set by hand for one page (`pageOverrides`), one per column of the mapping. */
+        TablePageOverrideDto: {
+            columns: components["schemas"]["TableColumnBoundsDto"][];
+            /** Format: int32 */
+            page: number | string;
+        };
+        /**
+         * @description One page of the table report (docs/11 §12.4, the page strip): rows that start on it, rejected lines (count, and the
+         *     first 50 with their text), skipped lines, headings and continuation lines, whether its header row was found, the
+         *     dividers used and where they came from (`mapping`, `header`, `previousHeader`, `override`), its
+         *     first three rows as printed, and the band of the page read (`top` to `bottom`, page units: below the header
+         *     row, within the page margins; absent in a report stored before it was recorded). `headings` are the texts of the
+         *     group headings read on the page (the first 20), so a running title or footer taken for one shows; `repeatedLines`
+         *     counts the lines left out as running titles, page numbers or footers and `repeatedTexts` lists their texts (the
+         *     first 20), `leftOutLines` the lines with words only in columns the mapping leaves out (absent in a report stored
+         *     before they were recorded).
+         */
+        TablePageReportDto: {
+            /** Format: double */
+            bottom?: null | number | string;
+            columns: components["schemas"]["TableColumnBoundsDto"][];
+            columnsFrom: string;
+            /** Format: int32 */
+            continuationLines: number | string;
+            firstRows: {
+                [key: string]: string;
+            }[];
+            /** Format: int32 */
+            groupHeadings: number | string;
+            headerFound: boolean;
+            headings?: null | string[];
+            /** Format: int32 */
+            leftOutLines?: null | number | string;
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            rejected: number | string;
+            rejectedLines: components["schemas"]["TableRejectedLineDto"][];
+            /** Format: int32 */
+            repeatedLines?: null | number | string;
+            repeatedTexts?: null | string[];
+            /** Format: int32 */
+            rows: number | string;
+            /** Format: int32 */
+            skippedLines: number | string;
+            /** Format: double */
+            top?: null | number | string;
+        };
+        /** @description A line that did not become a row: its text, box, a reason code (`unreadable`, `noAnchor`, `continuationConflict`, `anchorOnly`), the message and the field. */
+        TableRejectedLineDto: {
+            bBox: components["schemas"]["SourceBox"];
+            field: null | string;
+            message: string;
+            /** Format: int32 */
+            page: number | string;
+            reason: string;
+            text: string;
+        };
+        /** @description The table report (docs/11 §8.6, §12.4): totals, pages read, pages without rows, the page a stop line ended it on, and every page. */
+        TableReportDto: {
+            pages: (number | string)[];
+            pagesWithoutRows: (number | string)[];
+            perPage: components["schemas"]["TablePageReportDto"][];
+            /** Format: int32 */
+            rejectedRows: number | string;
+            /** Format: int32 */
+            rows: number | string;
+            /** Format: int32 */
+            stoppedOnPage: null | number | string;
+        };
+        /**
+         * @description Who wrote a DocumentTableReport (docs/11 §6.2).
+         * @enum {unknown}
+         */
+        TableReportOrigin: "Layout" | "ReviewTool";
+        /** @description A row the table read: the page it starts on, its box there, its values and tiers. */
+        TableRowDto: {
+            bBox: components["schemas"]["SourceBox"];
+            cells: components["schemas"]["TableCellDto"][];
+            /** Format: int32 */
+            page: number | string;
+            tiers: components["schemas"]["TableTierDto"][];
+        };
+        /**
+         * @description Tier price columns (docs/11 §8.6): a column without a field whose header matches `headerPattern` (group 1 the
+         *     minimum quantity; `ab\s+(\d+)` by default) or that names `tierMinQuantity` becomes entries of the row's
+         *     `target` list (`tiers`) with `quantityField` (`minQuantity`) and `priceField` (`price`).
+         */
+        TableTierColumnsDto: {
+            headerPattern?: null | string;
+            priceField?: null | string;
+            quantityField?: null | string;
+            target?: null | string;
+        };
+        /** @description A tier price of a row: the minimum quantity and the price cell. */
+        TableTierDto: {
+            /** Format: double */
+            minQuantity: number | string;
+            price: components["schemas"]["TableCellDto"];
+        };
+        TargetSchemaErrorDto: {
+            keyword: string;
+            location: string;
+            message: string;
+            path: string;
+        };
+        /**
+         * @description The per-tenant switches of docs/11 §3 (principle 6), all off by default. `configurableTypes` opens the type
+         *     catalogue (adopt, copy, edit, publish; P1) and lets the tenant's copies resolve; `customTypes` also allows types
+         *     of the tenant's own; `configurableSteps` (P5) applies supplier, group and layout `pipelineOverrides`, the
+         *     type's step parameters and added steps (`http-lookup`); left out on PUT, it is false.
+         */
+        TenantFeaturesDto: {
+            /** @default false */
+            configurableSteps: boolean;
+            configurableTypes: boolean;
+            customTypes: boolean;
+            outputs: boolean;
+            sourceRouting: boolean;
+            structuredSources: boolean;
+            supplierLayouts: boolean;
         };
         /** @description The read-only identity of the current tenant; platform staff change it through `/tenants/{id}`. */
         TenantIdentity: {
@@ -1333,18 +5468,149 @@ export interface components {
             updatedAt: string;
             vatId: null | string;
         };
-        /** @description Review policy and retention (docs/02 §1 "settings"); the body of PUT and the `settings` part of GET. */
+        /** @description One document a rule under test matched (at most int TypeIdentificationRuleEndpoints.MaxListedMatches listed). */
+        TenantRuleTestMatch: {
+            /** Format: uuid */
+            documentId: string;
+            fileName: null | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            typeKey: string;
+        };
+        /**
+         * @description The save-time test of a tenant fallback rule (docs/11 §8.5 "Checks at save"): evaluated on the last 500 approved
+         *     documents of the tenant, without the excluded suppliers and the suppliers that have layouts (own or group); how many it
+         *     would have matched, per type, and the summary sentence of the editor ("would have matched 37 price-list documents, 0
+         *     other documents").
+         */
+        TenantRuleTestReport: {
+            byType: {
+                [key: string]: number | string;
+            };
+            /** Format: int32 */
+            matched: number | string;
+            matches: components["schemas"]["TenantRuleTestMatch"][];
+            otherTypeMatches: components["schemas"]["TenantRuleTestMatch"][];
+            /** Format: int32 */
+            otherTypes: number | string;
+            ruleHash: string;
+            /** Format: int32 */
+            sameType: number | string;
+            summary: string;
+            /** Format: int32 */
+            tested: number | string;
+            /** Format: date-time */
+            testedAt: string;
+            typeKey: string;
+        };
+        /**
+         * @description Review policy, retention and the feature switches (docs/02 §1 "settings", docs/11 §18 "Settings"); the body of PUT
+         *     and the `settings` part of GET. TenantFeaturesDto? TenantSettingsDto.Features is optional on PUT: left out, the switches stay as they are.
+         *     The supplier configuration of P4 (docs/11 §6.4, §7.1) is optional on PUT as well, and changing it needs
+         *     `sourceRouting`: JsonElement? TenantSettingsDto.SupplierAttributeSchema (a JSON Schema object of the typed subset; `{}`
+         *     removes it), bool? TenantSettingsDto.LayoutsRequiredByDefault (the default of a supplier's `layouts.required: inherit`)
+         *     and IReadOnlyList&lt;string&gt;? TenantSettingsDto.TrustedForwarderDomains (forwarders unwrapped for every mailbox of the tenant).
+         *     int? TenantSettingsDto.LayoutReviewWarmup (docs/11 §8.3 `layoutActivation`, decision 2 of §24) is how many documents
+         *     under a newly activated layout version go to review, 5 by default; changing it needs `supplierLayouts`, and the
+         *     Active versions whose warm-up is the tenant's old one take the new one (the settled P4 demo sets 0).
+         *     int? TenantSettingsDto.LayoutAgreementPercent is the field agreement a version needs on its replay set to be activated (docs/11
+         *     §8.3, 90 % by default).
+         */
         TenantSettingsDto: {
             alwaysReviewSupplierIds: string[];
             /** Format: double */
             autoApproveConfidenceThreshold: number | string;
+            features?: null | components["schemas"]["TenantFeaturesDto"];
+            /** Format: int32 */
+            layoutAgreementPercent?: null | number | string;
+            /** Format: int32 */
+            layoutReviewWarmup?: null | number | string;
+            layoutsRequiredByDefault?: null | boolean;
             /** Format: int32 */
             retentionYears: number | string;
             shareExtractorProfiles: boolean;
+            supplierAttributeSchema?: unknown;
+            trustedForwarderDomains?: null | string[];
         };
         TenantSettingsResponse: {
             settings: components["schemas"]["TenantSettingsDto"];
             tenant: components["schemas"]["TenantIdentity"];
+        };
+        TypeIdentificationRuleResponse: {
+            /** Format: int32 */
+            activeVersion: null | number | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            /** Format: uuid */
+            createdFromDocumentId: null | string;
+            documentTypeKey: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            matched: number | string;
+            name: string;
+            /** Format: int32 */
+            overridden: number | string;
+            /** Format: int32 */
+            priority: number | string;
+            status: string;
+            /** Format: date-time */
+            updatedAt: string;
+            versions: components["schemas"]["TypeIdentificationRuleVersionResponse"][];
+        };
+        /** @description The body of a new or edited Draft version: the rule and the excluded suppliers. */
+        TypeIdentificationRuleVersionRequest: {
+            excludedSupplierIds?: null | string[];
+            rule: components["schemas"]["JsonElement"];
+        };
+        TypeIdentificationRuleVersionResponse: {
+            /** Format: date-time */
+            approvedAt: null | string;
+            approvedBy: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: null | string;
+            describe: string;
+            excludedSupplierIds: string[];
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            revision: number | string;
+            rule: components["schemas"]["JsonElement"];
+            ruleHash: string;
+            state: string;
+            test: null | components["schemas"]["TenantRuleTestReport"];
+            /** Format: int32 */
+            version: number | string;
+        };
+        /** @enum {unknown} */
+        TypeSource: "Rule" | "Llm" | "Human" | "Structured" | "Supplier" | "Identification" | "Proposed" | null;
+        /** @description The Unknown rate of one channel or one source rule. */
+        UnknownRate: {
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: double */
+            rate: number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: int32 */
+            unknown: number | string;
+        };
+        /**
+         * @description `POST /document-types/{key}:upgrade-base` (docs/11 §5.8): bool? UpgradeBaseRequest.AutoApprove switches the type's
+         *     `review.autoApprove` on or off (null keeps it); the type moves to its template's newest version either way.
+         */
+        UpgradeBaseRequest: {
+            autoApprove: null | boolean;
+        };
+        /** @description A reading of the selected text as a field kind (docs/11 §12.3: "28.10.2026 → 2026-10-28"), in the shape a correction takes. */
+        ValueCandidateDto: {
+            kind: string;
+            value: components["schemas"]["JsonElement"];
         };
     };
     responses: never;
@@ -1353,32 +5619,87 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type SchemaActivateLayoutRequest = components['schemas']['ActivateLayoutRequest'];
+export type SchemaActivateLayoutResponse = components['schemas']['ActivateLayoutResponse'];
+export type SchemaActivateTypeIdentificationRuleRequest = components['schemas']['ActivateTypeIdentificationRuleRequest'];
 export type SchemaAddMemberRequest = components['schemas']['AddMemberRequest'];
 export type SchemaAnonymousTypeOfstringAndstring = components['schemas']['AnonymousTypeOfstringAndstring'];
 export type SchemaApiKeySummary = components['schemas']['ApiKeySummary'];
+export type SchemaApprovalBlock = components['schemas']['ApprovalBlock'];
 export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
+export type SchemaAssignSupplierRemember = components['schemas']['AssignSupplierRemember'];
+export type SchemaAssignSupplierRequest = components['schemas']['AssignSupplierRequest'];
+export type SchemaAutomationInsights = components['schemas']['AutomationInsights'];
+export type SchemaBulkReprocessItem = components['schemas']['BulkReprocessItem'];
+export type SchemaBulkReprocessRequest = components['schemas']['BulkReprocessRequest'];
+export type SchemaBundleImportItem = components['schemas']['BundleImportItem'];
+export type SchemaBundleImportRequest = components['schemas']['BundleImportRequest'];
+export type SchemaBundleImportResponse = components['schemas']['BundleImportResponse'];
+export type SchemaCallbackResponse = components['schemas']['CallbackResponse'];
+export type SchemaCallbackSecretResponse = components['schemas']['CallbackSecretResponse'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
+export type SchemaCorrectionSource = components['schemas']['CorrectionSource'];
 export type SchemaCreateApiKeyRequest = components['schemas']['CreateApiKeyRequest'];
 export type SchemaCreateChannelRequest = components['schemas']['CreateChannelRequest'];
 export type SchemaCreatedApiKey = components['schemas']['CreatedApiKey'];
+export type SchemaCreateDestinationRequest = components['schemas']['CreateDestinationRequest'];
+export type SchemaCreateDocumentTypeRequest = components['schemas']['CreateDocumentTypeRequest'];
+export type SchemaCreateLayoutRequest = components['schemas']['CreateLayoutRequest'];
+export type SchemaCreateLayoutVersionRequest = components['schemas']['CreateLayoutVersionRequest'];
 export type SchemaCreateLlmProviderRequest = components['schemas']['CreateLlmProviderRequest'];
+export type SchemaCreateLookupTableRequest = components['schemas']['CreateLookupTableRequest'];
+export type SchemaCreateOutputBindingRequest = components['schemas']['CreateOutputBindingRequest'];
+export type SchemaCreateOutputMappingRequest = components['schemas']['CreateOutputMappingRequest'];
+export type SchemaCreateReceivingEntityRequest = components['schemas']['CreateReceivingEntityRequest'];
+export type SchemaCreateSupplierGroupRequest = components['schemas']['CreateSupplierGroupRequest'];
 export type SchemaCreateSupplierRequest = components['schemas']['CreateSupplierRequest'];
 export type SchemaCreateTenantRequest = components['schemas']['CreateTenantRequest'];
+export type SchemaCreateTypeIdentificationRuleFromDocumentRequest = components['schemas']['CreateTypeIdentificationRuleFromDocumentRequest'];
+export type SchemaCreateTypeIdentificationRuleRequest = components['schemas']['CreateTypeIdentificationRuleRequest'];
+export type SchemaDefinitionProblemDto = components['schemas']['DefinitionProblemDto'];
+export type SchemaDeliveryAttemptDto = components['schemas']['DeliveryAttemptDto'];
+export type SchemaDeliveryDetail = components['schemas']['DeliveryDetail'];
+export type SchemaDeliverySummary = components['schemas']['DeliverySummary'];
+export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
+export type SchemaDestinationHealth = components['schemas']['DestinationHealth'];
+export type SchemaDestinationResponse = components['schemas']['DestinationResponse'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
+export type SchemaDocumentDefinitionRef = components['schemas']['DocumentDefinitionRef'];
 export type SchemaDocumentDetail = components['schemas']['DocumentDetail'];
 export type SchemaDocumentEventDto = components['schemas']['DocumentEventDto'];
 export type SchemaDocumentFlagDto = components['schemas']['DocumentFlagDto'];
 export type SchemaDocumentIngestionRef = components['schemas']['DocumentIngestionRef'];
+export type SchemaDocumentPartDto = components['schemas']['DocumentPartDto'];
 export type SchemaDocumentStatus = components['schemas']['DocumentStatus'];
 export type SchemaDocumentSummary = components['schemas']['DocumentSummary'];
-export type SchemaDocumentType = components['schemas']['DocumentType'];
+export type SchemaDocumentTableReportDto = components['schemas']['DocumentTableReportDto'];
+export type SchemaDocumentTemplateSummary = components['schemas']['DocumentTemplateSummary'];
+export type SchemaDocumentTypeDetail = components['schemas']['DocumentTypeDetail'];
+export type SchemaDocumentTypeKey = components['schemas']['DocumentTypeKey'];
+export type SchemaDocumentTypeSource = components['schemas']['DocumentTypeSource'];
+export type SchemaDocumentTypeVersionDetail = components['schemas']['DocumentTypeVersionDetail'];
+export type SchemaDocumentTypeVersionSummary = components['schemas']['DocumentTypeVersionSummary'];
+export type SchemaExternalRefDto = components['schemas']['ExternalRefDto'];
 export type SchemaExtractionMethod = components['schemas']['ExtractionMethod'];
+export type SchemaFeedAckRequest = components['schemas']['FeedAckRequest'];
+export type SchemaFeedAckResponse = components['schemas']['FeedAckResponse'];
+export type SchemaFeedEntry = components['schemas']['FeedEntry'];
+export type SchemaFeedPage = components['schemas']['FeedPage'];
+export type SchemaFieldChangeDto = components['schemas']['FieldChangeDto'];
 export type SchemaFieldCorrection = components['schemas']['FieldCorrection'];
 export type SchemaFlagOrigin = components['schemas']['FlagOrigin'];
 export type SchemaFlagSeverity = components['schemas']['FlagSeverity'];
+export type SchemaGoldenDocumentDto = components['schemas']['GoldenDocumentDto'];
 export type SchemaHttpValidationProblemDetails = components['schemas']['HttpValidationProblemDetails'];
+export type SchemaIdentificationEvidenceDto = components['schemas']['IdentificationEvidenceDto'];
+export type SchemaIdentificationOverlap = components['schemas']['IdentificationOverlap'];
+export type SchemaIdentificationTestDocument = components['schemas']['IdentificationTestDocument'];
+export type SchemaIdentificationTestRequest = components['schemas']['IdentificationTestRequest'];
+export type SchemaIdentificationTestResponse = components['schemas']['IdentificationTestResponse'];
+export type SchemaIdentificationTestScope = components['schemas']['IdentificationTestScope'];
+export type SchemaIndexedFieldDto = components['schemas']['IndexedFieldDto'];
 export type SchemaIngestionCreated = components['schemas']['IngestionCreated'];
 export type SchemaIngestionDetail = components['schemas']['IngestionDetail'];
 export type SchemaIngestionDocumentRef = components['schemas']['IngestionDocumentRef'];
@@ -1387,35 +5708,169 @@ export type SchemaIngestionItemDto = components['schemas']['IngestionItemDto'];
 export type SchemaIngestionJsonUpload = components['schemas']['IngestionJsonUpload'];
 export type SchemaIngestionStatus = components['schemas']['IngestionStatus'];
 export type SchemaIngestionSummary = components['schemas']['IngestionSummary'];
+export type SchemaInsightLayout = components['schemas']['InsightLayout'];
 export type SchemaItemDisposition = components['schemas']['ItemDisposition'];
 export type SchemaItemKind = components['schemas']['ItemKind'];
+export type SchemaJoinDocumentsRequest = components['schemas']['JoinDocumentsRequest'];
 export type SchemaJsonElement = components['schemas']['JsonElement'];
+export type SchemaJsonObject = components['schemas']['JsonObject'];
 export type SchemaKeyOwner = components['schemas']['KeyOwner'];
+export type SchemaLayoutAttention = components['schemas']['LayoutAttention'];
+export type SchemaLayoutEvaluationDto = components['schemas']['LayoutEvaluationDto'];
+export type SchemaLayoutResolveResponse = components['schemas']['LayoutResolveResponse'];
+export type SchemaLayoutSuggestionDto = components['schemas']['LayoutSuggestionDto'];
+export type SchemaLearnedFieldDto = components['schemas']['LearnedFieldDto'];
+export type SchemaLearnLayoutRequest = components['schemas']['LearnLayoutRequest'];
+export type SchemaLearnLayoutResponse = components['schemas']['LearnLayoutResponse'];
+export type SchemaLearnSkipDto = components['schemas']['LearnSkipDto'];
+export type SchemaLlmBudgetDto = components['schemas']['LlmBudgetDto'];
+export type SchemaLlmBudgetResponse = components['schemas']['LlmBudgetResponse'];
+export type SchemaLlmBudgetsResponse = components['schemas']['LlmBudgetsResponse'];
 export type SchemaLlmPolicyResponse = components['schemas']['LlmPolicyResponse'];
 export type SchemaLlmProviderResponse = components['schemas']['LlmProviderResponse'];
 export type SchemaLlmUsageBucket = components['schemas']['LlmUsageBucket'];
 export type SchemaLlmUsageResponse = components['schemas']['LlmUsageResponse'];
+export type SchemaLookupEntryDto = components['schemas']['LookupEntryDto'];
+export type SchemaLookupTableDetail = components['schemas']['LookupTableDetail'];
+export type SchemaLookupTableSummary = components['schemas']['LookupTableSummary'];
+export type SchemaLookupTestRequest = components['schemas']['LookupTestRequest'];
+export type SchemaLookupTestResponse = components['schemas']['LookupTestResponse'];
+export type SchemaMarkGoldenRequest = components['schemas']['MarkGoldenRequest'];
+export type SchemaMasterDataConflicts = components['schemas']['MasterDataConflicts'];
+export type SchemaMasterDataRunDto = components['schemas']['MasterDataRunDto'];
+export type SchemaMasterDataRunRequest = components['schemas']['MasterDataRunRequest'];
+export type SchemaMasterDataRunStatus = components['schemas']['MasterDataRunStatus'];
+export type SchemaMasterDataSourceDto = components['schemas']['MasterDataSourceDto'];
+export type SchemaMasterDataSourceRequest = components['schemas']['MasterDataSourceRequest'];
+export type SchemaMasterDataTrigger = components['schemas']['MasterDataTrigger'];
+export type SchemaMatchingDocumentDto = components['schemas']['MatchingDocumentDto'];
+export type SchemaMatchLayoutRequest = components['schemas']['MatchLayoutRequest'];
 export type SchemaMemberResponse = components['schemas']['MemberResponse'];
 export type SchemaMeResponse = components['schemas']['MeResponse'];
+export type SchemaNotificationDto = components['schemas']['NotificationDto'];
+export type SchemaOutputBindingResponse = components['schemas']['OutputBindingResponse'];
+export type SchemaOutputMappingCheckReport = components['schemas']['OutputMappingCheckReport'];
+export type SchemaOutputMappingDetail = components['schemas']['OutputMappingDetail'];
+export type SchemaOutputMappingSource = components['schemas']['OutputMappingSource'];
+export type SchemaOutputMappingVersionDetail = components['schemas']['OutputMappingVersionDetail'];
+export type SchemaOutputMappingVersionSummary = components['schemas']['OutputMappingVersionSummary'];
+export type SchemaOutputPreviewRequest = components['schemas']['OutputPreviewRequest'];
+export type SchemaOutputPreviewResponse = components['schemas']['OutputPreviewResponse'];
+export type SchemaOutputTemplateSummary = components['schemas']['OutputTemplateSummary'];
+export type SchemaOverriddenRule = components['schemas']['OverriddenRule'];
+export type SchemaPageOfDeliverySummary = components['schemas']['PageOfDeliverySummary'];
 export type SchemaPageOfDocumentSummary = components['schemas']['PageOfDocumentSummary'];
 export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestionSummary'];
 export type SchemaPageOfReviewTaskDto = components['schemas']['PageOfReviewTaskDto'];
 export type SchemaPageOfSupplierResponse = components['schemas']['PageOfSupplierResponse'];
 export type SchemaPageOfTenantResponse = components['schemas']['PageOfTenantResponse'];
+export type SchemaPageWordDto = components['schemas']['PageWordDto'];
+export type SchemaPageWordsResponse = components['schemas']['PageWordsResponse'];
 export type SchemaPatchChannelRequest = components['schemas']['PatchChannelRequest'];
+export type SchemaPatchDestinationRequest = components['schemas']['PatchDestinationRequest'];
+export type SchemaPatchLookupTableRequest = components['schemas']['PatchLookupTableRequest'];
+export type SchemaPatchOutputBindingRequest = components['schemas']['PatchOutputBindingRequest'];
+export type SchemaPatchOutputMappingRequest = components['schemas']['PatchOutputMappingRequest'];
+export type SchemaPatchReceivingEntityRequest = components['schemas']['PatchReceivingEntityRequest'];
+export type SchemaPatchSupplierGroupRequest = components['schemas']['PatchSupplierGroupRequest'];
 export type SchemaPatchSupplierRequest = components['schemas']['PatchSupplierRequest'];
 export type SchemaPatchTenantRequest = components['schemas']['PatchTenantRequest'];
+export type SchemaPatchTypeIdentificationRuleRequest = components['schemas']['PatchTypeIdentificationRuleRequest'];
+export type SchemaPipelineProblemResponse = components['schemas']['PipelineProblemResponse'];
+export type SchemaPipelineSnapshotResponse = components['schemas']['PipelineSnapshotResponse'];
+export type SchemaProposedSourceRuleDto = components['schemas']['ProposedSourceRuleDto'];
+export type SchemaProposeIdentifierRequest = components['schemas']['ProposeIdentifierRequest'];
+export type SchemaProposeIdentifierResponse = components['schemas']['ProposeIdentifierResponse'];
+export type SchemaPublishReportDto = components['schemas']['PublishReportDto'];
+export type SchemaPutLlmBudgetsRequest = components['schemas']['PutLlmBudgetsRequest'];
 export type SchemaPutLlmPolicyRequest = components['schemas']['PutLlmPolicyRequest'];
+export type SchemaPutLookupEntriesRequest = components['schemas']['PutLookupEntriesRequest'];
+export type SchemaReadRegionRequest = components['schemas']['ReadRegionRequest'];
+export type SchemaReadTableRequest = components['schemas']['ReadTableRequest'];
+export type SchemaReadTableResponse = components['schemas']['ReadTableResponse'];
+export type SchemaReceivingEntityResponse = components['schemas']['ReceivingEntityResponse'];
+export type SchemaRedeliverRequest = components['schemas']['RedeliverRequest'];
+export type SchemaRegressionRunDto = components['schemas']['RegressionRunDto'];
+export type SchemaRegressionRunRequest = components['schemas']['RegressionRunRequest'];
 export type SchemaRejectDocumentRequest = components['schemas']['RejectDocumentRequest'];
+export type SchemaRenderErrorDto = components['schemas']['RenderErrorDto'];
+export type SchemaReplayDocument = components['schemas']['ReplayDocument'];
+export type SchemaReplayFieldStat = components['schemas']['ReplayFieldStat'];
+export type SchemaReplayLayoutRequest = components['schemas']['ReplayLayoutRequest'];
+export type SchemaReplayOverlap = components['schemas']['ReplayOverlap'];
+export type SchemaReplayReport = components['schemas']['ReplayReport'];
 export type SchemaReprocessDocumentRequest = components['schemas']['ReprocessDocumentRequest'];
+export type SchemaResolvedPipelineResponse = components['schemas']['ResolvedPipelineResponse'];
+export type SchemaResolvedStepResponse = components['schemas']['ResolvedStepResponse'];
+export type SchemaResolveIntegrationIssueRequest = components['schemas']['ResolveIntegrationIssueRequest'];
+export type SchemaResolveRevisionRequest = components['schemas']['ResolveRevisionRequest'];
+export type SchemaReviewPriority = components['schemas']['ReviewPriority'];
 export type SchemaReviewTaskDto = components['schemas']['ReviewTaskDto'];
+export type SchemaReviewTaskKind = components['schemas']['ReviewTaskKind'];
 export type SchemaReviewTaskStatus = components['schemas']['ReviewTaskStatus'];
+export type SchemaRevisionResolution = components['schemas']['RevisionResolution'];
+export type SchemaRoutingTestCandidate = components['schemas']['RoutingTestCandidate'];
+export type SchemaRoutingTestRequest = components['schemas']['RoutingTestRequest'];
+export type SchemaRoutingTestResponse = components['schemas']['RoutingTestResponse'];
+export type SchemaRoutingTestSenderAuth = components['schemas']['RoutingTestSenderAuth'];
+export type SchemaRuleKindResponse = components['schemas']['RuleKindResponse'];
+export type SchemaRuleTestFlag = components['schemas']['RuleTestFlag'];
+export type SchemaRuleTestRequest = components['schemas']['RuleTestRequest'];
+export type SchemaRuleTestResponse = components['schemas']['RuleTestResponse'];
+export type SchemaRuleTestRuleResult = components['schemas']['RuleTestRuleResult'];
+export type SchemaSandboxRunRequest = components['schemas']['SandboxRunRequest'];
+export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
+export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
+export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
+export type SchemaSourceBox = components['schemas']['SourceBox'];
+export type SchemaSourceRuleRequest = components['schemas']['SourceRuleRequest'];
+export type SchemaSourceRuleResponse = components['schemas']['SourceRuleResponse'];
+export type SchemaSplitDocumentRequest = components['schemas']['SplitDocumentRequest'];
+export type SchemaSplitDocumentResponse = components['schemas']['SplitDocumentResponse'];
+export type SchemaSplitPartRequest = components['schemas']['SplitPartRequest'];
+export type SchemaSplitPartResult = components['schemas']['SplitPartResult'];
+export type SchemaStepKindResponse = components['schemas']['StepKindResponse'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
+export type SchemaSupplierAutomation = components['schemas']['SupplierAutomation'];
+export type SchemaSupplierEntityAttributesRequest = components['schemas']['SupplierEntityAttributesRequest'];
+export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
+export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
+export type SchemaSupplierGroupResponse = components['schemas']['SupplierGroupResponse'];
+export type SchemaSupplierImportRequest = components['schemas']['SupplierImportRequest'];
+export type SchemaSupplierLayoutResponse = components['schemas']['SupplierLayoutResponse'];
+export type SchemaSupplierLayoutVersionResponse = components['schemas']['SupplierLayoutVersionResponse'];
+export type SchemaSupplierLayoutVersionSummary = components['schemas']['SupplierLayoutVersionSummary'];
+export type SchemaSupplierMatchMethod = components['schemas']['SupplierMatchMethod'];
 export type SchemaSupplierResponse = components['schemas']['SupplierResponse'];
+export type SchemaTableBandDto = components['schemas']['TableBandDto'];
+export type SchemaTableCellDto = components['schemas']['TableCellDto'];
+export type SchemaTableColumnBoundsDto = components['schemas']['TableColumnBoundsDto'];
+export type SchemaTableColumnDto = components['schemas']['TableColumnDto'];
+export type SchemaTableGroupHeaderDto = components['schemas']['TableGroupHeaderDto'];
+export type SchemaTableMarginsDto = components['schemas']['TableMarginsDto'];
+export type SchemaTablePageOverrideDto = components['schemas']['TablePageOverrideDto'];
+export type SchemaTablePageReportDto = components['schemas']['TablePageReportDto'];
+export type SchemaTableRejectedLineDto = components['schemas']['TableRejectedLineDto'];
+export type SchemaTableReportDto = components['schemas']['TableReportDto'];
+export type SchemaTableReportOrigin = components['schemas']['TableReportOrigin'];
+export type SchemaTableRowDto = components['schemas']['TableRowDto'];
+export type SchemaTableTierColumnsDto = components['schemas']['TableTierColumnsDto'];
+export type SchemaTableTierDto = components['schemas']['TableTierDto'];
+export type SchemaTargetSchemaErrorDto = components['schemas']['TargetSchemaErrorDto'];
+export type SchemaTenantFeaturesDto = components['schemas']['TenantFeaturesDto'];
 export type SchemaTenantIdentity = components['schemas']['TenantIdentity'];
 export type SchemaTenantResponse = components['schemas']['TenantResponse'];
+export type SchemaTenantRuleTestMatch = components['schemas']['TenantRuleTestMatch'];
+export type SchemaTenantRuleTestReport = components['schemas']['TenantRuleTestReport'];
 export type SchemaTenantSettingsDto = components['schemas']['TenantSettingsDto'];
 export type SchemaTenantSettingsResponse = components['schemas']['TenantSettingsResponse'];
+export type SchemaTypeIdentificationRuleResponse = components['schemas']['TypeIdentificationRuleResponse'];
+export type SchemaTypeIdentificationRuleVersionRequest = components['schemas']['TypeIdentificationRuleVersionRequest'];
+export type SchemaTypeIdentificationRuleVersionResponse = components['schemas']['TypeIdentificationRuleVersionResponse'];
+export type SchemaTypeSource = components['schemas']['TypeSource'];
+export type SchemaUnknownRate = components['schemas']['UnknownRate'];
+export type SchemaUpgradeBaseRequest = components['schemas']['UpgradeBaseRequest'];
+export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
 export interface operations {
     ListApiKeys: {
@@ -1620,14 +6075,882 @@ export interface operations {
             };
         };
     };
+    ExportConfigBundle: {
+        parameters: {
+            query?: {
+                include?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonObject"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ImportConfigBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundleImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleImportResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListDeliveries: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                destinationId?: string;
+                documentId?: string;
+                limit?: number | string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageOfDeliverySummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryDetail"];
+                };
+            };
+        };
+    };
+    RedeliverDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["RedeliverRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliverySummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDeliveryPayload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"][];
+                };
+            };
+        };
+    };
+    CreateDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDestinationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+        };
+    };
+    DeleteDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateDestination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchDestinationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SetDestinationAcknowledgements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonElement"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    RotateDestinationCallbackSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackSecretResponse"];
+                };
+            };
+        };
+    };
+    SetDestinationSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDestinationSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListDocumentTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTemplateSummary"][];
+                };
+            };
+        };
+    };
+    ListDocumentTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"][];
+                };
+            };
+        };
+    };
+    CreateDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+        };
+    };
+    UpgradeDocumentTypeBase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["UpgradeBaseRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListTypeIdentificationRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"][];
+                };
+            };
+        };
+    };
+    CreateTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetResolvedPipeline: {
+        parameters: {
+            query?: {
+                layoutVersionId?: string;
+                supplierId?: string;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedPipelineResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListDocumentTypeVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"][];
+                };
+            };
+        };
+    };
+    CreateDocumentTypeDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentTypeVersion: {
+        parameters: {
+            query?: {
+                include?: string;
+            };
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionDetail"];
+                };
+            };
+        };
+    };
+    SaveDocumentTypeDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonElement"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PublishDocumentTypeVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTypeDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishReportDto"];
+                };
+            };
+        };
+    };
+    TestDocumentTypeRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ValidateDocumentTypeVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishReportDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     ListDocuments: {
         parameters: {
             query?: {
                 cursor?: string;
+                fields?: string;
                 flag?: string;
                 from?: string;
                 limit?: number | string;
+                pendingLayoutVersionId?: string;
                 q?: string;
+                sort?: string;
                 status?: string;
                 supplierId?: string;
                 to?: string;
@@ -1646,6 +6969,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageOfDocumentSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    BulkReprocessDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkReprocessRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkReprocessItem"][];
                 };
             };
             /** @description Bad Request */
@@ -1703,6 +7059,207 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+        };
+    };
+    AssignDocumentSupplier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateSupplierFromDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSupplierRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierFromReviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    MarkGoldenDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MarkGoldenRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoldenDocumentDto"];
+                };
+            };
+        };
+    };
+    JoinDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinDocumentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    LearnLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearnLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearnLayoutResponse"];
+                };
+            };
+        };
+    };
+    MatchLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MatchLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -1777,6 +7334,155 @@ export interface operations {
             };
         };
     };
+    ResolveDocumentIntegrationIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveIntegrationIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ResolveDocumentRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SetDocumentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDocumentTypeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SplitDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitDocumentResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     GetDocumentEvents: {
         parameters: {
             query?: never;
@@ -1834,6 +7540,89 @@ export interface operations {
             };
         };
     };
+    CreateTypeIdentificationRuleFromDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTypeIdentificationRuleFromDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ProposeIdentifier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposeIdentifierRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposeIdentifierResponse"];
+                };
+            };
+        };
+    };
+    GetLayoutSuggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutSuggestionDto"][];
+                };
+            };
+        };
+    };
     GetDocumentOriginal: {
         parameters: {
             query?: never;
@@ -1875,6 +7664,155 @@ export interface operations {
             };
         };
     };
+    GetDocumentPageWords: {
+        parameters: {
+            query?: {
+                bbox?: string;
+                locale?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageWordsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentParts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPartDto"][];
+                };
+            };
+        };
+    };
+    ReadDocumentRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadRegionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageWordsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ReadDocumentTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadTableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadTableResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetDocumentTableReports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTableReportDto"][];
+                };
+            };
+        };
+    };
     GetDocumentText: {
         parameters: {
             query?: never;
@@ -1892,6 +7830,373 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ReadFeed: {
+        parameters: {
+            query?: {
+                after?: number | string;
+                limit?: number | string;
+            };
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    AcknowledgeFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedAckRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAckResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListGoldenDocuments: {
+        parameters: {
+            query?: {
+                supplierId?: string;
+                typeKey?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoldenDocumentDto"][];
+                };
+            };
+        };
+    };
+    DeleteGoldenDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TestIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentificationTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentificationTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    PatchTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DisableTypeIdentificationRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    ListTypeIdentificationRuleVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"][];
+                };
+            };
+        };
+    };
+    CreateTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypeIdentificationRuleVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    SaveTypeIdentificationRuleDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypeIdentificationRuleVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ActivateTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ActivateTypeIdentificationRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleResponse"];
+                };
+            };
+        };
+    };
+    TestTypeIdentificationRuleVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeIdentificationRuleVersionResponse"];
+                };
             };
         };
     };
@@ -1989,6 +8294,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionDetail"];
+                };
+            };
+        };
+    };
+    GetAutomationInsights: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationInsights"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ReceiveIntegrationCallback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destinationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackResponse"];
+                };
+            };
+        };
+    };
+    ListLlmBudgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmBudgetsResponse"];
+                };
+            };
+        };
+    };
+    PutLlmBudgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutLlmBudgetsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmBudgetsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -2361,6 +8773,415 @@ export interface operations {
             };
         };
     };
+    ListLookupTables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"][];
+                };
+            };
+        };
+    };
+    CreateLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLookupTableRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableDetail"];
+                };
+            };
+        };
+    };
+    DeleteLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateLookupTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchLookupTableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PutLookupEntries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutLookupEntriesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTableSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetMasterDataRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+        };
+    };
+    ListMasterDataSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"][];
+                };
+            };
+        };
+    };
+    CreateMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterDataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+        };
+    };
+    DeleteMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterDataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataSourceDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DryRunMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MasterDataRunRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    RunMasterDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["MasterDataRunRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListMasterDataRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"][];
+                };
+            };
+        };
+    };
     GetMe: {
         parameters: {
             query?: never;
@@ -2503,6 +9324,710 @@ export interface operations {
             };
         };
     };
+    ListNotifications: {
+        parameters: {
+            query?: {
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationDto"][];
+                };
+            };
+        };
+    };
+    DismissNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationDto"];
+                };
+            };
+        };
+    };
+    ListOutputBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"][];
+                };
+            };
+        };
+    };
+    CreateOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOutputBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+        };
+    };
+    DeleteOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateOutputBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchOutputBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListOutputMappings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"][];
+                };
+            };
+        };
+    };
+    CreateOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOutputMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PreviewOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutputPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputPreviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+        };
+    };
+    UpdateOutputMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchOutputMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateOutputMappingDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionSummary"];
+                };
+            };
+        };
+    };
+    GetOutputMappingVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionDetail"];
+                };
+            };
+        };
+    };
+    SaveOutputMappingDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveOutputMappingDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingVersionSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    PublishOutputMappingVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputMappingCheckReport"];
+                };
+            };
+        };
+    };
+    ListOutputTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputTemplateSummary"][];
+                };
+            };
+        };
+    };
+    GetPipelineSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineSnapshotResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TestLookup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LookupTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListReceivingEntities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"][];
+                };
+            };
+        };
+    };
+    CreateReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReceivingEntityRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+        };
+    };
+    DeleteReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateReceivingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchReceivingEntityRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceivingEntityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    CreateRegressionRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegressionRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+        };
+    };
+    GetRegressionRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+        };
+    };
     ListReviewTasks: {
         parameters: {
             query?: {
@@ -2581,6 +10106,114 @@ export interface operations {
             };
         };
     };
+    TestRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListRuleKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleKindResponse"][];
+                };
+            };
+        };
+    };
+    CreateSandboxRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SandboxRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSandboxRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDto"];
+                };
+            };
+        };
+    };
     GetTenantSettings: {
         parameters: {
             query?: never;
@@ -2630,6 +10263,360 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListStepKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepKindResponse"][];
+                };
+            };
+        };
+    };
+    ListSupplierGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"][];
+                };
+            };
+        };
+    };
+    CreateSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSupplierGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListGroupLayouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                groupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"][];
+                };
+            };
+        };
+    };
+    GetSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
+                };
+            };
+        };
+    };
+    DeleteSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UpdateSupplierGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchSupplierGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierGroupResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+        };
+    };
+    RetireSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+        };
+    };
+    CreateSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLayoutVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutVersionResponse"];
+                };
+            };
+        };
+    };
+    ActivateSupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ActivateLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivateLayoutResponse"];
+                };
+            };
+        };
+    };
+    ReplaySupplierLayoutVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ReplayLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayReport"];
+                };
+            };
+        };
+    };
+    GetLayoutMatchingDocuments: {
+        parameters: {
+            query?: {
+                holds?: boolean;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                layoutId: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchingDocumentDto"][];
                 };
             };
         };
@@ -2687,6 +10674,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SupplierResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ImportSuppliers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataRunDto"];
                 };
             };
             /** @description Bad Request */
@@ -2820,6 +10840,314 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierEntityAttributesResponse"][];
+                };
+            };
+        };
+    };
+    PutSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entityId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierEntityAttributesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierEntityAttributesResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteSupplierEntityAttributes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entityId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ListSupplierLayouts: {
+        parameters: {
+            query?: {
+                type?: string;
+            };
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"][];
+                };
+            };
+        };
+    };
+    CreateSupplierLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierLayoutResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ResolveSupplierLayout: {
+        parameters: {
+            query?: {
+                documentId?: string;
+            };
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutResolveResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListSourceRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"][];
+                };
+            };
+        };
+    };
+    CreateSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+        };
+    };
+    ReplaceSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRuleResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteSourceRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleId: string;
+                supplierId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

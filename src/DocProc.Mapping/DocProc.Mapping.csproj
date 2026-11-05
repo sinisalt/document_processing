@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Mapping engine over the positioned text layer (docs/11 §8, §12.4): the column-table strategy of the review table tool and, from P4, supplier layouts. Pure, no I/O.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DocProc.Domain/DocProc.Domain.csproj" />
+    <ProjectReference Include="../DocProc.Definitions/DocProc.Definitions.csproj" />
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DocProc.Mapping.Tests" />
+  </ItemGroup>
+</Project>

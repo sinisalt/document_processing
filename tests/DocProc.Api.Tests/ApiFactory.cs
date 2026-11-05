@@ -9,6 +9,7 @@ using DocProc.Application.Pipeline;
 using DocProc.Application.Security;
 using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
+using DocProc.Infrastructure.Outputs;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -33,7 +34,7 @@ namespace DocProc.Api.Tests;
 /// Keycloak emits, and the entity model is created in SQLite (SQL Server-only features such as row-level security
 /// and temporal tables are exercised by the integration tests instead).
 /// </summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+public class ApiFactory : WebApplicationFactory<Program>
 {
     public const string Issuer = "https://test-issuer.local/realms/docproc";
     public const string Audience = "docproc-api";
@@ -47,6 +48,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
+
+    /// <summary>
+    /// Set before the host starts: the request contexts run under a retrying execution strategy, as on SQL Server, and
+    /// <see cref="SaveFailure"/> can fail a save with a transient error the strategy retries.
+    /// </summary>
+    public bool RetryingStrategy { get; init; }
+
+    public TransientSaveFailure SaveFailure { get; } = new();
 
     /// <summary>Replaces the pipeline queue: the API only enqueues, and tests assert on what it enqueued.</summary>
     public CapturingPipelineQueue Queue { get; } = new();
@@ -67,6 +76,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Authentication:Oidc:Audience", Audience);
         builder.UseSetting("Blobs:RootPath", BlobRoot);
         builder.UseSetting("Secrets:Path", SecretRoot);
+        // The publish sweeper's own loop is off: it would wake whenever a test moves the fake clock and queue publish
+        // messages for seeded settled documents. Tests that need a sweep run one (PublishSweeperHostedService.SweepOnceAsync).
+        builder.UseSetting("Pipeline:PublishSweepInterval", "00:00:00");
+        // The channel pollers likewise (docs/11 §7.1): a test that moves the clock must not have them read its channels.
+        builder.UseSetting("Intake:PollersEnabled", "false");
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
@@ -77,16 +91,39 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
             _connection.Open();
             services.AddSingleton<TimeProvider>(Clock);
-            services.AddDbContext<DocProcDbContext>(o => o.UseSqlite(_connection));
+            services.AddDbContext<DocProcDbContext>(o =>
+            {
+                if (RetryingStrategy)
+                {
+                    // As SQL Server's EnableRetryOnFailure: a strategy that retries refuses transactions it does not run.
+                    o.UseSqlite(_connection, sqlite => sqlite.ExecutionStrategy(dependencies => new TestRetryingExecutionStrategy(dependencies)));
+                    o.AddInterceptors(SaveFailure);
+                }
+                else
+                {
+                    o.UseSqlite(_connection);
+                }
+            });
             services.AddSingleton<ISystemDbContextFactory>(new InMemorySqliteDbContextFactory(_connection));
             services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
+            // As the persistence registration does: feature switches and the type catalogue with its resolver.
+            services.AddScoped<DocProc.Application.Configuration.ITenantFeatures, DocProc.Infrastructure.Configuration.EfTenantFeatures>();
+            services.AddDocProcTypeCatalogue();
+            services.AddDocProcOutputs();
             services.RemoveAll<IPipelineQueue>();
             services.AddSingleton<IPipelineQueue>(Queue);
+
+            ConfigureServices(services);
 
             using var db = new InMemorySqliteDbContextFactory(_connection).CreatePlatformScoped();
             db.Database.EnsureCreated();
             Seed(db);
         });
+    }
+
+    /// <summary>Services a derived factory adds to the host (an OCR provider, <see cref="OcrApiFactory"/>).</summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
     }
 
     protected override void Dispose(bool disposing)
@@ -146,6 +183,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         db.Tenants.Add(new Tenant { Id = TenantA, Name = "Tenant A", Slug = "tenant-a", LegalName = "Gasthaus zur Post GmbH", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
         db.Tenants.Add(new Tenant { Id = TenantB, Name = "Tenant B", Slug = "tenant-b", LegalName = "Pizzeria Napoli d.o.o.", DefaultCurrency = "EUR", CountryCode = "HR", TimeZone = "Europe/Zagreb", CreatedAt = now, UpdatedAt = now });
         db.Tenants.Add(new Tenant { Id = SuspendedTenant, Name = "Suspended", Slug = "suspended", LegalName = "Closed Kitchen Ltd", Status = TenantStatus.Suspended, DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
+        // The platform output templates, as the migration and the start-up seeder put them in place.
+        DocProc.Infrastructure.Outputs.OutputTemplates.AddMissingAsync(db, now).GetAwaiter().GetResult();
         db.SaveChanges();
     }
 

@@ -9,7 +9,14 @@ using Microsoft.EntityFrameworkCore;
 namespace DocProc.Api.Documents;
 
 /// <summary>A document with the joined values the summary needs; what the list and detail queries project to.</summary>
-public sealed record DocumentRow(Document Document, string? TenantName, string? SupplierName, int BlockingFlagCount, int WarningFlagCount);
+/// <param name="Document">The row.</param>
+/// <param name="TenantName">The owning tenant's name.</param>
+/// <param name="SupplierName">The matched supplier's name.</param>
+/// <param name="BlockingFlagCount">Open blocking flags.</param>
+/// <param name="WarningFlagCount">Open warnings.</param>
+/// <param name="ReviewPriority">The open review task's priority, null without one.</param>
+/// <param name="ReviewDueAt">The open review task's due time.</param>
+public sealed record DocumentRow(Document Document, string? TenantName, string? SupplierName, int BlockingFlagCount, int WarningFlagCount, ReviewPriority? ReviewPriority, DateTimeOffset? ReviewDueAt);
 
 /// <summary>Projections shared by the document, ingestion and review-task endpoints.</summary>
 public static class DocumentQueries
@@ -28,46 +35,81 @@ public static class DocumentQueries
             t != null ? t.Name : null,
             d.Supplier != null ? d.Supplier.Name : null,
             d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
-            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning));
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
+            // The most urgent open task's priority and the earliest due time of the open tasks: what ?sort=reviewDue
+            // orders by, so a document with a review task and an integration issue shows (and sorts by) the pressing one.
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .OrderBy(t => t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2)
+                .Select(t => (ReviewPriority?)t.Priority)
+                .FirstOrDefault(),
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => t.SlaDueAt).Min());
 
-    public static DocumentSummary ToSummary(DocumentRow row)
-    {
-        var d = row.Document;
-        return new DocumentSummary(
+    /// <summary>
+    /// The summaries of <paramref name="documents"/>, read column by column: a list (the inbox, the review queue) reads
+    /// only what <see cref="DocumentSummary"/> shows, never the canonical tree, the applied configuration or the page
+    /// keys (a 400-row price list's tree is about 1 MB, and the list would read it for every row). Same joins and the
+    /// same review priority and due time as <see cref="Rows"/>; one statement.
+    /// </summary>
+    public static IQueryable<DocumentSummary> Summaries(DocProcDbContext db, IQueryable<Document> documents) =>
+        from d in documents
+        join t in db.Tenants on d.TenantId equals t.Id into tenants
+        from t in tenants.DefaultIfEmpty()
+        select new DocumentSummary(
             d.Id,
             d.TenantId,
-            row.TenantName,
+            t != null ? t.Name : null,
             d.Status,
             d.Type,
             d.TypeConfidence,
             d.SupplierId,
-            row.SupplierName,
+            d.Supplier != null ? d.Supplier.Name : null,
             d.DocumentNumber,
             d.IssueDate,
             d.Currency,
             d.TotalGross,
             d.ExtractionMethod,
             d.PageCount,
-            row.BlockingFlagCount,
-            row.WarningFlagCount,
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
             d.CreatedAt,
             d.UpdatedAt,
-            d.ApprovedAt);
-    }
+            d.ApprovedAt,
+            d.ValidFrom,
+            d.ValidUntil,
+            d.LineCount,
+            d.ReviewTasks.Where(r => r.Status == ReviewTaskStatus.Open || r.Status == ReviewTaskStatus.InProgress)
+                .OrderBy(r => r.Priority == ReviewPriority.Urgent ? 0 : r.Priority == ReviewPriority.High ? 1 : 2)
+                .Select(r => (ReviewPriority?)r.Priority)
+                .FirstOrDefault(),
+            d.ReviewTasks.Where(r => r.Status == ReviewTaskStatus.Open || r.Status == ReviewTaskStatus.InProgress).Select(r => r.SlaDueAt).Min())
+        {
+            SupersededBy = d.SupersededByDocumentId,
+        };
 
-    /// <summary>Loads one document with everything the detail needs; tracked when the caller is going to modify it.</summary>
-    public static Task<DocumentRow?> FindForDetailAsync(DocProcDbContext db, Guid id, bool track, CancellationToken ct)
+    /// <summary>
+    /// Loads one document with everything the detail needs; tracked when the caller is going to modify it. The row is
+    /// read without its canonical tree and applied configuration, which are streamed in after it
+    /// (<see cref="DocumentJsonColumns"/>): a 400-row price list's tree is about 1 MB, which SqlClient reads
+    /// asynchronously inside a buffered row in seconds.
+    /// </summary>
+    public static async Task<DocumentRow?> FindForDetailAsync(DocProcDbContext db, Guid id, bool track, CancellationToken ct)
     {
-        var documents = track ? db.Documents : db.Documents.AsNoTracking();
-        return Rows(db, documents
+        var documents = DocumentJsonColumns.WithoutTrees(db);
+        var row = await Rows(db, (track ? documents : documents.AsNoTracking())
                 .Where(d => d.Id == id)
                 .Include(d => d.Flags)
                 .Include(d => d.IngestionItem!)
                 .ThenInclude(i => i.Ingestion))
             .SingleOrDefaultAsync(ct);
+        if (row is not null)
+        {
+            await DocumentJsonColumns.LoadTreesAsync(db, row.Document, ct);
+        }
+
+        return row;
     }
 
-    public static DocumentDetail ToDetail(DocumentRow row)
+    public static DocumentDetail ToDetail(DocumentRow row, DocumentDefinitionRef? definition = null)
     {
         var d = row.Document;
         var item = d.IngestionItem;
@@ -106,7 +148,29 @@ public static class DocumentQueries
                 .ToList(),
             new DocumentCostsDto(d.Costs.LlmInputTokens, d.Costs.LlmOutputTokens, d.Costs.LlmCacheReadTokens, d.Costs.OcrPages, d.Costs.EstimatedUsd, d.Costs.LlmProvider, d.Costs.LlmModel, d.Costs.KeyOwner),
             ingestion,
-            Enumerable.Range(1, d.PageImageKeys.Count).Select(n => PageImageUrl(d.Id, n)).ToList());
+            Enumerable.Range(1, d.PageImageKeys.Count).Select(n => PageImageUrl(d.Id, n)).ToList(),
+            d.ValidFrom,
+            d.ValidUntil,
+            d.LineCount,
+            definition is null ? null : definition.Name.GetValueOrDefault("en") ?? definition.Name.Values.FirstOrDefault(),
+            definition?.Version,
+            definition,
+            ParseJson(d.AppliedConfigJson))
+        {
+            SupplierMatchMethod = d.SupplierMatchMethod,
+            SupplierMatchConfidence = d.SupplierMatchConfidence,
+            SupplierSourceRuleId = d.SupplierSourceRuleId,
+            ReceivingEntityId = d.ReceivingEntityId,
+            JoinedIntoDocumentId = d.JoinedIntoDocumentId,
+            TypeSource = d.TypeSource,
+            SupplierLayoutVersionId = d.SupplierLayoutVersionId,
+            PendingLayoutVersionId = d.PendingLayoutVersionId,
+            IdentificationRuleVersionId = d.IdentificationRuleVersionId,
+            PipelineHash = d.PipelineHash,
+            SupersededByDocumentId = d.SupersededByDocumentId,
+            RevisionOfDocumentId = d.RevisionOfDocumentId,
+            RevisionResolution = d.RevisionResolution,
+        };
     }
 
     /// <summary>What a flag without parameters (or one stored before they existed) sends: <c>{}</c>, never null.</summary>

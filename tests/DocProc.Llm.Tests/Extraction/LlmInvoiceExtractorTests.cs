@@ -25,8 +25,8 @@ public class LlmInvoiceExtractorTests
 
         extractor.Method.ShouldBe(ExtractionMethod.Llm);
         extractor.CanHandle(Inputs.Extraction()).ShouldBeTrue();
-        extractor.CanHandle(Inputs.Extraction(DocumentType.CreditNote)).ShouldBeTrue();
-        extractor.CanHandle(Inputs.Extraction(DocumentType.PurchaseOrder)).ShouldBeFalse();
+        extractor.CanHandle(Inputs.Extraction(DocumentTypeKey.CreditNote)).ShouldBeTrue();
+        extractor.CanHandle(Inputs.Extraction(DocumentTypeKey.PurchaseOrder)).ShouldBeFalse();
         extractor.CanHandle(Inputs.Extraction(pdf: false, textLayer: new TextLayerBuilder().Page(1).Build())).ShouldBeFalse();
         extractor.CanHandle(Inputs.Extraction(pdf: false, images: [Inputs.PngBytes], textLayer: new TextLayerBuilder().Page(1).Build())).ShouldBeTrue();
     }
@@ -36,7 +36,7 @@ public class LlmInvoiceExtractorTests
     {
         var gateway = new FakeGateway();
 
-        var outcome = await Extractor(gateway).ExtractAsync(Inputs.Extraction(DocumentType.DeliveryNote), CancellationToken.None);
+        var outcome = await Extractor(gateway).ExtractAsync(Inputs.Extraction(DocumentTypeKey.DeliveryNote), CancellationToken.None);
 
         outcome.ShouldBeNull();
         gateway.Requests.ShouldBeEmpty();

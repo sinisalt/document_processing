@@ -8,10 +8,16 @@ public enum PipelineWorkKind
 {
     Ingestion,
     Document,
+
+    /// <summary>A delivery: <see cref="PipelineWorkKey.Id"/> is the destination, <see cref="PipelineWorkKey.Scope"/> the document.</summary>
+    Delivery,
 }
 
-/// <summary>The unit of serialisation of the runner: one ingestion or one document (docs/03 "Idempotency and retries").</summary>
-public readonly record struct PipelineWorkKey(PipelineWorkKind Kind, Guid Id);
+/// <summary>
+/// The unit of serialisation of the runner: one ingestion or one document (docs/03 "Idempotency and retries"), or one
+/// destination and document for deliveries (docs/11 §13.6 "Ordering": <c>destination:document</c>).
+/// </summary>
+public readonly record struct PipelineWorkKey(PipelineWorkKind Kind, Guid Id, Guid Scope = default);
 
 /// <summary>One unit of work the runner consumes: an ingestion to unpack or a document stage to run.</summary>
 public abstract record PipelineWorkItem(Guid TenantId)
@@ -28,6 +34,12 @@ public sealed record IngestionWorkItem(ProcessIngestion Message) : PipelineWorkI
 public sealed record DocumentWorkItem(ProcessDocument Message) : PipelineWorkItem(Message.TenantId)
 {
     public override PipelineWorkKey Key => new(PipelineWorkKind.Document, Message.DocumentId);
+}
+
+/// <summary>One attempt at a delivery; deliveries of one document to one destination run one after the other.</summary>
+public sealed record DeliveryWorkItem(ProcessDelivery Message) : PipelineWorkItem(Message.TenantId)
+{
+    public override PipelineWorkKey Key => new(PipelineWorkKind.Delivery, Message.DestinationId, Message.DocumentId);
 }
 
 /// <summary>The consumer side of the queue. The runner acknowledges every item it took, whatever the outcome.</summary>
@@ -59,6 +71,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
     private readonly Lock _gate = new();
     private int _inFlight;
     private int _delayed;
+    private long _acknowledged;
     private bool _disposed;
     private TaskCompletionSource _idle = Completed();
 
@@ -79,6 +92,12 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
             }
         }
     }
+
+    /// <summary>
+    /// How many items the runner has acknowledged since the queue was created. Tests watch it to tell a pipeline that is
+    /// slow (a loaded machine) from one that is stuck (no item finishes).
+    /// </summary>
+    public long Acknowledged => Interlocked.Read(ref _acknowledged);
 
     /// <summary>Items still waiting on a delay (a subset of <see cref="InFlight"/>); tests advance the clock while this is positive.</summary>
     public int Delayed
@@ -122,6 +141,21 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
         return Task.CompletedTask;
     }
 
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (delay <= TimeSpan.Zero)
+        {
+            Write(new DeliveryWorkItem(message));
+            return Task.CompletedTask;
+        }
+
+        TrackDelayed();
+        _ = WriteLaterAsync(new DeliveryWorkItem(message), delay, cancellationToken);
+        return Task.CompletedTask;
+    }
+
     /// <summary>Ingestion retry with backoff; not part of <see cref="IPipelineQueue"/>, which only schedules document steps.</summary>
     public Task EnqueueAsync(ProcessIngestion message, TimeSpan delay, CancellationToken cancellationToken)
     {
@@ -143,6 +177,7 @@ public sealed class InProcessPipelineQueue : IPipelineQueue, IPipelineQueueReade
     public void Acknowledge(PipelineWorkItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        Interlocked.Increment(ref _acknowledged);
         Untrack();
     }
 

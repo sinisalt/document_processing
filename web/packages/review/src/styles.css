@@ -1,0 +1,5 @@
+/* The apps import this file instead of @docproc/app-shell/styles.css: the shell's styles (the tokens and Tailwind layers
+   of @docproc/ui and the shell's own sources) plus this package's component sources, which Tailwind would otherwise
+   not scan (they live outside the app's tree), so the review form and the type editor keep their classes. */
+@import "@docproc/app-shell/styles.css";
+@source "./";

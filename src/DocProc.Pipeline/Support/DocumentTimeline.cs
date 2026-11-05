@@ -16,8 +16,8 @@ internal sealed class DocumentTimeline(DocProcDbContext db, TimeProvider clock)
 
     public DateTimeOffset Now => clock.GetUtcNow();
 
-    /// <summary>Records an event without changing the status.</summary>
-    public DocumentEvent Record(Document document, string eventType, DocumentStatus? from, DocumentStatus? to, object? details = null)
+    /// <summary>Records an event without changing the status, at <paramref name="at"/> (default: now).</summary>
+    public DocumentEvent Record(Document document, string eventType, DocumentStatus? from, DocumentStatus? to, object? details = null, DateTimeOffset? at = null)
     {
         var entry = new DocumentEvent
         {
@@ -28,23 +28,28 @@ internal sealed class DocumentTimeline(DocProcDbContext db, TimeProvider clock)
             ToStatus = to,
             Actor = Actor,
             DetailsJson = details is null ? null : PipelineJson.Serialize(details),
-            At = Now,
+            At = at ?? Now,
         };
         db.DocumentEvents.Add(entry);
         return entry;
     }
 
-    /// <summary>Moves the document to <paramref name="to"/> (validated against the state machine) and records the transition.</summary>
-    public void Transition(Document document, DocumentStatus to, object? details = null, string eventType = DocumentEventTypes.StageCompleted)
+    /// <summary>
+    /// Moves the document to <paramref name="to"/> (validated against the state machine) and records the transition,
+    /// at <paramref name="at"/> (default: now), which a caller that stamps more than the transition with one instant
+    /// passes in.
+    /// </summary>
+    public void Transition(Document document, DocumentStatus to, object? details = null, string eventType = DocumentEventTypes.StageCompleted, DateTimeOffset? at = null)
     {
         var from = document.Status;
+        var when = at ?? Now;
         document.Status = DocumentStateMachine.Transition(from, to);
-        document.UpdatedAt = Now;
+        document.UpdatedAt = when;
         if (to != DocumentStatus.Failed)
         {
             document.FailureReason = null;
         }
 
-        Record(document, eventType, from, to, details);
+        Record(document, eventType, from, to, details, when);
     }
 }

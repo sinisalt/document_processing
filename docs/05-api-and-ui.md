@@ -1,5 +1,9 @@
 # API and UI
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 ## Principles
 
 - **API first**: the React apps are just clients of the public API. Nothing is reachable from
@@ -22,6 +26,7 @@
 | TenantAdmin | one tenant | manage members, suppliers, channels of the tenant, review policy, API keys, webhooks |
 | Reviewer | one tenant | review/correct/approve documents |
 | Viewer | one tenant | read documents and exports |
+| MappingAuthor (grant) | one tenant, besides a role that may review (Reviewer, TenantAdmin) | activate and retire supplier layouts; a layout it saves from review is Active at once (docs/11 §16, decision 2); alone, or with Viewer, it gives no access |
 
 Authentication: OpenID Connect against an external identity provider (Entra ID / Keycloak /
 Auth0, decision deferred to the roadmap). Machine clients use per-tenant API keys scoped to
@@ -45,8 +50,12 @@ Auth0, decision deferred to the roadmap). Machine clients use per-tenant API key
 /documents/{id}/pages/{n}.png    page images for the viewer
 /documents/{id}/original         raw file
 /documents/{id}/text             positioned text layer (for the highlight overlay)
+/documents/{id}/pages/{n}/words  words of a page with boxes; ?bbox= gives the selection's text and its readings
+/documents/{id}/regions:read | regions:table    region OCR; the table tool (propose, read every page, write)
+/documents/{id}/table-reports    stored table reports (the page strip)
+/documents/{id}/parts            the documents of the same attachment (the join dialog)
 /documents/{id}/events           timeline
-/documents/{id}:approve | :reject | :reprocess | :reclassify | :split
+/documents/{id}:approve | :reject | :reprocess | :set-type | :assign-supplier | :create-supplier | :split | :join
 PATCH /documents/{id}/fields     corrections (JSON Patch over the canonical model)
 
 /review-tasks                    queue, claim, release
@@ -74,7 +83,9 @@ input; every error is a problem-details body, field errors a validation problem.
 **Errors.** A validation problem's `errors` (`{ field: [message] }`) is English. Where the check has a stable
 code, the problem also carries `errorCodes`: `{ field: { code, params } }` with invariant string parameters
 (`requiredMaxLength`/`maxLength` `{maxLength}`, `notBlank`, `currencyCode`, `countryCode`, `timeZone`, `slug`
-`{maxLength}`, `range` `{min, max}`, `positive`, `httpUrl` `{maxLength}`; `EndpointSupport.ValidationCodes`). The apps
+`{maxLength}`, `range` `{min, max}`, `positive`, `httpUrl` `{maxLength}`, `maxItems` `{maxItems}`, `iban` and
+`emailDomain` `{value}`, the refused entry as sent; `EndpointSupport.ValidationCodes`). The apps format numeric
+parameters for the UI language, except `value`, which they show as sent. The apps
 show `common:apiErrors.<code>` in the UI language and the English message for a field without a code or a code they
 do not know. Flags carry their own `params` the same way (docs/02 §5 "Flag parameters").
 
@@ -83,12 +94,13 @@ do not know. Flags carry their own `params` the same way (docs/02 §5 "Flag para
 | `GET /tenants`, `GET /tenants/{id}` | Platform (Operators may read) | `?status=&q=` filters; ordered by slug. |
 | `POST /tenants`, `PATCH /tenants/{id}`, `POST /tenants/{id}:suspend` / `:activate` | PlatformAdmin | Creation also adds the tenant's default `ApiUpload` and `PortalUpload` channels. Runs on a platform-scoped context, so no `X-Tenant-Id` is needed. A slug taken between the existence check and the insert (concurrent creates) is the same 409 as one found by the check. |
 | `GET /members`; `POST /members`, `PATCH /members/{userId}`, `DELETE /members/{userId}` | Read; TenantAdmin | The last TenantAdmin can be neither demoted nor removed (409). A `userId` may not contain `/`, whitespace or control characters (it must survive the round trip through the route); a duplicate add racing the check is a 409, not a 500. |
-| `GET /channels`; `POST`, `PATCH /channels/{id}`, `DELETE /channels/{id}` | Read; TenantAdmin | `config` is a free JSON object per channel type, at most 16 KB serialised. The credential is the write-only `secret` field: it goes to `ISecretStore` under the server-generated reference `tenant/{tenantId}/channel/{channelId}` (a client never names a reference, so it cannot point a channel at another tenant's or the platform's key); `PATCH` with a value rotates it, with an empty string removes it; `hasSecret` is all a client sees, and delete removes the secret with the channel. The reference the API writes or deletes through is always recomputed from the row's tenant and channel id, never read from the row: a row written before references were server-generated may still carry a client-chosen one (`platform/{configId}`, another tenant's), and that legacy reference is logged, dropped from the row on the next rotate or clear, and never touched in the store. A stored config that is not valid JSON reads as `{}` (logged) instead of failing the list. Delete is refused once ingestions reference the channel (409). |
-| `GET /suppliers`, `GET /suppliers/{id}`, `GET /suppliers/{id}/activity`; `POST`, `PATCH`, `DELETE` | Read; TenantAdmin | `q` matches the folded name (`Identifiers.NormalizeName`, the same function stage 5 matches with) or the exact VAT id. A name is refused when it folds to more than 300 characters (`ß` becomes `SS`), the column width. Delete is refused while documents reference the supplier (409); the activity view is the twenty most recent documents. |
+| `GET /channels`; `POST`, `PATCH /channels/{id}`, `DELETE /channels/{id}` | Read; TenantAdmin | `config` is a free JSON object per channel type, at most 16 KB serialised. The credential is the write-only `secret` field: it goes to `ISecretStore` under the server-generated reference `tenant/{tenantId}/channel/{channelId}` (a client never names a reference, so it cannot point a channel at another tenant's or the platform's key); `PATCH` with a value rotates it, with an empty string removes it; `hasSecret` is all a client sees, and delete removes the secret with the channel. The reference the API writes or deletes through is always recomputed from the row's tenant and channel id, never read from the row: a row written before references were server-generated may still carry a client-chosen one (`platform/{configId}`, another tenant's), and that legacy reference is logged, dropped from the row on the next rotate or clear, and never touched in the store. A stored config that is not valid JSON reads as `{}` (logged) instead of failing the list. Delete is refused once ingestions reference the channel, or an output binding is scoped to it (409 "Channel in use"; change or delete the binding first: the foreign key is `NO ACTION`, and clearing the scope would widen the binding to every document of the tenant). |
+| `GET /suppliers`, `GET /suppliers/{id}`, `GET /suppliers/{id}/activity`; `POST`, `PATCH`, `DELETE` | Read; TenantAdmin | `q` matches the folded name (`Identifiers.NormalizeName`, the same function stage 5 matches with) or the exact VAT id. A name is refused when it folds to more than 300 characters (`ß` becomes `SS`), the column width. The lists are bounded, since every Match stage run of the tenant loads every supplier: at most 20 `ibans`, each an IBAN once spaces, dots and dashes are taken out (two letters, two check digits, 11 to 30 letters or digits; the check digits are not verified; `iban`), at most 20 `emailDomains`, each a domain name (`example.com`, no `@`; `emailDomain`), and at most 50 `aliases` of at most 300 characters (`maxItems`, `maxLength`), counted as stored (without repeats); `PATCH` checks the lists it is given, except one equal to the stored list once both are cleaned (same entries in the same order), which it leaves as it is. A supplier stored before these caps (P1) therefore keeps its longer lists, or entries the format checks now refuse, through an edit that sends them back unchanged (the portal sends every list with every save); the first write that changes a list must bring that whole list within the caps. A `POST` or `PATCH` body is at most 64 KB (`413`). Delete is refused while documents or extractor profiles (of any tenant) reference the supplier, or an output binding is scoped to it (409 "Supplier in use"; the foreign keys are `NO ACTION`, docs/09 "Globalization"; a binding is changed or deleted first, since clearing its scope would widen it to every document of the tenant); the activity view is the twenty most recent documents. |
 | `GET /settings`, `PUT /settings` | Read; TenantAdmin | Review policy (`autoApproveConfidenceThreshold` 0..1, `alwaysReviewSupplierIds` of this tenant, `retentionYears` 1..30, `shareExtractorProfiles`) plus the read-only tenant identity. |
 | `GET /llm-policy`, `PUT /llm-policy` | TenantAdmin | Every configuration id must be one of the tenant's own; platform configurations are resolved by the gateway, not chosen here. |
-| `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only (8 to 4096 characters, so `keyLast4` never shows most of it): it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. `models` names each stage once (two spellings of one stage are refused rather than merged). `endpoint` must be `https` to a public host: loopback, private, link-local and other reserved addresses and local names are refused with 400, and the worker checks the resolved address again at connect time (docs/08 "Endpoint restrictions"). Delete is refused while the policy references the configuration (409); otherwise it removes the row and then the key from the secret store. |
+| `GET /llm-providers`, `POST`, `POST /llm-providers/{id}:disable` / `:enable`, `DELETE` | TenantAdmin | `apiKey` is write-only (8 to 4096 characters, so `keyLast4` never shows most of it): it goes to `ISecretStore` under `tenant/{tenantId}/{configId}`; the row keeps the reference, `keyLast4` and a SHA-256 fingerprint. Responses carry `keyLast4` and `keyFingerprint` (the first 16 hex digits of the SHA-256 of the key's UTF-8 bytes), so a client that holds a key can tell whether it is the stored one (`docker/llm-setup.mjs` does) without the key ever being returned. `models` names each stage once (two spellings of one stage are refused rather than merged). `endpoint` must be `https` to a public host: loopback, private, link-local and other reserved addresses and local names are refused with 400, and the worker checks the resolved address again at connect time (docs/08 "Endpoint restrictions"). Delete is refused while the policy references the configuration (409); otherwise it removes the row and then the key from the secret store. |
 | `GET /llm-usage?from=&to=&groupBy=day\|stage\|model` | Read | Calls, tokens, errors and estimated cost; inclusive UTC dates, last 30 days by default. |
+| `GET /llm-budgets`, `PUT /llm-budgets` | TenantAdmin | The tenant's LLM budgets (docs/11 §16, P5): `{budgets: [{period: day\|month\|document, limitUsd, stage?}]}`; `PUT` replaces the list (an empty list removes every budget), at most 12, one per period and stage, `limitUsd` 0 to 1,000,000 with at most 4 decimals (0 keeps the stage from calling the LLM at all), `stage` one of `Classify`, `Split`, `Extract`, `Synthesize` or left out for every stage. `GET` adds `spentUsd` and `periodStart` for the current UTC day or month (none for a document budget). Spend is the sum of the usage rows; see "Configurable steps and LLM budgets" below for what a refused call does. |
 | `GET /llm/providers`, `POST`, `POST /llm/providers/{id}:disable` / `:enable` | PlatformAdmin | Platform-scope configurations; the key goes to `platform/{configId}`. Their `endpoint` may be plain `http` or a private address (self-hosted models). `:disable` is the kill switch. |
 | `GET /llm/usage?from=&to=&groupBy=tenant\|model\|day` | PlatformAdmin | Across tenants, for invoicing platform-key spend. |
 
@@ -110,6 +122,486 @@ request; the 30-second TTL is the bound for every other node.
 
 Still to come on these resources: `:test` and `:rotate` for providers (credential validation
 records `validatedAt` / `lastError`), audit logging of who changed what, idempotency keys.
+
+### Output endpoints as built (docs/11 §13, P3 parts A and B)
+
+Every route below needs the tenant's `outputs` switch (`403 Feature not enabled` naming `features.outputs`
+otherwise; the lookup tables take `outputs` or `configurableTypes`). `IntegrationAdmin` is a policy that TenantAdmin
+and SuperAdmin satisfy (docs/11 §16). Since part B the publish stage fans every approval, auto-approval and rejection
+out to the bindings and the worker delivers them (docs/09 "Outputs"); the routes below read and redeliver deliveries
+and serve the pull feeds. `:test` of a destination is not built yet.
+
+| Route | Policy | Notes |
+|---|---|---|
+| `GET /output-templates` | Read | The platform integration templates (`std.event`, `generic-ap-json`, docs/11 §13.9) with `copiedAs`, the tenant's mappings copied from each. |
+| `GET /output-mappings`, `GET /output-mappings/{key}` | Read | The tenant's mappings and the platform templates (`origin` `Platform`, read-only), each with its versions (`state` Draft, Published, Deprecated; `revision`; `hasTargetSchema`). A key names the tenant's mapping before a template of the same key. |
+| `POST /output-mappings` | IntegrationAdmin | `{from: {template}, key?, name?}` copies a template (origin `Copied`, `baseTemplate`), or `{key, name, description?, sourceTypeKey?, engine?, expression?, contentType?, targetSchema?}` creates the tenant's own (origin `Custom`); either way version 1 is a draft. `contentType` (default `application/json`) is `application/json`, `application/xml`, `text/xml`, `text/csv`, `text/plain`, `application/octet-stream` or an `application/<name>+json` or `+xml` type, with an optional `charset` (a token, quoted or not) and no other parameter (400 under `contentType` otherwise); it is stored lower-case, the charset without quotes. Keys follow the type key syntax and may not start with `std.`; 409 for a key the tenant has. |
+| `PATCH /output-mappings/{key}` | IntegrationAdmin | `name`, `description`, `sourceTypeKey` (empty clears it), `status` (Active, Archived). A platform template answers 404 (copy it). |
+| `POST /output-mappings/{key}/versions` | IntegrationAdmin | The next version as a draft, from the published one; 409 when a draft exists. |
+| `GET /output-mappings/{key}/versions/{v}` | Read | `expression`, `fileNameTemplate`, `targetSchema`, `referencedPaths` (published versions), `sampleDocumentIds`; the ETag is the revision. |
+| `PUT /output-mappings/{key}/versions/{v}` | IntegrationAdmin | Replaces a draft: `{engine (jsonata, passthrough), expression?, contentType?, fileNameTemplate?, targetSchema?, sampleDocumentIds?}`, `If-Match` required (428 without, 412 on a stale revision, 409 on a published version); `contentType` as on create. `fieldmap` and `liquid` are refused with the phase they come in. The expression is at most 256 K characters, the schema at most 256 K. |
+| `POST /output-mappings/{key}/versions/{v}:publish` | IntegrationAdmin | Optional `{changeNote}`. The renderer parses the expression and builds the target schema; a problem answers 422 `{errors: [{kind, code, message, position}], referencedPaths, tables}`. The paths the expression reads are stored (`ReferencedPathsJson`); the published version before it is deprecated. A draft whose `contentType` is not one of those `POST` allows (saved before that check) answers 400 under `contentType`. |
+| `POST /output-mappings:preview` | IntegrationAdmin | `{mappingVersionId}` or `{expression, engine?, targetSchema?}`, over `{documentId}` (the document's values view, `meta.event` from `event`, default `document.approved`) or `{sampleValues}`; `includeValues: true` returns the view too. Answers `{output, undefined, outputBytes, errors, schemaErrors: [{path, location, keyword, message}], referencedPaths, tables, elapsedMs, values}`; a render error is in `errors`, not an HTTP error (its message at most 2000 characters; an output nesting objects and arrays more than 48 levels deep is a `depthLimit` error, as is an expression nesting brackets or minus signs more than 1000 deep, and the named lookup tables may hold at most 100,000 entries or 16 M characters together). A document or version the tenant cannot see is 404. The request is at most 8 MB. A tenant (or a platform account) runs 2 previews at a time and queues 2 more (`Outputs:Preview:ConcurrentPreviewsPerTenant`, `QueuedPreviewsPerTenant`); beyond that 429. |
+| `GET /destinations`, `GET /destinations/{id}` | IntegrationAdmin | `{id, name, transport, config, hasSecret, secretSetAt, hasPreviousSecret, status, lastTestAt, lastTestResult}`; secrets never. |
+| `POST /destinations` | IntegrationAdmin | `{name, transport (http, blob, pull), config, secret?}`; `sftp` and `email` are refused (P6). `config` is checked per transport: http `{method (POST, PUT, PATCH), urlTemplate (absolute http(s), no user info, `{{...}}` placeholders in the path and query only: none before the first `/`, `?` or `#` after `://`), headers (at most 20, no credential or transport headers such as Authorization, Cookie, Idempotency-Key), timeoutSeconds 1..120, successCodes 200..299, auth {type: none, apiKeyHeader (headerName), basic (username), bearer, oauth2ClientCredentials (tokenUrl, clientId, scope), hmacSha256}, responseMapping, updateMethod (POST, PUT, PATCH; default PUT), updateUrlTemplate, multipart {parts: [{name, mapping: "self"} | {name, content: "original"}]}}`, the URL templates' placeholders `{{meta.documentId}}`, `{{meta.version}}`, `{{meta.event}}`, `{{meta.typeKey}}`, `{{meta.deliveryId}}` and `{{output.<path>}}` (a value of the rendered payload), other placeholders refused, and the headers the transport sets or that frame the request (`Host`, `Idempotency-Key`, every `X-DocProc-*`, `Content-Length`, `Content-Type`, `Content-Encoding`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `TE`, `Trailer`, `Upgrade`, `Expect`, `Proxy-Connection`, `Proxy-Authorization`) refused in `headers` and as `auth.headerName`; blob `{path (relative, no `.`/`..`), fileNameTemplate}`; pull `{retentionDays 1..365}`; unknown settings are refused. `responseMapping` is compiled in the renderer when the destination is saved (400 under `config.responseMapping` when it is not JSONata or nests brackets or minus signs more than 1000 deep; 503 when the renderer is unavailable). The secret (at most 8192 characters) has no CR, LF or NUL, and for `apiKeyHeader` and `bearer`, which send it in a header as it is, is printable ASCII (400 under `secret`); it goes to `ISecretStore` under `tenant/{tenantId}/destination/{id}/{1|2}`. 409 for a name the tenant has, and once the tenant has 25 destinations. |
+| `PATCH /destinations/{id}` | IntegrationAdmin | `name`, `status` (Active, Disabled), `config` (replaces it, checked as on create, the response mapping compiled too), `secret?`. A config that sends the stored secret somewhere else needs `secret` in the same request (400 under `secret` naming what changed otherwise): another origin (scheme, host, port) of `urlTemplate`, of the URL a re-approval sends to (`updateUrlTemplate`, else `urlTemplate`) or of `auth.tokenUrl`, another `auth.type` (also a move to `hmacSha256`, which would make the stored credential a signing key for the new host) or `auth.headerName`; not when the new auth is `none`, nor when an `hmacSha256` destination stays `hmacSha256` (a signing key is never sent). That secret replaces the stored one and the previous one is deleted. Without such a change `secret` rotates as `PUT /destinations/{id}/secret` does; an empty `secret` is refused. |
+| `PUT /destinations/{id}/secret` | IntegrationAdmin | `{secret}` (at most 8192 characters, checked for the destination's auth type as on create): the new secret goes to the other of the two slots, the replaced one stays as the previous secret until the next rotation (docs/11 §16). |
+| `DELETE /destinations/{id}` | IntegrationAdmin | 409 while a binding, a delivery or an external reference refers to it (disable it instead), or while a master-data source reads from it (the detail names the source); removes both secrets. |
+| `GET /output-bindings`, `GET /output-bindings/{id}` | Read | `{id, name, events, documentTypeKey, supplierId, channelId, condition, mappingKey, pinnedMappingVersion, destinationId, mode, exclusiveGroup, priority, onReapproval, updateMappingKey, enabled}`. |
+| `POST /output-bindings`, `PATCH /output-bindings/{id}` | IntegrationAdmin | Events `document.approved` and `document.rejected` (default approved); `document.updated` is refused (it is the event a re-approval under `onReapproval: Update` renders with, not a trigger) and so is `document.needs_review` (a later phase); the supplier, channel and destination must be the tenant's, the mapping the tenant's or a platform template, a pinned version published; `condition` is parsed by the renderer (at most 4000 characters); `onReapproval` Resend, Skip or Update (Update needs `updateMappingKey`); `mode` Batch is refused (P6). A tenant has at most 25 bindings (disabled ones count): `POST` answers 409 beyond. `PATCH` leaves absent fields; empty strings clear `documentTypeKey`, `condition`, `exclusiveGroup`, `updateMappingKey`, and `clearSupplier`, `clearChannel`, `clearPinnedVersion` the others. |
+| `DELETE /output-bindings/{id}` | IntegrationAdmin | 409 while deliveries refer to it (disable it instead). |
+| `GET /deliveries?documentId=&destinationId=&status=&cursor=&limit=` | Read | The tenant's deliveries, newest first (PageCursor, at most 200 a page): `{id, documentId, documentVersion, event (document.approved, document.rejected, document.updated), bindingId, bindingName, destinationId, destinationName, transport, mappingVersionId, mappingVersion, idempotencyKey, status (Pending, Sending, Delivered, Failed, DeadLettered, Skipped, Cancelled), attempts, nextAttemptAt, lastStatusCode, lastError, contentType, payloadSha256, feedSequence, redeliveryOfId, createdAt, deliveredAt}`. `Failed` waits for its next attempt; `DeadLettered` is not retried (permanent failure, 15 attempts or 72 h) and raised `DELIVERY_FAILED`; `Skipped` names why in `lastError` (a newer revision, `onReapproval: Skip`, a condition that is false: "not applicable"); `Cancelled` was replaced by a redelivery, found its destination disabled, or is a dead letter a newer revision for the same binding and destination superseded once that one was delivered ("Superseded by revision N, which was delivered."; `DELIVERY_FAILED` is resolved once no dead letter is left). |
+| `GET /deliveries/{id}` | Read | `{delivery, attempts: [{at, durationMs, statusCode, errorClass, responseExcerpt, step}], externalRef: {externalId, status, message, updatedAt}}`; the excerpt keeps 4 KB of the answer with the destination's secret and token masked. |
+| `GET /deliveries/{id}/payload` | Read | The payload snapshot as sent, with `X-Content-Type-Options: nosniff`; 404 for a delivery without one (skipped, or its render failed). JSON (`application/json`, `+json`), `text/csv` and `text/plain` are served inline under their type; anything else downloads (`Content-Disposition: attachment`): XML under its type, and a type that is not an allowed one (stored before mappings checked it) as `application/octet-stream`. |
+| `POST /deliveries/{id}:redeliver` | IntegrationAdmin | `{mode: "snapshot" (default) or "rerender", mappingVersion?}` (202): a new delivery of the same document version, binding and destination, key `<key>:r<n>`; `snapshot` sends the stored payload again, `rerender` renders the document again with the binding's mapping (the given published version, else the one the binding follows) and answers 422 when that fails, 503 when the renderer is unavailable. `rerender` needs the document as it was settled for the delivery: 409 "Document no longer settled" when it is not in the state the delivery's event comes from (Approved or AutoApproved for `document.approved` and `document.updated`, Rejected for `document.rejected`; reprocessed, back in review), 409 "Document changed" when it is no longer at the delivery's `documentVersion`; either way `snapshot` still sends the stored payload, and the new version is delivered by its own approval. A dead-lettered, failed or pending original is `Cancelled`; 409 while it is being sent, and 409 "Delivery changed" when another redelivery of the same delivery was saved at the same moment (a double click: both chose the same key). The document's timeline gets `document.redelivery_requested`. |
+| `GET /feeds/{destinationId}?after=&limit=` | DeliveriesRead | A pull destination's feed (docs/11 §13.3): `{items: [{sequence, deliveryId, documentId, documentVersion, event, idempotencyKey, contentType, payloadSha256, createdAt, acknowledged, payload (JSON) or payloadBase64}], next, hasMore}`, the entries after `after` in sequence order (at most 200 and 8 MB of payload a page); without `after`, from the oldest entry not acknowledged. `next` is the cursor for the next call (with nothing waiting, the last sequence handed out). Entries are numbered in the order they were committed, so a cursor never skips one committed later. 404 for a destination that is not a pull destination of the tenant. |
+| `POST /feeds/{destinationId}:ack` | DeliveriesRead | `{upTo?, deliveryIds?}` (at most 500 ids): every entry up to and including `upTo`, and the listed ones, become `Delivered` with a `document.delivery_succeeded` event; at most 1000 a call (`{acknowledged, more}`). Acknowledging again is not an error; a client that lost its cursor reads again from `after=0` and sees which entries it acknowledged. |
+| `POST /api-keys` | TenantAdmin | Takes the scope `deliveries:read` (the DeliveriesRead policy) next to `ingest` and `read`, and `destinationId`, a pull destination the key's feed access is restricted to (403 for another destination's feed). |
+| `GET /lookup-tables`, `GET /lookup-tables/{key}` | Read | The tenant's tables and the platform code lists (`platform: true`; `uom` is built in code); a table's entries `{from, to, validFrom, validTo, labels}`, ETag the revision. |
+| `POST /lookup-tables`, `PATCH /lookup-tables/{key}`, `DELETE /lookup-tables/{key}` | ConfigAdmin | `{key, description?, caseSensitive?}`. |
+| `PUT /lookup-tables/{key}/entries` | ConfigAdmin | `{entries: [...]}` replaces every entry (at most 50,000; `If-Match` the revision). CSV upload is not built yet. |
+
+`POST /suppliers` and `PATCH /suppliers/{id}` take `attributes` (docs/11 §6.4): at most 50 keys (a letter, then
+letters, digits, `_`, `-`, `.`, at most 64 characters), each a string of at most 400 characters, a number, a boolean or
+null; `PATCH` replaces them (an empty object clears them) and leaves them when the field is absent. Responses carry
+`attributes`. A reviewer's `:create-supplier` may not set them (403), as for e-mail domains and aliases.
+
+### Routing and supplier configuration endpoints as built (docs/11 §6.4, §6.5, §7, P4 part A)
+
+Every route below needs the tenant's `sourceRouting` switch (`403 Feature not enabled` naming `features.sourceRouting`
+otherwise), and so do the new members of the existing routes when they are sent (`groupId` and `settings` of a
+supplier, the defaults of a channel, a change of the tenant's attribute schema, layout default or forwarder domains).
+A tenant without the switch sees the API as before: the new response members are there and empty.
+
+| Route | Policy | Notes |
+|---|---|---|
+| `GET /suppliers/{id}/source-rules`, `GET /suppliers/{id}/source-rules/{ruleId}` | Read | The supplier's source rules, by priority: `{id, supplierId, channelId, recipient, sender, senderDomain, folderPrefix, subjectRegex, fileNameRegex, mode (Exclusive, DefaultWhenNoContentMatch), requireSenderAuth, priority, pinTypeKey, receivingEntityId, enabled, createdFromDocumentId, createdBy, createdAt, updatedAt, describe}`; `describe` is the rule in words ("from rechnungsversand@nordwind.example (DMARC required) → Nordwind, Exclusive, pins Invoice"). |
+| `POST /suppliers/{id}/source-rules`, `PUT /suppliers/{id}/source-rules/{ruleId}` | ConfigAdmin | The conditions, all of which must hold: at least one of `channelId`, `recipient`, `sender`, `senderDomain` (`conditions` otherwise); a `folderPrefix` needs its `channelId`; `subjectRegex` and `fileNameRegex` must compile for the non-backtracking engine (no lookarounds or backreferences; 100 ms per match). Stored normalised (addresses and domains lower-cased without display names, folder prefixes with `/` and a trailing `/`, no `.` or `..`). A `senderDomain` of a free-mail provider is refused. `requireSenderAuth` defaults to the supplier's `settings.requireSenderAuth`, else true (decision 1 of docs/11 §24); it applies to sender and sender-domain conditions. `mode` defaults to `Exclusive`, `priority` to 0 (-1000 to 1000); `pinTypeKey` is a type key. Two rules of a tenant with the same conditions, for whichever suppliers, are refused (`409 Rule exists`). At most 100 rules a supplier. Body at most 64 KB. |
+| `DELETE /suppliers/{id}/source-rules/{ruleId}` | ConfigAdmin | The documents it routed keep their supplier; their timeline names the rule. |
+| `POST /routing:test` | Read | `{channelId?, sender?, recipients?, mailbox?, folderPath?, subject?, fileName?, senderAuth?: {spf, dkim, dmarc, dkimDomains}}`: the tenant's enabled rules against that source, as ingest runs them. Answers `{supplierId, supplierName, method (sourceRule, channelDefault), ruleId, mode, confidence (0.99 Exclusive, 0.7 a default), pinTypeKey, pinTypeFrom (rule, channel, supplierSettings), receivingEntityId, ambiguous, ambiguousSupplierIds, senderVerified, unverifiedRuleIds, flags (SUPPLIER_SOURCE_UNVERIFIED, SUPPLIER_AMBIGUOUS), candidates: [{ruleId, supplierId, supplierName, matched, unverified, specificity, priority, mode, held, failed, describe}], explanation}`. Without `senderAuth` the sender counts as unauthenticated. |
+| `GET /supplier-groups`, `GET /supplier-groups/{id}` | Read | `{id, name, attributes, settings, supplierCount, createdAt, updatedAt}`. |
+| `POST /supplier-groups`, `PATCH /supplier-groups/{id}` | TenantAdmin | `{name, attributes?, settings?}`; the name is unique in the tenant (409); attributes and settings as a supplier's (members inherit them; their own win). |
+| `DELETE /supplier-groups/{id}` | TenantAdmin | 409 while suppliers belong to it. |
+| `GET /receiving-entities`, `GET /receiving-entities/{id}` | Read | The tenant's own companies or branches: `{id, code, name, vatIds, addresses, attributes, createdAt, updatedAt}`, by code. |
+| `POST /receiving-entities`, `PATCH /receiving-entities/{id}` | TenantAdmin | `{code (unique in the tenant, 409), name, vatIds? (at most 10, compacted), addresses? (object or array, 8 KB), attributes?}`. |
+| `DELETE /receiving-entities/{id}` | TenantAdmin | 409 while a document, a source rule, a channel default, supplier attributes or a supplier layout (`receivingEntityId`) name it. |
+| `GET /suppliers/{id}/entity-attributes` | Read | The supplier's attributes per receiving entity `[{receivingEntityId, receivingEntityCode, attributes, updatedAt}]`; `GET /suppliers/{id}` carries them as `entityAttributes`. |
+| `PUT /suppliers/{id}/entity-attributes/{entityId}`, `DELETE …` | TenantAdmin | `{attributes}` replaces the supplier's attributes in that entity; the values view merges them over the supplier's (the vendor number in company 1000). |
+
+- **Suppliers.** `POST`/`PATCH /suppliers` take `groupId` (on `PATCH` the empty id `00000000-…` leaves the group) and
+  `settings`, an object of the members to set: `defaultDocumentTypeKey`, `allowedTypeKeys` (at most 20 keys),
+  `fixDocumentType` (`whenSourceMatched`, the default, `always`, `never`: a single allowed type is pinned at ingest),
+  `locale {culture, dateOrder (DMY, MDY, YMD)}`, `review {mode (inherit, always), autoApproveMinConfidence (0 to 1)}`,
+  `defaults {currency}`, `layouts {required (true, false, inherit)}` (a JSON boolean, or the string `"inherit"`;
+  the strings `"true"` and `"false"` are read too, P4 part D), `requireSenderAuth`; unknown members are refused,
+  `PATCH` replaces the settings (`{}` clears them). Responses carry `groupId`, `settings` and, for one supplier,
+  `entityAttributes`. A reviewer's `:create-supplier` may set neither (403). With the tenant's attribute schema,
+  `attributes` are checked against it (`attributes.<key>` errors); its `required` applies to a supplier's own attributes.
+  Delete is also refused while a channel names the supplier as its default; its rules and entity attributes go with it.
+- **Settings.** `GET`/`PUT /settings` carry `supplierAttributeSchema` (a JSON Schema object of the typed subset:
+  `properties` of type `string`, `number`, `integer` or `boolean` with `title`, `description`, `enum`, `minLength`,
+  `maxLength`, `pattern` (non-backtracking), `minimum`, `maximum`; `required`; `additionalProperties`, default true;
+  `{}` removes it; anything else is refused), `layoutsRequiredByDefault` (the default of `layouts.required: inherit`)
+  and `trustedForwarderDomains` (at most 20, no free-mail provider such as `gmail.com`: 400). Each is optional on
+  `PUT`; changing one needs `sourceRouting`, sending back what `GET` gave does not.
+- **Channels.** With `sourceRouting` on, a `Mailbox` config is `{address, host?, port?, security? (ssl, starttls),
+  username?, folder? (INBOX), unwrapForwards? (true), trustedForwarderDomains? (no free-mail provider), authServId?}`
+  (the `authserv-id` of the mailbox's receiving server, whose `Authentication-Results` are then believed; on a
+  tenant `host` it is the only one believed, so without it no sender there counts as authenticated; on the platform
+  server it is believed next to `Mail:TrustedAuthServIds`, and with neither no sender counts) (without `host` the
+  platform's server, `Mail:ImapHost`, is read; a tenant `host` must be a public name or address and is reached over
+  TLS; the password is the write-only `secret`), a `WatchedFolder` config `{path? (relative to the tenant's drop-zone
+  root, no `..`), pattern? (*), stableSeconds?}`; unknown members are refused. Such a channel gets `sourceKey`, unique
+  across tenants. A watched folder's key names the tenant's own drop zone and is set on save (`409 Source in use` when
+  another channel of the tenant reads the folder). A mailbox's key (`imap:{platform or host:port}/{login}/{folder}`,
+  the port being the one connected to: 143 for `starttls` without one, else 993) is never set by `POST` or `PATCH`:
+  the poller claims it once the channel has logged in with its own secret, so no tenant can lock another tenant's
+  mailbox or learn whether another tenant reads one. `sourceKey` is therefore null after a create, kept by a save that
+  leaves the source as it is, and dropped by one that changes it. With the switch on, a mailbox another channel of the
+  same tenant reads or is configured to read is `409 Source in use`; other tenants' channels are never looked at.
+  `defaultSupplierId`, `defaultDocumentTypeKey` and `defaultReceivingEntityId` are set on `POST`/`PATCH` (the empty id
+  or type key clears one). Without the switch the config stays free, as before, and no channel is polled; a folder's
+  `sourceKey` is still computed from a config that reads as its connector's shape and kept when no other channel holds
+  it (null when one does, never a 409). The poller reads a channel only under its own key: one without a key, or whose
+  key no longer matches its config, claims the key of its config on its next poll (a mailbox only after a successful
+  login), and when another channel of any tenant holds it the channel is put in `Error` ("Another channel already
+  reads this mailbox or folder"). A mailbox channel whose login is refused gives up the key it held. Delete is refused
+  while source rules name the channel.
+- **Documents.** `DocumentDetail` carries `supplierMatchConfidence`, `supplierSourceRuleId` and `receivingEntityId`;
+  `supplierMatchMethod` adds `SourceRule`, `ChannelDefault` and `Hint`. `:reprocess` takes `fromStage: Match` (from
+  Classified). `:assign-supplier` takes `remember: {conditions: [sender, senderDomain, recipient, folder, channel],
+  mode?, pinType?, requireSenderAuth?}` (needs `sourceRouting`): a source rule from the document's own source, saved
+  with the assignment; a Reviewer's rule is saved disabled (a proposal a ConfigAdmin enables), a ConfigAdmin's enabled;
+  a fact the document's ingestion lacks is a 400 (`remember.conditions.<name>`), the same conditions already remembered
+  for the same supplier reuse that rule, for another supplier answer `409 Rule exists`. The assignment also resolves
+  `SUPPLIER_CONFLICT`, `SUPPLIER_AMBIGUOUS` and `SUPPLIER_SOURCE_UNVERIFIED`.
+
+### Layout endpoints as built (docs/11 §6.6, §8, P4 part B)
+
+Every route needs the tenant's `supplierLayouts` switch (403 without it; a tenant without it is never identified by a
+layout and its documents run as before). Reads and the rule test need `Read`, writing a layout by hand `ConfigAdmin`,
+activating and retiring the `MappingAuthor` policy (tenant admins, and members holding the `MappingAuthor` grant
+together with a role that may review; the grant alone, or with Viewer, gives nothing; P4 part C).
+
+- **Layouts.** `GET /suppliers/{id}/layouts?type=` and `GET /supplier-groups/{id}/layouts` list the layouts of a
+  supplier or a group with their versions (newest first): status, origin, the rule's hash and sentence (`describe`),
+  `reviewWarmup`, `warmupSeen` and the counters (`identified`, `applied`, `agreed`, `corrected`,
+  `consecutiveFailures`). `GET /supplier-layouts/{id}` is one layout, `GET /supplier-layouts/{id}/versions/{v}` one
+  version in full: `identification` (the rule, `schemas/identification-rule.v1.json`), `mapping` (the field mapping of
+  docs/11 §8.1), `coverage`, `replay` and `similarityProfile`.
+- **Writing a layout.** `POST /suppliers/{id}/layouts {layoutKey, name, documentTypeKey, identification, mapping,
+  priority?, itemKinds?, receivingEntityId?}` saves version 1 as a Candidate (the rule passes the checks at save, the
+  mapping reads; a key the supplier has for that type already is `409 Layout exists`).
+  `POST /supplier-layouts/{id}/versions/{v}:activate {reviewWarmup?, reprocessWaiting?}` runs the replay of docs/11 §8.3
+  (the identification test: `409` with `code: LAYOUT_OVERLAP` and the `documentIds`; the field replay: `409` with
+  `code: LAYOUT_REPLAY_FAILED` and the `fields` below the tenant's agreement), makes the version Active with the given
+  warm-up or the tenant's `layoutReviewWarmup` (5 by default; a `reviewWarmup` below the tenant's is a tenant admin's
+  to ask for, as the setting is: anyone else gets `403` with `code: LAYOUT_WARMUP_BELOW_TENANT` and `tenantWarmup`,
+  while the tenant's value or more is any MappingAuthor's), retires the version Active before, resolves the
+  version's notifications, and answers `{layout, replay, waiting, reprocessed}`: the documents waiting for it, sent back
+  from Classify with `reprocessWaiting: true`. `POST /supplier-layouts/{id}:retire` retires a layout. Learning from
+  review: see "Layout learning, review flows and governance endpoints as built".
+- **Testing.** `POST /identification-rules:test {rule, scope: {supplierId}|{groupId}|{tenant: true}, documentIds? (at
+  most 100) | lastN? (50, at most 200), typeKey?}` checks the rule (400 naming the place, `rule.all[1]`; a `regex`
+  past `PatternSize`'s bounds, such as `(.{0,15}e){30}q`, "repeats too much", docs/11 §8.5) and evaluates
+  it on the documents: per document `matched`, the `evidence` (identifier, page, `bBox`, words) and what `failed`, the
+  layout that identified it so far, and the `overlaps` with other layouts. Supplier values are the documents'
+  suppliers' master data; a tenant-scope rule may not name one.
+- **Resolving.** `GET /suppliers/{id}/layouts:resolve?documentId=` dry-runs the resolver: `resolution` (`Identified`,
+  `Ambiguous`, `NewLayout`, `NotManaged`, `Exempt`), `layoutManaged`, the selected, tied and pending candidates, every
+  candidate's result and, for a new design, the `suggestions`. `GET /documents/{id}/layout-suggestions` ranks the
+  supplier's layouts by similarity; both change nothing.
+- **Documents.** `DocumentDetail` carries `typeSource` (`Identification` for a type a layout decided, `Proposed` for a
+  `NEW_LAYOUT` proposal) and `supplierLayoutVersionId`; `appliedConfig.layout` holds the layout, version, evidence,
+  the rule that filled each field (`hits`) and the drift report. The flags `NEW_LAYOUT`, `LAYOUT_AMBIGUOUS`,
+  `MAPPING_DRIFT` and `LAYOUT_WARMUP` are in the catalogue.
+- **Settings.** `GET`/`PUT /settings` carry `layoutReviewWarmup` (0 to 100; `GET` gives the effective value, 5 by
+  default); changing it needs `supplierLayouts`. It is read when a version is activated, and (P4 part C) a change is
+  applied to the Active versions whose warm-up is still the tenant's old value; `layoutAgreementPercent` (50 to 100, 90
+  by default) is the field agreement the replay needs.
+
+### Layout learning, review flows and governance endpoints as built (docs/11 §8.3, §12.6 to §12.10, §15.3, §15.4, P4 part C)
+
+Every layout route needs `supplierLayouts` (403 without it). A tenant without the switch approves, assigns suppliers and
+reprocesses exactly as before.
+
+- **Learning.** `POST /documents/{id}:learn-layout {saveAs?: newLayout|newVersion, targetLayoutId?, layoutKey?, name?,
+  identification?, fields?, confirmNotRecognised?, pendingLayoutVersionId?, priority?, sourceRules?}` (`Review`) saves
+  the reviewed document as a layout: the rule the reviewer marked (else one is proposed: the type keyword of the page-1
+  title area plus the supplier's VAT id where it is printed; for a new version the target's rule) and the field
+  mapping `AnchorLearner` derives from the document's confirmed values (labels to the left or above, value patterns from
+  the printed shape, region fallbacks, constants for currencies and codes, a `column-table` from the rows' places or the
+  table tool's specification). The answer names the version and its status, the rule and its sentence
+  (`ruleProposed`), the learned fields and the ones left out with why, the `replay`, why it was not activated, the
+  pending `siblings`, the documents of the target the new rule no longer recognises, the `proposedSourceRules` of the
+  document's ingestion, and the source rule saved with `sourceRules` (as `:assign-supplier`'s `remember`). A
+  `MappingAuthor`'s save is activated when the condition of §8.3 holds (Active, warm-up from the tenant, 5 by default);
+  anyone else's stays a Candidate, the pending `NEW_LAYOUT` documents its rule holds on are attached to it
+  (`pendingLayoutVersionId`) and the `MappingAuthor`s are notified. Refusals: `400` (`RULE_INVALID`), `404`
+  (`TARGET_NOT_FOUND`, `PENDING_NOT_FOUND`), `409` (`LAYOUT_EXISTS`, `LAYOUT_NOT_RECOGNISED` with the `documentIds` of a
+  new version's target its rule no longer holds on, `NOT_LEARNABLE`), `422` (`RULE_DOES_NOT_HOLD` with what `failed`,
+  `NOTHING_LEARNED`). `pendingLayoutVersionId` confirms the document against a Candidate (its replay set grows, no second
+  layout).
+- **Approve and save.** `POST /documents/{id}:approve {comment?, learnLayout?}` runs the learning in the approval's
+  transaction (a refusal refuses the approval) and resolves `NEW_LAYOUT` with `resolution: learned` and the
+  `layoutKey`; approved without `learnLayout`, the flag is resolved as `approvedWithoutLayout`.
+- **Identify mode.** `POST /documents/{id}/identifiers:propose {page, bBox?|words?, scope?: layout|tenant}` (`Review`)
+  answers `{identifier, describe, holds, warnings}`: a title-band selection becomes `{text, page, region: title}`,
+  others a `bBox`, the supplier's VAT id, tax id, IBAN or a scalar attribute `supplierValue` (never in tenant scope,
+  where it stays text with a warning); a selection over several lines takes the first. `400` for no selection, `422`
+  when no word lies in it.
+- **New layout.** `POST /documents/{id}:match-layout {typeKey, basedOnLayoutId?, saveAs?, targetLayoutId?,
+  pendingLayoutVersionId?}` (`Review`, a document in review with an open `NEW_LAYOUT`) sets the type (`TypeSource`
+  Human, a `setType` correction), records the basis and how it will be saved on the flag, and answers `202`; it sends
+  the document back to Extract (the `layout-prefill` step) only when the type or the basis changed. With
+  `supplierLayouts`, `:assign-supplier` re-runs identification for the assigned supplier through the reprocess path from
+  Classify and answers `202` (a document that never reached Classify, or an e-invoice, is rechecked inline, `200`).
+- **Lifecycle.** `POST /supplier-layouts/{id}/versions {identification, mapping}` (`ConfigAdmin`) adds a Candidate
+  version written by hand. `POST /supplier-layouts/{id}/versions/{v}:replay {documentIds?, lastN?}` (`Review`) runs and
+  stores the replay (`identificationPassed`, `sourceNotMatched`, `overlaps`, the replay set's `documents` with a
+  hit/mismatch/missing per field, `fields` with their agreement, `threshold`, `fieldsPassed`, `passed`).
+  `GET /supplier-layouts/{id}/versions/{v}/matching-documents?state=pending|approved&holds=` (`Read`) lists the
+  supplier's documents the version's rule holds on (pending: in review with `NEW_LAYOUT`, the sibling re-test) or, with
+  `state=approved&holds=false`, the layout's approved documents it no longer holds on.
+- **Bulk reprocessing.** `POST /documents:bulk-reprocess {documentIds (1 to 200), fromStage? (Classify), configMode?
+  (current)}` (`Review`) answers per document whether it was queued, or why not; it runs in the request, not as a
+  background job.
+- **Inbox and notifications.** `GET /documents?pendingLayoutVersionId=` lists the documents waiting for a Candidate
+  (with `flag=NEW_LAYOUT&supplierId=` the queue grouped per supplier); `DocumentDetail.pendingLayoutVersionId` names it.
+  `GET /notifications?all=` (`Read`) lists the open notifications of the policies the caller holds (`MappingAuthor`:
+  `layout.candidate_waiting`, one per Candidate, its `count` the documents waiting); `POST /notifications/{id}:dismiss`
+  resolves one the caller may see (404 otherwise).
+- **Golden documents.** `POST /documents/{id}:golden {note?}` (`Review`, an approved document; `409` otherwise or when it
+  is golden already) keeps a snapshot of its values (per field path, composite member and row) and its deliveries'
+  payload hashes; `GET /golden-documents?supplierId=&typeKey=` (`Read`), `DELETE /golden-documents/{id}` (`Review`).
+  The replay adds the golden documents of the supplier and type to the replay set.
+- **Sandbox and regression runs.** `POST /sandbox/runs {documentId, layoutVersionId? | identification + mapping,
+  typeKey?}` (`ConfigAdmin`) runs a stored document through a draft layout without writing anything: `resolution`
+  (`identified` or `newLayout`), the evidence or the identifiers that failed, the values read and the drift.
+  `POST /regression-runs {layoutId, version}` (`ConfigAdmin`) runs the supplier's golden documents of the type through
+  the version and reports per document whether the rule holds and the differences from the snapshot. Both are stored
+  (`GET /sandbox/runs/{id}`, `GET /regression-runs/{id}`).
+- **Configuration bundles.** `GET /config/bundle?include=types,layouts,sourceRules,outputs,bindings` (`ConfigAdmin`)
+  answers `{format: "docproc.config-bundle", version: 1, exportedAt, sourceTenantId, include, types, layouts,
+  sourceRules, outputs, bindings, signature}`: published type definitions, the Active (else latest) version of each
+  supplier layout with its supplier's name and VAT id, source rules with theirs, output mappings with their published
+  (else latest) version, bindings with their destination's name, transport and config (never a secret: a placeholder
+  says where to set it), source rules with their channel's name, type and `sourceKey` (a channel is never in a bundle);
+  `signature` is HMAC-SHA256 over the bundle without it, keyed by `ConfigBundles:SigningKey`. Outside Development and
+  Testing an unset key is `503 BUNDLE_SIGNING_KEY_MISSING` on both endpoints (the built-in development key is public).
+  `POST /config/bundle:import {bundle, mode?: dry-run|apply}` (`ConfigAdmin`) refuses a bundle whose signature does not
+  verify (`400 BUNDLE_SIGNATURE_INVALID`) or of another version, and answers per item `{kind, key, action: create |
+  newVersion | skip | error, detail}`; `apply` creates new types (or draft versions of existing ones) through the
+  catalogue, layouts as Imported Candidates matched to a supplier by VAT id then name, source rules disabled (a rule's
+  channel found by its `sourceKey`, else by name and type; an error that names it when the tenant has none), output
+  mappings with a draft version, and bindings disabled to destinations of the same name. Each part needs its feature
+  for the tenant, as its own endpoints do (`configurableTypes` for types, and `customTypes` for a new or own type;
+  `supplierLayouts` for layouts; `sourceRouting` for source rules; `outputs` for output mappings and bindings): a part
+  that is off is an `error` item ("The 'outputs' feature is off for this tenant"), never written. Each member runs the
+  checks of its endpoint (output mappings those of `POST /output-mappings`: key, name, engine, expression and target
+  schema limits; bindings their name, events, type key, group and condition length). An unchanged type (the same
+  definition as its latest published version) or layout version (the same rule hash and mapping, compared as JSON, not
+  as text) is a `skip`. An `apply` is one transaction: a member of the wrong JSON type is `400` with nothing written.
+
+### Configurable steps and LLM budgets as built (docs/11 §10, §16, P5 part A)
+
+- **Feature switch.** `settings.features.configurableSteps` (TenantAdmin, `PUT /settings`; left out, it is false).
+  Off, every document runs the built-in steps exactly as before P5: overrides are ignored, the type's own step
+  parameters and the steps it adds do not run, and no pipeline hash is recorded.
+- **`GET /step-kinds`** (Read): the catalogue per phase, `[{kind, phase, description, paramsSchema, fixed, insertable,
+  runs, defaultId}]`. `fixed` steps (`classify.identification`, `review-gate`, the `match.*` and `publish.*` steps)
+  take no `disable`, `replace` or added step ahead of them; only `http-lookup` is `insertable`; `defaults`,
+  `code-list` and `transform` are listed with `runs: false` (a definition may name them; this build does not run them).
+- **`settings.pipelineOverrides`** of a supplier (`POST`, `PATCH /suppliers`) or a supplier group (`POST`,
+  `PATCH /supplier-groups`): an ordered list of `{op: disable|param|insertAfter|replace, step, params?, with?: {id,
+  kind, params}}` by step id (built-in ids: `split.heuristic`, `split.llm`, `classify.identification`,
+  `classify.keyword`, `classify.llm`, `xml`, `map`, `prefill`, `llm`, `schema`, `rules`, `duplicate`, `review-gate`; a
+  type's own steps by the ids its definition gives them), at most 50 per layer and 5 `http-lookup` steps per pipeline.
+  Checked at save: the operation, the step id, the fixed steps (`400` with the place, `settings.pipelineOverrides[0].step`:
+  "classify.identification is the fixed first step of Classify"), an inserted kind's phase, every parameter against its
+  kind's schema (a `param` patch with `null` removes a parameter), and for an `http-lookup` its destination (an `http`
+  destination of the tenant) and its two JSONata expressions (parsed by the renderer, not run). Writing them needs
+  `configurableSteps` (`400` otherwise), except when sent back exactly as stored; a reviewer's `:create-supplier`
+  never sets them. The group's apply before the supplier's.
+- **A layout version's `mapping.pipelineOverrides`** (`POST /suppliers/{id}/layouts`, `POST /supplier-layouts/{id}/versions`,
+  bundle import) take the same shape and checks and apply after the supplier's, for a document that version identified.
+- **`GET /document-types/{key}/resolved-pipeline?supplierId=&layoutVersionId=`** (Read): `{hash, configurable,
+  overridden, steps: [{id, kind, phase, params, enabled, source: default|type|group|supplier|layout, fixed, runs}],
+  skipped, refused}`. `skipped` names overrides for a step this type's pipeline does not have (a supplier's override
+  of a price list's step does not touch its invoices); `refused` is set when a layer breaks a rule (settings written
+  outside the API, an imported bundle): the type's own steps run then, and the document gets `PIPELINE_INVALID`
+  (blocking). `404` for an unknown type key, `400` for a supplier or layout version of another tenant.
+- **`GET /pipelines/{hash}`** (Read): `{hash, createdAt, steps}`, the pipeline a document with that
+  `DocumentDetail.pipelineHash` ran (stored once per tenant and hash when a stage first runs it; `404` for another
+  tenant's). Each stage that runs a pipeline that is not the type's own writes `document.pipeline_applied {phase, hash,
+  steps, skipped, refused?}` to the timeline.
+- **What the stages honour.** Split: `split.heuristic` `mode` (`auto`, `never`, `perPage`, `llm`) and `split.llm` off,
+  for a supplier the source named (the type is not known yet). Classify: `classify.keyword` off, `classify.llm` off or
+  its `threshold`, for a supplier the source named. Extract: `xml`, `map`, `prefill` or `llm` off, `llm`'s `effort`
+  (`none`, `low`, `medium`, `high`; the price-list templates' own `effort: low` is the default anyway) and
+  `maxCostPerDocument` (USD), and `http-lookup` steps. Validate: `schema`, `rules`, `duplicate` off (also for the
+  inline re-validation of a correction). Match and Publish are fixed. An invoice no enabled step can extract (the LLM
+  switched off or refused) goes on with its type's empty tree to review instead of failing.
+- **`http-lookup`** `params: {destinationId, method?: GET|POST, request?, response, timeoutMs? (100-5000, default 5000),
+  retries? (0-2, default 1), onFailure?: warn|block|ignore, mode?: fillMissing|override}`. `request` is JSONata over the
+  document's values view (the tree Extract built, with supplier, entity and source); its result fills the
+  destination's `urlTemplate` placeholders (`{{output.vat}}`, percent-encoded, the origin kept) and is a POST's JSON body.
+  The call goes through the delivery client (https to a public address, re-checked at connect; `Delivery:DevelopmentHosts`
+  only in Development), with the destination's headers and auth (its secret from the secret store), `Accept:
+  application/json`, `Idempotency-Key` (the request hash) and `X-DocProc-Lookup-Step`; an answer is read up to 256 KB;
+  408, 425, 429, 5xx, timeouts and network errors are retried, others are not; five failures in a row pause a
+  destination for 30 s. `response` is JSONata over `{response, status, values}` and gives `{"<field path>": value}` (at
+  most 50; a key, a bag key `ext.x` or a composite member `supplier.vatId`), written as `Inferred` (`source.method:
+  Lookup`, confidence 0.95), only where the field is Missing unless `mode: override`, never over a reviewer's value.
+  The destination's answer is stored per document, step and request hash (`LookupResults.ResponseJson`, with the
+  assignments of the last mapping beside it), so a retry or a reprocess that sends the same request does not call
+  again; the step's current `response` maps the stored answer on every run, so a changed mapping applies to a
+  reprocess (P5 fix 3; a row stored before has no answer and sends its request once more). A failure is `LOOKUP_FAILED {stepId, reason, httpStatus}` (warning;
+  blocking with `onFailure: block`; none with `ignore`); `appliedConfig.lookups.<stepId>` says what each step wrote.
+- **LLM budgets** (`/llm-budgets` above). Before every LLM call the gateway compares the spend of each budget's period
+  (the current UTC day or month, or the document) with its limit, adding the call's estimate (the average of the
+  tenant's last 20 successful calls of that stage); a call that would pass a budget is not made and nothing is
+  recorded. The stage goes on without it: Split keeps the heuristics' ranges, Classify the keyword type, Extract the
+  layout's or the pre-fill's values or the type's empty tree, and the step gets `LLM_BUDGET_EXCEEDED {step, period,
+  limitUsd, spentUsd}` (blocking, so the document goes to review). The `llm` step's `maxCostPerDocument` does the same
+  for one type or supplier from the document's recorded LLM cost. The provider configuration's `monthlySpendCapUsd`
+  stays as it was (a hard stop: `LLM_PROVIDER_UNAVAILABLE`).
+
+### Rules, custom types and tenant fallback rules as built (docs/11 §8.5, §9.3, §9.4, §11, P5 part B)
+
+- **Rule kinds of P5** in a definition's `rules` (published through the document-types API as before):
+  `requiredIf {path, when}` (`FIELD_REQUIRED` when the expression `when` holds), `compare {left, op: eq|ne|lt|le|gt|ge,
+  right | value, tolerance?}` (numbers, money amounts, `yyyy-MM-dd` dates or strings; pairwise over `[*]`),
+  `sumEquals {path, equals, tolerance? (0.02), perItemTolerance?}`, `arithmetic {rows?, expression, equals, tolerance?,
+  when?}` (the expression per row where `when` holds, `equals` a path in the row; a row whose expression gives no
+  number fails as `RULE_FAILED {reason: arithmeticAbsent}`, so write an optional operand `$sum(discountAmount)`) and `expression {predicate, forEach?, field?}`. Expressions are
+  a bounded JSONata subset evaluated in process (paths, filters, `+ - * / % & = != < <= > >= in and or`, `$exists`,
+  `$not`, `$sum`, `$count`, `$max`, `$min`, `$average`, `$abs`, `$round`, `$floor`, `$ceil`, `$number`, `$string`,
+  `$length`, `$contains`, `$lowercase`, `$uppercase`, `$trim`, `$substring`, `$distinct`; variables `$today` and
+  `$supplier` with `id`, `name`, `vatId`, `attributes`): at most 2,000 characters, 400 nodes and 32 levels at publish,
+  50,000 steps per evaluation and 2,000,000 per rule and document, paid in proportion to the data (a step per array
+  item read, per node compared or serialised, per 128 characters), strings of at most 10,000 characters (`$string` of
+  an object included), and 1 s per evaluation, 2 s per rule and 5 s per document; no function reads anything outside
+  the value.
+  Publish refuses an expression that does not parse, a function or variable it does not know, `compare` without
+  `right` or `value`, and a row path (`arithmetic.equals`, `expression.field`) that is not a field of the rows. A rule
+  out of steps or time raises a blocking `CHECKS_SKIPPED {reason: expressionBudget}`; one that cannot be evaluated a
+  `RULE_FAILED {reason: expressionError}`.
+- **Definition flags**: a definition's `flags: [{code: "X_…", severity?, message?: {locale: text}, description?}]`, and
+  `flag: "X_…"` on a rule of a generic kind: its flags carry that code, the rule's (else the declaration's) severity and
+  message, and `message.<locale>` in their parameters (the apps show it in the UI language). Publish refuses an
+  undeclared, unused, repeated or platform code and a flag on a coded invoice kind. The validate stage owns every
+  `X_*` code, so a re-validation replaces them.
+- **Review gate keys** of `processing.review`: with `autoApprove` and `requirePassedRules` (every rule named must have
+  run and raised no warning or blocking flag) a type outside the invoice family auto-approves; `blockOnWarnings` holds
+  a document whose named rule warned; `lines {requireSource: [SourceMethod…], requireLocated, maxLowConfidenceRows}`
+  checks the rows of the `lineItems` role. A hold is in the `document.validated` event's `gate` and in the review
+  task's reason (`REQUIRED_RULE_NOT_PASSED`, `RULE_WARNING_BLOCKS`, `LINES_SOURCE`, `LINES_NOT_LOCATED`,
+  `LINES_LOW_CONFIDENCE`) when no open flag names it.
+- **Custom types end to end** (`customTypes` with `configurableTypes`): the tenant keyword set (the tenant's published
+  types' `classification` blocks; standard types with their template's block keep the built-in rules) and the LLM
+  classifier with the tenant's types as its enum (`document_classification@1+t.<hash8>`, the supplier's allowed types
+  when it names any, plus `Unknown`); a type outside the invoice family is extracted by `LlmDefinitionExtractor`
+  against its compiled schema (`doc_<key>`, prompt `extract-document`, over a pre-fill in fill-missing mode) and
+  stored with `ExtractionMethod.Llm`. Without a provider (or when it cannot answer) the document goes on as before:
+  the pre-filled or empty tree for the reviewer.
+- **Tenant fallback identification rules** (`supplierLayouts`; reads `Read`, writes `ConfigAdmin`):
+  - `GET|POST /document-types/{key}/identification-rules`: a type's rules, or a new rule `{name, rule, priority?
+    (0-1000, default 100), excludedSupplierIds?}`, version 1 a Draft tested at once;
+  - `POST /documents/{id}/identification-rules {rule, typeKey?, name?, priority?}`: "use for all suppliers without own
+    layouts" from review, for the document's type (or `typeKey`); the rule must hold on the document;
+  - `GET|PATCH /identification-rules/{id}` (`{name?, priority?}`), `GET|POST /identification-rules/{id}/versions` (a new
+    Draft; at most one), `PUT /identification-rules/{id}/versions/{v}` (Draft only, `If-Match` the revision: `428`
+    without it, `412` when stale, `409` out of Draft), `POST …/versions/{v}:test`, `POST …/versions/{v}:activate
+    {confirmOtherTypes?}` (`409` with the test when it matched documents of other types and that was not confirmed; the
+    previous Active version is retired) and `POST /identification-rules/{id}:disable`;
+  - a rule is checked in tenant scope (no `supplierValue`, the meta-schema, `PatternSize`, a positive identifier);
+    the test (`TestJson`, `test` in the response) evaluates it on the last 500 approved documents of the tenant without
+    the excluded suppliers and the suppliers that have layouts (own or group): `{tested, matched, sameType,
+    otherTypes, byType, otherTypeMatches, matches (50), summary: "would have matched N <type> documents, M other
+    documents"}`;
+  - in the pipeline the Active versions run in `classify.identification` after the supplier's own layouts, for a
+    supplier unknown at Classify or not layout-managed, before the keyword rules and the LLM: rules of one type decide
+    it (`TypeSource=Identification`, `DocumentDetail.identificationRuleVersionId`, `Matched` counted, event
+    `document.type_identified_by_rule`), rules of two types decide nothing, under `NEW_LAYOUT` they only propose; the
+    split prefilter applies the type's `split.mode` the same way. A reviewer's `:set-type` to another type counts in
+    `Overridden` and drops the pin.
+
+### Price lists, master data and acknowledgements as built (docs/11 §5.8, §6.8, §11, §13.8 to §13.10, §14, P5 part C)
+
+- **Line-table rule kinds** in a definition's `rules`: `tableComplete {path, maxRejectedRows?, everyPageInRange?,
+  allowUnreported?, declaredCount?}` (reads the table report of `path`: `TABLE_ROWS_REJECTED {page, rows}` blocking
+  per page past `maxRejectedRows`, `TABLE_PAGE_NO_ROWS {page}` blocking with `everyPageInRange` and a warning
+  otherwise, `RULE_FAILED {reason: tableUnreported}` for rows without a report unless `allowUnreported`, `{reason:
+  tableCount}` when the field at `declaredCount` differs from the rows read), `unique {path, scopeBy?}` (`path` a row
+  path such as `lines[*].supplierSku`; `scopeBy` row fields), `ordered {path, by, strict?, then?: {path, order:
+  increasing|nonDecreasing|decreasing|nonIncreasing}}` (the items of every list at `path`, for example
+  `lines[*].tiers`) and `deltaToPrevious {path, joinOn, maxChangePercent?, maxChangedRowsPercent?,
+  ignoreBelowPercent? (5)}` (against the last Approved or AutoApproved, not superseded document of the same supplier
+  and type key: one summary `RULE_FAILED {reason: deltaToPrevious, rows, compared, changed, changedPercent,
+  previousDocumentId}` whose `rows` lists the row indexes over `maxChangePercent` (at most 150) for the review grid, and
+  one `{reason: deltaRow, key, previous, value, changePercent}` per such row; with no previous document an info note
+  `{reason: noPrevious}`, which does not fail `requirePassedRules`). Publish checks that `unique.scopeBy`,
+  `deltaToPrevious.joinOn`, `ordered.by` and `ordered.then.path` are fields of the items they name.
+- **Price-list templates v2** (`std.price-list`, `std.daily-specials`): the rules of docs/11 §5.8 and the full review
+  block (`requirePassedRules`, `blockOnWarnings`, `lines`, for specials `priority: urgent` and `dueBy: validUntil`). An
+  adopted type follows a newer template version on start-up with its `review.autoApprove` kept, and a new adoption of
+  these two templates starts with auto-approval off; `POST /document-types/{key}:upgrade-base {autoApprove?}`
+  (`ConfigAdmin`, `configurableTypes`) publishes a version on the newest template version with `review.autoApprove`
+  as asked (`422` when the template does not auto-approve, `409` for a type that is not adopted, unchanged when both
+  already hold). A review task of a type with `dueBy` gets `slaDueAt` at 23:59:59 of that date in the tenant's time zone.
+- **The type's own extract steps** (with `configurableSteps`, as part A built the step model): `defaults
+  {values: {<field>: {value | from: field | [fields, "$source.receivedDate"] | fromSupplierSetting:
+  defaults.currency|locale, mode?: ifMissing|override}}}` writes Inferred values after the extraction chain (never
+  over a correction, not on a tree nothing was extracted into); the `llm` step's `exclude` leaves top-level fields out
+  of the definition schema, and `lines: perPage` reads the top-level tables one page per call under the step's
+  `maxCostPerDocument` (the pages not read raise `LLM_BUDGET_EXCEEDED`; rows the LLM read have source `Llm`, which the
+  price list's `review.lines` does not accept).
+- **Revisions**: `POST /documents/{id}:resolve-revision {resolution: supersedes|additional|duplicate, note?}`
+  (`Review`; a document in review with an open `REVISION_OF`, `409` otherwise): `supersedes` sets this one's
+  `meta.supersedes` in the values view and, once this one is approved (by a reviewer or automatically), the earlier
+  document's `SupersededByDocumentId` (`DocumentSummary.supersededBy`, `DocumentDetail.supersededByDocumentId`); a
+  rejected, cancelled or reprocessed replacement leaves the earlier document standing (P5 fix 1), `additional` lets both stand and keeps the pair from matching again,
+  `duplicate` rejects the document (published as a rejection). The flag is resolved, `document.revision_resolved` is
+  written on both documents, and the document stays in review for its approval (except a duplicate).
+- **Output template** `generic-article-prices-json` (platform, `GET /output-templates`): §13.10's article-price
+  mapping without the tenant's lookups (units and the vendor number as stored), with a target schema; the demo's
+  `pos-promotions` mapping is `fixtures/outputs/pos-promotions.jsonata`, and `mock-erp` answers `POST /api/promotions`.
+- **Acknowledgements** (`IntegrationAdmin`, `outputs`):
+  - `PUT /destinations/{id}/acknowledgements {callback?: {auth: hmacSha256|bearer, mapping?}, statusPoll?:
+    {urlTemplate, intervalMinutes (1-1440, 15), mapping?, maxPolls (1-2000, 288)}}` (an empty object turns both off);
+    a poll template takes `{externalId}` and `{documentId}` after the host only and must name the destination's own
+    origin, scheme, host and port (the poll sends the destination's credentials; another port is another receiver,
+    P5 fix 3); mappings are JSONata checked by the renderer;
+  - `POST /destinations/{id}/callback-secret` (no body): the platform generates a new callback secret (256 random
+    bits, base64url, 43 characters) and answers it once, `{destination, secret}` (`CallbackSecretResponse`; it is
+    never read back), so no two destinations share one (P5 fix 3; the admin no longer chooses it). Two slots, so the
+    replaced secret is accepted until the next rotation (`DestinationResponse.hasCallbackSecret`,
+    `hasPreviousCallbackSecret`, `acknowledgements`);
+  - `POST /integrations/callbacks/{destinationId}` (anonymous; 64 KB): `hmacSha256` needs `X-DocProc-Timestamp` (Unix
+    seconds, within 5 minutes) and `X-DocProc-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<destinationId>.<body>">`
+    (the destination id as in the URL, lower case with hyphens, so a signed callback does not authenticate at another
+    destination), `bearer`
+    `Authorization: Bearer <secret>`; the mapping (or the body itself) gives `{documentId | externalId, status:
+    accepted|posted|rejected|pending, message?}` or a list of at most 100; answers `{applied, pending, unknown,
+    problems, replayed}` (`401` unauthenticated, `404` without callbacks, `422` when nothing reads as an acknowledgement).
+    A signed callback that is older than the last one applied to a document's reference, or that one again (a replay
+    inside the 5 minutes), changes nothing and counts in `replayed`; a bearer callback is applied as it comes. Two
+    acknowledgements of one reference that run at the same time are applied in order (the second to commit reads the
+    reference again, P5 fix 3); `409` when a callback lost that race five times, to be sent again;
+  - `PATCH /destinations/{id}` refuses (`400` under `config`) a config that moves the destination to another origin
+    (scheme, host or port) while its status poll names the old one: turn the poll off first, then set it again for the
+    new address. The poller skips a poll whose URL is no longer on the destination's origin and says so in the
+    reference's message;
+  - a destination with acknowledgements keeps a delivered document's external reference `Pending`; the status poller
+    (`Delivery:StatusPollInterval`) asks the poll URL with the destination's headers and authentication through the
+    delivery client (public addresses, TLS, no redirects, 10 s, 64 KB) until it is decided or `maxPolls` ran out; the
+    answer is applied to the reference that was polled, whatever ids it names;
+  - a rejection raises `EXTERNAL_REJECTED {destination, destinationId, message, externalId, source}` (warning, once per
+    destination while open) and opens a review task of kind `IntegrationIssue` (`ReviewTaskDto.kind`; the document
+    stays settled); an acceptance resolves the destination's flag and closes the task when none is left;
+    `POST /documents/{id}:resolve-integration-issue {note}` (`Review`) resolves the open flags with a note.
+- **Master data** (`TenantAdmin`):
+  - `POST /suppliers:import {format: csv|json, content? + columns? | records?, matchKeys?, conflictPolicy?, dryRun?
+    (true)}` (2 MB): CSV with `;`, `,` or tab and a column map to `name`, `vatId`, `taxId`, `ibans`, `currency` and
+    `attributes.<key>`, or JSON records of that shape; matched by `attributes.erpVendorId`, then `vatId`, then `iban`
+    (or the given keys), each attribute under `externalWins` (default), `localWins` or `flag` (by attribute, by
+    `attributes`, or `*`); answers the run with its report (per record `create`, `update` with the changed
+    attributes, `unchanged`, `conflict` or `error`); the same file twice changes nothing;
+  - `/master-data-sources` CRUD (at most 25 per tenant) `{name, target: suppliers, transport: http|upload,
+    destinationId (an http destination of the tenant, its urlTemplate without placeholders), mapping? (JSONata to
+    records), matchKeys?, conflictPolicy?, schedule? (5-field cron, `CRON_TZ=<zone>` allowed, http sources only, at
+    most every 15 minutes), enabled?}`, `POST …/{id}:run` and `:dry-run` (an upload source takes `{records}`),
+    `GET …/{id}/runs` (50 newest) and `GET /master-data-runs/{id}`; `MasterDataSyncHostedService`
+    (`Pipeline:MasterDataSyncInterval`) runs the due http sources through the delivery client (public addresses, 30 s,
+    2 MB), each run a `MasterDataRun` with its report.
+
+### Processing UI, rule tests and Insights as built (docs/11 §10, §11, §17, §19, P5 part D)
+
+The screens of P5 part D needed four routes the earlier parts did not have:
+
+- `GET /rule-kinds` (`Read`): every rule kind of the deployment `{kind, phase, description, paramsSchema, pathParams,
+  expressionParams}`, what the type editor's rule form is drawn from (as `GET /step-kinds` is for steps).
+- `POST /document-types/{key}/versions/{v}:test-rules {documentId}` (`ConfigAdmin`, `configurableTypes`): runs the
+  checks of that version (a draft too, compiled as it would publish; a version that does not pass the publish checks
+  answers 400 with the problems) on one document of the type, with the validate stage's code (`DocumentChecks`), and
+  answers `{rules: [{id, kind, outcome: passed|warned|failed|notRun, flags}], flags, blocking}`. Nothing is written: no
+  flag, no event. A document of another type or without data is a 400, another tenant's a 404.
+- `POST /pipelines/lookups:test {documentId, params, stepId?}` (`ConfigAdmin`, `configurableSteps`): the
+  `http-lookup` parameters checked as a supplier's override is at save (the kind's schema, an http destination of the
+  tenant, JSONata that parses: 400 under `params.*`), then one call for the document's values view through
+  `HttpLookupService` as a dry run: a stored answer is not reused, nothing is stored in `LookupResults`, the breaker
+  does not count it. The answer is the outcome `{succeeded, assignments, reason?, message?, httpStatus?, attempts}`;
+  a refused address (`blocked`), a timeout or a mapping error is an outcome, not an HTTP error.
+- `GET /insights/automation?from=&to=` (`Read`; UTC dates, the last 30 days by default, at most 92): the onboarding
+  view of docs/11 §17 from live queries (no nightly roll-up, see docs/11 §17 correction): `documents`, `autoApproved`,
+  `unknown`; `suppliers` (per supplier documents, auto-approved, corrections per document, LLM cost, open `NEW_LAYOUT`
+  documents, its layouts with the state of their current version, a sample document) and `suppliersWithoutLayouts`
+  (the same rows, by volume); `unknownByChannel` and `unknownBySourceRule`; `degradedLayouts`, `staleLayouts` (Active
+  and not matched for 180 days), `candidatesWaiting` (a Candidate version with documents in review waiting for it);
+  `overriddenRules` (tenant fallback rules reviewers overrode); `destinations` (deliveries, failed and dead-lettered
+  per destination); `masterDataConflicts` (the newest applied run of each source, or of the imports, that left
+  conflicts).
 
 ## React applications
 
@@ -156,6 +648,97 @@ One monorepo, two apps sharing a component and API-client package:
 - Settings: members and roles, mailbox address and forwarding instructions, folder/API
   credentials, webhooks, export formats, review policy thresholds, **AI providers (BYOK)**:
   add provider, test, pick models per stage, spend cap, usage chart.
+- Settings > Integrations (docs/11 §19, P3; the tenant's `outputs` switch, writes for IntegrationAdmin, lookup
+  tables for ConfigAdmin; `components/integrations`): Destinations (a typed form per transport, http, file drop,
+  pull feed; the secret write-only, a new one rotates into the second slot; enable, disable, delete), Output mappings
+  (the tenant's mappings, the integration templates to copy, a new mapping; the editor in three panes: the values
+  view of a chosen document as a tree, the visual field map or the JSONata code, the server-rendered preview with
+  its list sizes, render errors and target-schema errors; versions, drafts saved with `If-Match`, publish with the
+  renderer's errors, new version), Bindings, Lookup tables and the Delivery log. The visual field map
+  (`fieldMap.ts`) compiles in the browser to JSONata and is stored in the expression as a leading comment
+  (`/* docproc:fieldmap {...} */`, docs/11 §6.7 correction); an expression whose code was edited by hand stays in
+  code mode. The code tab is a monospaced text area, its syntax errors come from the server preview with their
+  position.
+- Review screen, Deliveries tab (when `DocumentDetail.outputs`): the document's deliveries with status,
+  destination, binding, attempts and the last answer; a row opens to its attempts (status code, result, duration,
+  the answer's first 4 KB), the external id, the payload as sent and, for an integration admin, redelivery from the
+  snapshot or rendered again. The list polls every 3 s while a delivery is pending, sending or waiting for a retry.
+- Suppliers sheet: Attributes as `key = value` lines (`supplier.attributes` of the mappings) until P4's attribute
+  schema gives them a form.
+- P4 screens (docs/11 §19, P4 part D; the tenant's `sourceRouting` switch for routing and supplier configuration,
+  `supplierLayouts` for layouts, Identify mode, the New layout panel and governance; no endpoint was added for them):
+  - Review screen: the New layout panel at the top of the Fields tab of a `NEW_LAYOUT` or `LAYOUT_AMBIGUOUS` document
+    (`:match-layout`, the suggestions, "Confirm against pending layout", save as a new layout or a new version, the
+    pre-fill source of every value from `appliedConfig.prefill.sources`); the layout chip ("warm-up n of m") and the
+    New layout badge in the header; Identify mode on the page viewer (key I; a click or a box calls
+    `identifiers:propose`) with the Identification tab (chips, all/any, case, must not contain, the live test with
+    `identification-rules:test`, the evidence of `appliedConfig.layout`); "Approve and save as layout" in the approve
+    dialog (`:approve {learnLayout}`, refusals named by their code), then the Layout saved dialog (the version, its
+    state and rule, the siblings from `matching-documents?state=pending`, reprocessed with `documents:bulk-reprocess`);
+    Mark as golden (`:golden`) for an approved document filled by a layout.
+  - Inbox: New layouts (`?flag=NEW_LAYOUT`), the documents waiting for a Candidate (`?pendingLayoutVersionId=`), a
+    badge per document.
+  - Suppliers: the sheet's Settings (`settings`), Attributes (a form from `supplierAttributeSchema`), Routing (source
+    rules and Test routing with `routing:test`) and Layouts tabs (the layouts by type, versions with their replay
+    matrix, the waiting documents, Replay, Activate with `reviewWarmup` and `reprocessWaiting`, Retire; the last
+    three for a `MappingAuthor`); a Supplier groups tab (create, rename, the attributes their members inherit).
+  - Settings: Routing (typed mailbox and watched-folder channel forms, Test routing), Receiving entities, Governance
+    (golden documents, sandbox and regression runs, bundle export, dry run and import) and on General the layout
+    settings (`layoutReviewWarmup`, `layoutAgreementPercent`, `layoutsRequiredByDefault`, `trustedForwarderDomains`,
+    `supplierAttributeSchema`).
+  - Admin console: the tenant's feature switches include `sourceRouting` and `supplierLayouts`.
+- P5 screens (docs/11 §19, P5 part D; each with the switch of its feature, a tenant without them sees the screens of
+  P4):
+  - Settings > Document types, the type editor (`@docproc/review`): a Rules tab (the rule list; a form per rule kind
+    from `GET /rule-kinds`, rule expressions in a monospace area; severity, the definition flag it raises,
+    `appliesWhen`, messages en/de; the definition's own flags; the review gate: `autoApprove`, priority, `dueBy`,
+    `requirePassedRules`, `blockOnWarnings`, `lines`; "Test against a document" with `:test-rules` on the saved
+    version), a Processing tab (the type's resolved pipeline, every step per phase with the layer that set it, fixed
+    steps locked, steps this build does not run marked) and, with `supplierLayouts`, an Identification tab (the
+    tenant fallback rules of the type: create from a rule's JSON with the excluded suppliers, edit the Draft with
+    `If-Match`, test, activate with the "other types matched" confirmation, disable; the save-time test summary, the
+    documents of other types it matched, the override share).
+  - Suppliers sheet, Processing tab (`configurableSteps`): the resolved pipeline of a chosen type for the supplier and
+    the supplier's `pipelineOverrides` (switch a step off, a `param` override from the kind's schema, an `http-lookup`
+    after an Extract step with the destination picked from the http destinations and a Test call against one of the
+    supplier's documents); saved with `PATCH /suppliers/{id} {settings}`, the API's refusals listed by place. The
+    Settings tab keeps the members it does not edit (`pipelineOverrides`) when it saves. `?supplier=&tab=` opens a
+    supplier's sheet on a tab (the links of Insights).
+  - Settings > AI providers: LLM budgets (`GET`/`PUT /llm-budgets`; period, stage, limit, what the current period
+    spent).
+  - Settings > Integrations: a Master data section (supplier import: CSV or JSON from a file or pasted, the column
+    map guessed from the header in English and German, match keys, a conflict policy per field, Dry run then Import,
+    the report with created, updated, unchanged, conflicts and errors per row; the sources with Run, Dry run, their
+    runs and reports, create and edit), and per http destination Acknowledgements (callback with HMAC or bearer and
+    its URL, the callback secret write-only with rotation, status poll, the mappings).
+  - Review screen: the `REVISION_OF` panel shows the earlier document side by side (number, validity, rows, status,
+    dates; differing values marked) and sends a note with `:resolve-revision`; the Deliveries tab names an open
+    `EXTERNAL_REJECTED` and shows each delivery's acknowledgement (Pending, Accepted, Posted, Rejected, its message);
+    for a `ConfigAdmin` with `supplierLayouts`, Identify mode is offered on a typed document no layout filled, in the
+    tenant's scope (`identifiers:propose {scope: tenant}`, the tests with `{tenant: true}`), with "Use for all
+    suppliers without own layouts" (`POST /documents/{id}/identification-rules`, then the save-time test and
+    Activate with its confirmation).
+  - Inbox: a Review due column, "Urgent first" (`GET /documents?sort=reviewDue`, the server's order across every page:
+    urgent, then high, then by due time), superseded
+    lists greyed with a link to the replacing one. Review queue: Urgent and High badges, the due time red when past and
+    amber within 4 hours, an Integration issue badge.
+  - Insights > Onboarding (`/insights`, every tenant role; in the sidebar with one of `sourceRouting`,
+    `supplierLayouts`, `customTypes` or `configurableSteps`, P5 fix 4): the KPIs, suppliers without layouts by volume
+    with "Open sample", "Create layout" (the supplier's Layouts tab, with `supplierLayouts`) and "Add source rule" (its
+    Routing tab, with `sourceRouting`), automation per
+    supplier, the Unknown rates, layouts to look at, overridden fallback rules, delivery health and master-data
+    conflicts for the last 7, 30 or 90 days.
+- Added by the P5 demos (part E; no new route, docs/09 "Demo: price lists, specials and fallback rules"):
+  - Review screen: a repeating group over one page (200 rows) opens on the rows the open flags name ("1 of 412 rows:
+    the rows a check flagged", a price list's row that `deltaToPrevious` names), with "Show all n rows" and back;
+    a shorter group offers the same filter. A value taken from the page in map mode is sent with its place even when
+    it equals the stored value (a confirmed pre-fill), and counts as an unsaved change until then. In the tenant's
+    scope the Identification card counts the tenant's recent documents and notes the documents of suppliers with own
+    layouts instead of flagging them as a conflict.
+  - Settings > Document types, an adopted type: whether it auto-approves, and for a ConfigAdmin "Switch auto-approval
+    on/off" (`POST /document-types/{key}:upgrade-base {autoApprove}`).
+  - `:match-layout` that confirms the proposed type keeps the pre-fill's record (`appliedConfig.prefill`), so the New
+    layout panel still lists the pre-filled values and their sources.
 
 ### Shared UI decisions
 
@@ -216,35 +799,47 @@ decision that was rolled back. `:claim` and `:release` are single statements and
 | `POST /ingestions` | Ingest | `multipart/form-data` with one or more file parts (max 20 files, 50 MB each, whole body ≤ 1 GB streamed, optional `channelId` field; default: the tenant's ApiUpload channel, created as "API upload" on first use) or `application/json` `{fileName, contentType, base64, channelId?}` (one file, body capped at ~70 MB because it is buffered; non-file form values keep the framework's 4 MB default). Stores each file content-addressed in the raw container, creates the `Ingestion` (+ one `IngestionItem` per file, kind from the content type) and enqueues `ProcessIngestion`. `202` with `{id, status, items[{id, fileName, sizeBytes, sha256}]}` and `Location`. |
 | `Idempotency-Key` on `POST /ingestions` | | Per tenant, 24 h window. The files are hashed first and the key looked up *before* any blob is written: inside the window the same request (channel + file names + hashes) replays the first response, a different one is `422`; a key older than 24 h is free again and its stale row is replaced in the same transaction as the new one, so a key reused daily keeps working. Two requests racing on one key (a unique-index violation on `(TenantId, Key)`, or, when both were replacing the same expired row, the loser's delete of that row affecting nothing, which EF reports as `DbUpdateConcurrencyException`) are the one save failure that is not an error: the loser's rows were rolled back, the winner's row is read back, and the loser answers what its retry would get, the winner's `202` for the same request or `422` for a different one. Only a winning row younger than 60 s counts as that race; any other save failure is the error it is. Expired keys are purged opportunistically (on upload, at most once an hour per tenant). Two simultaneous *first* uploads of a tenant may each create an "API upload" channel; this is tolerated on purpose (a tenant may run several API channels, so there is no unique index), later uploads use the oldest and the extra channel can be deleted through `/channels`. |
 | `GET /ingestions`, `GET /ingestions/{id}` | Read | Newest first, cursor-paginated; the detail lists items with the documents split from them. |
-| `GET /documents` | Read | Filters `status` (comma list), `type`, `supplierId`, `flag` (unresolved flag code), `from`/`to` (issue date), `q` (document number or supplier name contains); `cursor` + `limit` (default 50, max 200), newest first. `{items: DocumentSummary[], nextCursor}`. Every `DocumentSummary` carries `tenantId` and `tenantName` (a LEFT JOIN on `Tenants` in the list statement, no per-row lookup), so a platform-scope list can say whose row it is; a tenant-scoped caller sees its own tenant's name. |
-| `GET /documents/{id}` | Read | `DocumentDetail`: the summary columns + `canonical` (the stored JSON verbatim, so every `FieldValue` keeps value, status, confidence, source and history) + `flags` + `costs` + `ingestion` + `pageImageUrls`. |
+| `GET /documents` | Read | Filters `status` (comma list), `type`, `supplierId`, `flag` (unresolved flag code), `from`/`to` (issue date), `q` (document number or supplier name contains); `cursor` + `limit` (default 50, max 200), newest first. `sort=reviewDue` (P5) orders by the most urgent open review task's priority (urgent, high, normal, then documents without an open task), then its earliest due time (none last), then newest first, with its own cursor; `sort=created` is the default; anything else is `400`. `reviewPriority` and `reviewDueAt` of a summary are that task's priority and that due time. `{items: DocumentSummary[], nextCursor}`. Every `DocumentSummary` carries `tenantId` and `tenantName` (a LEFT JOIN on `Tenants` in the list statement, no per-row lookup), so a platform-scope list can say whose row it is; a tenant-scoped caller sees its own tenant's name. |
+| `GET /documents/{id}` | Read | `DocumentDetail`: the summary columns + `canonical` (the stored JSON verbatim, so every `FieldValue` keeps value, status, confidence, source and history) + `flags` + `costs` + `ingestion` + `pageImageUrls`. `outputs` (P3) says whether the document's tenant has the `outputs` switch: the review screen shows its Deliveries tab (`GET /deliveries?documentId=`) only then. |
 | `GET /documents/{id}/pages/{n}.png`, `/original`, `/text` | Read | Stream the derived PNG (ETag = content hash, `304` on `If-None-Match`), the ingested file and the text-layer JSON; `404` problem when missing. All three send `X-Content-Type-Options: nosniff`. The original is served `inline` only when its uploaded type (parameters stripped, lower-cased) is on a fixed allow-list of what the viewer renders (`application/pdf`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/tiff`, `image/bmp`, plus the aliases `application/x-pdf`, `image/jpg`, `image/pjpeg`), and then under the list's constant, never the stored string; anything else, `image/svg+xml` and other `image/*` types included, is `Content-Disposition: attachment` as `application/octet-stream`, so an uploaded HTML or SVG file can never execute as a page of the API's origin. An upload whose content type is not a single `type/subtype` of RFC 9110 tokens (a list such as `image/png,text/html`, whitespace, quotes) is stored as `application/octet-stream`. |
 | `GET /documents/{id}/events` | Read | Timeline ordered by time, then id. |
-| `POST /documents/{id}:approve` | Review | From `NeedsReview` or `Validated`; sets `ApprovedAt/By`, closes open review tasks (`Done`), writes `document.approved`, enqueues `Publish`. Body `{comment?}` optional. `409 Invalid transition` on any other state, `409 Document changed` when another caller changed the document between this call's read and its conditional update. |
+| `POST /documents/{id}:approve` | Review | From `NeedsReview` or `Validated`; sets `ApprovedAt/By`, closes open review tasks (`Done`), writes `document.approved`, enqueues `Publish`. Body `{comment?}` optional. `409 Invalid transition` on any other state, `409 Document changed` when another caller changed the document between this call's read and its conditional update. For a tenant with `configurableTypes` (docs/11 §11), `409 Cannot approve` with `code` `TYPE_REQUIRED` (the type is Unknown), `NO_DEFINITION` (no published definition the tenant can use) or `NO_DATA` (no canonical data, or a tree none of whose fields holds a value, as `:set-type` with prefill none leaves it); `DocumentDetail.approvalBlocked {code, message}` says the same before the click, and `DocumentDetail.configurableTypes` whether the review screen offers the P2 tools. |
 | `POST /documents/{id}:reject` | Review | Body `{reason}` required; otherwise as approve, with `document.rejected`. |
-| `POST /documents/{id}:reprocess` | Review | Body `{fromStage?}` ∈ Normalize, Classify, Extract (default), Validate. Allowed from Failed, NeedsReview, Rejected, Validated (`DocumentStateMachine.CanReprocess`); resets the status to the one before that stage (Extract → Matched), skips open review tasks, writes `document.reprocessed`, enqueues that stage. The stage must be one the document has reached: its timeline (`DocumentEvents`, the pipeline writes one transition per stage) must show the status the stage would reset to, otherwise `409 Stage not reached` names the latest stage that may rerun. A document that failed in Normalize can rerun Normalize, not Extract (which would run without a text layer). |
-| `PATCH /documents/{id}/fields` | Review | Only while the document is `NeedsReview`, `Validated` or `Failed` (`409 Document not correctable` otherwise: settled documents must be reprocessed first, in-flight ones are still being written by the pipeline). `{corrections: [{path, value, reason?}]}` with canonical paths (`invoiceNumber`, `lines[2].quantity`, `supplier`, or a settable property inside a value such as `supplier.vatId`; computed properties such as `supplier.normalizedVatId` are not addressable). Each field goes through `FieldValue.Correct` (previous value and provenance kept in its history), a `Correction` row is written per change, the denormalised columns are refreshed and `document.corrected` is logged. Shorthands: a string for an identifier, a bare number for an amount (document currency). An identifier is always rebuilt from its verbatim text (`{verbatim, normalized}` objects are accepted, the normalized form is recomputed, blank is refused, `invoiceNumber.normalized` cannot be addressed). Currency codes (the `currency` field and `Money.currency`) are upper-cased and must be three letters (`Document.Currency` is `char(3)`), so `"EURO"` is a `400`, `"eur"` becomes `EUR`. Unknown path or wrong value → `400` validation problem naming the path. |
-| `GET /review-tasks` | Review | Open and InProgress by default (`status=` to change), `assignedTo=me`, oldest first, each with its `DocumentSummary`. `ReviewTaskDto` carries `tenantId` and `tenantName` like the summary (same join), for the admin console's global queue. |
+| `POST /documents/{id}:reprocess` | Review | Body `{fromStage?}` ∈ Normalize, Classify, Match (P4), Extract (default), Validate. Allowed from Failed, NeedsReview, Rejected, Validated (`DocumentStateMachine.CanReprocess`); resets the status to the one before that stage (Extract → Matched), skips open review tasks, writes `document.reprocessed`, enqueues that stage. The stage must be one the document has reached: its timeline (`DocumentEvents`, the pipeline writes one transition per stage) must show the status the stage would reset to, otherwise `409 Stage not reached` names the latest stage that may rerun. A document that failed in Normalize can rerun Normalize, not Extract (which would run without a text layer). |
+| `PATCH /documents/{id}/fields` | Review | Only while the document is `NeedsReview`, `Validated` or `Failed` (`409 Document not correctable` otherwise: settled documents must be reprocessed first, in-flight ones are still being written by the pipeline). `{corrections: [{path, value, reason?}]}` with canonical paths (`invoiceNumber`, `lines[2].quantity`, `supplier`, or a settable property inside a value such as `supplier.vatId`; computed properties such as `supplier.normalizedVatId` are not addressable). Each field goes through `FieldValue.Correct` (previous value and provenance kept in its history), a `Correction` row is written per change, the denormalised columns are refreshed and `document.corrected` is logged. Shorthands: a string for an identifier, a bare number for an amount (document currency). An identifier is always rebuilt from its verbatim text (`{verbatim, normalized}` objects are accepted, the normalized form is recomputed, blank is refused, `invoiceNumber.normalized` cannot be addressed). Currency codes (the `currency` field and `Money.currency`) are upper-cased and must be three letters (`Document.Currency` is `char(3)`), so `"EURO"` is a `400`, `"eur"` becomes `EUR`. Unknown path or wrong value → `400` validation problem naming the path. `op: "move"` with `from` (docs/11 §12.3 "match fields", P2): the value of `from` goes into `path`, converted to its kind (an identifier's text for a text field, an amount's number for a number) with the place it was read from, and `from` is left Missing; both keep their history; one Correction row with op `move` and `SourceJson.from`. A move is between single fields, list entries or fields of rows, not into a value's member or a bag key. At most 5,000 corrections and an 8 MB body per request (`400` / `413` beyond). A repeating group holds at most its `maxItems` rows (20,000 for a top-level group without one, 100 for a group inside a row such as a price list's `tiers`), and a document's tree at most 100,000 rows across all its groups; `set` on a group and `append` beyond that are a `400` naming the path, checked before any row is built. |
+| `POST /documents/{id}:set-type` | Review | docs/11 §12.1 (P2). Body `{typeKey, version?, prefill?}`; the type must have a published definition the tenant can use (`400` naming `typeKey` or `version` otherwise). Sets the type, `TypeSource=Human` and pins the version (the tenant's published one, or `version`); writes a `setType` Correction and `document.type_set`. `prefill: "none"` (default): the document stays in review with the empty tree of the type version (every field Missing; an adopted invoice or credit note of a tenant without `configurableTypes` gets the empty coded record of its kind; a type without a data path gets none and `UNSUPPORTED_TYPE`), `TYPE_UNKNOWN` is resolved, and the checks of the type run at once (`200`; `409 Type unchanged` for the same type and version with data). `prefill: "auto"`: back to `Matched` and the Extract stage reads the document for the type (`202`; `409 Stage not reached` when it never got that far). Only from `NeedsReview`, `Validated` or `Failed` (`409 Document not in review`). |
+| `POST /documents/{id}:assign-supplier` | Review | Body `{supplierId}`, a supplier of the document's tenant (`400` otherwise). Sets the supplier with `supplierMatchMethod: Human` (the Match stage keeps it on a reprocess), resolves `SUPPLIER_UNMATCHED`, writes `document.supplier_assigned` and runs the type's checks again (a duplicate the supplier reveals shows at once). `200`. Re-running identification for the supplier's layouts comes with P4. |
+| `POST /documents/{id}:create-supplier` | Review | Body as `POST /suppliers`, with its checks (name, identifiers, currency, the caps and formats of the lists, a name that folds to an existing supplier is `409 Supplier exists`); creates the supplier in the document's tenant and assigns it as `:assign-supplier` does, in one save. Needs a tenant scope. `201` with `{supplier, document}`. Permission decision (docs/11 §14): a Reviewer gives the name and the identifiers printed on the document (`vatId`, `taxId`, `ibans`, `defaultCurrency`); `emailDomains`, `aliases` and `alwaysReview`, which steer the Match stage and the review of every later document of the tenant, need TenantAdmin (`403 Tenant admin only` otherwise), as on `POST /suppliers`. The body of every review action (`:set-type`, `:assign-supplier`, `:create-supplier`, `:split`, `:join`) is at most 64 KB (`413`). |
+| `POST /documents/{id}:split` | Review | docs/11 §12.7. Body `{parts: [{pages: [1, 2], typeKey?}, …]}`: 2 to 100 parts that list the document's pages in order, each once, every part a run of consecutive pages (`400` otherwise; `409` for an e-invoice). The first part keeps the id; every other part becomes a new document of the same attachment with its page images and its own text layer (renumbered from 1). A part without a type goes to Classify, a typed one (`TypeSource=Human`, pinned, the document's supplier) to Extract. The document's data, list columns, field index and pipeline flags are cleared (they described all its pages); its corrections stay with it; open review tasks are `Skipped`; nothing is published. A `split` Correction and `document.split` (the new parts get `document.received` with `splitFrom`). `202` with `{parts: [{documentId, pages, typeKey, status}]}`. |
+| `POST /documents/{id}:join` | Review | Body `{documentIds}`: other parts of the same attachment, all `NeedsReview`, `Validated` or `Failed`, which with this document make one unbroken run of the attachment's pages (`400`/`409` otherwise). This document takes every page in attachment order and goes back to Classify; the others become `Cancelled` with `joinedIntoDocumentId` (their list columns and field index cleared, so they are never duplicates; their data stays as the audit). Joined back into the whole attachment, the document is the whole file again and is read as before the split. A `join` Correction and `document.joined` on every part; nothing is published. `202` with the joined document. |
+| `GET /documents/{id}/pages/{n}/words` | Read | docs/11 §12.3 (P2). `?bbox=x0,y0,x1,y1` (page units, 0 to 1000) and `?locale=` (`de-DE`, `en-US`, …; the tenant's country by default) optional. `{page, source, locale, words: [{index, text, bBox, confidence?}], text?, bBox?, candidates: [{kind, value}]}`: `source` is `pdfText`, `ocr` or `none` (no text layer: an image page); `index` is the word's index in the stored text layer. Without a box every word of the page; with one the words whose centre lies inside it in reading order, their joined `text`, their union and the readings of the text per kind (`date` as `yyyy-MM-dd`, `decimal`, `integer`, `money` when a currency is printed, `percent` with its sign, `currency`, `identifier`, `text`). `400` for a bad box or locale, `404` for a page that does not exist. |
+| `POST /documents/{id}/regions:read` | Review | docs/11 §12.3. Body `{page, bBox, locale?}`: the page image cut to the box and read by the host's OCR provider; answers like `/words` with `source: ocr`, `provider` and words without `index`. Nothing is stored. `501` with `code: OCR_NOT_CONFIGURED` when the host has no OCR provider (none ships yet), `404` without the page image. A few run at a time per tenant (`TableTool:ConcurrentReadsPerTenant`, docs/09), `429` beyond. A body above 16 KB is a `413`. |
+| `POST /documents/{id}/regions:table` | Review | docs/11 §12.4. Body `{page, bBox, columns?: [{x0, x1, field?, header?, tierMinQuantity?}], headerRow?: {y0, y1}, path?, rowAnchor?, pages?, repeatHeader?, minAnchors?, continuation?, groupHeader?: {target, when?}, tierColumns?: {headerPattern?, target?, quantityField?, priceField?}, skipRows?, stopAt?, pageMargins?: {top?, bottom?}, pageOverrides?: [{page, columns: [{x0, x1}]}], locale?, repeatedLines?, write?, reason?}`. The document needs a type with a definition (`409 No type` / `No definition`). Without `columns`: proposed dividers and column fields for the box (`proposed: true`) and the rows they read on `page`. With `columns`: the rows of the mapping over `pages` (`1-*`, `2-5,7`; just `page` by default) and the table report `{rows, rejectedRows, pages, pagesWithoutRows, stoppedOnPage?, perPage: [{page, headerFound, rows, rejected, rejectedLines, skippedLines, groupHeadings, continuationLines, columns, columnsFrom, firstRows, top, bottom, headings, repeatedLines, leftOutLines, repeatedTexts}]}` (`top` and `bottom` the band of the page read, `headings` the texts of the group headings read, `repeatedLines` and `leftOutLines` the lines left out as running lines and as text in left-out columns only, `repeatedTexts` the texts of the running lines left out, the first 20), plus the first 1,000 rows with every value's page, box and printed text, and the `locale` the values were read in. A column is a tier column only when it names `tierMinQuantity` (the proposal reads it from a header such as `ab 10` or `ab 1.000`); one without a field or a quantity is left out, and its words count for nothing. `repeatedLines` `skip` (default) leaves out lines printed at the same height with the same text on at least half of the document's pages above or below its rows (running titles, page numbers, footers; a number matches when it is the same on both pages or each page's own number) unless they read as a row, or as a group heading for another category above the page's first row (not when the line's copy on the mapping page lies above the band read there: that is a running title); `keep` reads them. A row with a value in the anchor column only is rejected (`anchorOnly`). The proposal reads its page with the request's `groupHeader`. A box with nothing printed below its `headerRow` (drawn around the header only) reads every page down to `pageMargins.bottom`, or the foot of the page. `write: true` (only `NeedsReview`, `Validated`, `Failed` and a definition-driven document, `409` otherwise) stores every row as one Correction (op `set` on `path`, `SourceJson.table` with the specification and the report) and the report as the group's `DocumentTableReport`, re-validates and answers with `document`; more rows than the group's `maxItems` is a `400`. Patterns run NonBacktracking with a time limit (at most 20 of 200 characters each, at most 500 atoms once counted repetitions are unrolled, and a variation of at most 64 for groups whose length varies, `PatternSize`, docs/11 §8.5; `400` otherwise); a pattern that runs out of time is a `400`. One read runs within `TableTool:ReadBudget` (10 s) and stops when the client goes away: `422` with `code: TABLE_READ_TOO_SLOW` past the budget. A few reads run at a time per tenant, `429` beyond. A body above 2 MB is a `413`, and `pages` is at most 200 characters (`400`). |
+| `GET /documents/{id}/table-reports` | Read | The stored table reports: `[{path, origin, correctionId, producedAtVersion, createdAt, report}]`. A report goes when its group is written by another source (`set` of the whole group, the Extract stage, `:set-type`, `:split`, `:join`). |
+| `GET /documents/{id}/parts` | Read | docs/11 §12.7 (P2). The documents of the same attachment as this one, in page order: `[{documentId, pageStart, pageEnd, pageCount, status, type, documentNumber, joinedIntoDocumentId}]`, pages within the attachment; a part a join cancelled names the document it was joined into. What the review screen's Join parts dialog offers. `404` for a document not visible in the scope. |
+| `GET /review-tasks` | Review | Open and InProgress by default (`status=` to change), `assignedTo=me`; by priority (urgent, high, normal), then due time (`slaDueAt`, none last), then oldest first (docs/11 §6.2), each with its `DocumentSummary`. `ReviewTaskDto` carries `tenantId` and `tenantName` like the summary (same join), for the admin console's global queue. |
 | `POST /review-tasks/{id}:claim` / `:release` | Review | Claim is a conditional update of an unassigned open task: exactly one of simultaneous claimants wins, the others get `409 Task already claimed` naming the holder; re-claiming one's own task is idempotent. Release by the assignee or a tenant admin undoes exactly the assignment the caller saw (`409 Task changed` when it was claimed, released or closed in the meantime). |
 
 ## Web implementation
 
 `web/` is one pnpm workspace (Node 22, Vite 8, React 19, TypeScript strict): `packages/api-client` (generated
 `openapi-typescript` schema + `openapi-fetch` client, the contract), `packages/ui` (shadcn/ui components, Tailwind v4
-tokens, dark mode via `next-themes`), `packages/app-shell` (everything both apps share above the screen level), and
-the two apps `apps/customer-portal` and `apps/admin-console`, which only add screens. `web/e2e` holds the Playwright
-suite.
+tokens, dark mode via `next-themes`), `packages/app-shell` (everything both apps share above the screen level),
+`packages/review` (the review form generated from a document type's compiled form spec, `DefinitionForm` with
+`RepeatingGroupGrid` and `FieldInput`, and the document type editor `DocumentTypesPanel`, docs/11 §12.2 and §19; its
+strings are the `review` namespace, which both apps register, and its `styles.css`, which the apps import in place of the shell's, adds its sources to the Tailwind scan), and the two apps `apps/customer-portal` and
+`apps/admin-console`, which only add screens. `web/e2e` holds the Playwright suite.
 
 ### `@docproc/app-shell`
 
 | Area | What it gives a screen |
 |---|---|
-| Auth | `AppProviders` → `AuthProvider` with two modes from `VITE_AUTH_MODE`. **`dev`** (the apps' `.env.development`): `SignInPage` lists `GET /dev/users` as cards and `POST /dev/token` on click; the token lives in `sessionStorage` with its expiry (`createTokenStore`, 30 s safety skew) and sign-out clears it. **`oidc`** (`.env.production`): `react-oidc-context` + `oidc-client-ts` against `VITE_OIDC_AUTHORITY` / `VITE_OIDC_CLIENT_ID`, authorization code + PKCE redirect flow, silent renew, `code`/`state` stripped from the URL after the callback. `useAuth()` exposes `{ user: { name, displayName, email, roles, permissions, tenantId, scope }, accessToken, status, isAuthenticated, signIn, signOut, hasRole, hasPolicy }`; `user` is `GET /api/v1/me` after sign-in. `hasPolicy` prefers the API's `permissions` and otherwise mirrors `Policies.RolesByPolicy` (`rolesByPolicy` in `auth/policies.ts`). |
+| Auth | `AppProviders` → `AuthProvider` with two modes from `VITE_AUTH_MODE`. **`dev`** (the apps' `.env.development`): `SignInPage` lists `GET /dev/users` as cards and `POST /dev/token` on click; the token lives in `sessionStorage` with its expiry (`createTokenStore`, 30 s safety skew) and sign-out clears it. **`oidc`** (`.env.production`): `react-oidc-context` + `oidc-client-ts` against `VITE_OIDC_AUTHORITY` / `VITE_OIDC_CLIENT_ID`, authorization code + PKCE redirect flow, silent renew, `code`/`state` stripped from the URL after the callback; sign-out redirects to the authority's end-session endpoint with the ID token as `id_token_hint` (`signOutOidc`), so Keycloak ends its session without a "Do you want to log out?" page and the next sign-in asks for the password again, and it only clears the local session when there is no end-session endpoint. `useAuth()` exposes `{ user: { name, displayName, email, roles, permissions, tenantId, scope }, accessToken, status, isAuthenticated, signIn, signOut, hasRole, hasPolicy }`; `user` is `GET /api/v1/me` after sign-in. `hasPolicy` prefers the API's `permissions` and otherwise mirrors `Policies.RolesByPolicy` (`rolesByPolicy` in `auth/policies.ts`). |
 | Routing | TanStack Router, file-based: `src/routes/__root.tsx` renders `AppProviders` + `AppShell`, every other file under `src/routes` is a screen; `@tanstack/router-plugin` writes `src/routeTree.gen.ts` (committed, regenerated on `dev`/`build`; on a merge conflict delete it and run `pnpm build`). `AppShell` is the gate: anonymous → `/sign-in?redirect=…` (same-origin paths only), signed in on `/sign-in` → back, otherwise `AppLayout` around the `Outlet`. The apps register their router type (`declare module … Register`), so screens get typed `Link`/`navigate`; the shell navigates by `href`. `router.tsx` sets `LoadingScreen`, `NotFoundPage` and `RouteErrorPage` as the defaults. |
 | API + server state | `ApiProvider` creates the one `@docproc/api-client` with `getAccessToken` from the session and a `QueryClientProvider`. `useApi().client.GET("/api/v1/documents", { params: { query } })` is fully typed from `schema.d.ts`; wrap every call in `unwrap(...)` so a problem-details error becomes a thrown `ApiError` (`status`, `title`, `fieldErrors`, the latter in the UI language wherever the API sent `errorCodes`). The global `onError` toasts (sonner): 409 shows the problem title and refetches active queries (concurrent edit, invalid transition, claimed task), 400 shows the first field error, 403 the title, 401 is handled by sign-out, 404 is left to the page; `meta: { silent: true }` on a query/mutation opts out. Defaults: `staleTime` 30 s, no refetch on focus, retries only for 5xx/network. `queryKeys.<resource>.list(query) / pages(filters) / detail(id) / all` is the key factory: `list` is one plain page (a lookup, a count) and keeps `limit` in the key, `pages` is the entry of a `useCursorList` infinite list and holds only the filters (`cursor`/`limit` are paging inside the entry), so the two never share a cache entry; both sit under `all`. Rendered page images are keyed `documentPages.page(id, n)`, outside `documents`, so invalidating documents after an action does not refetch them. `useCursorList({ queryKey, queryFn })` pages any `{ items, nextCursor }` list with `useInfiniteQuery`. `TenantSwitcherProvider`/`TenantSwitcher` (admin header, SuperAdmin only) set `X-Tenant-Id`; changing it resets the query cache (not while signed out: sign-out clears the override and drops the cache). |
 | Layout | `AppLayout`: shadcn sidebar built from the app's `src/nav.ts` (`NavItem { to, labelKey, icon, policy?, roles?, exact? }` or sections; entries the user's policies do not satisfy are hidden), header with `role="banner"` holding the optional tenant switcher and `UserMenu` (avatar, name, e-mail, roles, scope, language en/de, light/dark/system, sign out), `#main-content` for the routed screen. `ErrorBoundary`/`ErrorPage`, `NotFoundPage`, `LoadingScreen`, `PageHeader`, `EmptyState`. |
 | Components | `DataTable` (TanStack Table v9 `useTable` with `dataTableFeatures`: sorting + column visibility + row expanding; `createDataTableColumnHelper<T>()` for typed columns; skeleton rows, empty state, and with `query` (the list's query) an error state with Retry in place of the empty state when the request failed; sortable headers keep the column's text as their name, with the sort action as the description; optional toolbar/footer for cursor paging; `renderSubRow` + `getRowCanExpand` add a chevron column and a full-width detail panel under a row, kept open by row id across refetches and sorts; `rowAttributes` for `data-*` hooks), `ConfirmDialog` (shadcn alert dialog, awaits `onConfirm`, stays open on failure), `StatusBadge` / `ReviewTaskStatusBadge` / `TenantStatusBadge` (red `destructive` only for Failed; a state waiting for a person, Needs review or an open task, uses the amber `warning` variant of `@docproc/ui`), `FieldStatusBadge` / `ConfidenceBadge` / `SourceBadge`. |
-| Utilities | `formatMoney(amount, currency, locale)`, `formatDate`, `formatDateTime`, `relativeTime`, `formatPercent`, `formatBytes`, `initials` (locale defaults to the i18n language; `number \| string` accepted because the generated schema types doubles that way); field helpers `parsePath` / `getByPath` / `setByPath` (immutable) / `lineItemOf` over canonical paths such as `lines[2].quantity`; `FieldValue` types with `isLowConfidence(field, threshold)`, `hasValue` and the badge-variant maps. |
+| Utilities | `formatMoney(amount, currency, locale)`, `formatDate`, `formatDateTime`, `relativeTime`, `formatPercent`, `formatBytes`, `initials` (locale defaults to the i18n language; `number \| string` accepted because the generated schema types doubles that way); field helpers `parsePath` / `getByPath` / `setByPath` (immutable) / `rowOf` (the row of any repeating group; `lineItemOf` for `lines`) over canonical paths such as `lines[2].quantity`; `FieldValue` types with `isLowConfidence(field, threshold)`, `hasValue` and the badge-variant maps. |
 | i18n | i18next + react-i18next + browser language detector (`localStorage` key `docproc.lang`, then `navigator`), en and de, namespace `common` from the shell; each app calls `createI18n({ resources: { en: { portal }, de: { portal } }, defaultNS: "portal" })` from `src/i18n/index.ts`. Every visible string goes through `t()`; shell components address `common:` explicitly, screens read their app namespace by default. `createI18n` also installs zod's global error map (`i18n/zodErrors.ts`): a schema check without a message of its own reads `common:validation.*` in the current language, so zod's English defaults never reach the screen. |
 
 ### Conventions for screens

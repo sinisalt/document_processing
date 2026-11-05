@@ -1,0 +1,3 @@
+# What the folder watcher reads, takes and moves (processed/, failed/) stays out of git; only the tenant folders do.
+/*/**
+!/*/.gitkeep

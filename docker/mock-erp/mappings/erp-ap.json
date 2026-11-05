@@ -1,0 +1,192 @@
+{
+  "mappings": [
+    {
+      "name": "erp-ap: accept an invoice or credit note",
+      "priority": 5,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices",
+        "headers": {
+          "Content-Type": {
+            "contains": "json"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"erpId\":\"AP-{{randomValue length=8 type='NUMERIC'}}\",\"status\":\"accepted\",\"idempotencyKey\":\"{{request.headers.[Idempotency-Key]}}\",\"receivedAt\":\"{{now}}\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "erp-ap: accept an invoice with its original file (multipart/form-data: data + file)",
+      "priority": 4,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices",
+        "headers": {
+          "Content-Type": {
+            "contains": "multipart/form-data"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"erpId\":\"AP-{{randomValue length=8 type='NUMERIC'}}\",\"status\":\"accepted\",\"withAttachment\":true,\"idempotencyKey\":\"{{request.headers.[Idempotency-Key]}}\",\"receivedAt\":\"{{now}}\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "erp-ap: refuse a body that is not JSON",
+      "priority": 6,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices"
+      },
+      "response": {
+        "status": 415,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "error": "unsupported_media_type",
+          "message": "Send the invoice as application/json."
+        }
+      }
+    },
+    {
+      "name": "erp-ap: 503 when the request asks for it (X-Mock-Erp-Fail: 503)",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices",
+        "headers": {
+          "X-Mock-Erp-Fail": {
+            "equalTo": "503"
+          }
+        }
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "erp-ap is down (forced by X-Mock-Erp-Fail)."
+        }
+      }
+    },
+    {
+      "name": "erp-ap: 503 once after POST /__control/erp-ap/fail-next",
+      "priority": 1,
+      "scenarioName": "erp-ap",
+      "requiredScenarioState": "fail-next",
+      "newScenarioState": "Started",
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices"
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "erp-ap is down for this one call (fail-next)."
+        }
+      }
+    },
+    {
+      "name": "erp-ap: 503 on every call after POST /__control/erp-ap/fail-always",
+      "priority": 1,
+      "scenarioName": "erp-ap",
+      "requiredScenarioState": "down",
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/ap/invoices"
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "erp-ap is down until POST /__control/erp-ap/reset."
+        }
+      }
+    },
+    {
+      "name": "control: erp-ap fails the next call",
+      "scenarioName": "erp-ap",
+      "newScenarioState": "fail-next",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap/fail-next"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap",
+          "state": "fail-next"
+        }
+      }
+    },
+    {
+      "name": "control: erp-ap fails every call",
+      "scenarioName": "erp-ap",
+      "newScenarioState": "down",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap/fail-always"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap",
+          "state": "down"
+        }
+      }
+    },
+    {
+      "name": "control: erp-ap answers normally again",
+      "scenarioName": "erp-ap",
+      "newScenarioState": "Started",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/erp-ap/reset"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "erp-ap",
+          "state": "Started"
+        }
+      }
+    }
+  ]
+}

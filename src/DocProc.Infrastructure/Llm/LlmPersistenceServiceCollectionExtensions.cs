@@ -12,7 +12,7 @@ public static class LlmPersistenceServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="EfLlmPolicyStore"/>, <see cref="SecretStoreLlmCredentialStore"/> and
-    /// <see cref="EfLlmUsageRecorder"/> as singletons. Needs persistence (<c>ISystemDbContextFactory</c>) and the host's
+    /// <see cref="EfLlmUsageRecorder"/> and <see cref="EfLlmBudgetGuard"/> as singletons. Needs persistence (<c>ISystemDbContextFactory</c>) and the host's
     /// <c>IConfiguration</c>; the credential store reads keys from the host's <see cref="ISecretStore"/> (where the API
     /// writes BYOK and platform keys) when one is registered, then from configuration. A host that already registered a
     /// port (the Key Vault credential store, a test fake) keeps it.
@@ -27,6 +27,7 @@ public static class LlmPersistenceServiceCollectionExtensions
             sp.GetRequiredService<IConfiguration>(),
             sp.GetService<ILogger<SecretStoreLlmCredentialStore>>()));
         services.TryAddSingleton<ILlmUsageRecorder, EfLlmUsageRecorder>();
+        services.TryAddSingleton<ILlmBudgetGuard, EfLlmBudgetGuard>();
         return services;
     }
 }

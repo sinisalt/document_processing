@@ -1,5 +1,9 @@
 # Processing pipeline
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 One pipeline, many entry points, three extraction paths. Every stage is an idempotent
 worker step driven by a durable queue; every stage writes its output to storage and
 advances the document state, so any stage can be retried or re-run (for example,
@@ -152,7 +156,12 @@ flags, and approves or rejects. Corrections are recorded as `Correction` rows.
 Received → Normalized → Split → Classified → Matched → Extracted → Validated
    → (AutoApproved | NeedsReview → (Approved | Rejected))
    any stage → Failed(reason)  (retryable; surfaces in admin console)
+   NeedsReview | Validated | Failed → Cancelled  (joined into another document in review, docs/11 §12.7; terminal)
 ```
+
+A reviewer's split or join (docs/11 §12.7) sends the documents back into the pipeline from Split (to Classify) or,
+for a part the reviewer typed, from Matched (to Extract), as a reprocess does; the Match stage keeps a supplier a
+reviewer assigned (`SupplierMatchMethod.Human`).
 
 State transitions are recorded in an append-only `DocumentEvent` table used for the
 audit trail, the admin timeline view and metrics (time-to-approve, STP rate).
@@ -187,8 +196,15 @@ stops is lost, which the idempotent handlers and a re-process from the API toler
 `Pipeline:RunInProcess` (default: true outside Production; the worker defaults to true everywhere)
 decides whether `PipelineRunnerHostedService` consumes the queue in that process. With it off, only
 the queue is registered so the API can still enqueue; the Service Bus transport that makes this
-durable in Azure is a later block. The runner processes `Pipeline:MaxParallelism` messages at a
-time (default 2), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
+durable in Azure is a later block. **Known effect until then:** in the Production topology the API
+runs no runner, so the publish nudge of an approve or reject goes to a queue nothing reads, and
+every human decision is published by the worker's publish sweeper (docs/11 §13.5) at least
+`Pipeline:PublishSweepGrace` after it, with the sweeper's warning in the log and
+`recoveredBy: "publish-sweeper"` in the timeline. Nothing is lost (before P0 these publishes were
+lost without a trace), but there "recovered" is the normal case, not a sign of a crash; the signal
+means a lost message only where the deciding host runs a runner (Development, compose, the
+AppHost). Auto-approvals are nudged in the worker and publish at once. The runner processes `Pipeline:MaxParallelism` ingestion and document messages at a
+time (default 2; delivery attempts have a lane of their own, `Delivery:MaxParallelism`, docs/11 §13.6), one DI scope and one `DbContext` per message, with the scoped `TenantContext` set
 to the message's tenant before any query runs. Messages with the same key (the document id, or the
 ingestion id for stage 1) are serialised through a keyed single-flight gate (`KeyedWorkGate`), so
 two copies of one message never run at the same time in one process; the copy that waits finds the
@@ -298,7 +314,10 @@ event marked `retry: true`, so the job inspector shows the attempts.
 and extraction by image only and always end in review: until OCR lands nothing but the LLM has read
 those pages, so an image-only invoice is never auto-approved), extractor profiles
 (`ExtractorProfileId` stays null and the profile path has no implementation), Office and text
-items (`Failed: unsupported format`), the Service Bus transport, webhook delivery (stage 9 writes
-the `OutboxMessage` row; nothing reads it yet), exports and the learning loop. The LLM credential
+items (`Failed: unsupported format`), the Service Bus transport, webhook delivery (the decision
+that settles a document, approve, reject or auto-approval, writes the `OutboxMessage` row in its
+own transaction and stage 9 hands it on by setting `FannedOutAt`; a settlement whose publish
+message was lost is queued again by `PublishSweeperHostedService`, docs/11 §13.5; nothing reads the
+rows yet), exports and the learning loop. The LLM credential
 store reads `Llm:Secrets:<secretRef>` from configuration or `LLM_SECRET_<SECRET_REF>` from the
 environment; the Key Vault store replaces it in Azure.

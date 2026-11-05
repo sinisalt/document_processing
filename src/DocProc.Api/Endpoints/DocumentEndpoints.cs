@@ -3,11 +3,13 @@ using System.Security.Claims;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
 using DocProc.Application.Abstractions;
+using DocProc.Application.Configuration;
+using DocProc.Application.Documents;
 using DocProc.Application.Pipeline;
-using DocProc.Domain.Common;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
+using DocProc.Domain.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,13 +27,23 @@ namespace DocProc.Api.Endpoints;
 /// the row earlier, the pipeline or <c>PATCH /fields</c>, fails its own save instead of overwriting the decision) and
 /// shares one transaction with the event and the task closures it entails; the queue message goes out after the commit.
 /// </summary>
-public static class DocumentEndpoints
+public static partial class DocumentEndpoints
 {
+    /// <summary>The most corrections one <c>PATCH …/fields</c> carries.</summary>
+    public const int MaxCorrectionsPerRequest = 5_000;
+
+    /// <summary>
+    /// The largest <c>PATCH …/fields</c> body: a <c>set</c> of a 10,000-row list with its tiers is about 4.5 MB; a larger
+    /// body is refused (413) before it is read.
+    /// </summary>
+    public const long MaxCorrectionsRequestBytes = 8L * 1024 * 1024;
+
     /// <summary>Stages a reviewer may rerun with <c>:reprocess</c>, and the state the document is reset to for each (the output of the stage before it).</summary>
     private static readonly IReadOnlyDictionary<PipelineStage, DocumentStatus> ReprocessStart = new Dictionary<PipelineStage, DocumentStatus>
     {
         [PipelineStage.Normalize] = DocumentStatus.Received,
         [PipelineStage.Classify] = DocumentStatus.Split,
+        [PipelineStage.Match] = DocumentStatus.Classified,
         [PipelineStage.Extract] = DocumentStatus.Matched,
         [PipelineStage.Validate] = DocumentStatus.Extracted,
     };
@@ -58,7 +70,7 @@ public static class DocumentEndpoints
         documents.MapGet("/", ListAsync)
             .RequireAuthorization(Policies.Read)
             .WithName("ListDocuments")
-            .WithSummary("Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters; cursor-paginated.");
+            .WithSummary("Inbox: documents newest first with status, type, supplier, flag, issue-date and text filters, plus field.<key>=value for the indexed fields of the document types (docs/11 §18); cursor-paginated.");
 
         documents.MapGet("/{id:guid}", GetAsync)
             .RequireAuthorization(Policies.Read)
@@ -105,9 +117,13 @@ public static class DocumentEndpoints
 
         documents.MapPatch("/{id:guid}/fields", CorrectFieldsAsync)
             .RequireAuthorization(Policies.Review)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxCorrectionsRequestBytes))
             .WithName("CorrectDocumentFields")
             .WithSummary("Applies reviewer corrections by canonical field path to a document that needs review, is validated or has failed; each keeps the previous value in the field's history and is recorded as a Correction.");
 
+        MapReviewActions(documents);
+        MapMapMode(documents);
+        MapRevisionActions(documents);
         return group;
     }
 
@@ -121,12 +137,34 @@ public static class DocumentEndpoints
         string? q,
         string? cursor,
         int? limit,
+        string? fields,
+        Guid? pendingLayoutVersionId,
+        string? sort,
+        HttpContext http,
         [FromServices] DocProcDbContext db,
         CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var byReviewDue = false;
+        if (!string.IsNullOrWhiteSpace(sort))
+        {
+            switch (sort.Trim())
+            {
+                case DocumentSorts.Created:
+                    break;
+                case DocumentSorts.ReviewDue:
+                    byReviewDue = true;
+                    break;
+                default:
+                    errors["sort"] = [$"Must be {DocumentSorts.Created} or {DocumentSorts.ReviewDue}."];
+                    break;
+            }
+        }
+
         var statuses = ParseList<DocumentStatus>(status, "status", errors);
-        var types = ParseList<DocumentType>(type, "type", errors);
+        var types = ParseTypeKeys(type, errors);
+        var fieldFilters = ParseFieldFilters(http.Request.Query, errors);
+        var columns = ParseFieldColumns(fields, errors);
         PageCursor? after = null;
         if (!string.IsNullOrEmpty(cursor))
         {
@@ -166,6 +204,12 @@ public static class DocumentEndpoints
             query = query.Where(d => d.SupplierId == supplier);
         }
 
+        // ?pendingLayoutVersionId= (docs/11 §12.10 step 1): the documents waiting for a Candidate layout.
+        if (pendingLayoutVersionId is { } pending)
+        {
+            query = query.Where(d => d.PendingLayoutVersionId == pending);
+        }
+
         if (!string.IsNullOrWhiteSpace(flag))
         {
             var code = flag.Trim().ToUpperInvariant();
@@ -182,39 +226,265 @@ public static class DocumentEndpoints
             query = query.Where(d => d.IssueDate <= toDate);
         }
 
+        // ?field.<key>=value (docs/11 §18): documents with that value in an indexed field, compared as the index stores
+        // it (strings and identifiers normalised, numbers and dates by value); several filters must all hold.
+        foreach (var filter in fieldFilters)
+        {
+            query = filter.Apply(query);
+        }
+
         if (!string.IsNullOrWhiteSpace(q))
         {
             var pattern = "%" + EscapeLike(q.Trim()) + "%";
             query = query.Where(d => EF.Functions.Like(d.DocumentNumber!, pattern, "\\") || (d.Supplier != null && EF.Functions.Like(d.Supplier.Name, pattern, "\\")));
         }
 
-        if (after is { } c)
+        var size = PageCursor.ClampLimit(limit);
+        // The summaries only (DocumentQueries.Summaries): a list never reads the documents' canonical trees.
+        List<DocumentSummary> items;
+        if (byReviewDue)
         {
-            query = query.Where(d => d.CreatedAt < c.At || (d.CreatedAt == c.At && d.Id.CompareTo(c.Id) < 0));
+            // The page is the first size + 1 documents in that order; the order is applied again in memory, after the
+            // projection's joins, with the same keys the summary shows (and the cursor carries).
+            items = [.. (await DocumentQueries.Summaries(db, ByReviewDue(query, after).Take(size + 1)).ToListAsync(ct))
+                .OrderBy(r => ReviewRank(r.ReviewPriority))
+                .ThenBy(r => r.ReviewDueAt is null ? 1 : 0)
+                .ThenBy(r => r.ReviewDueAt)
+                .ThenByDescending(r => r.CreatedAt)
+                .ThenByDescending(r => r.Id)];
+        }
+        else
+        {
+            if (after is { } c)
+            {
+                query = query.Where(d => d.CreatedAt < c.At || (d.CreatedAt == c.At && d.Id.CompareTo(c.Id) < 0));
+            }
+
+            items = await DocumentQueries.Summaries(db, query
+                    .OrderByDescending(d => d.CreatedAt)
+                    .ThenByDescending(d => d.Id)
+                    .Take(size + 1))
+                .ToListAsync(ct);
         }
 
-        var size = PageCursor.ClampLimit(limit);
-        var rows = await DocumentQueries.Rows(db, query
-                .OrderByDescending(d => d.CreatedAt)
-                .ThenByDescending(d => d.Id)
-                .Take(size + 1))
-            .ToListAsync(ct);
-
-        var hasMore = rows.Count > size;
+        var hasMore = items.Count > size;
         if (hasMore)
         {
-            rows.RemoveAt(rows.Count - 1);
+            items.RemoveAt(items.Count - 1);
         }
 
-        var items = rows.Select(DocumentQueries.ToSummary).ToList();
-        var next = hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode() : null;
+        if (columns.Count > 0 && items.Count > 0)
+        {
+            items = await WithFieldColumnsAsync(db, items, columns, ct);
+        }
+
+        var next = !hasMore ? null
+            : byReviewDue ? PageCursor.ByDue(items[^1].CreatedAt, items[^1].Id, ReviewRank(items[^1].ReviewPriority), items[^1].ReviewDueAt).Encode()
+            : new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode();
         return TypedResults.Ok(new Page<DocumentSummary>(items, next));
     }
 
-    private static async Task<Results<Ok<DocumentDetail>, ProblemHttpResult>> GetAsync(Guid id, [FromServices] DocProcDbContext db, CancellationToken ct)
+    /// <summary>The orders of <c>GET /documents</c> (<c>?sort=</c>).</summary>
+    public static class DocumentSorts
+    {
+        /// <summary>Newest first (the default).</summary>
+        public const string Created = "created";
+
+        /// <summary>
+        /// "Urgent first" (docs/11 §6.2, §19 inbox): by the priority of the open review task (urgent, high, normal, then
+        /// documents without one), then its due time (none last), then newest first; across every page, not only the
+        /// loaded one.
+        /// </summary>
+        public const string ReviewDue = "reviewDue";
+    }
+
+    /// <summary>The rank of an open review task's priority in <see cref="DocumentSorts.ReviewDue"/>; 3 for a document without one.</summary>
+    private static int ReviewRank(ReviewPriority? priority) => priority switch
+    {
+        ReviewPriority.Urgent => 0,
+        ReviewPriority.High => 1,
+        ReviewPriority.Normal => 2,
+        _ => 3,
+    };
+
+    /// <summary>The documents in <see cref="DocumentSorts.ReviewDue"/> order, after <paramref name="after"/>.</summary>
+    private static IQueryable<Document> ByReviewDue(IQueryable<Document> query, PageCursor? after)
+    {
+        var keyed = query.Select(d => new
+        {
+            Document = d,
+            Rank = d.ReviewTasks
+                .Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .Select(t => (int?)(t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2))
+                .Min() ?? 3,
+            Due = d.ReviewTasks
+                .Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .Select(t => t.SlaDueAt)
+                .Min(),
+        });
+        if (after is { } c)
+        {
+            // A cursor of the default order (no rank) continues among the documents without a review task.
+            var rank = c.Rank ?? 3;
+            if (c.HasDue && c.Due is { } due)
+            {
+                keyed = keyed.Where(k => k.Rank > rank
+                                         || (k.Rank == rank && (k.Due == null || k.Due > due
+                                                                || (k.Due == due && (k.Document.CreatedAt < c.At || (k.Document.CreatedAt == c.At && k.Document.Id.CompareTo(c.Id) < 0))))));
+            }
+            else
+            {
+                keyed = keyed.Where(k => k.Rank > rank
+                                         || (k.Rank == rank && k.Due == null
+                                             && (k.Document.CreatedAt < c.At || (k.Document.CreatedAt == c.At && k.Document.Id.CompareTo(c.Id) < 0))));
+            }
+        }
+
+        return keyed
+            .OrderBy(k => k.Rank)
+            .ThenBy(k => k.Due == null ? 1 : 0)
+            .ThenBy(k => k.Due)
+            .ThenByDescending(k => k.Document.CreatedAt)
+            .ThenByDescending(k => k.Document.Id)
+            .Select(k => k.Document);
+    }
+
+    /// <summary>The most indexed fields one list request may ask for as columns.</summary>
+    public const int MaxFieldColumns = 10;
+
+    /// <summary><c>fields=supplierCustomerRef,lines[*].supplierSku</c>: the indexed fields to return as columns (docs/11 §19).</summary>
+    private static List<string> ParseFieldColumns(string? fields, Dictionary<string, string[]> errors)
+    {
+        var keys = (fields ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToList();
+        if (keys.Count > MaxFieldColumns)
+        {
+            errors["fields"] = [$"At most {MaxFieldColumns} fields."];
+            return [];
+        }
+
+        var invalid = keys.Where(k => k.Length > DocumentFieldIndexEntry.MaxFieldKeyLength || !FieldKeyPattern().IsMatch(k)).ToList();
+        if (invalid.Count > 0)
+        {
+            errors["fields"] = [$"Not indexed field paths: {string.Join(", ", invalid)}."];
+            return [];
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// The page's rows with the asked-for indexed values in <see cref="DocumentSummary.Fields"/>: per field the first
+    /// value the index holds (ordinal 0; a row field such as <c>lines[*].supplierSku</c> has one per row, and only the
+    /// first is read, so a page costs at most one index row per document and key).
+    /// </summary>
+    private static async Task<List<DocumentSummary>> WithFieldColumnsAsync(DocProcDbContext db, List<DocumentSummary> items, List<string> keys, CancellationToken ct)
+    {
+        var ids = items.Select(i => i.Id).ToList();
+        var entries = await db.DocumentFieldIndex.AsNoTracking()
+            .Where(e => ids.Contains(e.DocumentId) && keys.Contains(e.FieldKey) && e.Ordinal == 0)
+            .Select(e => new { e.DocumentId, e.FieldKey, e.StringValue, e.NumberValue, e.DateValue })
+            .ToListAsync(ct);
+        var byDocument = entries
+            .GroupBy(e => e.DocumentId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyDictionary<string, string>)g
+                    .Select(e => (e.FieldKey, Value: e.DateValue?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                                                     ?? e.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                                     ?? e.StringValue))
+                    .Where(e => e.Value is not null)
+                    .ToDictionary(e => e.FieldKey, e => e.Value!, StringComparer.Ordinal));
+        var empty = new Dictionary<string, string>(StringComparer.Ordinal);
+        return [.. items.Select(i => i with { Fields = byDocument.TryGetValue(i.Id, out var values) ? values : empty })];
+    }
+
+    private static async Task<Results<Ok<DocumentDetail>, ProblemHttpResult>> GetAsync(
+        Guid id,
+        [FromServices] DocProcDbContext db,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
+        CancellationToken ct)
     {
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
-        return row is null ? NotFound(id) : TypedResults.Ok(DocumentQueries.ToDetail(row));
+        if (row is null)
+        {
+            return NotFound(id);
+        }
+
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+    }
+
+    /// <summary>
+    /// The detail of a document as every endpoint answers it: with the type version it is shown with
+    /// (<see cref="DefinitionOfAsync"/>), and, for a correctable document, the tree the next <c>PATCH …/fields</c> starts
+    /// from: for a definition-driven type that has no stored tree yet (a delivery note extracted before the tenant
+    /// switched <c>configurableTypes</c> on) the empty tree of its version with <c>canonicalSchemaVersion</c> 2, so the
+    /// generated form can be filled at once instead of showing "no extracted data"; for a stored version 2 tree, the
+    /// tree completed with the fields its version has and it lacks. Nothing is written.
+    /// </summary>
+    private static async Task<DocumentDetail> DetailAsync(DocumentRow row, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
+    {
+        var document = row.Document;
+        var (definition, type) = await DefinitionOfAsync(document, configs, features, ct);
+        var detail = DocumentQueries.ToDetail(row, definition) with
+        {
+            ApprovalBlocked = await ApprovalBlockAsync(document, configs, features, ct),
+            ConfigurableTypes = await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct),
+            Outputs = await features.IsEnabledAsync(document.TenantId, TenantFeature.Outputs, ct),
+        };
+        if (type?.Compiled is not { } compiled || !Correctable.Contains(document.Status))
+        {
+            return detail;
+        }
+
+        string? view = null;
+        if (string.IsNullOrWhiteSpace(document.CanonicalJson))
+        {
+            view = CanonicalStorage.IsDefinitionDriven(type, configurable: true) ? DefinitionTree.CreateEmpty(compiled.Descriptors).ToJsonString() : null;
+        }
+        else if (document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion
+                 && System.Text.Json.Nodes.JsonNode.Parse(document.CanonicalJson) is System.Text.Json.Nodes.JsonObject stored
+                 && DefinitionTree.Complete(stored, compiled.Descriptors))
+        {
+            // A tree of an earlier version (reprocessed from Validate onto a newer one) lacks the fields the version
+            // added; PATCH completes it the same way before it applies a correction.
+            view = stored.ToJsonString();
+        }
+
+        if (view is not null)
+        {
+            using var tree = System.Text.Json.JsonDocument.Parse(view);
+            detail = detail with { Canonical = tree.RootElement.Clone(), CanonicalSchemaVersion = DefinitionTree.SchemaVersion };
+        }
+
+        return detail;
+    }
+
+    /// <summary>
+    /// The type version a document is shown with (<see cref="DocumentDefinitionRef"/>): for a definition-driven document,
+    /// and for every document of a tenant with <c>configurableTypes</c> on; null otherwise, so a tenant that is not on the
+    /// feature gets the payload it got before. Also answers the resolved type, which is null exactly when the reference is.
+    /// </summary>
+    private static async Task<(DocumentDefinitionRef? Definition, EffectiveType? Type)> DefinitionOfAsync(Document document, IEffectiveConfigResolver configs, ITenantFeatures features, CancellationToken ct)
+    {
+        if (document.Type.IsUnknown)
+        {
+            return (null, null);
+        }
+
+        if (document.CanonicalSchemaVersion != DefinitionTree.SchemaVersion && !await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct))
+        {
+            return (null, null);
+        }
+
+        var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), ct);
+        return config.Type is { Compiled: { } compiled } type ? (DefinitionRef(type, compiled), type) : (null, null);
+    }
+
+    private static DocumentDefinitionRef DefinitionRef(EffectiveType type, Definitions.Compilation.CompiledDefinition compiled)
+    {
+        using var formSpec = System.Text.Json.JsonDocument.Parse(compiled.FormSpecJson);
+        return new DocumentDefinitionRef(type.TypeKey, type.Version, type.VersionId, type.Definition.Name, formSpec.RootElement.Clone());
     }
 
     private static async Task<Results<FileStreamHttpResult, ProblemHttpResult>> GetPageAsync(Guid id, int n, HttpContext context, [FromServices] DocProcDbContext db, IContainerBlobStore blobs, CancellationToken ct)
@@ -327,9 +597,12 @@ public static class DocumentEndpoints
         Guid id,
         ApproveDocumentRequest? request,
         [FromServices] DocProcDbContext db,
+        [FromServices] IContainerBlobStore blobs,
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
@@ -344,20 +617,71 @@ public static class DocumentEndpoints
             return InvalidTransition(document, DocumentStatus.Approved);
         }
 
+        // docs/11 §11: a document without a definition or without captured data is not approved (it would be published
+        // empty); the detail's approvalBlocked says the same before the click. Gated by configurableTypes.
+        if (await ApprovalBlockAsync(document, configs, features, ct) is { } block)
+        {
+            return ApprovalRefused(document, block);
+        }
+
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Approved);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
-                    .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
-                    .SetProperty(d => d.ApprovedBy, actor)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        if (request?.LearnLayout is not null && !await features.IsEnabledAsync(document.TenantId, TenantFeature.SupplierLayouts, ct))
+        {
+            return LayoutEndpoints.FeatureOff();
+        }
+
+        ProblemHttpResult? learnRefusal = null;
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            // "Approve and save as layout" (docs/11 §12.10 step 6): the layout is saved in the approval's transaction, and
+            // NEW_LAYOUT is resolved as learned; approved without it, as approvedWithoutLayout (§11).
+            if (request?.LearnLayout is { } learn)
+            {
+                var learned = await LayoutLearningEndpoints.LearnAsync(db, blobs, configs, clock, id, learn, user, actor, cancel);
+                if (learned.Problem is { } problem)
+                {
+                    learnRefusal = problem;
+                    return false;
+                }
+            }
+            else
+            {
+                await LayoutLearningEndpoints.ResolveNewLayoutAsync(db, id, "approvedWithoutLayout", actor, now, cancel);
+            }
+
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, DocumentStatus.Approved)
+                        .SetProperty(d => d.ApprovedAt, (DateTimeOffset?)now)
+                        .SetProperty(d => d.ApprovedBy, actor)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            document.Status = DocumentStatus.Approved;
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
+            // A REVISION_OF resolved as supersedes takes effect with the approval (docs/11 §11).
+            await DocumentRevisions.ApplyOnApprovalAsync(db, document, actor, now, cancel);
+            // The outbox row commits with the decision (docs/11 §13.5): if the process dies before the publish message
+            // below is queued, the publish sweeper finds the row and publishes it.
+            DocumentOutbox.Add(db, document, now);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (learnRefusal is not null)
+        {
+            return learnRefusal;
+        }
+
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -367,13 +691,9 @@ public static class DocumentEndpoints
         document.ApprovedBy = actor;
         document.UpdatedAt = now;
         document.Version++;
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> RejectAsync(
@@ -383,6 +703,8 @@ public static class DocumentEndpoints
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var reason = Clean(request.Reason, 2000);
@@ -406,15 +728,29 @@ public static class DocumentEndpoints
         var now = clock.GetUtcNow();
         var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, DocumentStatus.Rejected);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, DocumentStatus.Rejected)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            document.Status = DocumentStatus.Rejected;
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
+            await DocumentRevisions.ReleaseAsync(db, document, actor, "rejected", now, cancel);
+            DocumentOutbox.Add(db, document, now);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -422,13 +758,9 @@ public static class DocumentEndpoints
         document.Status = DocumentStatus.Rejected;
         document.UpdatedAt = now;
         document.Version++;
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, PipelineStage.Publish), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> ReprocessAsync(
@@ -438,6 +770,8 @@ public static class DocumentEndpoints
         IPipelineQueue queue,
         TimeProvider clock,
         ClaimsPrincipal user,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
         CancellationToken ct)
     {
         var stage = PipelineStage.Extract;
@@ -449,6 +783,13 @@ public static class DocumentEndpoints
             }
         }
 
+        var configMode = string.IsNullOrWhiteSpace(request?.ConfigMode) ? ReprocessConfigModes.Pinned : request.ConfigMode.Trim();
+        if (configMode is not (ReprocessConfigModes.Pinned or ReprocessConfigModes.Current))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["configMode"] = [$"Must be {ReprocessConfigModes.Pinned} or {ReprocessConfigModes.Current}."] });
+        }
+
+        var unpin = configMode == ReprocessConfigModes.Current;
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: false, ct);
         if (row is null)
         {
@@ -456,6 +797,22 @@ public static class DocumentEndpoints
         }
 
         var document = row.Document;
+        if (await ReprocessCoreAsync(db, queue, document, stage, unpin, DocumentQueries.ActorName(user), clock.GetUtcNow(), configMode, ct) is { } refused)
+        {
+            return refused;
+        }
+
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+    }
+
+    /// <summary>
+    /// Sends a document back through the pipeline from <paramref name="stage"/> (docs/03, docs/11 §15.5): the state check,
+    /// the stage-reached check, the claim, the closed review tasks, the event and the queued message. Null when it was
+    /// queued; the refusal otherwise. Shared by <c>:reprocess</c>, <c>documents:bulk-reprocess</c> and <c>:match-layout</c>.
+    /// </summary>
+    internal static async Task<ProblemHttpResult?> ReprocessCoreAsync(DocProcDbContext db, IPipelineQueue queue, Document document, PipelineStage stage, bool unpin, string actor, DateTimeOffset now, string configMode, CancellationToken ct)
+    {
+        var id = document.Id;
         var target = ReprocessStart[stage];
         if (!DocumentStateMachine.CanReprocess(document.Status, target))
         {
@@ -478,19 +835,32 @@ public static class DocumentEndpoints
                 detail: $"Document {document.Id} never got past {reached}, so it cannot rerun from {stage} (which needs the output of the stages before it). The latest stage it can rerun from is {latest}.");
         }
 
-        var now = clock.GetUtcNow();
-        var actor = DocumentQueries.ActorName(user);
         var change = new DocumentStatusChange(document.Status, target);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var claimed = await db.Documents
-            .Where(d => d.Id == id && d.Status == change.From)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(d => d.Status, target)
-                    .SetProperty(d => d.FailureReason, (string?)null)
-                    .SetProperty(d => d.UpdatedAt, now)
-                    .SetProperty(d => d.Version, d => d.Version + 1),
-                ct);
-        if (claimed == 0)
+        var claimed = await InTransactionAsync(db, async cancel =>
+        {
+            var updated = await db.Documents
+                .Where(d => d.Id == id && d.Status == change.From)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(d => d.Status, target)
+                        .SetProperty(d => d.FailureReason, (string?)null)
+                        .SetProperty(d => d.UpdatedAt, now)
+                        .SetProperty(d => d.Version, d => d.Version + 1)
+                        .SetProperty(d => d.DocumentTypeVersionId, d => unpin ? null : d.DocumentTypeVersionId),
+                    cancel);
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
+            await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, cancel);
+            DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString(), configMode }, now);
+            // A document sent back is no longer approved: what it superseded stands again until it is approved again.
+            await DocumentRevisions.ReleaseAsync(db, document, actor, "reprocessed", now, cancel);
+            await db.SaveChangesAsync(cancel);
+            return true;
+        }, ct);
+        if (!claimed)
         {
             return ConcurrentChange(id);
         }
@@ -499,20 +869,27 @@ public static class DocumentEndpoints
         document.FailureReason = null;
         document.UpdatedAt = now;
         document.Version++;
-        // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
-        await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, ct);
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString() }, now);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        if (unpin)
+        {
+            document.DocumentTypeVersionId = null;
+        }
 
         await queue.EnqueueAsync(new ProcessDocument(document.TenantId, document.Id, stage), ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+        return null;
     }
+
+    /// <summary>The stages a document can be sent back to (docs/03): the stages <c>:reprocess</c> takes.</summary>
+    internal static IReadOnlyCollection<PipelineStage> ReprocessStages => [.. ReprocessStart.Keys];
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> CorrectFieldsAsync(
         Guid id,
         CorrectFieldsRequest request,
         [FromServices] DocProcDbContext db,
+        [FromServices] IFieldSchemaResolver schemas,
+        [FromServices] IEffectiveConfigResolver configs,
+        [FromServices] ITenantFeatures features,
+        [FromServices] DocumentValidator validator,
+        [FromServices] IPipelineConfigResolver pipelines,
         TimeProvider clock,
         ClaimsPrincipal user,
         CancellationToken ct)
@@ -520,6 +897,11 @@ public static class DocumentEndpoints
         if (request.Corrections is not { Count: > 0 })
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["corrections"] = ["At least one correction is required."] });
+        }
+
+        if (request.Corrections.Count > MaxCorrectionsPerRequest)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["corrections"] = [$"At most {MaxCorrectionsPerRequest} corrections in one request; save them in parts."] });
         }
 
         var row = await DocumentQueries.FindForDetailAsync(db, id, track: true, ct);
@@ -537,8 +919,17 @@ public static class DocumentEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document not correctable", detail: detail);
         }
 
-        var rootType = CanonicalPatcher.RootTypeFor(document.Type);
-        if (rootType is null || string.IsNullOrWhiteSpace(document.CanonicalJson))
+        // A definition-driven document (docs/11 §5.6, §12.8: CanonicalSchemaVersion 2, or one of a definition-driven type
+        // that has no tree yet) is patched by its type version's descriptors, with append and remove; every other one by
+        // the coded records, exactly as before.
+        var config = await configs.ResolveAsync(new EffectiveConfigRequest(document.TenantId, document.Type, document.SupplierId, document.DocumentTypeVersionId), ct);
+        var compiled = config.Type?.Compiled;
+        var definitionDriven = compiled is not null
+                               && (document.CanonicalSchemaVersion == DefinitionTree.SchemaVersion
+                                   || (string.IsNullOrWhiteSpace(document.CanonicalJson)
+                                       && CanonicalStorage.IsDefinitionDriven(config.Type, await features.IsEnabledAsync(document.TenantId, TenantFeature.ConfigurableTypes, ct))));
+        var schema = definitionDriven ? null : schemas.RootFor(document.Type);
+        if (!definitionDriven && (schema is null || string.IsNullOrWhiteSpace(document.CanonicalJson)))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Nothing to correct", detail: $"Document {document.Id} ({document.Type}, {document.Status}) has no canonical data yet.");
         }
@@ -550,7 +941,9 @@ public static class DocumentEndpoints
         CanonicalPatchResult patched;
         try
         {
-            patched = CanonicalPatcher.Apply(rootType, document.CanonicalJson, request.Corrections, actor, now, tenantCurrency);
+            patched = definitionDriven
+                ? DefinitionPatcher.Apply(compiled!.Descriptors, DefinitionTreeOf(document.CanonicalJson, compiled.Descriptors), request.Corrections, actor, now, tenantCurrency, typedRecord: document.Type.IsInvoiceFamily)
+                : CanonicalPatcher.Apply(schema!, document.CanonicalJson!, request.Corrections, actor, now, tenantCurrency);
         }
         catch (CanonicalPatchException ex)
         {
@@ -559,8 +952,16 @@ public static class DocumentEndpoints
         }
 
         document.CanonicalJson = patched.Json;
+        if (definitionDriven)
+        {
+            document.CanonicalSchemaVersion = DefinitionTree.SchemaVersion;
+        }
+
         document.UpdatedAt = now;
-        RefreshDenormalizedColumns(document);
+        // The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox
+        // too, under the role bindings of the type version the document is pinned to; so is the field index.
+        DocumentRoleColumns.Refresh(document, config.Type?.Roles);
+        await DocumentFieldIndexWriter.RefreshAsync(db, document, config.Type?.IndexedFields ?? [], ct);
 
         foreach (var applied in patched.Applied)
         {
@@ -569,17 +970,72 @@ public static class DocumentEndpoints
                 TenantId = document.TenantId,
                 DocumentId = document.Id,
                 FieldPath = applied.Path,
+                Op = applied.Op,
                 OldValueJson = applied.OldValueJson,
                 NewValueJson = applied.NewValueJson,
+                SourceJson = CorrectionSources.ToJson(applied.Source, applied.From),
+                DocumentTypeVersionId = document.DocumentTypeVersionId,
                 By = actor,
                 At = now,
                 Reason = Clean(applied.Reason, 500),
             });
         }
 
-        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Corrected, null, actor, new { paths = patched.Applied.Select(a => a.Path).ToList() }, now);
+        // A reviewer who replaced every row of a group wrote it from another source than the table tool: its table
+        // report no longer describes the rows (docs/11 §6.2).
+        if (definitionDriven)
+        {
+            foreach (var replaced in patched.Applied.Where(a => a.Op == CorrectionOps.Set && compiled!.Descriptors.Find(a.Path) is { Kind: Definitions.FieldKinds.Array }).Select(a => a.Path).Distinct(StringComparer.Ordinal))
+            {
+                await DocumentTableReports.RemoveAsync(db, document.Id, replaced, ct);
+            }
+        }
+
+        DocumentQueries.AddEvent(db, document, DocumentEventTypes.Corrected, null, actor, new { paths = patched.Applied.Select(a => a.Path).ToList(), ops = patched.Applied.Select(a => a.Op).Distinct(StringComparer.Ordinal).ToList() }, now);
         await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(DocumentQueries.ToDetail(row));
+
+        // docs/11 §12.8: a definition-driven document is re-validated inline (the structural check and the rules of its
+        // type version), so the flags a correction answers go and the ones it causes show at once. After the save, so
+        // the checks (the duplicate check reads the field index) see the corrected document.
+        if (definitionDriven && config.Type is { } type)
+        {
+            var tenant = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == document.TenantId, ct);
+            var checkedType = await DocProc.Pipeline.Support.DocumentChecks.WithPipelineAsync(pipelines, document, type, ct);
+            var run = await DocProc.Pipeline.Support.DocumentChecks.RunAsync(db, document, checkedType, tenant, DocProc.Pipeline.Support.DocumentChecks.TodayFor(tenant, now), validator, ct);
+            DocProc.Pipeline.Support.DocumentChecks.ReplaceFlags(db, document, DocProc.Pipeline.Support.DocumentChecks.OwnedFlags, run.Flags, now);
+            await db.SaveChangesAsync(ct);
+            row = row with
+            {
+                BlockingFlagCount = document.Flags.Count(f => f.ResolvedAt == null && f.Severity == Domain.Flags.FlagSeverity.Blocking),
+                WarningFlagCount = document.Flags.Count(f => f.ResolvedAt == null && f.Severity == Domain.Flags.FlagSeverity.Warning),
+            };
+        }
+
+        return TypedResults.Ok(await DetailAsync(row, configs, features, ct));
+    }
+
+    /// <summary>The stored tree of a definition-driven document, completed with the fields of its version; an empty tree when it has none yet.</summary>
+    private static string DefinitionTreeOf(string? canonicalJson, Definitions.Compilation.DescriptorIndex descriptors)
+    {
+        System.Text.Json.Nodes.JsonObject? tree = null;
+        if (!string.IsNullOrWhiteSpace(canonicalJson))
+        {
+            try
+            {
+                tree = System.Text.Json.Nodes.JsonNode.Parse(canonicalJson) as System.Text.Json.Nodes.JsonObject;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                throw new CanonicalPatchException(string.Empty, "The stored canonical document is not JSON.");
+            }
+        }
+
+        if (tree is null)
+        {
+            return DefinitionTree.CreateEmpty(descriptors).ToJsonString();
+        }
+
+        return DefinitionTree.Complete(tree, descriptors) ? tree.ToJsonString() : canonicalJson!;
     }
 
     /// <summary>
@@ -606,50 +1062,31 @@ public static class DocumentEndpoints
         return PipelineOrder[furthest];
     }
 
-    /// <summary>The list columns are always rewritten from the canonical JSON (docs/02 §2), so a correction shows in the inbox too.</summary>
-    private static void RefreshDenormalizedColumns(Document document)
-    {
-        switch (document.Type)
-        {
-            case DocumentType.Invoice or DocumentType.CreditNote:
-                var invoice = CanonicalDocumentSerializer.DeserializeInvoice(document.CanonicalJson!);
-                SetNumber(document, invoice.InvoiceNumber.HasValue ? invoice.InvoiceNumber.Value : null);
-                document.IssueDate = invoice.IssueDate.HasValue ? invoice.IssueDate.Value : null;
-                SetCurrency(document, invoice.Currency.HasValue ? invoice.Currency.Value : null);
-                document.TotalGross = invoice.TotalGross.HasValue ? invoice.TotalGross.Value.Amount : null;
-                break;
+    /// <summary>
+    /// Runs a decision's writes in one transaction under the context's execution strategy. On SQL Server the context
+    /// retries transient failures (<c>EnableRetryOnFailure</c>), and that strategy refuses a transaction it does not run
+    /// itself ("does not support user-initiated transactions"), so approve, reject and reprocess answered 500 there
+    /// while the SQLite tests passed. Each attempt starts from an empty change tracker, so a retry does not save the
+    /// failed attempt's rows a second time, and <paramref name="work"/> sets every value it writes rather than
+    /// incrementing one. It returns false when the document is no longer in the expected state, and the transaction
+    /// is rolled back. A retry after a commit whose acknowledgement was lost finds the document already moved and
+    /// reports a concurrent change: the decision stands, and its outbox row with it.
+    /// </summary>
+    private static Task<bool> InTransactionAsync(DocProcDbContext db, Func<CancellationToken, Task<bool>> work, CancellationToken ct) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(
+            async cancel =>
+            {
+                db.ChangeTracker.Clear();
+                await using var transaction = await db.Database.BeginTransactionAsync(cancel);
+                if (!await work(cancel))
+                {
+                    return false;
+                }
 
-            case DocumentType.PurchaseOrder:
-                var order = CanonicalDocumentSerializer.DeserializePurchaseOrder(document.CanonicalJson!);
-                SetNumber(document, order.PoNumber.HasValue ? order.PoNumber.Value : null);
-                document.IssueDate = order.OrderDate.HasValue ? order.OrderDate.Value : null;
-                SetCurrency(document, order.Currency.HasValue ? order.Currency.Value : null);
-                document.TotalGross = order.TotalGross.HasValue ? order.TotalGross.Value.Amount : null;
-                break;
-
-            case DocumentType.DeliveryNote:
-                var note = CanonicalDocumentSerializer.DeserializeDeliveryNote(document.CanonicalJson!);
-                SetNumber(document, note.DeliveryNoteNumber.HasValue ? note.DeliveryNoteNumber.Value : null);
-                document.IssueDate = note.DeliveryDate.HasValue ? note.DeliveryDate.Value : null;
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    private static void SetNumber(Document document, DocumentIdentifier? number)
-    {
-        document.DocumentNumber = number is null ? null : Truncate(number.Verbatim, 100);
-        document.DocumentNumberNormalized = number is null ? null : Truncate(number.Normalized, 100);
-    }
-
-    /// <summary><c>Document.Currency</c> is <c>char(3)</c>: only a well-formed code goes into the list column; anything else stays in the canonical JSON alone.</summary>
-    private static void SetCurrency(Document document, string? currency)
-    {
-        var normalized = currency is null ? null : CurrencyCode.Normalize(currency);
-        document.Currency = CurrencyCode.IsWellFormed(normalized) ? normalized : null;
-    }
+                await transaction.CommitAsync(cancel);
+                return true;
+            },
+            ct);
 
     private static async Task CloseOpenTasksAsync(DocProcDbContext db, Guid documentId, ReviewTaskStatus outcome, DateTimeOffset now, CancellationToken ct)
     {
@@ -728,6 +1165,84 @@ public static class DocumentEndpoints
         return values;
     }
 
+    /// <summary>
+    /// The <c>type</c> filter (docs/11 §18): any type key, not only the legacy ones; the legacy names in any case, as
+    /// the enum filter took them. Only a value that is not of the key syntax is refused.
+    /// </summary>
+    private static List<DocumentTypeKey> ParseTypeKeys(string? csv, Dictionary<string, string[]> errors)
+    {
+        var values = new List<DocumentTypeKey>();
+        foreach (var token in (csv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (DocumentTypeKey.TryParse(token, out var key))
+            {
+                values.Add(key);
+            }
+            else
+            {
+                errors["type"] = [$"'{token}' is not a document type key (a letter, then letters, digits, '_', '.' or '-', at most {DocumentTypeKey.MaxLength})."];
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>The prefix of the indexed-field filters of the document list (docs/11 §18).</summary>
+    public const string FieldFilterPrefix = "field.";
+
+    /// <summary>
+    /// The most indexed-field filters one list request may carry. Each one is a correlated EXISTS over the field index,
+    /// and the cost of compiling the query plan grows fast with their number (a few dozen keep SQL Server busy for
+    /// seconds and then fail), so the count is capped like <see cref="MaxFieldColumns"/>.
+    /// </summary>
+    public const int MaxFieldFilters = 5;
+
+    /// <summary>The error key of a list request with more than <see cref="MaxFieldFilters"/> field filters.</summary>
+    public const string FieldFiltersErrorKey = FieldFilterPrefix + "*";
+
+    private static List<DocumentFieldFilter> ParseFieldFilters(IQueryCollection query, Dictionary<string, string[]> errors)
+    {
+        var filters = new List<DocumentFieldFilter>();
+        var requested = query.Where(p => p.Key.StartsWith(FieldFilterPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (requested.Count > MaxFieldFilters)
+        {
+            errors[FieldFiltersErrorKey] = [$"At most {MaxFieldFilters} field filters."];
+            return filters;
+        }
+
+        foreach (var (name, values) in requested)
+        {
+            if (values.Count > 1)
+            {
+                errors[name] = ["One value per field filter."];
+                continue;
+            }
+
+            var key = name[FieldFilterPrefix.Length..];
+            if (key.Length is 0 or > DocumentFieldIndexEntry.MaxFieldKeyLength || !FieldKeyPattern().IsMatch(key))
+            {
+                errors[name] = ["Not an indexed field path (field.<key>, for example field.supplierCustomerRef or field.lines[*].supplierSku)."];
+                continue;
+            }
+
+            var raw = values.ToString().Trim();
+            if (raw.Length == 0)
+            {
+                errors[name] = ["A value is required."];
+                continue;
+            }
+
+            // A number larger than the index holds is compared as text only (DocumentFieldFilter.Of), not sent as a
+            // decimal(28,8) parameter it would overflow on SQL Server.
+            filters.Add(DocumentFieldFilter.Of(key, raw));
+        }
+
+        return filters;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_-]*(\[\*\])?(\.[A-Za-z_][A-Za-z0-9_-]*(\[\*\])?)*$")]
+    private static partial System.Text.RegularExpressions.Regex FieldKeyPattern();
+
     private static string EscapeLike(string value) =>
         value.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("%", "\\%", StringComparison.Ordinal)
@@ -741,4 +1256,11 @@ public static class DocumentEndpoints
     }
 
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength];
+}
+
+/// <summary>The <c>configMode</c> values of <c>:reprocess</c> (docs/11 §18).</summary>
+public static class ReprocessConfigModes
+{
+    public const string Pinned = "pinned";
+    public const string Current = "current";
 }

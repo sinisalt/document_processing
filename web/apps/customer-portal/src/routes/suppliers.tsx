@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -33,9 +33,24 @@ import {
   Textarea,
 } from "@docproc/ui";
 import { ApiError, DataTable, EmptyState, PageHeader, Policies, StatusBadge, createDataTableColumnHelper, formatDate, formatMoney, queryKeys, relativeTime, unwrap, useApi, useAuth, type DocumentStatus } from "@docproc/app-shell";
-import { EMPTY_ARRAY, useSuppliers, type Supplier } from "@/lib/queries";
+import { useTenantFeatures } from "@docproc/review";
+import { SupplierAttributesTab } from "@/components/suppliers/SupplierAttributesTab";
+import { SupplierGroupsPanel } from "@/components/suppliers/SupplierGroupsPanel";
+import { SupplierLayoutsTab } from "@/components/suppliers/SupplierLayoutsTab";
+import { SupplierProcessingTab } from "@/components/suppliers/SupplierProcessingTab";
+import { SupplierRoutingTab } from "@/components/suppliers/SupplierRoutingTab";
+import { SupplierSettingsTab } from "@/components/suppliers/SupplierSettingsTab";
+import { attributeFields } from "@/lib/attributeSchema";
+import { EMPTY_ARRAY, useSuppliers, useTenantSettings, type Supplier } from "@/lib/queries";
+import { attributesText, parseAttributes, type Attributes } from "@/lib/supplierAttributes";
 
-export const Route = createFileRoute("/suppliers")({ component: SuppliersPage });
+// `supplier` and `tab` open a supplier's sheet on a tab, so Insights > Onboarding can link to "create layout" and
+// "add source rule" (docs/11 §17).
+export const supplierSheetTabs = ["details", "settings", "attributes", "routing", "layouts", "processing", "activity"] as const;
+export const Route = createFileRoute("/suppliers")({
+  validateSearch: z.object({ supplier: z.string().optional().catch(undefined), tab: z.enum(supplierSheetTabs).optional().catch(undefined) }),
+  component: SuppliersPage,
+});
 
 const helper = createDataTableColumnHelper<Supplier>();
 
@@ -52,6 +67,7 @@ const supplierSchema = z.object({
   emailDomains: z.string(),
   aliases: z.string(),
   alwaysReview: z.boolean(),
+  attributes: z.string(),
 });
 type SupplierForm = z.infer<typeof supplierSchema>;
 
@@ -70,7 +86,13 @@ function toForm(supplier: Supplier | null): SupplierForm {
     emailDomains: supplier?.emailDomains.join("\n") ?? "",
     aliases: supplier?.aliases.join("\n") ?? "",
     alwaysReview: supplier?.alwaysReview ?? false,
+    attributes: attributesText(storedAttributes(supplier)),
   };
+}
+
+/** The attributes the API returned (typed loosely by the generated schema). */
+function storedAttributes(supplier: Supplier | null): Attributes | null {
+  return (supplier?.attributes as Attributes | undefined) ?? null;
 }
 
 /** Suppliers belong to a tenant: a platform account (no X-Tenant-Id) would only get 400 "Tenant required". */
@@ -90,8 +112,25 @@ function SuppliersScreen() {
   const [draft, setDraft] = useState("");
   const [q, setQ] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState<Supplier | null | "new">(null);
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { client } = useApi();
+  const linked = useQuery({
+    queryKey: queryKeys.suppliers.detail(search.supplier ?? ""),
+    queryFn: async () => unwrap(await client.GET("/api/v1/suppliers/{id}", { params: { path: { id: search.supplier! } } })),
+    enabled: !!search.supplier,
+  });
+  useEffect(() => {
+    if (linked.data && editing === null) setEditing(linked.data);
+    // Only when the link's supplier arrives; closing the sheet clears the link below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked.data]);
 
   const list = useSuppliers({ q, limit: 50 });
+  // Supplier groups (docs/11 §19 item 3 "There is also a Supplier groups list") with the tenant's sourceRouting switch.
+  const features = useTenantFeatures();
+  const routing = features.data?.sourceRouting === true;
+  const [pageTab, setPageTab] = useState("suppliers");
 
   const columns = useMemo(
     () =>
@@ -134,6 +173,19 @@ function SuppliersScreen() {
           ) : undefined
         }
       />
+      {routing && (
+        <Tabs value={pageTab} onValueChange={setPageTab}>
+          <TabsList>
+            <TabsTrigger value="suppliers">{t("suppliers.pageTabs.suppliers")}</TabsTrigger>
+            <TabsTrigger value="groups" data-testid="supplier-groups-tab">
+              {t("suppliers.pageTabs.groups")}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+      {routing && pageTab === "groups" ? (
+        <SupplierGroupsPanel canEdit={canManage} />
+      ) : (
       <DataTable
         columns={columns}
         data={list.items.length ? list.items : EMPTY_ARRAY}
@@ -172,7 +224,18 @@ function SuppliersScreen() {
           </>
         }
       />
-      <SupplierSheet supplier={editing === "new" ? null : editing} open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} canManage={canManage} />
+      )}
+      <SupplierSheet
+        supplier={editing === "new" ? null : editing}
+        open={editing !== null}
+        initialTab={editing !== null && editing !== "new" && editing.id === search.supplier ? search.tab : undefined}
+        onOpenChange={(open) => {
+          if (open) return;
+          setEditing(null);
+          if (search.supplier) void navigate({ search: {} });
+        }}
+        canManage={canManage}
+      />
     </>
   );
 }
@@ -182,20 +245,31 @@ interface SupplierSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canManage: boolean;
+  /** The tab a link opened the sheet on. */
+  initialTab?: string;
 }
 
 /** Create/edit sheet with the supplier's details and, for an existing supplier, its recent documents. */
-function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierSheetProps) {
+function SupplierSheet({ supplier, open, onOpenChange, canManage, initialTab }: SupplierSheetProps) {
   const { t, i18n } = useTranslation();
   const { client } = useApi();
   const queryClient = useQueryClient();
   const form = useForm<SupplierForm>({ resolver: zodResolver(supplierSchema), defaultValues: toForm(supplier) });
   const [tab, setTab] = useState("details");
+  // The P4 tabs (docs/11 §19 item 3): Settings, Attributes and Routing with sourceRouting, Layouts with supplierLayouts.
+  const features = useTenantFeatures();
+  const routing = features.data?.sourceRouting === true;
+  const layoutsOn = features.data?.supplierLayouts === true;
+  // P5 (docs/11 §10, §19 "Processing"): the supplier's pipeline overrides, with configurableSteps.
+  const processingOn = features.data?.configurableSteps === true;
+  const tenantSettings = useTenantSettings(routing);
+  const schemaFields = attributeFields(tenantSettings.data?.settings?.supplierAttributeSchema);
+  const typedAttributes = routing && schemaFields.length > 0;
 
   useEffect(() => {
     form.reset(toForm(supplier));
-    setTab("details");
-  }, [supplier, open, form]);
+    setTab(initialTab ?? "details");
+  }, [supplier, open, form, initialTab]);
 
   const activity = useQuery({
     queryKey: queryKeys.suppliers.activity(supplier?.id ?? ""),
@@ -205,7 +279,13 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
 
   const save = useMutation({
     mutationFn: async (values: SupplierForm) => {
+      const parsed = parseAttributes(values.attributes, storedAttributes(supplier));
+      if ("invalidLine" in parsed) {
+        form.setError("attributes", { type: "client", message: t("suppliers.fields.attributesInvalid", { line: parsed.invalidLine }) });
+        throw new Error(t("suppliers.fields.attributesInvalid", { line: parsed.invalidLine }));
+      }
       const body = {
+        attributes: parsed.attributes as never,
         name: values.name,
         vatId: values.vatId || null,
         taxId: values.taxId || null,
@@ -240,14 +320,37 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden sm:max-w-xl">
+      <SheetContent className={routing || layoutsOn || processingOn ? "flex w-full flex-col gap-0 overflow-hidden sm:max-w-3xl" : "flex w-full flex-col gap-0 overflow-hidden sm:max-w-xl"}>
         <SheetHeader>
           <SheetTitle>{supplier ? supplier.name : t("suppliers.createTitle")}</SheetTitle>
           <SheetDescription>{supplier ? t("suppliers.editDescription") : t("suppliers.createDescription")}</SheetDescription>
         </SheetHeader>
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-4">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="details">{t("suppliers.tabs.details")}</TabsTrigger>
+            {routing && (
+              <>
+                <TabsTrigger value="settings" disabled={!supplier} data-testid="supplier-tab-settings">
+                  {t("suppliers.tabs.settings")}
+                </TabsTrigger>
+                <TabsTrigger value="attributes" disabled={!supplier} data-testid="supplier-tab-attributes">
+                  {t("suppliers.tabs.attributes")}
+                </TabsTrigger>
+                <TabsTrigger value="routing" disabled={!supplier} data-testid="supplier-tab-routing">
+                  {t("suppliers.tabs.routing")}
+                </TabsTrigger>
+              </>
+            )}
+            {layoutsOn && (
+              <TabsTrigger value="layouts" disabled={!supplier} data-testid="supplier-tab-layouts">
+                {t("suppliers.tabs.layouts")}
+              </TabsTrigger>
+            )}
+            {processingOn && (
+              <TabsTrigger value="processing" disabled={!supplier} data-testid="supplier-tab-processing">
+                {t("suppliers.tabs.processing")}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="activity" disabled={!supplier}>
               {t("suppliers.tabs.activity")}
             </TabsTrigger>
@@ -327,6 +430,22 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
                     )}
                   />
                 ))}
+                {!typedAttributes && (
+                <FormField
+                  control={form.control}
+                  name="attributes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("suppliers.fields.attributes")}</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} readOnly={readOnly} rows={3} className="font-mono text-xs" spellCheck={false} placeholder="erpVendorId = V-10042" data-testid="supplier-attributes" />
+                      </FormControl>
+                      <FormDescription>{t("suppliers.fields.attributesHint")}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                )}
                 <FormField
                   control={form.control}
                   name="alwaysReview"
@@ -345,6 +464,29 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
               </form>
             </Form>
           </TabsContent>
+          {supplier && routing && (
+            <>
+              <TabsContent value="settings" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "settings" && <SupplierSettingsTab key={supplier.id + supplier.updatedAt} supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+              <TabsContent value="attributes" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "attributes" && <SupplierAttributesTab key={supplier.id + supplier.updatedAt} supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+              <TabsContent value="routing" className="min-h-0 flex-1 overflow-y-auto py-4">
+                {tab === "routing" && <SupplierRoutingTab supplier={supplier} canEdit={canManage} />}
+              </TabsContent>
+            </>
+          )}
+          {supplier && layoutsOn && (
+            <TabsContent value="layouts" className="min-h-0 flex-1 overflow-y-auto py-4">
+              {tab === "layouts" && <SupplierLayoutsTab supplier={supplier} />}
+            </TabsContent>
+          )}
+          {supplier && processingOn && (
+            <TabsContent value="processing" className="min-h-0 flex-1 overflow-y-auto py-4">
+              {tab === "processing" && <SupplierProcessingTab key={supplier.id + supplier.updatedAt} supplier={supplier} canEdit={canManage} />}
+            </TabsContent>
+          )}
           <TabsContent value="activity" className="min-h-0 flex-1 overflow-y-auto py-4">
             {activity.isPending ? (
               <div className="flex flex-col gap-2" aria-busy>
@@ -375,7 +517,7 @@ function SupplierSheet({ supplier, open, onOpenChange, canManage }: SupplierShee
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {canManage ? t("common:dialog.cancel") : t("common:actions.close")}
           </Button>
-          {canManage && (
+          {canManage && tab === "details" && (
             <Button type="submit" form="supplier-form" disabled={save.isPending} aria-busy={save.isPending}>
               {save.isPending && <Loader2 className="animate-spin" aria-hidden />}
               {supplier ? t("suppliers.save") : t("suppliers.create")}

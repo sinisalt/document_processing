@@ -28,6 +28,97 @@ public sealed class TenantSettings
 
     /// <summary>Share extractor profiles learned from this tenant's documents through the global supplier registry.</summary>
     public bool ShareExtractorProfiles { get; set; } = true;
+
+    /// <summary>
+    /// The per-tenant switches of docs/11 §3 (principle 6): every configurable-types capability ships behind one and
+    /// stays off until a tenant is moved onto it. Read through <c>ITenantFeatures</c>, never directly.
+    /// <para>
+    /// Every stored settings object carries it: new tenants through this initialiser, existing ones through the
+    /// <c>P0PersistenceSeams</c> back-fill. That matters for writes: when the stored JSON lacks the object, EF leaves
+    /// this initialised instance in place untracked, so changes to it are silently not saved, and assigning a new
+    /// instance fails on SQL Server (the partial JSON update addresses a path that does not exist). Null is still read
+    /// as all off, for safety.
+    /// </para>
+    /// </summary>
+    public TenantFeatureFlags? Features { get; set; } = new();
+
+    /// <summary>
+    /// The tenant's supplier attribute schema (docs/11 §6.4 <c>SupplierAttributeSchema</c>): a JSON Schema object of the
+    /// typed subset <c>SupplierAttributeSchema</c> (DocProc.Application.Suppliers) reads, which supplier, group and
+    /// per-entity attributes are validated against when they are written. Null for none: attributes are free scalars,
+    /// as in P3.
+    /// </summary>
+    public string? SupplierAttributeSchema { get; set; }
+
+    /// <summary>
+    /// The tenant default of a supplier's <c>layouts.required: inherit</c> (docs/11 §6.4
+    /// <c>TenantSettings.Layouts.RequiredByDefault</c>, stored flat): whether a supplier with no layout yet counts as
+    /// layout-managed. Default false.
+    /// </summary>
+    public bool LayoutsRequiredByDefault { get; set; }
+
+    /// <summary>The warm-up of decision 2 (docs/11 §24): the first 5 documents under every new layout version go to review.</summary>
+    public const int DefaultLayoutReviewWarmup = 5;
+
+    /// <summary>The largest warm-up a tenant may set.</summary>
+    public const int MaxLayoutReviewWarmup = 100;
+
+    /// <summary>
+    /// The review warm-up a layout version gets when it is activated (docs/11 §8.3, <c>TenantSettings.LayoutActivation</c>,
+    /// stored flat): how many documents under it go to review before it may auto-approve. Null for the default of
+    /// decision 2, <see cref="DefaultLayoutReviewWarmup"/>; a tenant admin can lower it (the P4 demo sets 0) or raise it.
+    /// Nullable so settings stored before the property existed read as the default, not as 0.
+    /// </summary>
+    public int? LayoutReviewWarmup { get; set; }
+
+    /// <summary>The warm-up in effect: <see cref="LayoutReviewWarmup"/>, or <see cref="DefaultLayoutReviewWarmup"/>.</summary>
+    public int EffectiveLayoutReviewWarmup() => LayoutReviewWarmup ?? DefaultLayoutReviewWarmup;
+
+    /// <summary>The field agreement a layout version needs on its replay set to be activated (docs/11 §8.3): 90 % per field.</summary>
+    public const int DefaultLayoutAgreementPercent = 90;
+
+    /// <summary>
+    /// The tenant's field agreement threshold of the activation condition (docs/11 §8.3, "at or above the tenant
+    /// threshold, default 90 % per field"), in percent; null for <see cref="DefaultLayoutAgreementPercent"/>.
+    /// </summary>
+    public int? LayoutAgreementPercent { get; set; }
+
+    /// <summary>The agreement threshold in effect, as a share (0.9).</summary>
+    public double EffectiveLayoutAgreement() => (LayoutAgreementPercent ?? DefaultLayoutAgreementPercent) / 100.0;
+
+    /// <summary>
+    /// Forwarder domains trusted for every mailbox channel of the tenant (docs/11 §7.1), next to a channel's own
+    /// <c>trustedForwarderDomains</c>: a forward from such a domain is unwrapped to its original sender. Null or empty for none.
+    /// </summary>
+    public List<string>? TrustedForwarderDomains { get; set; }
+}
+
+/// <summary>Per-tenant feature flags (docs/11 §3); all off by default, so a tenant behaves as before until switched.</summary>
+public sealed class TenantFeatureFlags
+{
+    /// <summary>Document types as data: the type catalogue, definitions and the generated review form (P1).</summary>
+    public bool ConfigurableTypes { get; set; }
+
+    /// <summary>Output mappings, destinations and delivery (P3).</summary>
+    public bool Outputs { get; set; }
+
+    /// <summary>Supplier source rules: routing by mailbox, sender and folder (P4).</summary>
+    public bool SourceRouting { get; set; }
+
+    /// <summary>Supplier layouts with identification rules and field mappings (P4).</summary>
+    public bool SupplierLayouts { get; set; }
+
+    /// <summary>Tenant-defined types beyond the standard templates, end to end (P5).</summary>
+    public bool CustomTypes { get; set; }
+
+    /// <summary>Structured sources: spreadsheets, custom XML and JSON, e-mail bodies (P6).</summary>
+    public bool StructuredSources { get; set; }
+
+    /// <summary>
+    /// Configurable steps (P5, docs/11 §10): supplier, group and layout <c>pipelineOverrides</c>, the type's step
+    /// parameters and the steps it adds (<c>http-lookup</c>). Off: every phase runs its built-in steps as before.
+    /// </summary>
+    public bool ConfigurableSteps { get; set; }
 }
 
 /// <summary>A customer: one restaurant or a restaurant group.</summary>
@@ -73,6 +164,34 @@ public enum ApiKeyScope
 {
     Ingest,
     Read,
+
+    /// <summary><c>deliveries:read</c> (docs/11 §13.3): a pull destination's feed (P3).</summary>
+    DeliveriesRead,
+}
+
+/// <summary>The names an API key's scopes have in the API (<see cref="Application.Security.ApiKeyScopes"/>).</summary>
+public static class ApiKeyScopeNames
+{
+    public static string Name(ApiKeyScope scope) => scope switch
+    {
+        ApiKeyScope.Ingest => Application.Security.ApiKeyScopes.Ingest,
+        ApiKeyScope.Read => Application.Security.ApiKeyScopes.Read,
+        ApiKeyScope.DeliveriesRead => Application.Security.ApiKeyScopes.DeliveriesRead,
+        _ => scope.ToString().ToLowerInvariant(),
+    };
+
+    public static ApiKeyScope Parse(string name)
+    {
+        foreach (var scope in Enum.GetValues<ApiKeyScope>())
+        {
+            if (string.Equals(Name(scope), name, StringComparison.OrdinalIgnoreCase))
+            {
+                return scope;
+            }
+        }
+
+        throw new ArgumentException($"Unknown API key scope '{name}'.", nameof(name));
+    }
 }
 
 /// <summary>Machine credential for ingest/read; only the hash is stored (docs/01 "Identity").</summary>
@@ -89,6 +208,10 @@ public sealed class ApiKey : ITenantScoped
     public required string Hash { get; set; }
 
     public List<ApiKeyScope> Scopes { get; set; } = [];
+
+    /// <summary>The one destination a <see cref="ApiKeyScope.DeliveriesRead"/> key may read the feed of; null for every pull destination of the tenant.</summary>
+    public Guid? DestinationId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }

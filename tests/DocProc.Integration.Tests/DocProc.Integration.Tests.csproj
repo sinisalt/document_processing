@@ -1,4 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Microsoft.Data.SqlClient refuses to open a connection in invariant globalization mode ("Globalization Invariant
+         Mode is not supported"), so a process that talks to SQL Server needs ICU (Directory.Build.props sets invariant mode for the rest). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DocProc.Infrastructure/DocProc.Infrastructure.csproj" />
   </ItemGroup>

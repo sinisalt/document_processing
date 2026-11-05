@@ -1,0 +1,712 @@
+{
+  "key": "std.invoice",
+  "version": 1,
+  "legacyKey": "Invoice",
+  "name": {
+    "en": "Invoice",
+    "de": "Rechnung"
+  },
+  "description": "A supplier's bill for goods or services, with lines, VAT breakdown and totals.",
+  "roles": {
+    "documentNumber": "invoiceNumber",
+    "documentDate": "issueDate",
+    "dueDate": "dueDate",
+    "currency": "currency",
+    "total": "totalGross",
+    "net": "subtotalNet",
+    "tax": "totalTax",
+    "supplierParty": "supplier",
+    "customerParty": "customer",
+    "lineItems": "lines",
+    "lineNet": "lines[*].lineNet",
+    "lineQuantity": "lines[*].quantity",
+    "lineUnitPrice": "lines[*].unitPrice",
+    "lineSku": "lines[*].supplierSku",
+    "taxBreakdown": "taxBreakdown",
+    "duplicateKey": [
+      "$supplierId",
+      "invoiceNumber"
+    ]
+  },
+  "ui": {
+    "sections": [
+      {
+        "id": "document",
+        "label": {
+          "en": "Document",
+          "de": "Beleg"
+        }
+      },
+      {
+        "id": "parties",
+        "label": {
+          "en": "Parties",
+          "de": "Parteien"
+        }
+      },
+      {
+        "id": "references",
+        "label": {
+          "en": "References",
+          "de": "Bezüge"
+        }
+      },
+      {
+        "id": "totals",
+        "label": {
+          "en": "Totals",
+          "de": "Summen"
+        }
+      },
+      {
+        "id": "payment",
+        "label": {
+          "en": "Payment",
+          "de": "Zahlung"
+        }
+      },
+      {
+        "id": "lines",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        }
+      }
+    ]
+  },
+  "fields": [
+    {
+      "id": "fld_kind",
+      "key": "kind",
+      "kind": "enum",
+      "label": {
+        "en": "Document kind",
+        "de": "Belegart"
+      },
+      "required": true,
+      "section": "document",
+      "options": [
+        {
+          "code": "Invoice",
+          "label": {
+            "en": "Invoice",
+            "de": "Rechnung"
+          }
+        },
+        {
+          "code": "CreditNote",
+          "label": {
+            "en": "Credit note",
+            "de": "Gutschrift"
+          }
+        },
+        {
+          "code": "Proforma",
+          "label": {
+            "en": "Pro-forma invoice",
+            "de": "Proformarechnung"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fld_inv_no",
+      "key": "invoiceNumber",
+      "kind": "identifier",
+      "label": {
+        "en": "Invoice no.",
+        "de": "Rechnungsnummer"
+      },
+      "required": true,
+      "indexed": true,
+      "section": "document",
+      "extraction": {
+        "labels": {
+          "de": [
+            "Rechnungsnummer",
+            "Rechnungs-Nr",
+            "Rechnungsnr"
+          ],
+          "en": [
+            "Invoice number",
+            "Invoice no",
+            "Invoice #",
+            "Invoice ID"
+          ]
+        }
+      }
+    },
+    {
+      "id": "fld_issue",
+      "key": "issueDate",
+      "kind": "date",
+      "label": {
+        "en": "Invoice date",
+        "de": "Rechnungsdatum"
+      },
+      "required": true,
+      "section": "document"
+    },
+    {
+      "id": "fld_delivery",
+      "key": "deliveryDate",
+      "kind": "date",
+      "label": {
+        "en": "Delivery date",
+        "de": "Lieferdatum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_service",
+      "key": "servicePeriod",
+      "kind": "period",
+      "label": {
+        "en": "Service period",
+        "de": "Leistungszeitraum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_due",
+      "key": "dueDate",
+      "kind": "date",
+      "label": {
+        "en": "Due date",
+        "de": "Fälligkeitsdatum"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_cur",
+      "key": "currency",
+      "kind": "currency",
+      "label": {
+        "en": "Currency",
+        "de": "Währung"
+      },
+      "required": true,
+      "section": "totals"
+    },
+    {
+      "id": "fld_sup",
+      "key": "supplier",
+      "kind": "party",
+      "label": {
+        "en": "Supplier",
+        "de": "Lieferant"
+      },
+      "required": true,
+      "section": "parties"
+    },
+    {
+      "id": "fld_cust",
+      "key": "customer",
+      "kind": "party",
+      "label": {
+        "en": "Customer",
+        "de": "Kunde"
+      },
+      "required": true,
+      "section": "parties"
+    },
+    {
+      "id": "fld_orders",
+      "key": "orderReferences",
+      "kind": "identifier",
+      "label": {
+        "en": "Order nos.",
+        "de": "Bestellnummern"
+      },
+      "list": true,
+      "section": "references"
+    },
+    {
+      "id": "fld_dnotes",
+      "key": "deliveryNoteReferences",
+      "kind": "identifier",
+      "label": {
+        "en": "Delivery note nos.",
+        "de": "Lieferscheinnummern"
+      },
+      "list": true,
+      "section": "references"
+    },
+    {
+      "id": "fld_orig",
+      "key": "originalInvoiceReference",
+      "kind": "identifier",
+      "label": {
+        "en": "Original invoice no.",
+        "de": "Ursprüngliche Rechnungsnummer"
+      },
+      "section": "references"
+    },
+    {
+      "id": "fld_net",
+      "key": "subtotalNet",
+      "kind": "money",
+      "label": {
+        "en": "Net total",
+        "de": "Nettobetrag"
+      },
+      "currencyFrom": "currency",
+      "required": true,
+      "section": "totals"
+    },
+    {
+      "id": "fld_tax_rows",
+      "key": "taxBreakdown",
+      "kind": "taxRow",
+      "label": {
+        "en": "VAT breakdown",
+        "de": "Umsatzsteuer nach Steuersätzen"
+      },
+      "list": true,
+      "section": "totals",
+      "readOnly": true,
+      "provenance": false
+    },
+    {
+      "id": "fld_tax",
+      "key": "totalTax",
+      "kind": "money",
+      "label": {
+        "en": "Total VAT",
+        "de": "Umsatzsteuer"
+      },
+      "currencyFrom": "currency",
+      "required": true,
+      "section": "totals"
+    },
+    {
+      "id": "fld_gross",
+      "key": "totalGross",
+      "kind": "money",
+      "label": {
+        "en": "Gross total",
+        "de": "Gesamtbetrag"
+      },
+      "currencyFrom": "currency",
+      "required": true,
+      "section": "totals"
+    },
+    {
+      "id": "fld_due_amount",
+      "key": "amountDue",
+      "kind": "money",
+      "label": {
+        "en": "Amount due",
+        "de": "Zahlbetrag"
+      },
+      "currencyFrom": "currency",
+      "section": "totals"
+    },
+    {
+      "id": "fld_rounding",
+      "key": "rounding",
+      "kind": "money",
+      "label": {
+        "en": "Rounding",
+        "de": "Rundung"
+      },
+      "currencyFrom": "currency",
+      "section": "totals"
+    },
+    {
+      "id": "fld_charges",
+      "key": "charges",
+      "kind": "chargeOrAllowance",
+      "label": {
+        "en": "Charges",
+        "de": "Zuschläge"
+      },
+      "list": true,
+      "section": "totals",
+      "readOnly": true,
+      "provenance": false
+    },
+    {
+      "id": "fld_allowances",
+      "key": "allowances",
+      "kind": "chargeOrAllowance",
+      "label": {
+        "en": "Allowances",
+        "de": "Abschläge"
+      },
+      "list": true,
+      "section": "totals",
+      "readOnly": true,
+      "provenance": false
+    },
+    {
+      "id": "fld_terms",
+      "key": "paymentTerms",
+      "kind": "paymentTerms",
+      "label": {
+        "en": "Payment terms",
+        "de": "Zahlungsbedingungen"
+      },
+      "section": "payment"
+    },
+    {
+      "id": "fld_notes",
+      "key": "notes",
+      "kind": "text",
+      "label": {
+        "en": "Notes",
+        "de": "Bemerkungen"
+      },
+      "section": "document"
+    },
+    {
+      "id": "fld_lines",
+      "key": "lines",
+      "kind": "array",
+      "label": {
+        "en": "Lines",
+        "de": "Positionen"
+      },
+      "section": "lines",
+      "anchor": "description",
+      "item": {
+        "fields": [
+          {
+            "id": "fld_l_no",
+            "key": "lineNumber",
+            "kind": "integer",
+            "label": {
+              "en": "Line no.",
+              "de": "Pos."
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_sku",
+            "key": "supplierSku",
+            "kind": "string",
+            "label": {
+              "en": "Supplier article no.",
+              "de": "Artikelnummer"
+            }
+          },
+          {
+            "id": "fld_l_gtin",
+            "key": "gtin",
+            "kind": "string",
+            "label": {
+              "en": "GTIN",
+              "de": "GTIN"
+            }
+          },
+          {
+            "id": "fld_l_desc",
+            "key": "description",
+            "kind": "text",
+            "label": {
+              "en": "Description",
+              "de": "Bezeichnung"
+            }
+          },
+          {
+            "id": "fld_l_qty",
+            "key": "quantity",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity",
+              "de": "Menge"
+            }
+          },
+          {
+            "id": "fld_l_unit",
+            "key": "unit",
+            "kind": "unit",
+            "label": {
+              "en": "Unit",
+              "de": "Einheit"
+            },
+            "codeList": "uom"
+          },
+          {
+            "id": "fld_l_unit_raw",
+            "key": "unitRaw",
+            "kind": "string",
+            "label": {
+              "en": "Unit as printed",
+              "de": "Einheit wie gedruckt"
+            },
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "id": "fld_l_pack",
+            "key": "packSize",
+            "kind": "string",
+            "label": {
+              "en": "Pack size",
+              "de": "Gebinde"
+            }
+          },
+          {
+            "id": "fld_l_price",
+            "key": "unitPrice",
+            "kind": "money",
+            "label": {
+              "en": "Unit price",
+              "de": "Einzelpreis"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_disc_pct",
+            "key": "discountPercent",
+            "kind": "percent",
+            "label": {
+              "en": "Discount %",
+              "de": "Rabatt %"
+            }
+          },
+          {
+            "id": "fld_l_disc",
+            "key": "discountAmount",
+            "kind": "money",
+            "label": {
+              "en": "Discount",
+              "de": "Rabatt"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_net",
+            "key": "lineNet",
+            "kind": "money",
+            "label": {
+              "en": "Net amount",
+              "de": "Nettobetrag"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_tax",
+            "key": "taxRate",
+            "kind": "percent",
+            "label": {
+              "en": "VAT rate",
+              "de": "USt.-Satz"
+            }
+          },
+          {
+            "id": "fld_l_gross",
+            "key": "lineGross",
+            "kind": "money",
+            "label": {
+              "en": "Gross amount",
+              "de": "Bruttobetrag"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_deposit",
+            "key": "depositAmount",
+            "kind": "money",
+            "label": {
+              "en": "Deposit",
+              "de": "Pfand"
+            },
+            "currencyFrom": "currency"
+          },
+          {
+            "id": "fld_l_lot",
+            "key": "lotNumber",
+            "kind": "string",
+            "label": {
+              "en": "Lot no.",
+              "de": "Chargennummer"
+            }
+          },
+          {
+            "id": "fld_l_bbd",
+            "key": "bestBefore",
+            "kind": "date",
+            "label": {
+              "en": "Best before",
+              "de": "Mindesthaltbarkeitsdatum"
+            }
+          },
+          {
+            "id": "fld_l_product",
+            "key": "matchedProductId",
+            "kind": "string",
+            "label": {
+              "en": "Matched product",
+              "de": "Zugeordneter Artikel"
+            },
+            "description": "The tenant's catalogue product this line was matched to; set by matching, never extracted.",
+            "readOnly": true,
+            "provenance": false
+          }
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "id": "r_required",
+      "kind": "invoice.required"
+    },
+    {
+      "id": "r_currency",
+      "kind": "invoice.currency"
+    },
+    {
+      "id": "r_totals",
+      "kind": "invoice.totals"
+    },
+    {
+      "id": "r_tax",
+      "kind": "invoice.taxBreakdown"
+    },
+    {
+      "id": "r_lines",
+      "kind": "invoice.lineArithmetic"
+    },
+    {
+      "id": "r_dates",
+      "kind": "invoice.datePlausibility"
+    },
+    {
+      "id": "r_customer",
+      "kind": "invoice.customerMatch"
+    },
+    {
+      "id": "r_confidence",
+      "kind": "invoice.confidence"
+    }
+  ],
+  "processing": {
+    "extract": [
+      {
+        "id": "xml",
+        "kind": "xml-einvoice"
+      },
+      {
+        "id": "llm",
+        "kind": "llm",
+        "params": {
+          "adapter": "invoice_extraction@1"
+        }
+      }
+    ],
+    "validate": [
+      {
+        "id": "rules",
+        "kind": "validate.rules"
+      },
+      {
+        "id": "duplicate",
+        "kind": "validate.duplicate"
+      }
+    ],
+    "review": {
+      "autoApprove": true
+    }
+  },
+  "classification": {
+    "description": "A supplier's bill for goods or services.",
+    "keywords": {
+      "de": [
+        "Rechnung",
+        "Rechnungen"
+      ],
+      "en": [
+        "Invoice",
+        "Invoices"
+      ],
+      "hr": [
+        "Račun",
+        "Faktura"
+      ],
+      "it": [
+        "Fattura"
+      ],
+      "fr": [
+        "Facture"
+      ]
+    },
+    "labels": {
+      "de": [
+        "Rechnungsnummer",
+        "Rechnungs-Nr",
+        "Rechnungsnr"
+      ],
+      "en": [
+        "Invoice number",
+        "Invoice no",
+        "Invoice #",
+        "Invoice ID"
+      ],
+      "hr": [
+        "Broj računa"
+      ],
+      "it": [
+        "Numero fattura"
+      ],
+      "fr": [
+        "Numéro de facture",
+        "N° de facture"
+      ]
+    },
+    "dateLabels": {
+      "de": [
+        "Rechnungsdatum",
+        "Rechnungs-Datum"
+      ],
+      "en": [
+        "Invoice date"
+      ],
+      "hr": [
+        "Datum računa"
+      ],
+      "it": [
+        "Data fattura"
+      ],
+      "fr": [
+        "Date de facture"
+      ]
+    },
+    "negatives": {
+      "de": [
+        "keine Rechnung",
+        "Rechnung folgt",
+        "nicht als Rechnung",
+        "Proforma",
+        "Pro-forma"
+      ],
+      "en": [
+        "not an invoice",
+        "invoice to follow",
+        "invoice will follow",
+        "Proforma",
+        "Pro-forma"
+      ],
+      "hr": [
+        "nije račun",
+        "Predračun"
+      ],
+      "it": [
+        "non è una fattura",
+        "Proforma",
+        "Pro-forma"
+      ],
+      "fr": [
+        "n'est pas une facture",
+        "Proforma",
+        "Pro-forma"
+      ]
+    }
+  },
+  "llm": {
+    "adapter": "invoice_extraction@1"
+  }
+}

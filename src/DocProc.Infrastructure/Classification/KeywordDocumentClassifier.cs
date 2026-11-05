@@ -8,7 +8,7 @@ namespace DocProc.Infrastructure.Classification;
 /// <summary>
 /// The cheap classifier of docs/03 stage 4: multilingual keyword rules over the text layer, weighted by position
 /// (first page, header third), with references to other documents demoted and negative phrases subtracted. Below
-/// <see cref="KeywordClassifierOptions.ConfidenceThreshold"/> it answers <see cref="DocumentType.Unknown"/> so the
+/// <see cref="KeywordClassifierOptions.ConfidenceThreshold"/> it answers <see cref="DocumentTypeKey.Unknown"/> so the
 /// pipeline can spend an LLM call with the first page image; it never looks at the image itself.
 /// </summary>
 /// <remarks>
@@ -33,20 +33,33 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
     }
 
     /// <summary>Synchronous core, also used by tests and by the splitter's header detection.</summary>
-    public ClassificationOutcome Classify(TextLayer? textLayer)
+    public ClassificationOutcome Classify(TextLayer? textLayer) => Classify(textLayer, candidates: null);
+
+    /// <summary>
+    /// The keyword rules restricted to <paramref name="candidates"/> (a supplier's allowed types, docs/11 §7.3): only
+    /// those types score, so the winner is one of them or <c>Unknown</c>. Null or empty: every type.
+    /// </summary>
+    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates) => Classify(textLayer, candidates, KeywordRuleTable.Default);
+
+    /// <summary>
+    /// The keyword rules of <paramref name="table"/> (a tenant's, built from its published types' classification blocks,
+    /// docs/11 §9.4), restricted to <paramref name="candidates"/> as above.
+    /// </summary>
+    public ClassificationOutcome Classify(TextLayer? textLayer, IReadOnlyCollection<string>? candidates, KeywordRuleTable table)
     {
+        ArgumentNullException.ThrowIfNull(table);
         if (textLayer is null || textLayer.WordCount == 0)
         {
-            return new ClassificationOutcome(DocumentType.Unknown, 0, TypeSource.Rule);
+            return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule);
         }
 
         var pages = textLayer.Pages.Select(IndexedPageText.From).ToList();
-        var scores = new Dictionary<DocumentType, double>();
+        var scores = new Dictionary<DocumentTypeKey, double>();
         var allHits = new List<KeywordHit>();
 
         foreach (var page in pages)
         {
-            var hits = KeywordMatcher.FindHits(page);
+            var hits = KeywordMatcher.FindHits(page, table);
             allHits.AddRange(hits);
 
             var isFirstPage = page.Page.Number == textLayer.Pages[0].Number;
@@ -71,10 +84,10 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
         }
 
         var language = LanguageDetector.Detect(pages, allHits);
-        var positive = scores.Where(s => s.Value > 0).ToList();
+        var positive = scores.Where(s => s.Value > 0 && (candidates is not { Count: > 0 } || candidates.Contains(s.Key.Value, StringComparer.Ordinal))).ToList();
         if (positive.Count == 0)
         {
-            return new ClassificationOutcome(DocumentType.Unknown, 0, TypeSource.Rule, language);
+            return new ClassificationOutcome(DocumentTypeKey.Unknown, 0, TypeSource.Rule, language);
         }
 
         var winner = positive.OrderByDescending(s => s.Value).ThenBy(s => s.Key).First();
@@ -84,11 +97,11 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
 
         return confidence >= _options.ConfidenceThreshold
             ? new ClassificationOutcome(winner.Key, confidence, TypeSource.Rule, language)
-            : new ClassificationOutcome(DocumentType.Unknown, confidence, TypeSource.Rule, language);
+            : new ClassificationOutcome(DocumentTypeKey.Unknown, confidence, TypeSource.Rule, language);
     }
 
     /// <summary>Weight of one hit by kind and position; <paramref name="headerOwners"/> are the types with a title in the header third of this page (first page only).</summary>
-    private double Score(KeywordHit hit, bool isFirstPage, HashSet<DocumentType> headerOwners)
+    private double Score(KeywordHit hit, bool isFirstPage, HashSet<DocumentTypeKey> headerOwners)
     {
         var weight = hit.Kind switch
         {

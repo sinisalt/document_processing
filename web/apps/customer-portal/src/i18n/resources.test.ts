@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 import enCommon from "../../../../packages/app-shell/src/i18n/en/common.json";
 import en from "./en/portal.json";
 import de from "./de/portal.json";
-import { fieldLabelKey } from "@/components/review/CanonicalForm";
-import { allSpecs, invoiceKinds, paymentMeans, unitsOfMeasure, type CanonicalInvoice } from "@/lib/canonical";
 
 type Tree = { [key: string]: string | Tree };
 
@@ -63,10 +61,8 @@ describe("portal i18n resources", () => {
       ...["Unknown", "Invoice", "CreditNote", "PurchaseOrder", "DeliveryNote", "Statement", "Reminder", "Other"].map((type) => `documentType.${type}`),
       ...["Info", "Warning", "Blocking"].map((severity) => `flagSeverity.${severity}`),
       ...["Normalize", "Classify", "Extract", "Validate", "Split", "Synthesize"].map((stage) => `stages.${stage}`),
-      ...["document", "supplier", "customer", "totals", "payment", "notes"].map((section) => `review.sections.${section}`),
       ...["received", "stage_completed", "stage_failed", "flagged", "review_requested", "auto_approved", "approved", "rejected", "corrected", "reprocessed"].map((event) => `events.document.${event}`),
-      ...[...invoiceKinds, ...paymentMeans, ...unitsOfMeasure].map((value) => `enums.${value}`),
-      ...["general", "members", "apiKeys", "channels", "ai"].map((tab) => `settings.tabs.${tab}`),
+      ...["general", "members", "apiKeys", "channels", "ai", "types"].map((tab) => `settings.tabs.${tab}`),
       ...["none", "notValidated", "stale", "staleSettled"].map((state) => `review.flags.${state}`),
       // FlagCodes (src/DocProc.Domain/Flags/DocumentFlag.cs).
       ...[
@@ -88,6 +84,25 @@ describe("portal i18n resources", () => {
         "DATE_IMPLAUSIBLE",
         "INVALID_VALUE",
         "UNSUPPORTED_TYPE",
+  "FIELD_REQUIRED",
+  "FIELD_INVALID",
+  "RULE_FAILED",
+  "REVISION_OF",
+  "CHECKS_SKIPPED",
+  "DELIVERY_FAILED",
+  "SUPPLIER_SOURCE_UNVERIFIED",
+  "SUPPLIER_AMBIGUOUS",
+  "SUPPLIER_CONFLICT",
+  "NEW_LAYOUT",
+  "LAYOUT_AMBIGUOUS",
+  "MAPPING_DRIFT",
+  "LAYOUT_WARMUP",
+  "LLM_BUDGET_EXCEEDED",
+  "LOOKUP_FAILED",
+  "PIPELINE_INVALID",
+  "TABLE_ROWS_REJECTED",
+  "TABLE_PAGE_NO_ROWS",
+  "EXTERNAL_REJECTED",
       ].map((code) => `flagCodes.${code}`),
       ...["ApiUpload", "Mailbox", "WatchedFolder", "PortalUpload"].flatMap((type) => [`settings.channels.types.${type}`, `settings.channels.configHints.${type}`]),
       ...["Anthropic", "AnthropicFoundry", "OpenAi", "AzureOpenAi", "OpenAiCompatible"].map((kind) => `settings.ai.kinds.${kind}`),
@@ -95,12 +110,5 @@ describe("portal i18n resources", () => {
       ...["name", "legalName", "slug", "vatId", "countryCode", "defaultCurrency", "timeZone"].map((key) => `settings.general.identity.${key}`),
     ];
     expect(expected.filter((key) => !has(enKeys, key))).toEqual([]);
-  });
-
-  it("labels every field of the review form", () => {
-    const field = { value: null, status: "Missing" as const };
-    const canonical: CanonicalInvoice = { orderReferences: [field], deliveryNoteReferences: [field], lines: [{ lineNumber: 1 }] };
-    const paths = [...allSpecs(canonical).map((spec) => spec.path), "supplier", "customer", "paymentTerms", "lines[0]", "lines[0].lineNumber"];
-    expect(paths.filter((path) => !enKeys.has(fieldLabelKey(path).key))).toEqual([]);
   });
 });

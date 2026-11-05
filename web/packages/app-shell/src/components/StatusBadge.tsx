@@ -25,6 +25,7 @@ export const documentStatusVariant: Readonly<Record<DocumentStatus, BadgeVariant
   Approved: "success",
   Rejected: "secondary",
   Failed: "destructive",
+  Cancelled: "outline",
 };
 
 /** An open task is the queue's normal state: amber like the document it belongs to, never the red of a failure. */

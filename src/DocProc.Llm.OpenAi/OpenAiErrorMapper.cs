@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DocProc.Infrastructure.Http;
+using DocProc.Infrastructure.Llm;
 
 namespace DocProc.Llm.OpenAi;
 
@@ -31,9 +33,9 @@ public static partial class OpenAiErrorMapper
     {
         ArgumentNullException.ThrowIfNull(exception);
 
-        if (Providers.TenantEndpointGuard.FindBlocked(exception) is { } blocked)
+        if (TenantEndpointGuard.FindBlocked(exception) is { } blocked)
         {
-            return Providers.TenantEndpointGuard.ToLlmException(blocked);
+            return LlmEndpointGuard.ToLlmException(blocked);
         }
 
         return exception switch

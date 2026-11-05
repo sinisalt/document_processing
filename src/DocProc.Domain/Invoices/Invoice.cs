@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DocProc.Domain.Common;
 using DocProc.Domain.Fields;
 
@@ -42,6 +44,15 @@ public sealed record Invoice
     public FieldValue<PaymentTerms> PaymentTerms { get; init; } = FieldValue<PaymentTerms>.Missing();
     public FieldValue<string> Notes { get; init; } = FieldValue<string>.Missing();
     public IReadOnlyList<InvoiceLine> Lines { get; init; } = [];
+
+    /// <summary>
+    /// Properties of the stored JSON that this record does not declare (custom fields of a tenant type, docs/11 §5.6),
+    /// kept so a typed load, patch and save round trip does not drop them. Null when there are none. A dictionary of
+    /// <see cref="JsonElement"/>, not a <c>JsonObject</c>: System.Text.Json writes a <c>JsonObject</c> extension bag as
+    /// a bare nested object, which is invalid JSON (checked by <c>CanonicalRoundTripTests</c>).
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
 
     /// <summary>Header fields with their canonical paths. Lines are enumerated separately.</summary>
     public IEnumerable<(string Path, IFieldValue Field)> EnumerateHeaderFields()

@@ -1,0 +1,44 @@
+{
+  "key": "generic-ap-json",
+  "version": 1,
+  "name": "Generic AP JSON",
+  "description": "An accounts-payable document as a header and rows, read by role (document number, date, currency, totals, the line roles), so it serves every type that binds the roles. Credit notes carry negative amounts. A starting point to copy and adapt to the receiver (docs/11 §13.9).",
+  "sourceTypeKey": null,
+  "engine": "jsonata",
+  "contentType": "application/json",
+  "targetSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["header", "rows"],
+    "properties": {
+      "header": {
+        "type": "object",
+        "required": ["documentType", "documentId", "revision"],
+        "properties": {
+          "documentType": { "type": "string" },
+          "documentNumber": { "type": ["string", "null"] },
+          "documentDate": { "type": ["string", "null"], "format": "date" },
+          "dueDate": { "type": ["string", "null"], "format": "date" },
+          "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+          "net": { "type": ["number", "null"] },
+          "tax": { "type": ["number", "null"] },
+          "gross": { "type": ["number", "null"] },
+          "documentId": { "type": "string", "format": "uuid" },
+          "revision": { "type": "integer" }
+        }
+      },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sku": { "type": ["string", "null"] },
+            "quantity": { "type": ["number", "null"] },
+            "unitPrice": { "type": ["number", "null"] },
+            "net": { "type": ["number", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

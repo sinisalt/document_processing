@@ -1,5 +1,6 @@
 import { createRootRoute } from "@tanstack/react-router";
 import { AppProviders, AppShell, useAuth } from "@docproc/app-shell";
+import { useTenantFeatures } from "@docproc/review";
 import { navFor } from "@/nav";
 import { shellConfig } from "@/shell-config";
 
@@ -14,8 +15,9 @@ function RootLayout() {
   );
 }
 
-/** Inside the providers, so the sidebar can drop the tenant-only entries for a platform account. */
+/** Inside the providers, so the sidebar can drop the tenant-only entries for a platform account and the entries of switches that are off. */
 function PortalShell() {
   const { user } = useAuth();
-  return <AppShell nav={navFor(user)} appName={shellConfig.appName} />;
+  const features = useTenantFeatures(user?.scope === "tenant");
+  return <AppShell nav={navFor(user, features.data)} appName={shellConfig.appName} />;
 }

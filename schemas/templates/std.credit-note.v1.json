@@ -1,0 +1,1608 @@
+{
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "std.credit-note v1 (values view)",
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string",
+        "enum": [
+          "Invoice",
+          "CreditNote",
+          "Proforma"
+        ]
+      },
+      "invoiceNumber": {
+        "type": "string"
+      },
+      "issueDate": {
+        "type": "string",
+        "format": "date"
+      },
+      "deliveryDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      },
+      "servicePeriod": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        }
+      },
+      "dueDate": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      },
+      "currency": {
+        "type": "string",
+        "pattern": "^[A-Z]{3}$"
+      },
+      "supplier": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "customer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "taxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registrationNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "line1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "postalCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "city": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "countryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "orderReferences": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "deliveryNoteReferences": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "originalInvoiceReference": {
+        "type": "string"
+      },
+      "subtotalNet": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "taxBreakdown": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "taxableAmount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[A-Z]{3}$"
+                }
+              }
+            },
+            "taxAmount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[A-Z]{3}$"
+                }
+              }
+            },
+            "category": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "readOnly": true
+      },
+      "totalTax": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "totalGross": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "amountDue": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "rounding": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "charges": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "amount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[A-Z]{3}$"
+                }
+              }
+            },
+            "taxRate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "isCharge": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "readOnly": true
+      },
+      "allowances": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "amount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[A-Z]{3}$"
+                }
+              }
+            },
+            "taxRate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "isCharge": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "readOnly": true
+      },
+      "paymentTerms": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "discountPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "discountUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "paymentMeans": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paymentReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "iban": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawText": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "notes": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "lines": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "lineNumber": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "readOnly": true
+            },
+            "supplierSku": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "gtin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "quantity": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unitRaw": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "readOnly": true
+            },
+            "packSize": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unitPrice": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "discountPercent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "discountAmount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "lineNet": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "taxRate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "lineGross": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "depositAmount": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "lotNumber": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bestBefore": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "matchedProductId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The tenant\u0027s catalogue product this line was matched to; set by matching, never extracted.",
+              "readOnly": true
+            }
+          }
+        }
+      }
+    },
+    "required": [
+      "kind",
+      "invoiceNumber",
+      "issueDate",
+      "currency",
+      "supplier",
+      "customer",
+      "originalInvoiceReference",
+      "subtotalNet",
+      "totalTax",
+      "totalGross"
+    ]
+  },
+  "llmSchema": {
+    "name": "invoice_extraction",
+    "version": "1",
+    "adapter": "invoice_extraction@1",
+    "schema": null
+  },
+  "formSpec": {
+    "formatVersion": 1,
+    "key": "std.credit-note",
+    "version": 1,
+    "name": {
+      "en": "Credit note",
+      "de": "Gutschrift"
+    },
+    "sections": [
+      {
+        "id": "document",
+        "label": {
+          "en": "Document",
+          "de": "Beleg"
+        }
+      },
+      {
+        "id": "parties",
+        "label": {
+          "en": "Parties",
+          "de": "Parteien"
+        }
+      },
+      {
+        "id": "references",
+        "label": {
+          "en": "References",
+          "de": "Bez\u00FCge"
+        }
+      },
+      {
+        "id": "totals",
+        "label": {
+          "en": "Totals",
+          "de": "Summen"
+        }
+      },
+      {
+        "id": "payment",
+        "label": {
+          "en": "Payment",
+          "de": "Zahlung"
+        }
+      },
+      {
+        "id": "lines",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        }
+      }
+    ],
+    "fields": [
+      {
+        "path": "kind",
+        "fieldId": "fld_kind",
+        "key": "kind",
+        "kind": "enum",
+        "label": {
+          "en": "Document kind",
+          "de": "Belegart"
+        },
+        "section": "document",
+        "required": true,
+        "readOnly": false,
+        "options": [
+          {
+            "code": "Invoice",
+            "label": {
+              "en": "Invoice",
+              "de": "Rechnung"
+            }
+          },
+          {
+            "code": "CreditNote",
+            "label": {
+              "en": "Credit note",
+              "de": "Gutschrift"
+            }
+          },
+          {
+            "code": "Proforma",
+            "label": {
+              "en": "Pro-forma invoice",
+              "de": "Proformarechnung"
+            }
+          }
+        ]
+      },
+      {
+        "path": "invoiceNumber",
+        "fieldId": "fld_inv_no",
+        "key": "invoiceNumber",
+        "kind": "identifier",
+        "label": {
+          "en": "Credit note no.",
+          "de": "Gutschriftsnummer"
+        },
+        "section": "document",
+        "required": true,
+        "readOnly": false,
+        "indexed": true
+      },
+      {
+        "path": "issueDate",
+        "fieldId": "fld_issue",
+        "key": "issueDate",
+        "kind": "date",
+        "label": {
+          "en": "Credit note date",
+          "de": "Gutschriftsdatum"
+        },
+        "section": "document",
+        "required": true,
+        "readOnly": false
+      },
+      {
+        "path": "deliveryDate",
+        "fieldId": "fld_delivery",
+        "key": "deliveryDate",
+        "kind": "date",
+        "label": {
+          "en": "Delivery date",
+          "de": "Lieferdatum"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "servicePeriod",
+        "fieldId": "fld_service",
+        "key": "servicePeriod",
+        "kind": "period",
+        "label": {
+          "en": "Service period",
+          "de": "Leistungszeitraum"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "from",
+            "kind": "date"
+          },
+          {
+            "key": "to",
+            "kind": "date"
+          }
+        ]
+      },
+      {
+        "path": "dueDate",
+        "fieldId": "fld_due",
+        "key": "dueDate",
+        "kind": "date",
+        "label": {
+          "en": "Due date",
+          "de": "F\u00E4lligkeitsdatum"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "currency",
+        "fieldId": "fld_cur",
+        "key": "currency",
+        "kind": "currency",
+        "label": {
+          "en": "Currency",
+          "de": "W\u00E4hrung"
+        },
+        "section": "totals",
+        "required": true,
+        "readOnly": false
+      },
+      {
+        "path": "supplier",
+        "fieldId": "fld_sup",
+        "key": "supplier",
+        "kind": "party",
+        "label": {
+          "en": "Supplier",
+          "de": "Lieferant"
+        },
+        "section": "parties",
+        "required": true,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "name",
+            "kind": "string"
+          },
+          {
+            "key": "vatId",
+            "kind": "string"
+          },
+          {
+            "key": "taxId",
+            "kind": "string"
+          },
+          {
+            "key": "registrationNumber",
+            "kind": "string"
+          },
+          {
+            "key": "address",
+            "kind": "address"
+          },
+          {
+            "key": "email",
+            "kind": "string"
+          },
+          {
+            "key": "phone",
+            "kind": "string"
+          },
+          {
+            "key": "iban",
+            "kind": "string"
+          },
+          {
+            "key": "bic",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "customer",
+        "fieldId": "fld_cust",
+        "key": "customer",
+        "kind": "party",
+        "label": {
+          "en": "Customer",
+          "de": "Kunde"
+        },
+        "section": "parties",
+        "required": true,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "name",
+            "kind": "string"
+          },
+          {
+            "key": "vatId",
+            "kind": "string"
+          },
+          {
+            "key": "taxId",
+            "kind": "string"
+          },
+          {
+            "key": "registrationNumber",
+            "kind": "string"
+          },
+          {
+            "key": "address",
+            "kind": "address"
+          },
+          {
+            "key": "email",
+            "kind": "string"
+          },
+          {
+            "key": "phone",
+            "kind": "string"
+          },
+          {
+            "key": "iban",
+            "kind": "string"
+          },
+          {
+            "key": "bic",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "orderReferences",
+        "fieldId": "fld_orders",
+        "key": "orderReferences",
+        "kind": "identifier",
+        "label": {
+          "en": "Order nos.",
+          "de": "Bestellnummern"
+        },
+        "section": "references",
+        "required": false,
+        "readOnly": false,
+        "list": true
+      },
+      {
+        "path": "deliveryNoteReferences",
+        "fieldId": "fld_dnotes",
+        "key": "deliveryNoteReferences",
+        "kind": "identifier",
+        "label": {
+          "en": "Delivery note nos.",
+          "de": "Lieferscheinnummern"
+        },
+        "section": "references",
+        "required": false,
+        "readOnly": false,
+        "list": true
+      },
+      {
+        "path": "originalInvoiceReference",
+        "fieldId": "fld_orig",
+        "key": "originalInvoiceReference",
+        "kind": "identifier",
+        "label": {
+          "en": "Original invoice no.",
+          "de": "Urspr\u00FCngliche Rechnungsnummer"
+        },
+        "section": "references",
+        "required": true,
+        "readOnly": false
+      },
+      {
+        "path": "subtotalNet",
+        "fieldId": "fld_net",
+        "key": "subtotalNet",
+        "kind": "money",
+        "label": {
+          "en": "Net total",
+          "de": "Nettobetrag"
+        },
+        "section": "totals",
+        "required": true,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "taxBreakdown",
+        "fieldId": "fld_tax_rows",
+        "key": "taxBreakdown",
+        "kind": "taxRow",
+        "label": {
+          "en": "VAT breakdown",
+          "de": "Umsatzsteuer nach Steuers\u00E4tzen"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": true,
+        "list": true,
+        "provenance": false,
+        "members": [
+          {
+            "key": "rate",
+            "kind": "percent"
+          },
+          {
+            "key": "taxableAmount",
+            "kind": "money"
+          },
+          {
+            "key": "taxAmount",
+            "kind": "money"
+          },
+          {
+            "key": "category",
+            "kind": "string"
+          }
+        ]
+      },
+      {
+        "path": "totalTax",
+        "fieldId": "fld_tax",
+        "key": "totalTax",
+        "kind": "money",
+        "label": {
+          "en": "Total VAT",
+          "de": "Umsatzsteuer"
+        },
+        "section": "totals",
+        "required": true,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "totalGross",
+        "fieldId": "fld_gross",
+        "key": "totalGross",
+        "kind": "money",
+        "label": {
+          "en": "Gross total",
+          "de": "Gesamtbetrag"
+        },
+        "section": "totals",
+        "required": true,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "amountDue",
+        "fieldId": "fld_due_amount",
+        "key": "amountDue",
+        "kind": "money",
+        "label": {
+          "en": "Amount due",
+          "de": "Zahlbetrag"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "rounding",
+        "fieldId": "fld_rounding",
+        "key": "rounding",
+        "kind": "money",
+        "label": {
+          "en": "Rounding",
+          "de": "Rundung"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": false,
+        "currencyPath": "currency"
+      },
+      {
+        "path": "charges",
+        "fieldId": "fld_charges",
+        "key": "charges",
+        "kind": "chargeOrAllowance",
+        "label": {
+          "en": "Charges",
+          "de": "Zuschl\u00E4ge"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": true,
+        "list": true,
+        "provenance": false,
+        "members": [
+          {
+            "key": "description",
+            "kind": "string"
+          },
+          {
+            "key": "amount",
+            "kind": "money"
+          },
+          {
+            "key": "taxRate",
+            "kind": "percent"
+          },
+          {
+            "key": "isCharge",
+            "kind": "boolean"
+          }
+        ]
+      },
+      {
+        "path": "allowances",
+        "fieldId": "fld_allowances",
+        "key": "allowances",
+        "kind": "chargeOrAllowance",
+        "label": {
+          "en": "Allowances",
+          "de": "Abschl\u00E4ge"
+        },
+        "section": "totals",
+        "required": false,
+        "readOnly": true,
+        "list": true,
+        "provenance": false,
+        "members": [
+          {
+            "key": "description",
+            "kind": "string"
+          },
+          {
+            "key": "amount",
+            "kind": "money"
+          },
+          {
+            "key": "taxRate",
+            "kind": "percent"
+          },
+          {
+            "key": "isCharge",
+            "kind": "boolean"
+          }
+        ]
+      },
+      {
+        "path": "paymentTerms",
+        "fieldId": "fld_terms",
+        "key": "paymentTerms",
+        "kind": "paymentTerms",
+        "label": {
+          "en": "Payment terms",
+          "de": "Zahlungsbedingungen"
+        },
+        "section": "payment",
+        "required": false,
+        "readOnly": false,
+        "members": [
+          {
+            "key": "dueDate",
+            "kind": "date"
+          },
+          {
+            "key": "discountPercent",
+            "kind": "percent"
+          },
+          {
+            "key": "discountUntil",
+            "kind": "date"
+          },
+          {
+            "key": "paymentMeans",
+            "kind": "string"
+          },
+          {
+            "key": "paymentReference",
+            "kind": "string"
+          },
+          {
+            "key": "iban",
+            "kind": "string"
+          },
+          {
+            "key": "bic",
+            "kind": "string"
+          },
+          {
+            "key": "rawText",
+            "kind": "text"
+          }
+        ]
+      },
+      {
+        "path": "notes",
+        "fieldId": "fld_notes",
+        "key": "notes",
+        "kind": "text",
+        "label": {
+          "en": "Notes",
+          "de": "Bemerkungen"
+        },
+        "section": "document",
+        "required": false,
+        "readOnly": false
+      },
+      {
+        "path": "lines",
+        "fieldId": "fld_lines",
+        "key": "lines",
+        "kind": "array",
+        "label": {
+          "en": "Lines",
+          "de": "Positionen"
+        },
+        "section": "lines",
+        "required": false,
+        "readOnly": false,
+        "anchor": "description",
+        "children": [
+          {
+            "path": "lines[*].lineNumber",
+            "fieldId": "fld_l_no",
+            "key": "lineNumber",
+            "kind": "integer",
+            "label": {
+              "en": "Line no.",
+              "de": "Pos."
+            },
+            "required": false,
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "path": "lines[*].supplierSku",
+            "fieldId": "fld_l_sku",
+            "key": "supplierSku",
+            "kind": "string",
+            "label": {
+              "en": "Supplier article no.",
+              "de": "Artikelnummer"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].gtin",
+            "fieldId": "fld_l_gtin",
+            "key": "gtin",
+            "kind": "string",
+            "label": {
+              "en": "GTIN",
+              "de": "GTIN"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].description",
+            "fieldId": "fld_l_desc",
+            "key": "description",
+            "kind": "text",
+            "label": {
+              "en": "Description",
+              "de": "Bezeichnung"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].quantity",
+            "fieldId": "fld_l_qty",
+            "key": "quantity",
+            "kind": "decimal",
+            "label": {
+              "en": "Quantity",
+              "de": "Menge"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].unit",
+            "fieldId": "fld_l_unit",
+            "key": "unit",
+            "kind": "unit",
+            "label": {
+              "en": "Unit",
+              "de": "Einheit"
+            },
+            "required": false,
+            "readOnly": false,
+            "codeList": "uom"
+          },
+          {
+            "path": "lines[*].unitRaw",
+            "fieldId": "fld_l_unit_raw",
+            "key": "unitRaw",
+            "kind": "string",
+            "label": {
+              "en": "Unit as printed",
+              "de": "Einheit wie gedruckt"
+            },
+            "required": false,
+            "readOnly": true,
+            "provenance": false
+          },
+          {
+            "path": "lines[*].packSize",
+            "fieldId": "fld_l_pack",
+            "key": "packSize",
+            "kind": "string",
+            "label": {
+              "en": "Pack size",
+              "de": "Gebinde"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].unitPrice",
+            "fieldId": "fld_l_price",
+            "key": "unitPrice",
+            "kind": "money",
+            "label": {
+              "en": "Unit price",
+              "de": "Einzelpreis"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].discountPercent",
+            "fieldId": "fld_l_disc_pct",
+            "key": "discountPercent",
+            "kind": "percent",
+            "label": {
+              "en": "Discount %",
+              "de": "Rabatt %"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].discountAmount",
+            "fieldId": "fld_l_disc",
+            "key": "discountAmount",
+            "kind": "money",
+            "label": {
+              "en": "Discount",
+              "de": "Rabatt"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].lineNet",
+            "fieldId": "fld_l_net",
+            "key": "lineNet",
+            "kind": "money",
+            "label": {
+              "en": "Net amount",
+              "de": "Nettobetrag"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].taxRate",
+            "fieldId": "fld_l_tax",
+            "key": "taxRate",
+            "kind": "percent",
+            "label": {
+              "en": "VAT rate",
+              "de": "USt.-Satz"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].lineGross",
+            "fieldId": "fld_l_gross",
+            "key": "lineGross",
+            "kind": "money",
+            "label": {
+              "en": "Gross amount",
+              "de": "Bruttobetrag"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].depositAmount",
+            "fieldId": "fld_l_deposit",
+            "key": "depositAmount",
+            "kind": "money",
+            "label": {
+              "en": "Deposit",
+              "de": "Pfand"
+            },
+            "required": false,
+            "readOnly": false,
+            "currencyPath": "currency"
+          },
+          {
+            "path": "lines[*].lotNumber",
+            "fieldId": "fld_l_lot",
+            "key": "lotNumber",
+            "kind": "string",
+            "label": {
+              "en": "Lot no.",
+              "de": "Chargennummer"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].bestBefore",
+            "fieldId": "fld_l_bbd",
+            "key": "bestBefore",
+            "kind": "date",
+            "label": {
+              "en": "Best before",
+              "de": "Mindesthaltbarkeitsdatum"
+            },
+            "required": false,
+            "readOnly": false
+          },
+          {
+            "path": "lines[*].matchedProductId",
+            "fieldId": "fld_l_product",
+            "key": "matchedProductId",
+            "kind": "string",
+            "label": {
+              "en": "Matched product",
+              "de": "Zugeordneter Artikel"
+            },
+            "description": "The tenant\u0027s catalogue product this line was matched to; set by matching, never extracted.",
+            "required": false,
+            "readOnly": true,
+            "provenance": false
+          }
+        ]
+      }
+    ]
+  }
+}

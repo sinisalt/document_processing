@@ -13,7 +13,10 @@ internal sealed record KeywordHit(KeywordRule Rule, KeywordKind Kind, int WordIn
 /// <summary>Runs the <see cref="KeywordRuleSet"/> over a page; shared by the classifier (stage 4) and the splitter (stage 3).</summary>
 internal static class KeywordMatcher
 {
-    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page)
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page) => FindHits(page, KeywordRuleTable.Default);
+
+    /// <summary>The hits of <paramref name="table"/>'s rules (the built-in table, or a tenant's, docs/11 §9.4).</summary>
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table)
     {
         if (page.WordCount == 0)
         {
@@ -21,11 +24,35 @@ internal static class KeywordMatcher
         }
 
         var hits = new List<KeywordHit>();
-        foreach (var rule in KeywordRuleSet.Rules)
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var bounded = !ReferenceEquals(table, KeywordRuleTable.Default);
+        foreach (var rule in table.Rules)
         {
-            foreach (Match match in rule.Pattern.Matches(page.Text))
+            // A tenant's table runs within a budget per page: the rules left when it is spent are not run on the page.
+            if (bounded && System.Diagnostics.Stopwatch.GetElapsedTime(started) > KeywordRuleTable.PageBudget)
             {
-                hits.Add(ToHit(page, rule, match));
+                break;
+            }
+
+            MatchCollection matches;
+            try
+            {
+                matches = rule.Pattern.Matches(page.Text);
+                _ = matches.Count;
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // A tenant rule that ran out of time (escaped literals make this unlikely) is skipped, not fatal.
+                continue;
+            }
+
+            foreach (Match match in matches)
+            {
+                // "rechnung@lieferant.de" or "www.lieferschein-online.de" name a mailbox or a site, not the document.
+                if (!IsInAddress(page, match.Index))
+                {
+                    hits.Add(ToHit(page, rule, match));
+                }
             }
         }
 
@@ -39,6 +66,15 @@ internal static class KeywordMatcher
         hits.RemoveAll(h => h.Rule.Kind == KeywordKind.Title && labelled.Contains((h.Rule.Type, h.WordIndex)));
 
         return hits;
+    }
+
+    /// <summary>Whether the word holding the character at <paramref name="charIndex"/> is an e-mail address or a web address.</summary>
+    internal static bool IsInAddress(IndexedPageText page, int charIndex)
+    {
+        var word = page.Page.Words[page.WordIndexAt(charIndex)].Text;
+        return word.Contains('@', StringComparison.Ordinal)
+               || word.Contains("://", StringComparison.Ordinal)
+               || word.StartsWith("www.", StringComparison.OrdinalIgnoreCase);
     }
 
     private static KeywordHit ToHit(IndexedPageText page, KeywordRule rule, Match match)

@@ -12,12 +12,19 @@ namespace DocProc.Api.Endpoints;
 public sealed record ApiKeySummary(Guid Id, string Name, string Prefix, IReadOnlyList<string> Scopes, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, DateTimeOffset? RevokedAt)
 {
     public bool IsActive => RevokedAt is null;
+
+    /// <summary>The pull destination a <c>deliveries:read</c> key is restricted to; null for all of the tenant's.</summary>
+    public Guid? DestinationId { get; init; }
 }
 
-public sealed record CreateApiKeyRequest(string Name, IReadOnlyList<string> Scopes);
+/// <summary><see cref="DestinationId"/> restricts a <c>deliveries:read</c> key to one pull destination (docs/11 §13.3).</summary>
+public sealed record CreateApiKeyRequest(string Name, IReadOnlyList<string> Scopes, Guid? DestinationId = null);
 
 /// <summary>Returned once, on creation: <see cref="Key"/> is never retrievable again.</summary>
-public sealed record CreatedApiKey(Guid Id, string Name, string Prefix, IReadOnlyList<string> Scopes, string Key, DateTimeOffset CreatedAt);
+public sealed record CreatedApiKey(Guid Id, string Name, string Prefix, IReadOnlyList<string> Scopes, string Key, DateTimeOffset CreatedAt)
+{
+    public Guid? DestinationId { get; init; }
+}
 
 /// <summary>
 /// API keys of the current tenant (docs/05: TenantAdmin manages API keys). The tenant is the resolved scope, so a
@@ -39,7 +46,7 @@ public static class ApiKeyEndpoints
             var rows = await db.ApiKeys.AsNoTracking().ToListAsync(ct);
             var list = rows
                 .OrderByDescending(k => k.CreatedAt)
-                .Select(k => new ApiKeySummary(k.Id, k.Name, k.Prefix, k.Scopes.Select(s => s.ToString().ToLowerInvariant()).ToList(), k.CreatedAt, k.LastUsedAt, k.RevokedAt))
+                .Select(k => new ApiKeySummary(k.Id, k.Name, k.Prefix, k.Scopes.Select(ApiKeyScopeNames.Name).ToList(), k.CreatedAt, k.LastUsedAt, k.RevokedAt) { DestinationId = k.DestinationId })
                 .ToList();
             return TypedResults.Ok<IReadOnlyList<ApiKeySummary>>(list);
         })
@@ -54,6 +61,12 @@ public static class ApiKeyEndpoints
             }
 
             var errors = Validate(request);
+            if (errors.Count == 0 && request.DestinationId is { } destinationId
+                && !await db.OutputDestinations.AnyAsync(d => d.Id == destinationId && d.Transport == OutputTransports.Pull, ct))
+            {
+                errors["destinationId"] = ["destinationId names none of the tenant's pull destinations."];
+            }
+
             if (errors.Count > 0)
             {
                 return TypedResults.ValidationProblem(errors);
@@ -68,14 +81,15 @@ public static class ApiKeyEndpoints
                 Name = request.Name.Trim(),
                 Prefix = generated.Prefix,
                 Hash = generated.Hash,
-                Scopes = request.Scopes.Select(s => Enum.Parse<ApiKeyScope>(s, ignoreCase: true)).Distinct().ToList(),
+                Scopes = request.Scopes.Select(ApiKeyScopeNames.Parse).Distinct().ToList(),
+                DestinationId = request.DestinationId,
                 CreatedAt = now,
             };
             db.ApiKeys.Add(entity);
             await db.SaveChangesAsync(ct);
 
-            var scopes = entity.Scopes.Select(s => s.ToString().ToLowerInvariant()).ToList();
-            return TypedResults.Created($"/api/v1/api-keys/{entity.Id}", new CreatedApiKey(entity.Id, entity.Name, entity.Prefix, scopes, generated.Key, now));
+            var scopes = entity.Scopes.Select(ApiKeyScopeNames.Name).ToList();
+            return TypedResults.Created($"/api/v1/api-keys/{entity.Id}", new CreatedApiKey(entity.Id, entity.Name, entity.Prefix, scopes, generated.Key, now) { DestinationId = entity.DestinationId });
         })
         .WithName("CreateApiKey")
         .WithSummary("Creates a key for the current tenant. The full key is returned once; store it now.");
@@ -127,6 +141,10 @@ public static class ApiKeyEndpoints
         else if (request.Scopes.Any(s => !ApiKeyScopes.IsKnown(s)))
         {
             errors["scopes"] = [$"Unknown scope. Allowed: {string.Join(", ", ApiKeyScopes.All)}."];
+        }
+        else if (request.DestinationId is not null && !request.Scopes.Contains(ApiKeyScopes.DeliveriesRead, StringComparer.Ordinal))
+        {
+            errors["destinationId"] = [$"destinationId restricts the {ApiKeyScopes.DeliveriesRead} scope; the key does not have it."];
         }
 
         return errors;

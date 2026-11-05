@@ -29,7 +29,9 @@ public sealed class CurrencyRule : IInvoiceRule
 
         foreach (var (path, money) in Amounts(invoice))
         {
-            if (!string.Equals(money.Currency, currency, StringComparison.OrdinalIgnoreCase))
+            // An amount without a currency of its own (a VAT-breakdown row a layout pre-filled with its rate only, whose
+            // amounts were never read) is in the document's currency: it does not mix currencies (P5 fix 4).
+            if (!string.IsNullOrWhiteSpace(money.Currency) && !string.Equals(money.Currency, currency, StringComparison.OrdinalIgnoreCase))
             {
                 yield return FlagCodes.Create(FlagCodes.InvalidValue, $"'{path}' is in {money.Currency} but the document currency is {currency}.", path, FlagParams.Of((FlagParams.Reason, "currencyMismatch"), ("field", path), ("currency", money.Currency), ("documentCurrency", currency)));
             }

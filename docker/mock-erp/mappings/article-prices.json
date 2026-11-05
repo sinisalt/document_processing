@@ -1,0 +1,216 @@
+{
+  "mappings": [
+    {
+      "name": "article-prices: accept an article price import",
+      "priority": 5,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/article-prices",
+        "headers": {
+          "Content-Type": {
+            "contains": "json"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"importId\":\"AP-IMP-{{randomValue length=8 type='NUMERIC'}}\",\"status\":\"queued\",\"idempotencyKey\":\"{{request.headers.[Idempotency-Key]}}\",\"receivedAt\":\"{{now}}\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "article-prices: refuse a body that is not JSON",
+      "priority": 6,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/article-prices"
+      },
+      "response": {
+        "status": 415,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "error": "unsupported_media_type",
+          "message": "Send the price list as application/json."
+        }
+      }
+    },
+    {
+      "name": "article-prices: update a price list (PUT /api/article-prices/{priceListId}, OnReapproval Update)",
+      "priority": 5,
+      "request": {
+        "method": "PUT",
+        "urlPathPattern": "/api/article-prices/[^/]+",
+        "headers": {
+          "Content-Type": {
+            "contains": "json"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"importId\":\"AP-UPD-{{randomValue length=8 type='NUMERIC'}}\",\"status\":\"updated\",\"priceListId\":\"{{request.pathSegments.[2]}}\",\"idempotencyKey\":\"{{request.headers.[Idempotency-Key]}}\",\"receivedAt\":\"{{now}}\"}",
+        "transformers": [
+          "response-template"
+        ]
+      }
+    },
+    {
+      "name": "article-prices: 503 on an update when the request asks for it (X-Mock-Erp-Fail: 503)",
+      "priority": 1,
+      "request": {
+        "method": "PUT",
+        "urlPathPattern": "/api/article-prices/[^/]+",
+        "headers": {
+          "X-Mock-Erp-Fail": {
+            "equalTo": "503"
+          }
+        }
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "article-prices is down (forced by X-Mock-Erp-Fail)."
+        }
+      }
+    },
+    {
+      "name": "article-prices: 503 when the request asks for it (X-Mock-Erp-Fail: 503)",
+      "priority": 1,
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/article-prices",
+        "headers": {
+          "X-Mock-Erp-Fail": {
+            "equalTo": "503"
+          }
+        }
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "article-prices is down (forced by X-Mock-Erp-Fail)."
+        }
+      }
+    },
+    {
+      "name": "article-prices: 503 once after POST /__control/article-prices/fail-next",
+      "priority": 1,
+      "scenarioName": "article-prices",
+      "requiredScenarioState": "fail-next",
+      "newScenarioState": "Started",
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/article-prices"
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "article-prices is down for this one call (fail-next)."
+        }
+      }
+    },
+    {
+      "name": "article-prices: 503 on every call after POST /__control/article-prices/fail-always",
+      "priority": 1,
+      "scenarioName": "article-prices",
+      "requiredScenarioState": "down",
+      "request": {
+        "method": "POST",
+        "urlPath": "/api/article-prices"
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json",
+          "Retry-After": "1"
+        },
+        "jsonBody": {
+          "error": "unavailable",
+          "message": "article-prices is down until POST /__control/article-prices/reset."
+        }
+      }
+    },
+    {
+      "name": "control: article-prices fails the next call",
+      "scenarioName": "article-prices",
+      "newScenarioState": "fail-next",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/article-prices/fail-next"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "article-prices",
+          "state": "fail-next"
+        }
+      }
+    },
+    {
+      "name": "control: article-prices fails every call",
+      "scenarioName": "article-prices",
+      "newScenarioState": "down",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/article-prices/fail-always"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "article-prices",
+          "state": "down"
+        }
+      }
+    },
+    {
+      "name": "control: article-prices answers normally again",
+      "scenarioName": "article-prices",
+      "newScenarioState": "Started",
+      "request": {
+        "method": "POST",
+        "urlPath": "/__control/article-prices/reset"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "endpoint": "article-prices",
+          "state": "Started"
+        }
+      }
+    }
+  ]
+}

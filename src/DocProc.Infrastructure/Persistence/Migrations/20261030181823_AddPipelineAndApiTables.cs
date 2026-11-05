@@ -120,9 +120,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                 column: "TenantId");
 
             // The security policy is re-created over the full table list so the outbox and idempotency tables are
-            // tenant-filtered too (RowLevelSecurity.ProtectedTables).
+            // tenant-filtered too (RowLevelSecurity.PipelineProtectedTables, frozen for this migration).
             migrationBuilder.Sql(RowLevelSecurity.DropSql());
-            migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.ProtectedTables));
+            migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.PipelineProtectedTables));
         }
 
         /// <inheritdoc />

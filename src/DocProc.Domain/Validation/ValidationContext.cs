@@ -34,5 +34,21 @@ public sealed record TenantContext(
 /// <summary>Everything a rule may consult besides the document itself.</summary>
 public sealed record ValidationContext(DateOnly Today, ValidationOptions Options, TenantContext? Tenant = null)
 {
+    /// <summary>What the generic rule kinds read besides the document: the duplicate check's matches and the code lists (docs/11 §11).</summary>
+    public RuleData Data { get; init; } = RuleData.None;
+
+    /// <summary>
+    /// The pattern evaluations this validation may still make (<see cref="Validation.PatternBudget"/>), shared with the
+    /// structural check of the same validation. A new context gets a budget of its own; a copy made with <c>with</c>
+    /// shares it.
+    /// </summary>
+    public PatternBudget PatternBudget { get; init; } = new();
+
+    /// <summary>
+    /// The time the rules' expressions of this validation may run together (<see cref="Expressions.ExpressionBudget.ForDocument"/>,
+    /// docs/11 §11): every rule's own budget draws on it. A new context gets one of its own; a copy made with <c>with</c> shares it.
+    /// </summary>
+    public Expressions.ExpressionBudget ExpressionBudget { get; init; } = Expressions.ExpressionBudget.ForDocument();
+
     public static ValidationContext For(DateOnly today, TenantContext? tenant = null) => new(today, ValidationOptions.Default, tenant);
 }

@@ -165,11 +165,11 @@ internal static class Inputs
         .Build();
 
     public static ExtractionInput Extraction(
-        DocumentType type = DocumentType.Invoice,
+        DocumentTypeKey? type = null,
         bool pdf = true,
         IReadOnlyList<ReadOnlyMemory<byte>>? images = null,
         TextLayer? textLayer = null,
         SupplierHints? supplier = null,
         TenantHints? tenant = null) =>
-        new(TenantId, DocumentId, type, pdf ? PdfBytes : null, images ?? [], textLayer ?? SampleTextLayer(), null, supplier, tenant ?? Tenant);
+        new(TenantId, DocumentId, type ?? DocumentTypeKey.Invoice, pdf ? PdfBytes : null, images ?? [], textLayer ?? SampleTextLayer(), null, supplier, tenant ?? Tenant);
 }

@@ -192,6 +192,8 @@ internal sealed class GatedQueue : IPipelineQueue
 
     public Task EnqueueAsync(ProcessDocument message, TimeSpan delay, CancellationToken cancellationToken) => Inner.EnqueueAsync(message, delay, cancellationToken);
 
+    public Task EnqueueAsync(ProcessDelivery message, TimeSpan delay, CancellationToken cancellationToken) => Inner.EnqueueAsync(message, delay, cancellationToken);
+
     /// <summary>Lets the held document messages through, and every later one directly.</summary>
     public async Task OpenAsync(CancellationToken cancellationToken)
     {

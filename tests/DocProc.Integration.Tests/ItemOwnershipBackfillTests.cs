@@ -14,6 +14,7 @@ namespace DocProc.Integration.Tests;
 /// migration opens platform scope for its data statements itself; without that the UPDATE silently touches no rows.
 /// The shape of those statements is checked without a database by <see cref="ItemOwnershipBackfillSqlTests"/>.
 /// </summary>
+[Collection(SqlServerCollection.Name)]
 public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
 {
     private const string MigrationBeforeOwnership = "20261030183519_AddConcurrencyTokens";
@@ -30,8 +31,7 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
             return;
         }
 
-        _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
-        await _container.StartAsync(TestContext.Current.CancellationToken);
+        _container = await SqlServerContainers.StartAsync(TestContext.Current.CancellationToken);
         _connectionString = _container.GetConnectionString();
     }
 
@@ -59,25 +59,28 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         Guid itemId;
         await using (var asA = NewContext(TenantContext.ForTenant(TenantA)))
         {
-            var ingestion = await asA.Ingestions.SingleAsync(ct);
+            // Only the id: the old schema lacks columns the current model maps (Ingestions.SubmittedBy and later ones).
+            var ingestionId = await asA.Ingestions.Select(i => i.Id).SingleAsync(ct);
             var sha = new string('a', 64);
-            var item = new IngestionItem
-            {
-                Id = Guid.CreateVersion7(),
-                TenantId = TenantA,
-                IngestionId = ingestion.Id,
-                FileName = "invoice.pdf",
-                MimeType = "application/pdf",
-                SizeBytes = 1,
-                Sha256 = sha,
-                Blob = new BlobReference { Container = "raw", Key = $"{TenantA}/{sha}", Sha256 = sha, SizeBytes = 1, ContentType = "application/pdf" },
-                Kind = ItemKind.Pdf,
-                Disposition = ItemDisposition.Candidate,
-                CreatedAt = DateTimeOffset.UtcNow,
-            };
-            asA.IngestionItems.Add(item);
-            asA.Documents.Add(new Document { Id = Guid.CreateVersion7(), TenantId = TenantA, IngestionItemId = item.Id, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
-            await asA.SaveChangesAsync(ct);
+            var item = new { Id = Guid.CreateVersion7() };
+
+            // The item in SQL as well: the old schema lacks IngestionItems.RouteJson (P4) the current model maps.
+            await asA.Database.ExecuteSqlAsync(
+                $"""
+                INSERT INTO [IngestionItems] ([Id], [TenantId], [IngestionId], [FileName], [MimeType], [SizeBytes], [Sha256], [Kind], [Disposition], [CreatedAt],
+                                              [Blob_Container], [Blob_ContentType], [Blob_Key], [Blob_Sha256], [Blob_SizeBytes])
+                VALUES ({item.Id}, {TenantA}, {ingestionId}, N'invoice.pdf', N'application/pdf', 1, {sha}, N'Pdf', N'Candidate', {DateTimeOffset.UtcNow},
+                        N'raw', N'application/pdf', {TenantA + "/" + sha}, {sha}, 1);
+                """,
+                ct);
+            // The document in SQL: the old Documents table lacks columns the current model maps (DocumentTypeVersionId).
+            var now = DateTimeOffset.UtcNow;
+            await asA.Database.ExecuteSqlAsync(
+                $"""
+                INSERT INTO [Documents] ([Id], [TenantId], [IngestionItemId], [PageStart], [PageEnd], [PageCount], [PageImageKeys], [Type], [Status], [CreatedAt], [UpdatedAt], [Costs])
+                VALUES ({Guid.CreateVersion7()}, {TenantA}, {item.Id}, 1, 1, 1, N'[]', N'Unknown', N'Received', {now}, {now}, {"{}"});
+                """,
+                ct);
             itemId = item.Id;
         }
 
@@ -103,8 +106,23 @@ public sealed class ItemOwnershipBackfillTests : IAsyncLifetime
         var channel = new IngestionChannel { Id = Guid.CreateVersion7(), TenantId = TenantA, Name = "api", Type = ChannelType.ApiUpload, CreatedAt = now };
         var blob = new BlobReference { Container = "raw", Key = $"{TenantA}/raw", Sha256 = new string('0', 64), SizeBytes = 1, ContentType = "application/pdf" };
         context.Tenants.Add(new Tenant { Id = TenantA, Name = "tenant-a", Slug = "tenant-a", LegalName = "tenant-a", DefaultCurrency = "EUR", CountryCode = "DE", TimeZone = "Europe/Berlin", CreatedAt = now, UpdatedAt = now });
-        context.IngestionChannels.Add(channel);
-        context.Ingestions.Add(new Ingestion { Id = Guid.CreateVersion7(), TenantId = TenantA, ChannelId = channel.Id, ReceivedAt = now, RawBlob = blob, UpdatedAt = now });
         await context.SaveChangesAsync(ct);
+
+        // The channel in SQL: the older schema lacks the channel columns of P4 (SourceKey, the defaults).
+        await context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [IngestionChannels] ([Id], [TenantId], [Name], [Type], [ConfigJson], [Status], [CreatedAt])
+            VALUES ({channel.Id}, {TenantA}, {channel.Name}, N'ApiUpload', {"{}"}, N'Active', {now});
+            """,
+            ct);
+
+        // In SQL: the current model maps Ingestions columns this older schema does not have yet.
+        await context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO [Ingestions] ([Id], [TenantId], [ChannelId], [ReceivedAt], [Status], [Attempts], [UpdatedAt],
+                                      [RawBlob_Container], [RawBlob_ContentType], [RawBlob_Key], [RawBlob_Sha256], [RawBlob_SizeBytes])
+            VALUES ({Guid.CreateVersion7()}, {TenantA}, {channel.Id}, {now}, N'Received', 0, {now}, {blob.Container}, {blob.ContentType}, {blob.Key}, {blob.Sha256}, {blob.SizeBytes});
+            """,
+            ct);
     }
 }

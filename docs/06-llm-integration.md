@@ -1,5 +1,9 @@
 # LLM integration (Claude adapter defaults)
 
+> **Superseded in part by [docs/11](11-document-types-and-mappings.md)** (2026-11-02): document types, supplier
+> layouts, identification rules, source routing and output mappings are tenant configuration, not code. Where this
+> document assumes fixed document types or automatically synthesised profiles only, docs/11 wins.
+
 The pipeline talks to a provider-neutral gateway (`08-llm-providers-and-byok.md`); this
 document covers the Anthropic adapter, which is the first implementation and the platform
 default, and the request design that the other adapters mirror. Facts below were checked

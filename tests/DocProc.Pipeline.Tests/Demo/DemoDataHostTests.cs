@@ -107,7 +107,7 @@ public sealed class DemoDataHostTests : IDisposable
             var documents = await db.Documents.AsNoTracking().Include(d => d.IngestionItem).ToListAsync(Ct);
             documents.Select(d => (d.IngestionItem!.FileName, d.Status)).OrderBy(d => d.FileName, StringComparer.Ordinal)
                 .ShouldBe(EndStates.Select(e => (e.Key, e.Value)).OrderBy(e => e.Key, StringComparer.Ordinal));
-            documents.Single(d => d.IngestionItem!.FileName == DemoPdfs.DeliveryNoteFileName).Type.ShouldBe(DocumentType.DeliveryNote);
+            documents.Single(d => d.IngestionItem!.FileName == DemoPdfs.DeliveryNoteFileName).Type.ShouldBe(DocumentTypeKey.DeliveryNote);
             (await db.Ingestions.CountAsync(i => i.Status == IngestionStatus.Received, Ct)).ShouldBe(0);
             (await db.OutboxMessages.CountAsync(Ct)).ShouldBe(4, "every auto-approved document is published");
             settled = await SnapshotAsync(db);

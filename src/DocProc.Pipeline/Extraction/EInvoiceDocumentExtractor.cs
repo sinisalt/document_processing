@@ -18,7 +18,7 @@ public sealed class EInvoiceDocumentExtractor(IEInvoiceParser parser, ILogger<EI
     public bool CanHandle(ExtractionInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        return input.EmbeddedXml is { Length: > 0 } && input.Type is DocumentType.Invoice or DocumentType.CreditNote;
+        return input.EmbeddedXml is { Length: > 0 } && input.Type.IsInvoiceFamily;
     }
 
     public Task<ExtractionOutcome?> ExtractAsync(ExtractionInput input, CancellationToken cancellationToken)
