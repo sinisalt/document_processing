@@ -121,6 +121,12 @@ public sealed record IdentifierEvidence(string Path, string Kind, string Descrip
 public sealed record IdentificationResult(bool Holds, IReadOnlyList<IdentifierEvidence> Evidence, IReadOnlyList<string> Failed)
 {
     public static IdentificationResult False(string reason) => new(false, [], [reason]);
+
+    /// <summary>
+    /// Whether an identifier could not be checked because its pattern ran out of time. Such a rule does not hold, but
+    /// "does not hold" is not known: the resolvers do not let a competing rule or layout win over it.
+    /// </summary>
+    public bool TimedOut { get; init; }
 }
 
 /// <summary>
@@ -145,6 +151,9 @@ public static class IdentificationRuleEvaluator
     /// </summary>
     public static readonly TimeSpan PatternTimeout = TimeSpan.FromSeconds(2);
 
+    /// <summary>The end of a <see cref="IdentificationResult.Failed"/> entry for an identifier whose pattern timed out.</summary>
+    private const string TimedOutSuffix = ", its pattern ran out of time";
+
     /// <summary>The fewest letters a word must have for <c>allowOcrErrors</c> to relax it.</summary>
     public const int OcrToleranceMinLetters = 6;
 
@@ -158,7 +167,7 @@ public static class IdentificationRuleEvaluator
         var evidence = new List<IdentifierEvidence>();
         var failed = new List<string>();
         var holds = EvaluateGroup(rule.Root, string.Empty, IdentifierLocation.None, positive: true, context, evidence, failed);
-        return new IdentificationResult(holds, evidence, failed);
+        return new IdentificationResult(holds, evidence, failed) { TimedOut = failed.Any(f => f.EndsWith(TimedOutSuffix, StringComparison.Ordinal)) };
     }
 
     /// <summary>
@@ -190,6 +199,13 @@ public static class IdentificationRuleEvaluator
 
         Patterns[(pattern, ignoreCase)] = regex;
         return regex;
+    }
+
+    /// <summary>Tests only: <paramref name="pattern"/> runs as <paramref name="regex"/> (for example one that always times out).</summary>
+    internal static void UseForTests(string pattern, Regex regex)
+    {
+        Patterns[(pattern, false)] = regex;
+        Patterns[(pattern, true)] = regex;
     }
 
     private static bool EvaluateGroup(IdentifierGroup group, string prefix, IdentifierLocation inherited, bool positive, IdentificationContext context, List<IdentifierEvidence> evidence, List<string> failed)
@@ -244,7 +260,7 @@ public static class IdentificationRuleEvaluator
                 {
                     // Not "not present": the identifier could not be checked, and the failure says so (a positive one
                     // does not hold, a negative one does not count as absent).
-                    failed.Add($"{path}: {description} could not be checked, its pattern ran out of time");
+                    failed.Add($"{path}: {description} could not be checked{TimedOutSuffix}");
                     results.Add(!positive);
                     continue;
                 }

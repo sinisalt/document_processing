@@ -60,6 +60,57 @@ public sealed class LayoutResolverTests
         ambiguous.Tied.Select(t => t.Candidate.LayoutKey).Order(StringComparer.Ordinal).ShouldBe(["specific", "twin"]);
     }
 
+    /// <summary>A pattern that cannot finish on <see cref="Stalled"/> within 1 ms: a stand-in for a stalled worker.</summary>
+    internal const string StallingPattern = @"(a+\s?)+$";
+
+    private static readonly string StallingJson = System.Text.Json.JsonSerializer.Serialize(StallingPattern);
+
+    internal static readonly DocumentWords Stalled = IdentificationRuleTests.Words(Enumerable.Range(0, 10).Aggregate(
+        new PageBuilder(1).Text(60, 40, "Nordwind Großhandel GmbH USt-IdNr. DE811111111").Text(60, 200, "Rechnung").Text(60, 230, "Rechnungs-Nr. RE-1"),
+        (page, i) => page.Text(60, 300 + (i * 20), "aaaaaaaa aaaaaaaa aaaaaaaa")).Text(60, 520, "!"));
+
+    internal static void StallPattern() =>
+        IdentificationRuleEvaluator.UseForTests(StallingPattern, new System.Text.RegularExpressions.Regex(StallingPattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(1)));
+
+    [Fact]
+    public void A_layout_that_could_not_be_checked_is_not_outranked_by_one_that_held()
+    {
+        StallPattern();
+        var stalled = $$"""{ "all": [ { "text": "Rechnung" }, { "regex": {{StallingJson}} } ] }""";
+        var broad = Layout("broad", """{ "all": [ { "text": "Rechnung" } ] }""");
+        var timedOut = Layout("timed-out", stalled, priority: 200);
+
+        var result = Resolve(Stalled, [broad, timedOut]);
+        var timedOutResult = result.Evaluated.Single(e => e.Candidate == timedOut).Result;
+        timedOutResult.TimedOut.ShouldBeTrue(string.Join(" | ", timedOutResult.Failed));
+        result.Resolution.ShouldBe(LayoutResolution.Ambiguous, "the higher-priority layout might have held");
+        result.Selected.ShouldBeNull();
+        result.Tied.Select(t => t.Candidate.LayoutKey).Order(StringComparer.Ordinal).ShouldBe(["broad", "timed-out"]);
+
+        var lower = Layout("lower", stalled, priority: 50);
+        var decided = Resolve(Stalled, [broad, lower]);
+        decided.Resolution.ShouldBe(LayoutResolution.Identified, "a layout that would rank lower cannot change the winner");
+        decided.Selected!.Candidate.ShouldBe(broad);
+    }
+
+    [Fact]
+    public void A_tenant_rule_of_another_type_that_could_not_be_checked_leaves_the_type_undecided()
+    {
+        StallPattern();
+        TenantRuleCandidate Rule(string type, string rule) => new(Guid.NewGuid(), Guid.NewGuid(), 1, type, type, 100, IdentificationRule.Parse(rule), []);
+        var holds = Rule("invoice", """{ "all": [ { "text": "Rechnung" } ] }""");
+        var timedOut = Rule("price-list", $$"""{ "all": [ { "regex": {{StallingJson}} } ] }""");
+
+        var result = TypeIdentificationRuleSet.Resolve([holds, timedOut], Stalled, null, null);
+        result.Resolution.ShouldBe(TenantRuleResolution.Conflicting, "the price-list rule might have held");
+        result.Selected.ShouldBeNull();
+
+        var sameType = Rule("invoice", $$"""{ "all": [ { "regex": {{StallingJson}} } ] }""");
+        var same = TypeIdentificationRuleSet.Resolve([holds, sameType], Stalled, null, null);
+        same.Resolution.ShouldBe(TenantRuleResolution.Identified, "a rule of the same type cannot change the type");
+        same.Selected!.Candidate.ShouldBe(holds);
+    }
+
     [Fact]
     public void A_Candidate_is_never_applied_but_named_as_pending_and_a_Shadow_only_counts()
     {

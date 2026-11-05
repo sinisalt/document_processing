@@ -142,6 +142,18 @@ public sealed class LayoutResolver : ILayoutResolver
         {
             var best = held[0];
             var tied = held.Where(e => e.Candidate.Priority == best.Candidate.Priority && e.Candidate.Rule.PositiveCount == best.Candidate.Rule.PositiveCount).ToList();
+            // A layout that could not be checked (a pattern timed out) and would rank at least as high might be the one:
+            // the best layout that held does not win over it, the document is ambiguous instead.
+            var notChecked = evaluated
+                .Where(e => Applies(e.Candidate) && e.Result.TimedOut && !e.Result.Holds)
+                .Where(e => e.Candidate.Priority > best.Candidate.Priority
+                            || (e.Candidate.Priority == best.Candidate.Priority && e.Candidate.Rule.PositiveCount >= best.Candidate.Rule.PositiveCount))
+                .ToList();
+            if (notChecked.Count > 0)
+            {
+                return new LayoutResolverResult(LayoutResolution.Ambiguous, null, [.. tied, .. notChecked], null, evaluated, layoutManaged);
+            }
+
             return tied.Count > 1
                 ? new LayoutResolverResult(LayoutResolution.Ambiguous, null, tied, null, evaluated, layoutManaged)
                 : new LayoutResolverResult(LayoutResolution.Identified, best, [], null, evaluated, layoutManaged);

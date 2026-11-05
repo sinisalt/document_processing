@@ -61,8 +61,13 @@ public sealed class KeywordDocumentClassifier(IOptions<KeywordClassifierOptions>
         foreach (var page in pages)
         {
             var hits = KeywordMatcher.FindHits(page, table, out var pageComplete);
-            complete &= pageComplete;
             allHits.AddRange(hits);
+            if (!pageComplete)
+            {
+                // The outcome is Unknown now (below); the remaining pages are not scanned on a worker that is already slow.
+                complete = false;
+                break;
+            }
 
             var isFirstPage = page.Page.Number == textLayer.Pages[0].Number;
             var headerOwners = isFirstPage

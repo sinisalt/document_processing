@@ -48,6 +48,14 @@ public static class TypeIdentificationRuleSet
             .Select(r => new TenantRuleEvaluation(r, IdentificationRuleEvaluator.Evaluate(r.Rule, context)))
             .ToList();
         var holding = evaluated.Where(e => e.Result.Holds).ToList();
+        // A rule of another type that could not be checked (its pattern timed out) might have held: the rules that did
+        // hold do not decide over it, exactly as if both had held.
+        var notChecked = evaluated.Where(e => e.Result.TimedOut).ToList();
+        if (holding.Count > 0 && notChecked.Any(u => holding.All(h => !string.Equals(h.Candidate.DocumentTypeKey, u.Candidate.DocumentTypeKey, StringComparison.Ordinal))))
+        {
+            return new TenantRuleResult(TenantRuleResolution.Conflicting, null, holding, evaluated);
+        }
+
         if (holding.Count == 0)
         {
             return new TenantRuleResult(TenantRuleResolution.None, null, holding, evaluated);

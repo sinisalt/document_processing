@@ -2045,6 +2045,12 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     partial evidence. The limits are wall-clock backstops and now 1 s per rule and 2 s per page and table, and a page
     whose tenant rules did not all run makes the keyword outcome `Unknown` with no confidence, so the LLM classifier
     or review decides (docs/11 §9.4, "Correction (P5, after fix 4)").
+    The review of that fix found the same pattern one step earlier: an identification rule whose pattern timed out
+    did not hold, and a tenant rule of another type, or a lower-ranked layout, then won with full confidence. Such a
+    rule now makes the tenant rules `Conflicting` and the layouts `Ambiguous` (docs/11 §8.5). The classifier also
+    stops at the first incomplete page, and the matcher overload that dropped the "incomplete" signal is gone. Left for
+    later: an incomplete keyword evaluation is not recorded in the timeline or the log, and a layout-managed
+    supplier whose only matching layout timed out gets `NEW_LAYOUT` rather than a note that it could not be checked.
   - Left for later (fix 4): saving or activating a provider configuration whose model has no price is not refused while
     the tenant has budgets (its calls are refused instead), `GET /llm-budgets` does not list unpriced calls, and the
     price table is not bound from configuration yet (docs/08); a callback's reports of one document are not merged

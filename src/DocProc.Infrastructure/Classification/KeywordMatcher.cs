@@ -13,10 +13,8 @@ internal sealed record KeywordHit(KeywordRule Rule, KeywordKind Kind, int WordIn
 /// <summary>Runs the <see cref="KeywordRuleSet"/> over a page; shared by the classifier (stage 4) and the splitter (stage 3).</summary>
 internal static class KeywordMatcher
 {
-    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page) => FindHits(page, KeywordRuleTable.Default);
-
-    /// <summary>The hits of <paramref name="table"/>'s rules (the built-in table, or a tenant's, docs/11 §9.4).</summary>
-    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page, KeywordRuleTable table) => FindHits(page, table, out _);
+    /// <summary>The hits of the built-in rules, which have no time limit and are always complete.</summary>
+    public static IReadOnlyList<KeywordHit> FindHits(IndexedPageText page) => FindHits(page, KeywordRuleTable.Default, out _);
 
     /// <summary>
     /// The hits of <paramref name="table"/>'s rules, and whether every rule was run on the page: false when a tenant

@@ -284,7 +284,9 @@ internal sealed class LayoutIdentification(DocProcDbContext db, ITenantFeatures 
                 var keys = string.Join(", ", result.Tied.Select(t => $"{t.Candidate.LayoutKey}@{t.Candidate.Version}"));
                 raised.Add(FlagCodes.Create(
                     FlagCodes.LayoutAmbiguous,
-                    $"Several layouts of {setting.Supplier.Name} recognise the document equally ({keys}); none was applied.",
+                    result.Tied.Any(t => t.Result.TimedOut)
+                        ? $"Layouts of {setting.Supplier.Name} could not all be checked, a pattern ran out of time ({keys}); none was applied."
+                        : $"Several layouts of {setting.Supplier.Name} recognise the document equally ({keys}); none was applied.",
                     parameters: FlagParams.Of(
                         ("stepId", stepId),
                         ("supplierId", setting.Supplier.Id.ToString()),
