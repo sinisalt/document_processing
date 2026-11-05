@@ -35,8 +35,10 @@ public sealed class LlmGateway(
 
         // The tenant's budgets (docs/11 §16): a call that would take a period's spend past its budget is not made, and
         // the stage goes on without it (LLM_BUDGET_EXCEEDED). Nothing is recorded: no call happened.
-        // The estimate is held until the call's usage row is written, so parallel calls see each other (§16).
-        using var reservation = await _budgets.ReserveAsync(tenantId, request.Stage, request.DocumentId, cancellationToken).ConfigureAwait(false);
+        // The estimate is held until the call's usage row is written, so parallel calls see each other (§16). A model the
+        // price table has no price for would be recorded without a cost, so a budget that applies refuses it (fix 4).
+        var unpriced = prices.TryGet(resolved.Model, out _) ? null : resolved.Model;
+        using var reservation = await _budgets.ReserveAsync(tenantId, request.Stage, request.DocumentId, unpriced, cancellationToken).ConfigureAwait(false);
         if (!reservation.Verdict.Allowed)
         {
             throw new LlmBudgetExceededException(reservation.Verdict);

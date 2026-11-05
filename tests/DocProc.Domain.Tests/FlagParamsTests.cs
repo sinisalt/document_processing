@@ -85,6 +85,22 @@ public class FlagParamsTests
     }
 
     [Fact]
+    public void A_tax_row_whose_amounts_have_no_currency_does_not_mix_currencies()
+    {
+        // What a canonical tree with a VAT-breakdown row of only its rate (a layout's label pre-fill) reads as: the
+        // missing amounts are Money without a currency. Before P5 fix 4 they were "in  but the document currency is EUR".
+        var row = System.Text.Json.JsonSerializer.Deserialize<TaxBreakdownLine>("""{"rate":19}""", DocProc.Domain.Documents.CanonicalJson.Options)!;
+        string.IsNullOrEmpty(row.TaxableAmount.Currency).ShouldBeTrue();
+
+        var flags = Validate(Valid() with { TaxBreakdown = [row] }).OfCode(FlagCodes.InvalidValue).ToList();
+
+        flags.ShouldNotContain(f => f.Params != null && f.Params.GetValueOrDefault(FlagParams.Reason) == "currencyMismatch");
+        flags.ShouldAllBe(f => !f.Message.Contains(" in  but", StringComparison.Ordinal));
+        var mixed = Validate(Valid() with { TaxBreakdown = [row with { TaxAmount = new Money(0m, "USD") }] }).OfCode(FlagCodes.InvalidValue).ShouldHaveSingleItem();
+        mixed.Message.ShouldBe("'taxBreakdown[0].taxAmount' is in USD but the document currency is EUR.");
+    }
+
+    [Fact]
     public void Customer_and_currency_flags_quote_the_values_they_compare()
     {
         var vat = Validate(Valid() with { Customer = FieldValue.Extracted(new Party("Gasthaus zur Post GmbH", VatId: "DE999999999")) })

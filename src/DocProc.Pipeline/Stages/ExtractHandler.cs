@@ -55,7 +55,8 @@ internal sealed class ExtractHandler(
     StagePipeline pipelines,
     ExtractLookups lookups,
     ILogger<ExtractHandler> logger,
-    IDefinitionExtractor? definitionExtractor = null) : DocumentStageHandler(db, timeline, logger)
+    IDefinitionExtractor? definitionExtractor = null,
+    DocProc.Llm.Gateway.LlmPriceCheck? priceCheck = null) : DocumentStageHandler(db, timeline, logger)
 {
     // LLM_PROVIDER_UNAVAILABLE is written by the failure recorder when this stage's LLM call gives up; a later run that
     // succeeds owns it too, so the flag does not outlive the outage.
@@ -146,9 +147,18 @@ internal sealed class ExtractHandler(
         }
 
         // The llm step's maxCostPerDocument (docs/11 §16, per type): once the document's LLM cost reached it, the LLM is not asked.
-        DocProc.Llm.Gateway.LlmBudgetExceededException? budget = llmStep?.Number("maxCostPerDocument") is { } maxCost && (document.Costs.EstimatedUsd ?? 0m) >= (decimal)maxCost
-            ? new DocProc.Llm.Gateway.LlmBudgetExceededException(new DocProc.Llm.Gateway.LlmBudgetVerdict(false, new DocProc.Llm.Gateway.LlmBudget(DocProc.Llm.Gateway.LlmBudgetPeriod.Document, (decimal)maxCost, DocProc.Llm.LlmStage.Extract), document.Costs.EstimatedUsd ?? 0m))
+        // A model the price table has no price for is recorded without a cost, so the cap could never hold: such a call is
+        // not made while the cap is set (fails closed, Correction (P5) fix 4; LlmExtractAsync).
+        var capBudget = llmStep?.Number("maxCostPerDocument") is { } cap ? new DocProc.Llm.Gateway.LlmBudget(DocProc.Llm.Gateway.LlmBudgetPeriod.Document, (decimal)cap, DocProc.Llm.LlmStage.Extract) : null;
+        DocProc.Llm.Gateway.LlmBudgetExceededException? budget = capBudget is not null && (document.Costs.EstimatedUsd ?? 0m) >= capBudget.LimitUsd
+            ? new DocProc.Llm.Gateway.LlmBudgetExceededException(new DocProc.Llm.Gateway.LlmBudgetVerdict(false, capBudget, document.Costs.EstimatedUsd ?? 0m))
             : null;
+        async Task<ExtractionOutcome?> LlmExtractAsync(IDocumentExtractor llm, ExtractionInput request)
+        {
+            await RefuseUnpricedAsync(document, capBudget, cancellationToken).ConfigureAwait(false);
+            return await llm.ExtractAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
         var llmAllowed = llmStep is not null && budget is null;
         ExtractionOutcome? outcome = null;
         var tried = new List<string>();
@@ -165,7 +175,7 @@ internal sealed class ExtractHandler(
                 ExtractionOutcome? filled = null;
                 try
                 {
-                    filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
+                    filled = await LlmExtractAsync(llm, input).ConfigureAwait(false);
                 }
                 catch (DocProc.Llm.LlmException ex) when (!ex.IsRetryable)
                 {
@@ -202,7 +212,7 @@ internal sealed class ExtractHandler(
                 ExtractionOutcome? filled = null;
                 try
                 {
-                    filled = await llm.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
+                    filled = await LlmExtractAsync(llm, input).ConfigureAwait(false);
                 }
                 catch (DocProc.Llm.LlmException ex) when (!ex.IsRetryable)
                 {
@@ -243,7 +253,9 @@ internal sealed class ExtractHandler(
             tried.Add(extractor.Method.ToString());
             try
             {
-                outcome = await extractor.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
+                outcome = extractor.Method == ExtractionMethod.Llm
+                    ? await LlmExtractAsync(extractor, input).ConfigureAwait(false)
+                    : await extractor.ExtractAsync(input, cancellationToken).ConfigureAwait(false);
             }
             catch (DocProc.Llm.Gateway.LlmBudgetExceededException exception)
             {
@@ -441,6 +453,21 @@ internal sealed class ExtractHandler(
     }
 
     /// <summary>
+    /// Refuses the llm step's call under its <c>maxCostPerDocument</c> (<paramref name="cap"/>) when the model the
+    /// tenant's Extract stage resolves to has no price: its calls are recorded without a cost, so the cap could never
+    /// hold (docs/11 §16, Correction (P5) fix 4). Throws <see cref="DocProc.Llm.Gateway.LlmBudgetExceededException"/>,
+    /// which the call sites handle as a budget refusal; does nothing without a cap or with a priced model.
+    /// </summary>
+    private async Task RefuseUnpricedAsync(Document document, DocProc.Llm.Gateway.LlmBudget? cap, CancellationToken cancellationToken)
+    {
+        if (cap is not null && priceCheck is not null
+            && await priceCheck.UnpricedModelAsync(document.TenantId, DocProc.Llm.LlmStage.Extract, cancellationToken).ConfigureAwait(false) is { } model)
+        {
+            throw new DocProc.Llm.Gateway.LlmBudgetExceededException(DocProc.Llm.Gateway.LlmBudgetVerdict.Unpriced(cap, model, document.Costs.EstimatedUsd ?? 0m));
+        }
+    }
+
+    /// <summary>
     /// The LLM path of a definition-driven type (docs/11 §9.3): with <c>customTypes</c>, an enabled <c>llm</c> step, a
     /// registered <see cref="IDefinitionExtractor"/> and pages or text to read, the type version's compiled schema is
     /// asked for, in <c>fill-missing</c> mode over a pre-fill (the paths it left Missing). A provider that cannot answer
@@ -492,6 +519,11 @@ internal sealed class ExtractHandler(
         };
         try
         {
+            if (request.MaxCostUsd is { } capUsd)
+            {
+                await RefuseUnpricedAsync(document, new DocProc.Llm.Gateway.LlmBudget(DocProc.Llm.Gateway.LlmBudgetPeriod.Document, capUsd, DocProc.Llm.LlmStage.Extract), cancellationToken).ConfigureAwait(false);
+            }
+
             var outcome = await definitionExtractor.ExtractAsync(request, cancellationToken).ConfigureAwait(false);
             // A page-by-page read stopped by maxCostPerDocument keeps the pages it read and says so (LLM_BUDGET_EXCEEDED).
             var stopped = outcome.PagesNotRead > 0 && request.MaxCostUsd is { } limit

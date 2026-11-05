@@ -23,6 +23,12 @@ public sealed class MasterDataSync(IOutputRenderer renderer, DestinationReader r
 
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How many runs of one source (or of the one-off imports) are kept (docs/11 §14, Correction (P5) fix 4): a schedule
+    /// may run every 15 minutes, so older runs are deleted once a run is saved.
+    /// </summary>
+    public const int KeepRunsPerSource = 200;
+
     public async Task<MasterDataRun> RunAsync(DocProcDbContext db, MasterDataSource source, MasterDataTrigger trigger, bool dryRun, JsonNode? uploaded, string actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
@@ -48,7 +54,25 @@ public sealed class MasterDataSync(IOutputRenderer renderer, DestinationReader r
         });
         source.NextRunAt = NextRun(source, now);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PruneAsync(db, source.TenantId, source.Id, cancellationToken).ConfigureAwait(false);
         return run;
+    }
+
+    /// <summary>
+    /// Deletes the runs of <paramref name="sourceId"/> (null: the one-off imports) of the tenant beyond the newest
+    /// <see cref="KeepRunsPerSource"/>; called after a run was saved. Returns how many were deleted.
+    /// </summary>
+    public static async Task<int> PruneAsync(DocProcDbContext db, Guid tenantId, Guid? sourceId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var stale = await db.MasterDataRuns.AsNoTracking()
+            .Where(r => r.TenantId == tenantId && r.SourceId == sourceId)
+            .OrderByDescending(r => r.At)
+            .ThenByDescending(r => r.Id)
+            .Skip(KeepRunsPerSource)
+            .Select(r => r.Id)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return stale.Count == 0 ? 0 : await db.MasterDataRuns.Where(r => stale.Contains(r.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The run row of a report, added unsaved.</summary>
@@ -69,7 +93,9 @@ public sealed class MasterDataSync(IOutputRenderer renderer, DestinationReader r
             Unchanged = report.Unchanged,
             Conflicts = report.Conflicts,
             Errors = report.Errors,
-            ReportJson = report.ToJson(),
+            // A scheduled run keeps its counts but lists only the rows that did something (P5 fix 4): a schedule with no
+            // change upstream would otherwise store every record as "unchanged" every time it runs.
+            ReportJson = (trigger == MasterDataTrigger.Schedule ? report with { Rows = [.. report.Rows.Where(r => r.Action != MasterDataActions.Unchanged)] } : report).ToJson(),
             At = now,
             By = actor.Length <= 200 ? actor : actor[..200],
         };

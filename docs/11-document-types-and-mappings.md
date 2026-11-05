@@ -1945,6 +1945,13 @@ Correction (P5, part B), as built (`RuleExpression`, `GenericRules`, `ReviewGate
   `quantity*unitPrice-$sum(discountAmount)` (`$sum` of nothing is 0), and `arithmetic` takes `when` (a condition
   evaluated on each row, as `requiredIf.when`) to leave rows out on purpose, for example `when: "$exists(quantity)"`
   for discount lines without a quantity.
+- Correction (P5, fix 4): two messages read the data as it is stored. `REVISION_OF` and `DUPLICATE_SUSPECTED` named
+  the duplicate key by its role paths ("the same $supplierId, validFrom, listScope, priceListNumber"); they name it
+  by its fields' English labels and "supplier" for `$supplierId` ("An earlier document (Approved) has the same
+  supplier, Valid from, Scope, Price list no.; this one may replace it."), the paths when the type's labels are not
+  known. And an amount without a currency of its own (the taxable base and tax of a VAT-breakdown row a layout
+  pre-filled with its rate only, §12.10) raised `INVALID_VALUE {currencyMismatch}` "'taxBreakdown[0].taxableAmount'
+  is in  but the document currency is EUR."; it is in the document's currency and raises nothing.
 - Definition-scoped codes are not derived from the rule id (`X_<RULEID>`): a definition declares its codes in a new
   top-level `flags` block (`{code: X_…, severity?, message?, description?}`) and a rule of a generic kind names one in
   `flag`. Its flags carry the code, the rule's severity (else the declaration's, else warning), its message and
@@ -2663,6 +2670,16 @@ Correction (P5, fix 3): three gaps, as built.
   random bits, base64url, 43 characters), answers it once (`{destination, secret}`; it is never read back) and keeps
   the replaced one valid until the next rotation. `PUT /destinations/{id}/callback-secret {secret}` is gone.
 
+Correction (P5, fix 4): a callback may list up to 100 acknowledgements, and two of them may name one document. Each
+was applied as if alone: without a reference yet (acknowledgements set up after the delivery) the second created a
+second one, which the unique (document, destination) index refused as a lost race on every attempt (409 for good),
+and with a signed callback the second found its own signature recorded for that second and was `replayed`, so
+`[rejected, accepted]` ended `Rejected` with the issue open. The reports of one callback are applied in list order on
+one context: a reference, a flag or an integration issue an earlier report created is found in the context before the
+database, and the order guard runs, and the stamp is recorded, once per reference and callback, so a later report of
+the same callback is not a replay of an earlier one. `[rejected, accepted]` ends accepted, the flag resolved and the
+issue done, signed or not; the same callback sent again is `replayed` when signed.
+
 ### 13.9 Integration templates
 
 Platform `OutputMapping` rows (`TenantId` NULL) ship:
@@ -2816,6 +2833,12 @@ Rendered for a Nordwind specials list of 3 November with 18 rows (two shown); th
   matchKeys?, conflictPolicy?, dryRun?}` and is a dry run unless `dryRun: false`; a run is idempotent (the same file
   twice changes nothing) and its report is kept as a `MasterDataRun` (`Trigger=Import`). A record that matches several
   suppliers, or a new one whose name folds to an existing supplier's, is a conflict, not a second supplier.
+- Correction (P5, fix 4): every run stored a report row per record (up to 1,000, `unchanged` ones included) and no run
+  was ever deleted, so a 15-minute schedule with nothing new upstream grew the table without bound, and Insights read
+  every run of the tenant to find the newest of each source. A scheduled run stores its counts and only the rows that
+  did something (create, update, conflict, error); a manual run and an import keep every row for the person who asked.
+  Each source, and the one-off imports, keeps its newest 200 runs (`MasterDataSync.KeepRunsPerSource`; older ones are
+  deleted once a run is saved), and Insights reads the newest run of each source only.
 
 ## 15. Configuration lifecycle
 
@@ -2927,6 +2950,17 @@ Correction (P4, second review fixes):
   with N worker replicas a period's budget can still be passed by up to N - 1 calls (each at about the stage's average
   cost), and a stage without any recorded call is estimated at 0, so its first calls are not held.
 
+  Correction (P5, fix 4): the spend is the usage rows' estimated cost, and a call of a model the price table does not
+  list (any OpenAI, Azure OpenAI or OpenAI-compatible model, an Anthropic id outside the table) is recorded without
+  one, so it counted as 0 and no budget above 0, and no `maxCostPerDocument`, ever refused it. Budgets fail closed for
+  such a model: while a budget applies to the call, the gateway does not make it (`LLM_BUDGET_EXCEEDED {reason:
+  unpriced, model}`, "The model '…' has no price in the price table, so its cost cannot be counted against the daily
+  LLM budget of 5.00 USD; the call is not made."), and the `llm` step with `maxCostPerDocument` does not call it
+  either (checked when the LLM would be asked, so a document the XML or the layout fills is not flagged). A tenant
+  without budgets or caps calls it as before. Not built: refusing to save or activate such a provider configuration
+  while the tenant has budgets, unpriced calls in `GET /llm-budgets`, and a price table bound from configuration
+  (docs/08).
+
 ## 17. Onboarding and operations view
 
 `GET /insights/automation?from=&to=`, backed by a nightly `SupplierDailyStats` roll-up plus live queries, reports:
@@ -2949,6 +2983,13 @@ is reported per channel and per source rule, not per type (a document of an Unkn
 under). "Create layout" and "add source rule" open the supplier's sheet on its Layouts or Routing tab
 (`/suppliers?supplier=&tab=`); a layout is made from a document in review (§12.10), so the sheet is where the
 document to start from is chosen.
+
+Correction (P5, fix 4): principle 6 holds for the portal's new entries too. Insights is in the sidebar only for a
+tenant with one of `sourceRouting`, `supplierLayouts`, `customTypes` or `configurableSteps` (its address and `GET
+/insights/automation` still answer every tenant role, docs/05); "create layout" is offered with `supplierLayouts` and
+"add source rule" with `sourceRouting`, the switches the sheet's Layouts and Routing tabs need (without them both
+opened the sheet on Details). The inbox's "Urgent first" and its "Review due" column come with `configurableTypes`
+(a due time comes from a type's `review.dueBy`), or when the address already sorts by it.
 
 ## 18. API changes
 

@@ -242,6 +242,7 @@ public sealed class PriceListsEndToEndTests
         var revision = (await OpenFlagsAsync(host, second.Id)).Single(f => f.Code == FlagCodes.RevisionOf);
         revision.Severity.ShouldBe(FlagSeverity.Warning);
         revision.Params!["documentId"].ShouldBe(first.Id.ToString());
+        revision.Message.ShouldBe($"An earlier document ({first.Status}) has the same supplier, Valid from, Scope, Price list no.; this one may replace it.", "the key by its fields' labels, not its paths (P5 fix 4)");
 
         // Printed for yesterday: blocked as expired.
         var dated = await SendAsync(host, DemoPriceLists.SpecialsDated.FileName, Upload(DemoPriceLists.SpecialsDated.FileName));

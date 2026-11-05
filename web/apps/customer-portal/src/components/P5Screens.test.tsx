@@ -313,8 +313,13 @@ describe("the Deliveries tab", () => {
   });
 });
 
+const features = (on: Record<string, boolean> = {}) => ({
+  body: { settings: { features: { configurableSteps: false, configurableTypes: false, customTypes: false, outputs: false, sourceRouting: false, structuredSources: false, supplierLayouts: false, ...on } } },
+});
+
 describe("Insights > Onboarding", () => {
   it("ranks suppliers without layouts with their actions and lists what needs a look", async () => {
+    api.handlers.set("GET /api/v1/settings", () => features({ supplierLayouts: true, sourceRouting: true }));
     const row = (name: string, documents: number, layouts: unknown[] = []) => ({ supplierId: `id-${name}`, name, documents, autoApproved: 1, autoApprovalRate: 0.5, correctionsPerDocument: 1.25, llmCostUsd: 0.42, openNewLayout: 0, layouts, sampleDocumentId: `doc-${name}` });
     api.handlers.set("GET /api/v1/insights/automation", () => ({
       body: {
@@ -341,13 +346,35 @@ describe("Insights > Onboarding", () => {
     const next = await screen.findByTestId("insights-onboard-next");
     const sample = within(next).getByTestId("insights-open-sample");
     expect(sample).toHaveAttribute("href", "/documents/$documentId");
-    expect(within(next).getByTestId("insights-create-layout")).toHaveAttribute("href", "/suppliers?supplier=id-S%C3%BCdhof+Feinkost&tab=layouts");
+    expect(await within(next).findByTestId("insights-create-layout")).toHaveAttribute("href", "/suppliers?supplier=id-S%C3%BCdhof+Feinkost&tab=layouts");
     expect(within(next).getByTestId("insights-add-source-rule")).toHaveAttribute("href", "/suppliers?supplier=id-S%C3%BCdhof+Feinkost&tab=routing");
     expect(screen.getByText("40%")).toBeInTheDocument();
     expect(within(screen.getByTestId("insights-layouts")).getByText("Degraded", { selector: "span,div" })).toBeInTheDocument();
     expect(within(screen.getByTestId("insights-master-data")).getByText("2 conflicts")).toBeInTheDocument();
     const query = callsTo("GET /api/v1/insights/automation")[0]!.options as { params: { query: { from: string; to: string } } };
     expect(Date.parse(query.params.query.to) - Date.parse(query.params.query.from)).toBe(29 * 86_400_000);
+  });
+
+  it("offers create layout and add source rule only with the supplier sheet's Layouts and Routing tabs (P5 fix 4)", async () => {
+    const row = { supplierId: "id-s", name: "Südhof", documents: 2, autoApproved: 0, autoApprovalRate: 0, correctionsPerDocument: 0, llmCostUsd: 0, openNewLayout: 0, layouts: [], sampleDocumentId: "doc-s" };
+    const empty = { from: "2026-10-07", to: "2026-11-05", documents: 2, autoApproved: 0, unknown: 0, suppliers: [row], suppliersWithoutLayouts: [row], unknownByChannel: [], unknownBySourceRule: [], degradedLayouts: [], staleLayouts: [], candidatesWaiting: [], overriddenRules: [], destinations: [], masterDataConflicts: [] };
+    api.handlers.set("GET /api/v1/insights/automation", () => ({ body: empty }));
+    api.handlers.set("GET /api/v1/settings", () => features({ sourceRouting: true }));
+    const Component = (insightsRoute.Route as unknown as { options: { component: ComponentType & { preload?: () => Promise<void> } } }).options.component;
+    await Component.preload?.();
+    renderWith(<Component />);
+    const next = await screen.findByTestId("insights-onboard-next");
+    expect(await within(next).findByTestId("insights-add-source-rule")).toBeInTheDocument();
+    expect(within(next).queryByTestId("insights-create-layout")).toBeNull();
+    expect(within(next).getByTestId("insights-open-sample")).toBeInTheDocument();
+    cleanup();
+
+    api.handlers.set("GET /api/v1/settings", () => features());
+    renderWith(<Component />);
+    const off = await screen.findByTestId("insights-onboard-next");
+    await waitFor(() => expect(callsTo("GET /api/v1/settings").length).toBeGreaterThanOrEqual(2));
+    expect(within(off).queryByTestId("insights-create-layout")).toBeNull();
+    expect(within(off).queryByTestId("insights-add-source-rule")).toBeNull();
   });
 });
 
@@ -410,6 +437,22 @@ describe("the inbox and the queue with the dueBy priority", () => {
     expect(within(old).getByTestId("inbox-superseded")).toHaveAttribute("href", "/documents/$documentId");
     expect(screen.getByTestId("inbox-sort-due")).toHaveAttribute("data-state", "on");
     routeSearch.current = {};
+  });
+
+  it("offers Urgent first and the Review due column with configurableTypes only (P5 fix 4)", async () => {
+    api.handlers.set("GET /api/v1/documents", () => ({ body: { items: [summary("TA-1", {})], nextCursor: null } }));
+    api.handlers.set("GET /api/v1/settings", () => features());
+    await renderRoute(inboxRoute);
+    await screen.findAllByText("TA-1");
+    await waitFor(() => expect(callsTo("GET /api/v1/settings").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("inbox-sort-due")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: /Review due/ })).toBeNull();
+    cleanup();
+
+    api.handlers.set("GET /api/v1/settings", () => features({ configurableTypes: true }));
+    await renderRoute(inboxRoute);
+    expect(await screen.findByTestId("inbox-sort-due")).toHaveAttribute("data-state", "off");
+    expect(screen.getByRole("columnheader", { name: /Review due/ })).toBeInTheDocument();
   });
 
   it("badges an urgent task and an integration issue in the queue", async () => {

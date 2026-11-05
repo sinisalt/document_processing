@@ -429,7 +429,14 @@ public static partial class GenericRules
             FlagParams.Of(("number", match.Number), ("documentId", match.DocumentId.ToString())));
     }
 
-    private static string DescribeKey(DocumentView view) => view.RolePaths.TryGetValue("duplicateKey", out var key) ? key : "duplicate key";
+    /// <summary>
+    /// The duplicate key in words (P5 fix 4): its fields' labels, else its paths with <c>$supplierId</c> as "supplier";
+    /// "duplicate key" when the type's roles are not known.
+    /// </summary>
+    private static string DescribeKey(DocumentView view) =>
+        view.RolePaths.TryGetValue(DocumentView.DuplicateKeyLabelsRole, out var labels) ? labels
+        : view.RolePaths.TryGetValue("duplicateKey", out var key) ? string.Join(", ", key.Split(", ").Select(c => c == "$supplierId" ? "supplier" : c))
+        : "duplicate key";
 
     // ---------------------------------------------------------------- confidence
 

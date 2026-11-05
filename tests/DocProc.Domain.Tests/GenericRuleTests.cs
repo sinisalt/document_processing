@@ -210,6 +210,10 @@ public sealed class GenericRuleTests
         revision.Severity.ShouldBe(FlagSeverity.Warning);
         revision.Params!["documentId"].ShouldBe("6c1f0000-0000-0000-0000-000000000001");
         revision.Params["status"].ShouldBe("Approved");
+        revision.Message.ShouldBe("An earlier document (Approved) has the same supplier, validFrom, listScope, priceListNumber; this one may replace it.", "without labels the paths, and $supplierId as 'supplier'");
+        var labelled = DocumentView.FromJson(PriceList, "{}").WithValues(Values(), new Dictionary<string, string>(Roles) { [DocumentView.DuplicateKeyLabelsRole] = "supplier, Valid from, Scope, Price list no." });
+        DocumentValidator.Default.Validate(labelled, [Rule("duplicate", """{"onMatch":"revision"}""", "warning")], context).Flags.ShouldHaveSingleItem()
+            .Message.ShouldBe("An earlier document (Approved) has the same supplier, Valid from, Scope, Price list no.; this one may replace it.");
 
         Run(Values(), Rule("duplicate", "{}"), Context with { Data = new RuleData { Duplicate = DuplicateCheck.Skipped("no supplier is matched") } }).ShouldBeEmpty();
         Run(Values(), Rule("duplicate", "{}"), Context with { Data = new RuleData { Duplicate = new DuplicateCheck([]) } }).ShouldBeEmpty();

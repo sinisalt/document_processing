@@ -722,8 +722,10 @@ One monorepo, two apps sharing a component and API-client package:
     urgent, then high, then by due time), superseded
     lists greyed with a link to the replacing one. Review queue: Urgent and High badges, the due time red when past and
     amber within 4 hours, an Integration issue badge.
-  - Insights > Onboarding (`/insights`, every tenant role): the KPIs, suppliers without layouts by volume with "Open
-    sample", "Create layout" (the supplier's Layouts tab) and "Add source rule" (its Routing tab), automation per
+  - Insights > Onboarding (`/insights`, every tenant role; in the sidebar with one of `sourceRouting`,
+    `supplierLayouts`, `customTypes` or `configurableSteps`, P5 fix 4): the KPIs, suppliers without layouts by volume
+    with "Open sample", "Create layout" (the supplier's Layouts tab, with `supplierLayouts`) and "Add source rule" (its
+    Routing tab, with `sourceRouting`), automation per
     supplier, the Unknown rates, layouts to look at, overridden fallback rules, delivery health and master-data
     conflicts for the last 7, 30 or 90 days.
 - Added by the P5 demos (part E; no new route, docs/09 "Demo: price lists, specials and fallback rules"):

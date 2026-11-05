@@ -229,6 +229,7 @@ public static class MasterDataEndpoints
         var report = await SupplierImporter.ImportAsync(db, tenant.TenantId!.Value, records, request.MatchKeys, request.ConflictPolicy, dryRun, now, ct);
         var run = MasterDataSync.Record(db, tenant.TenantId!.Value, null, MasterDataTrigger.Import, dryRun, report, now, DocumentQueries.ActorName(user));
         await db.SaveChangesAsync(ct);
+        await MasterDataSync.PruneAsync(db, tenant.TenantId!.Value, null, ct);
         return TypedResults.Ok(MasterDataRunDto.From(run));
     }
 

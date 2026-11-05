@@ -115,11 +115,42 @@ public sealed class LlmBudgetGuardTests
         guard.HeldCount(TenantB).ShouldBe(0, "a tenant without budgets holds nothing");
     }
 
+    /// <summary>
+    /// A model the price table has no price for (P5 fix 4): its calls are recorded without a cost and would count as 0,
+    /// so with a budget that applies the call is refused before it is made; without one it goes ahead as before.
+    /// </summary>
+    [Fact]
+    public async Task An_unpriced_model_is_refused_while_a_budget_applies_and_allowed_without_one()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var now = host.Clock.GetUtcNow();
+        for (var i = 0; i < 50; i++)
+        {
+            await UsageAsync(host, TenantA, LlmStage.Extract, null, now.AddMinutes(-1 - i));
+        }
+
+        await BudgetAsync(host, LlmBudgetPeriod.Day, 0.01m);
+        var guard = Guard(host);
+
+        (await EfLlmBudgetGuard.SpentAsync(await DbAsync(host), TenantA, new LlmBudget(LlmBudgetPeriod.Day, 0.01m), null, now, Ct)).ShouldBe(0m, "the unpriced calls count as 0");
+        using var refused = await guard.ReserveAsync(TenantA, LlmStage.Extract, null, "acme-unlisted-model", Ct);
+        refused.Verdict.Allowed.ShouldBeFalse();
+        refused.Verdict.UnpricedModel.ShouldBe("acme-unlisted-model");
+        refused.Verdict.Budget!.Period.ShouldBe(LlmBudgetPeriod.Day);
+        refused.Verdict.Describe().ShouldContain("has no price");
+        guard.HeldCount(TenantA).ShouldBe(0, "a refused call holds nothing");
+
+        using var priced = await guard.ReserveAsync(TenantA, LlmStage.Extract, null, null, Ct);
+        priced.Verdict.Allowed.ShouldBeTrue("a priced call is checked as before");
+        using var unbudgeted = await guard.ReserveAsync(TenantB, LlmStage.Extract, null, "acme-unlisted-model", Ct);
+        unbudgeted.Verdict.Allowed.ShouldBeTrue("tenant B has no budget, so nothing changes for it");
+    }
+
     private static EfLlmBudgetGuard Guard(PipelineTestHost host) => new(host.Services.GetRequiredService<ISystemDbContextFactory>(), host.Clock);
 
     private static Task<DocProcDbContext> DbAsync(PipelineTestHost host) => Task.FromResult(host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped());
 
-    private static async Task UsageAsync(PipelineTestHost host, Guid tenantId, LlmStage stage, decimal cost, DateTimeOffset at, Guid? documentId = null)
+    private static async Task UsageAsync(PipelineTestHost host, Guid tenantId, LlmStage stage, decimal? cost, DateTimeOffset at, Guid? documentId = null)
     {
         await using var db = host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped();
         db.LlmUsage.Add(new LlmUsageEntry

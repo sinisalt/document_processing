@@ -748,12 +748,14 @@ screen is not offered.
   `price-list`), tab Identify, press I and click "Preisliste" in the title, then "Use for all suppliers without own
   layouts" and Activate.
 - **Revisions, priority and acknowledgements**: a second specials list of the day shows the earlier one side by side
-  in its `REVISION_OF` panel; the inbox's "Urgent first" sorts urgent reviews first, and the queue marks them; a
+  in its `REVISION_OF` panel; the inbox's "Urgent first" (with `configurableTypes`) sorts urgent reviews first, and the queue marks them; a
   rejection by the receiving system shows in the Deliveries tab. Settings > Integrations > Destinations,
   "Acknowledgements" sets the callback, its secret and the status poll; Master data imports suppliers (Dry run, then
   Import) and keeps the sources and their runs.
-- **Insights > Onboarding**: the sidebar's Insights; the window is the last 7, 30 or 90 days (`GET
-  /api/v1/insights/automation?from=&to=`).
+- **Insights > Onboarding**: the sidebar's Insights, shown to a tenant with one of `sourceRouting`, `supplierLayouts`,
+  `customTypes` or `configurableSteps` (a fresh tenant with every switch off has no Insights entry, and its inbox has
+  no "Urgent first" or "Review due" until `configurableTypes`); "Create layout" needs `supplierLayouts` and "Add
+  source rule" `sourceRouting`. The window is the last 7, 30 or 90 days (`GET /api/v1/insights/automation?from=&to=`).
 
 ### Demo data
 
@@ -1243,8 +1245,11 @@ writes the `Authentication-Results` header the platform's receiving server would
    click `23.10.2026`; focus the customer's name and drag a box around "Gasthaus zur Post GmbH"; on page 2 click
    `83,10` for Subtotal net, `15,79` for Total tax and `98,89` for Total gross; Save. Table tool: drag one box on
    page 1 from the header "Artikel-Nr." to below the last line's amount, assign the columns (article number,
-   description, quantity, unit price, line total; leave the unit column), untick all pages > Preview > Write: two
-   lines.
+   description, quantity, unit price, line total; leave the unit column), untick "Apply to all pages" > Read this
+   page > Write 2 rows: two lines ("Write 2 rows" is enabled once the page was read after the columns are assigned).
+   The pre-filled VAT-breakdown row carries only its rate; its amounts have no currency of their own and raise no
+   currency `INVALID_VALUE` (before P5 fix 4 they showed two warnings "'taxBreakdown[0].taxableAmount' is in  but the
+   document currency is EUR.").
 10. **Mark the design.** Identify: drag around "RECHNUNG / INVOICE" (proposed `text "RECHNUNG / INVOICE" (page 1,
     title area)`) > Add identifier; on page 2 drag around the VAT id `DE 312 456 789` (proposed "the supplier's VAT id
     (last page)") > Add identifier.
@@ -1446,8 +1451,9 @@ few seconds and takes a file once it has not changed for 5 s, so a drop shows up
     layout, which reads "gültig am 04.11.2026"; blocked by `r_not_expired` ("These specials have already expired",
     `DATE_IMPLAUSIBLE` on Valid until). The file is dated 4 November 2026, so it is expired on any later day.
 13. **A second list of the day.** Copy `Nordwind_Tagesangebote_Nachtrag.pdf`: identified, valid today, and held with
-    `REVISION_OF` naming the first list; its panel compares both lists side by side and resolves it (supersedes,
-    additional, duplicate).
+    `REVISION_OF` naming the first list (`GET /documents/{id}` flag message: "An earlier document (Approved) has the
+    same supplier, Valid from, Scope, Price list no.; this one may replace it."); its panel compares both lists side by
+    side and resolves it (supersedes, additional, duplicate).
 14. **A supplier without layouts.** As `tenant-a-admin` (a ConfigAdmin): Inbox > Upload > `Suedhof_Preisliste_2027-01.pdf`.
     It is matched to Südhof Feinkost by its VAT id and typed `price-list` by the tenant's keyword set ("Preisliste",
     `typeSource: Rule`); Südhof has no layouts, so nothing fills it. Open it: Identify (I), drag a box around "Preisliste"

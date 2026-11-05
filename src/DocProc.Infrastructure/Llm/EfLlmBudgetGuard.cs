@@ -12,7 +12,7 @@ namespace DocProc.Infrastructure.Llm;
 /// or would pass it by the call's estimate. The estimate is the average cost of the tenant's last
 /// <see cref="EstimateSample"/> successful calls of the same stage (0 without any), so a stage whose next call would
 /// overspend is not called. The calls this process allowed and has not recorded yet count with their estimates
-/// (<see cref="ReserveAsync"/>). Reads in platform scope with the tenant as an explicit predicate, like the policy store.
+/// (<see cref="ReserveAsync(Guid, LlmStage, Guid?, CancellationToken)"/>). Reads in platform scope with the tenant as an explicit predicate, like the policy store.
 /// </summary>
 public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvider clock) : ILlmBudgetGuard
 {
@@ -23,7 +23,7 @@ public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvi
     private readonly ConcurrentDictionary<Guid, TenantHolds> _holds = new();
 
     public async Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken) =>
-        (await DecideAsync(tenantId, stage, documentId, _holds.GetValueOrDefault(tenantId), cancellationToken).ConfigureAwait(false)).Verdict;
+        (await DecideAsync(tenantId, stage, documentId, null, _holds.GetValueOrDefault(tenantId), cancellationToken).ConfigureAwait(false)).Verdict;
 
     /// <summary>
     /// The check and the hold of one call (docs/11 §16, Correction (P5) fix1). The decision is taken under the tenant's
@@ -33,13 +33,22 @@ public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvi
     /// Replicas do not see each other's holds: across N worker replicas a period's budget can still be passed by up to
     /// N - 1 calls, which docs/11 §16 states as the bound.
     /// </summary>
-    public async Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken)
+    public Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken) =>
+        ReserveAsync(tenantId, stage, documentId, null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="ReserveAsync(Guid, LlmStage, Guid?, CancellationToken)"/> for a call of <paramref name="unpricedModel"/>,
+    /// a model the price table has no price for: its cost would be recorded as unknown and count as 0, so while a budget
+    /// applies to the call it is refused (fails closed, docs/11 §16, Correction (P5) fix 4). Without a budget it is
+    /// allowed as before.
+    /// </summary>
+    public async Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, string? unpricedModel, CancellationToken cancellationToken)
     {
         var holds = _holds.GetOrAdd(tenantId, _ => new TenantHolds());
         await holds.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var (verdict, estimate, budgeted) = await DecideAsync(tenantId, stage, documentId, holds, cancellationToken).ConfigureAwait(false);
+            var (verdict, estimate, budgeted) = await DecideAsync(tenantId, stage, documentId, unpricedModel, holds, cancellationToken).ConfigureAwait(false);
             if (!verdict.Allowed || !budgeted)
             {
                 return new LlmBudgetReservation(verdict, null);
@@ -79,7 +88,7 @@ public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvi
         }
     }
 
-    private async Task<(LlmBudgetVerdict Verdict, decimal Estimate, bool Budgeted)> DecideAsync(Guid tenantId, LlmStage stage, Guid? documentId, TenantHolds? holds, CancellationToken cancellationToken)
+    private async Task<(LlmBudgetVerdict Verdict, decimal Estimate, bool Budgeted)> DecideAsync(Guid tenantId, LlmStage stage, Guid? documentId, string? unpricedModel, TenantHolds? holds, CancellationToken cancellationToken)
     {
         await using var db = contexts.CreatePlatformScoped();
         var budgets = await db.LlmBudgets.AsNoTracking()
@@ -89,6 +98,12 @@ public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvi
         if (budgets.Count == 0)
         {
             return (LlmBudgetVerdict.Allow, 0m, false);
+        }
+
+        if (unpricedModel is not null)
+        {
+            var applies = budgets.OrderBy(b => b.Period).ThenBy(b => b.Stage is null).First().ToDomain();
+            return (LlmBudgetVerdict.Unpriced(applies, unpricedModel), 0m, true);
         }
 
         var estimate = await EstimateAsync(db, tenantId, stage, cancellationToken).ConfigureAwait(false);

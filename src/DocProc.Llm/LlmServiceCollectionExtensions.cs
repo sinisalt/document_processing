@@ -63,6 +63,7 @@ public static class LlmServiceCollectionExtensions
         services.AddSingleton(extraction);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(PriceTable.Default);
+        services.TryAddSingleton<LlmPriceCheck>();
         services.TryAddSingleton(_ => PromptCatalogue.Load());
 
         if (replay.Scripted)

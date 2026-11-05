@@ -16,16 +16,30 @@ public sealed record LlmBudget(LlmBudgetPeriod Period, decimal LimitUsd, LlmStag
 
 /// <summary>
 /// What the guard decided for one call: allowed, or refused with the budget that would be exceeded, what was spent in
-/// its period so far and the estimate of the call.
+/// its period so far and the estimate of the call. <paramref name="UnpricedModel"/> names the model of a call refused
+/// because the price table has no price for it, so its cost could not be counted against the budget (docs/11 §16,
+/// Correction (P5) fix 4).
 /// </summary>
-public sealed record LlmBudgetVerdict(bool Allowed, LlmBudget? Budget = null, decimal SpentUsd = 0m, decimal EstimateUsd = 0m)
+public sealed record LlmBudgetVerdict(bool Allowed, LlmBudget? Budget = null, decimal SpentUsd = 0m, decimal EstimateUsd = 0m, string? UnpricedModel = null)
 {
     public static LlmBudgetVerdict Allow { get; } = new(true);
 
+    /// <summary>The refusal of a call whose model has no price while <paramref name="budget"/> applies to it.</summary>
+    public static LlmBudgetVerdict Unpriced(LlmBudget budget, string model, decimal spentUsd = 0m) => new(false, budget, spentUsd, 0m, model);
+
     /// <summary>What a refusal says (for the flag and the timeline).</summary>
-    public string Describe() => Budget is { } budget
-        ? $"The {Name(budget.Period)} LLM budget of {budget.LimitUsd:0.00} USD{(budget.Stage is { } stage ? $" for {stage}" : string.Empty)} would be exceeded: {SpentUsd:0.0000} USD spent, the call is estimated at {EstimateUsd:0.0000} USD."
-        : "The LLM budget would be exceeded.";
+    public string Describe()
+    {
+        if (Budget is not { } budget)
+        {
+            return "The LLM budget would be exceeded.";
+        }
+
+        var name = $"{Name(budget.Period)} LLM budget of {budget.LimitUsd:0.00} USD{(budget.Stage is { } stage ? $" for {stage}" : string.Empty)}";
+        return UnpricedModel is { } model
+            ? $"The model '{model}' has no price in the price table, so its cost cannot be counted against the {name}; the call is not made."
+            : $"The {name} would be exceeded: {SpentUsd:0.0000} USD spent, the call is estimated at {EstimateUsd:0.0000} USD.";
+    }
 
     private static string Name(LlmBudgetPeriod period) => period switch
     {
@@ -52,9 +66,18 @@ public interface ILlmBudgetGuard
     /// </summary>
     async Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken) =>
         new(await CheckAsync(tenantId, stage, documentId, cancellationToken).ConfigureAwait(false), null);
+
+    /// <summary>
+    /// <see cref="ReserveAsync(Guid, LlmStage, Guid?, CancellationToken)"/> for a call whose model the price table has no
+    /// price for (<paramref name="unpricedModel"/>, null when it is priced). Its cost would be recorded as unknown and count
+    /// as 0, so a guard that enforces budgets refuses it whenever a budget applies to the call (fails closed, docs/11 §16,
+    /// Correction (P5) fix 4). The default ignores the price.
+    /// </summary>
+    Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, string? unpricedModel, CancellationToken cancellationToken) =>
+        ReserveAsync(tenantId, stage, documentId, cancellationToken);
 }
 
-/// <summary>An allowed call's hold on its estimate (<see cref="ILlmBudgetGuard.ReserveAsync"/>); disposing releases it.</summary>
+/// <summary>An allowed call's hold on its estimate (<see cref="ILlmBudgetGuard.ReserveAsync(Guid, LlmStage, Guid?, CancellationToken)"/>); disposing releases it.</summary>
 public sealed class LlmBudgetReservation(LlmBudgetVerdict verdict, Action? release) : IDisposable
 {
     private Action? _release = release;

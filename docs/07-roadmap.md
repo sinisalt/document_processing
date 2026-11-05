@@ -2016,6 +2016,32 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       signed change ("104539: from 39.02 to 54.63 (+40.01%)"), which a definition's own message left out;
     - the two 412-row renders of the review package's form tests get a 30 s bound, as the portal's long renders have
       (they took about 1 s idle and passed 5 s while the .NET suite ran).
+  - Done, fix 4 (the remaining findings of the P5 review, recorded as "Correction (P5, fix 4)" in docs/11 §11, §13.8,
+    §14, §16 and §17; no migration):
+    - a callback that lists one document twice applies its reports in list order: the second finds the reference the
+      first created (the context's own rows first), shares the callback's signature check instead of being a replay of
+      the first, and sees the integration issue the first opened, so `[rejected, accepted]` ends accepted with the
+      flag resolved and the issue done, signed or with a bearer token, with or without a reference beforehand (it was
+      409 "Acknowledgement busy" for good without a reference, and `replayed` when signed);
+    - LLM budgets fail closed for a model the price table has no price for: while a budget applies, the gateway does not
+      call it (`LLM_BUDGET_EXCEEDED {reason: unpriced, model}`), and the llm step's `maxCostPerDocument` does not call
+      it either; a tenant without budgets or caps calls it as before;
+    - a scheduled master-data run stores its counts and only the rows that did something (no `unchanged` rows); each
+      source (and the one-off imports) keeps its newest 200 runs; Insights reads the newest run per source only;
+    - a VAT-breakdown row pre-filled with its rate only no longer raises "'taxBreakdown[0].taxableAmount' is in  but the
+      document currency is EUR.": an amount without a currency of its own is in the document's;
+    - `REVISION_OF` and `DUPLICATE_SUSPECTED` name the duplicate key by its fields' labels and "supplier" ("the same
+      supplier, Valid from, Scope, Price list no."), not the raw paths and `$supplierId`;
+    - the portal shows Insights in the sidebar only with one of `sourceRouting`, `supplierLayouts`, `customTypes` or
+      `configurableSteps` (its address still answers), Insights > Onboarding offers "Create layout" with
+      `supplierLayouts` and "Add source rule" with `sourceRouting` only, and the inbox's "Urgent first" and "Review due"
+      column need `configurableTypes` (an address that already sorts keeps them): a tenant with every switch off sees
+      the sidebar and the inbox of P4;
+    - docs/09: "Read this page > Write 2 rows" in step 9 of "Demo: routing and layouts".
+  - Left for later (fix 4): saving or activating a provider configuration whose model has no price is not refused while
+    the tenant has budgets (its calls are refused instead), `GET /llm-budgets` does not list unpriced calls, and the
+    price table is not bound from configuration yet (docs/08); a callback's reports of one document are not merged
+    into one, so `[rejected, accepted]` writes both events.
   - Left for later (fix 3): a receiver that only supports one webhook secret for several tenants must now be given
     one secret per destination; the platform does not import a secret the admin chose.
   - Left for later (fix 2): a destination that a pipeline `http-lookup` step names (in supplier, group or layout version

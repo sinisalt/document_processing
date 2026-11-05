@@ -44,10 +44,13 @@ export interface DocumentTypesPanelProps {
   onSelectedKeyChange?: (key: string | null) => void;
 }
 
-/** The tenant's feature switches (`GET /settings`); they decide which catalogue writes the API takes. */
-export function useTenantFeatures() {
+/**
+ * The tenant's feature switches (`GET /settings`); they decide which catalogue writes the API takes. `enabled` false
+ * leaves the request out (a platform account or a signed-out shell has no tenant settings).
+ */
+export function useTenantFeatures(enabled = true) {
   const { client } = useApi();
-  return useQuery({ queryKey: queryKeys.settings.get(), queryFn: async () => unwrap(await client.GET("/api/v1/settings")), select: (data) => data.settings.features ?? null });
+  return useQuery({ queryKey: queryKeys.settings.get(), queryFn: async () => unwrap(await client.GET("/api/v1/settings")), select: (data) => data.settings.features ?? null, enabled });
 }
 
 /**

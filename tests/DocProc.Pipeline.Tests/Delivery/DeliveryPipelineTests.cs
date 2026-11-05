@@ -291,6 +291,67 @@ public sealed class DeliveryPipelineTests
     }
 
     /// <summary>
+    /// A callback that lists two acknowledgements of one document (docs/11 §13.8, P5 fix 4), signed or with a bearer
+    /// token, and whether the delivery left a reference (acknowledgements set before it) or not (set after it): the
+    /// reports apply in list order, the second one reuses the reference the first created, and is not a replay of the
+    /// first because they share the callback's timestamp. "rejected" then "accepted" ends accepted with nothing open.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task A_callback_listing_one_document_twice_applies_both_in_order(bool referenceBeforehand, bool withHmac)
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver);
+        var binding = await BindAsync(host, receiver, ApExpression);
+        var acknowledgements = new JsonObject { ["callback"] = new JsonObject { ["auth"] = withHmac ? "hmacSha256" : "bearer" } }.ToJsonString();
+        async Task SetAcknowledgementsAsync() => await host.WithDbAsync(async db =>
+        {
+            (await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId)).CallbackConfigJson = acknowledgements;
+            await db.SaveChangesAsync();
+        });
+        if (referenceBeforehand)
+        {
+            await SetAcknowledgementsAsync();
+        }
+
+        var document = await AutoApproveAsync(host);
+        (await host.WithDbAsync(db => db.DocumentExternalRefs.CountAsync(r => r.DocumentId == document.Id))).ShouldBe(referenceBeforehand ? 1 : 0);
+        if (!referenceBeforehand)
+        {
+            await SetAcknowledgementsAsync();
+        }
+
+        var contexts = host.Services.GetRequiredService<ISystemDbContextFactory>();
+        var destination = await host.WithDbAsync(db => db.OutputDestinations.AsNoTracking().SingleAsync(d => d.Id == binding.DestinationId));
+        var now = host.Clock.GetUtcNow();
+        var stamp = withHmac ? new CallbackStamp(DateTimeOffset.FromUnixTimeSeconds(now.ToUnixTimeSeconds()), new string('b', 64)) : null;
+        AcknowledgementReport[] reports =
+        [
+            new(document.Id, null, ExternalRefStatus.Rejected, "Vendor blocked"),
+            new(document.Id, null, ExternalRefStatus.Accepted, null),
+        ];
+
+        var outcomes = await ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, reports, AcknowledgementSources.Callback, now, stamp, Ct);
+
+        outcomes.ShouldNotBeNull("the callback is applied, not answered 'busy'").ShouldBe([AcknowledgementOutcome.Applied, AcknowledgementOutcome.Applied]);
+        var reference = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id));
+        reference.Status.ShouldBe(ExternalRefStatus.Accepted, "the last report of the list stands");
+        var flag = await host.WithDbAsync(db => db.DocumentFlags.AsNoTracking().SingleAsync(f => f.DocumentId == document.Id && f.Code == DocProc.Domain.Flags.FlagCodes.ExternalRejected));
+        flag.ResolvedAt.ShouldNotBeNull();
+        var issue = await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().SingleAsync(t => t.DocumentId == document.Id && t.Kind == ReviewTaskKind.IntegrationIssue));
+        issue.Status.ShouldBe(ReviewTaskStatus.Done, "the acceptance completes the issue the rejection opened");
+
+        // The same callback sent again is a replay when signed; with a bearer token it applies the same two reports again.
+        var again = await ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, reports, AcknowledgementSources.Callback, now, stamp, Ct);
+        again.ShouldBe(withHmac ? [AcknowledgementOutcome.Replayed, AcknowledgementOutcome.Replayed] : [AcknowledgementOutcome.Applied, AcknowledgementOutcome.Applied]);
+        (await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id))).Status.ShouldBe(ExternalRefStatus.Accepted);
+        (await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().CountAsync(t => t.DocumentId == document.Id && t.Kind == ReviewTaskKind.IntegrationIssue && t.Status != ReviewTaskStatus.Done))).ShouldBe(0);
+    }
+
+    /// <summary>
     /// A status answer is about the reference that was polled (docs/11 §13.8): one that names another document's id of
     /// the same destination changes the polled document, never the other one. A destination moved to another host since
     /// its poll was set is not polled: the poll would carry the destination's credentials to the old host.
@@ -421,6 +482,28 @@ public sealed class DeliveryPipelineTests
         (await service.RunDueAsync(Ct)).ShouldBe(2);
         var second = (await host.WithDbAsync(db => db.MasterDataRuns.AsNoTracking().Where(r => r.SourceId == source).ToListAsync())).OrderBy(r => r.At).Last();
         (second.Created, second.Updated, second.Unchanged).ShouldBe((0, 0, 2), "the same records change nothing");
+        // P5 fix 4: a scheduled run keeps the counts but lists only the rows that did something.
+        JsonNode.Parse(second.ReportJson)!.AsObject()["rows"]!.AsArray().ShouldBeEmpty();
+        JsonNode.Parse(first.ReportJson)!.AsObject()["rows"]!.AsArray().Count.ShouldBe(2, "the creates are listed");
+        JsonNode.Parse(second.ReportJson)!.AsObject()["unchanged"]!.GetValue<int>().ShouldBe(2);
+
+        // Only the newest runs of a source are kept: older ones go once a run is saved.
+        await host.WithDbAsync(async db =>
+        {
+            for (var i = 0; i < DocProc.Infrastructure.MasterData.MasterDataSync.KeepRunsPerSource; i++)
+            {
+                db.MasterDataRuns.Add(new MasterDataRun { Id = Guid.CreateVersion7(), TenantId = TenantA, SourceId = source, Trigger = MasterDataTrigger.Schedule, Status = MasterDataRunStatus.Succeeded, ReportJson = "{}", At = now.AddDays(-30).AddMinutes(i), By = "test" });
+            }
+
+            await db.SaveChangesAsync();
+        });
+        host.Clock.Advance(TimeSpan.FromMinutes(31));
+        (await service.RunDueAsync(Ct)).ShouldBe(2);
+        var kept = await host.WithDbAsync(db => db.MasterDataRuns.AsNoTracking().Where(r => r.SourceId == source).Select(r => new { r.Id, r.At }).ToListAsync());
+        kept.Count.ShouldBe(DocProc.Infrastructure.MasterData.MasterDataSync.KeepRunsPerSource);
+        kept.ShouldContain(r => r.Id == first.Id, "the newest runs stay");
+        kept.ShouldContain(r => r.Id == second.Id);
+        kept.Count(r => r.At < now).ShouldBe(DocProc.Infrastructure.MasterData.MasterDataSync.KeepRunsPerSource - 3, "the oldest of the seeded runs are gone");
     }
 
     [Fact]

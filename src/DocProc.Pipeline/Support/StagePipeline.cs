@@ -67,7 +67,10 @@ internal sealed class StagePipeline(IPipelineConfigResolver resolver, DocumentFl
                 ("step", stepId),
                 ("period", verdict.Budget?.Period.ToString().ToLowerInvariant() ?? string.Empty),
                 ("limitUsd", FlagParams.Number(verdict.Budget?.LimitUsd ?? 0m)),
-                ("spentUsd", FlagParams.Number(Math.Round(verdict.SpentUsd, 4)))));
+                ("spentUsd", FlagParams.Number(Math.Round(verdict.SpentUsd, 4))),
+                // A model without a price: the budget could not count the call (docs/11 §16, Correction (P5) fix 4).
+                (FlagParams.Reason, verdict.UnpricedModel is null ? null : "unpriced"),
+                ("model", verdict.UnpricedModel)));
     }
 
     /// <summary>Sets (or clears) the budget flag a step owns.</summary>

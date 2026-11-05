@@ -53,6 +53,12 @@ public sealed class DocumentView
         return this;
     }
 
+    /// <summary>
+    /// The entry of <see cref="RolePaths"/> that names the <c>duplicateKey</c> components for messages: the fields' labels
+    /// and "supplier" for <c>$supplierId</c>, joined with commas (the <c>duplicateKey</c> entry holds the paths).
+    /// </summary>
+    public const string DuplicateKeyLabelsRole = "duplicateKey.labels";
+
     /// <summary>The path bound to a role, or null.</summary>
     public string? RolePath(string role) => RolePaths.GetValueOrDefault(role);
 

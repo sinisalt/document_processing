@@ -290,7 +290,8 @@
       "default": "Dokument {{ordinal}} der ersten {{warmup}} unter Layout {{layoutKey}} (Version {{version}}): es geht in die Prüfung, bereits vom Layout ausgefüllt."
     },
     "LLM_BUDGET_EXCEEDED": {
-      "default": "{{step}} wurde nicht aufgerufen: das LLM-Budget ({{period}}) von {{limitUsd}} USD wäre überschritten ({{spentUsd}} USD verbraucht). Die Prüfung ergänzt, was es gefüllt hätte."
+      "default": "{{step}} wurde nicht aufgerufen: das LLM-Budget ({{period}}) von {{limitUsd}} USD wäre überschritten ({{spentUsd}} USD verbraucht). Die Prüfung ergänzt, was es gefüllt hätte.",
+      "unpriced": "{{step}} wurde nicht aufgerufen: für das Modell {{model}} ist kein Preis hinterlegt, seine Kosten können also nicht auf das LLM-Budget ({{period}}) von {{limitUsd}} USD angerechnet werden. Die Prüfung ergänzt, was es gefüllt hätte."
     },
     "LOOKUP_FAILED": {
       "default": "Die Abfrage {{stepId}} ist fehlgeschlagen ({{reason}}); die Felder, die sie füllt, bleiben wie sie waren."

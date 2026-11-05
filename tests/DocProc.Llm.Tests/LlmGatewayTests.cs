@@ -202,11 +202,44 @@ public class LlmGatewayTests
     {
         public List<(LlmStage Stage, Guid? DocumentId)> Asked { get; } = [];
 
+        public List<string?> Unpriced { get; } = [];
+
         public Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken)
         {
             Asked.Add((stage, documentId));
             return Task.FromResult(verdict);
         }
+
+        public Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, string? unpricedModel, CancellationToken cancellationToken)
+        {
+            Unpriced.Add(unpricedModel);
+            return ((ILlmBudgetGuard)this).ReserveAsync(tenantId, stage, documentId, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task The_guard_is_told_when_the_resolved_model_has_no_price()
+    {
+        // P5 fix 4: a model the price table does not list is recorded without a cost, so the guard has to know.
+        var refused = LlmBudgetVerdict.Unpriced(new LlmBudget(LlmBudgetPeriod.Day, 0.01m), "acme-unlisted-model");
+        var budget = new FixedBudget(refused);
+        var f = new Fixture { Budgets = budget };
+        var unlisted = Platform with { Id = Guid.NewGuid(), Scope = ConfigScope.Tenant, TenantId = TenantId, Models = new Dictionary<LlmStage, string> { [LlmStage.Extract] = "acme-unlisted-model" } };
+        f.TenantConfigs.Add(unlisted);
+        f.Policy = new TenantLlmPolicy { TenantId = TenantId, DefaultConfigId = unlisted.Id };
+
+        var ex = await Should.ThrowAsync<LlmBudgetExceededException>(() => f.Build().CompleteAsync(TenantId, Request(), CancellationToken.None));
+
+        budget.Unpriced.ShouldBe(["acme-unlisted-model"]);
+        ex.Message.ShouldBe("The model 'acme-unlisted-model' has no price in the price table, so its cost cannot be counted against the daily LLM budget of 0.01 USD; the call is not made.");
+        f.Records.ShouldBeEmpty();
+
+        var priced = new FixedBudget(LlmBudgetVerdict.Allow);
+        var g = new Fixture { Budgets = priced };
+        var platformModel = Platform.Models[LlmStage.Extract];
+        g.Store.Put(RequestHasher.Hash(Request() with { Model = platformModel }), new LlmResult { Json = "{}", Usage = new LlmUsage(10, 1), Model = platformModel, StopReason = StopReasons.EndTurn });
+        await g.Build().CompleteAsync(TenantId, Request(), CancellationToken.None);
+        priced.Unpriced.ShouldBe([null], "a priced model is not reported");
     }
 
     [Fact]

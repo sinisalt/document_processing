@@ -314,7 +314,17 @@ public static class ExternalAcknowledgements
 {
     public const string Actor = "integration";
 
-    public static async Task<AcknowledgementOutcome> ApplyAsync(DocProcDbContext db, OutputDestination destination, AcknowledgementReport report, string source, DateTimeOffset now, CancellationToken cancellationToken, CallbackStamp? stamp = null)
+    public static Task<AcknowledgementOutcome> ApplyAsync(DocProcDbContext db, OutputDestination destination, AcknowledgementReport report, string source, DateTimeOffset now, CancellationToken cancellationToken, CallbackStamp? stamp = null) =>
+        ApplyAsync(db, destination, report, source, now, stamp, null, cancellationToken);
+
+    /// <summary>
+    /// Applies one report of a callback (docs/11 §13.8, Correction (P5) fix 4). The reference is looked up among those
+    /// the context tracks first: one an earlier report of the same callback created or renamed is not in the database
+    /// yet. <paramref name="stamped"/> holds the references the callback's <paramref name="stamp"/> was recorded on
+    /// already: a later report of the same callback for one of them is applied after the earlier one, in list order,
+    /// and is not a replay of it.
+    /// </summary>
+    private static async Task<AcknowledgementOutcome> ApplyAsync(DocProcDbContext db, OutputDestination destination, AcknowledgementReport report, string source, DateTimeOffset now, CallbackStamp? stamp, HashSet<Guid>? stamped, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(destination);
@@ -324,15 +334,17 @@ public static class ExternalAcknowledgements
         DocumentExternalRef? reference = null;
         if (report.ExternalId is { } externalId)
         {
-            reference = await db.DocumentExternalRefs.FirstOrDefaultAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.ExternalId == externalId, cancellationToken).ConfigureAwait(false);
+            reference = db.DocumentExternalRefs.Local.FirstOrDefault(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.ExternalId == externalId)
+                ?? await db.DocumentExternalRefs.FirstOrDefaultAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.ExternalId == externalId, cancellationToken).ConfigureAwait(false);
         }
 
         if (reference is null && report.DocumentId is { } named)
         {
-            reference = await db.DocumentExternalRefs.FirstOrDefaultAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.DocumentId == named, cancellationToken).ConfigureAwait(false);
+            reference = db.DocumentExternalRefs.Local.FirstOrDefault(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.DocumentId == named)
+                ?? await db.DocumentExternalRefs.FirstOrDefaultAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.DocumentId == named, cancellationToken).ConfigureAwait(false);
         }
 
-        return await ApplyCoreAsync(db, destination, reference, report, source, now, stamp, cancellationToken).ConfigureAwait(false);
+        return await ApplyCoreAsync(db, destination, reference, report, source, now, stamp, stamped, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -351,7 +363,7 @@ public static class ExternalAcknowledgements
             throw new ArgumentException("The reference is not one of the destination's.", nameof(reference));
         }
 
-        return ApplyCoreAsync(db, destination, reference, report with { DocumentId = reference.DocumentId }, source, now, null, cancellationToken);
+        return ApplyCoreAsync(db, destination, reference, report with { DocumentId = reference.DocumentId }, source, now, null, null, cancellationToken);
     }
 
     /// <summary>The signature as kept on the reference: at most <see cref="DocumentExternalRef.CallbackSignatureLength"/> characters, without spaces.</summary>
@@ -372,7 +384,7 @@ public static class ExternalAcknowledgements
         return seen.Length < DocumentExternalRef.MaxCallbackSignatures && !seen.Contains(SignatureKey(signature), StringComparer.Ordinal);
     }
 
-    private static async Task<AcknowledgementOutcome> ApplyCoreAsync(DocProcDbContext db, OutputDestination destination, DocumentExternalRef? reference, AcknowledgementReport report, string source, DateTimeOffset now, CallbackStamp? stamp, CancellationToken cancellationToken)
+    private static async Task<AcknowledgementOutcome> ApplyCoreAsync(DocProcDbContext db, OutputDestination destination, DocumentExternalRef? reference, AcknowledgementReport report, string source, DateTimeOffset now, CallbackStamp? stamp, HashSet<Guid>? stamped, CancellationToken cancellationToken)
     {
         var tenantId = destination.TenantId;
         var destinationId = destination.Id;
@@ -384,8 +396,10 @@ public static class ExternalAcknowledgements
 
         // A signed callback is ordered by its own timestamp against the last one applied to the reference: an older one
         // (a late or replayed "rejected" after an "accepted"), or one of the same second whose signature was applied
-        // already (every one of that second is kept), changes nothing.
-        if (stamp is not null && reference?.LastCallbackAt is { } last
+        // already (every one of that second is kept), changes nothing. A later report of the same callback for a reference
+        // an earlier report was applied to comes after it in the list: the guard ran, and the stamp was recorded, once.
+        var stampedByThisCallback = stamp is not null && reference is not null && stamped?.Contains(reference.Id) == true;
+        if (stamp is not null && !stampedByThisCallback && reference?.LastCallbackAt is { } last
             && (stamp.At < last || (stamp.At == last && !CanApplyInSameSecond(reference.LastCallbackSignatures, stamp.Signature))))
         {
             return AcknowledgementOutcome.Replayed;
@@ -411,6 +425,7 @@ public static class ExternalAcknowledgements
             db.DocumentExternalRefs.Add(reference);
         }
         else if (report.ExternalId is { } newId && reference.ExternalId == id.ToString()
+                 && !db.DocumentExternalRefs.Local.Any(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.Id != reference.Id && r.ExternalId == newId)
                  && !await db.DocumentExternalRefs.AnyAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.Id != reference.Id && r.ExternalId == newId, cancellationToken).ConfigureAwait(false))
         {
             reference.ExternalId = newId; // the receiver's own id, learned from its first answer (never another reference's)
@@ -418,8 +433,9 @@ public static class ExternalAcknowledgements
 
         reference.UpdatedAt = now;
         reference.Message = report.Message;
-        if (stamp is not null)
+        if (stamp is not null && !stampedByThisCallback)
         {
+            stamped?.Add(reference.Id);
             var signature = SignatureKey(stamp.Signature);
             reference.LastCallbackSignatures = reference.LastCallbackAt == stamp.At && reference.LastCallbackSignatures is { Length: > 0 } seen
                 ? $"{seen} {signature}"
@@ -455,8 +471,7 @@ public static class ExternalAcknowledgements
                 }
             }
 
-            var hasIssue = await db.ReviewTasks.AnyAsync(t => t.DocumentId == id && t.Kind == ReviewTaskKind.IntegrationIssue && (t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress), cancellationToken).ConfigureAwait(false);
-            if (!hasIssue)
+            if ((await OpenIssuesAsync(db, id, cancellationToken).ConfigureAwait(false)).Count == 0)
             {
                 var reason = $"{FlagCodes.ExternalRejected}: {destination.Name}{(string.IsNullOrWhiteSpace(report.Message) ? string.Empty : $" ({report.Message})")}";
                 db.ReviewTasks.Add(new ReviewTask
@@ -513,9 +528,10 @@ public static class ExternalAcknowledgements
             await using (db.ConfigureAwait(false))
             {
                 var outcomes = new List<AcknowledgementOutcome>(reports.Count);
+                var stamped = new HashSet<Guid>();
                 foreach (var report in reports)
                 {
-                    outcomes.Add(await ApplyAsync(db, destination, report, source, now, cancellationToken, stamp).ConfigureAwait(false));
+                    outcomes.Add(await ApplyAsync(db, destination, report, source, now, stamp, stamped, cancellationToken).ConfigureAwait(false));
                 }
 
                 if (await TrySaveAsync(db, cancellationToken).ConfigureAwait(false))
@@ -612,11 +628,21 @@ public static class ExternalAcknowledgements
     public static async Task CloseIssuesAsync(DocProcDbContext db, Guid documentId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
-        foreach (var task in await db.ReviewTasks.Where(t => t.DocumentId == documentId && t.Kind == ReviewTaskKind.IntegrationIssue && (t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)).ToListAsync(cancellationToken).ConfigureAwait(false))
+        foreach (var task in await OpenIssuesAsync(db, documentId, cancellationToken).ConfigureAwait(false))
         {
             task.Status = ReviewTaskStatus.Done;
             task.CompletedAt = now;
         }
+    }
+
+    /// <summary>
+    /// The open integration-issue tasks of a document as the context has them: those of the database and those an earlier
+    /// acknowledgement of the same callback opened (not saved yet), without any it completed already.
+    /// </summary>
+    private static async Task<List<ReviewTask>> OpenIssuesAsync(DocProcDbContext db, Guid documentId, CancellationToken cancellationToken)
+    {
+        await db.ReviewTasks.Where(t => t.DocumentId == documentId && t.Kind == ReviewTaskKind.IntegrationIssue && (t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)).LoadAsync(cancellationToken).ConfigureAwait(false);
+        return [.. db.ReviewTasks.Local.Where(t => t.DocumentId == documentId && t.Kind == ReviewTaskKind.IntegrationIssue && t.Status is ReviewTaskStatus.Open or ReviewTaskStatus.InProgress)];
     }
 
     /// <summary>When the first status poll of a newly delivered document is due, or null when the destination does not poll.</summary>

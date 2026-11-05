@@ -1,5 +1,6 @@
 using DocProc.Application.Configuration;
 using DocProc.Application.Outputs;
+using DocProc.Definitions;
 using DocProc.Definitions.Compilation;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
@@ -374,6 +375,12 @@ public static class DocumentChecks
         if (roles.DuplicateKey is { Count: > 0 } key)
         {
             paths["duplicateKey"] = string.Join(", ", key);
+
+            // How the flags name the key (REVISION_OF, DUPLICATE_SUSPECTED, P5 fix 4): the fields' English labels and
+            // "supplier" for $supplierId, not the raw paths.
+            paths[DocumentView.DuplicateKeyLabelsRole] = string.Join(", ", key.Select(component => component == "$supplierId"
+                ? "supplier"
+                : DefinitionPaths.Find(type.Definition, component)?.Label?.GetValueOrDefault("en") is { Length: > 0 } label ? label : component));
         }
 
         return paths;

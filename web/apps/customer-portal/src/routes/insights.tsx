@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { components } from "@docproc/api-client";
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@docproc/ui";
 import { EmptyState, PageHeader, formatMoney, queryKeys, relativeTime, unwrap, useApi, useAuth } from "@docproc/app-shell";
+import { useTenantFeatures } from "@docproc/review";
 import { insightsWindow, percent } from "@/lib/insights";
 
 type SupplierRow = components["schemas"]["SupplierAutomation"];
@@ -37,6 +38,10 @@ function InsightsScreen() {
     queryFn: async () => unwrap(await client.GET("/api/v1/insights/automation", { params: { query: { from, to } } })),
   });
   const data = insights.data;
+  // "Create layout" and "Add source rule" open the supplier sheet's Layouts and Routing tabs, which it has only with the
+  // tenant's supplierLayouts and sourceRouting switches (principle 6).
+  const features = useTenantFeatures();
+  const actions = { layouts: features.data?.supplierLayouts === true, routing: features.data?.sourceRouting === true };
   const money = (value: number | string) => formatMoney(Number(value), "USD", i18n.language);
   return (
     <>
@@ -72,7 +77,7 @@ function InsightsScreen() {
             {data.suppliersWithoutLayouts.length === 0 ? (
               <Empty text={t("insights.onboardNext.none")} />
             ) : (
-              <SupplierTable rows={data.suppliersWithoutLayouts} money={money} actions />
+              <SupplierTable rows={data.suppliersWithoutLayouts} money={money} actions={actions} />
             )}
           </Section>
 
@@ -237,7 +242,8 @@ function Empty({ text }: { text: string }) {
   return <p className="text-sm text-muted-foreground">{text}</p>;
 }
 
-function SupplierTable({ rows, money, actions = false }: { rows: readonly SupplierRow[]; money: (value: number | string) => string; actions?: boolean }) {
+/** The supplier rows; with `actions`, "open sample" and the onboarding links whose supplier-sheet tab the tenant has. */
+function SupplierTable({ rows, money, actions }: { rows: readonly SupplierRow[]; money: (value: number | string) => string; actions?: { layouts: boolean; routing: boolean } }) {
   const { t, i18n } = useTranslation();
   return (
     <Table>
@@ -286,16 +292,20 @@ function SupplierTable({ rows, money, actions = false }: { rows: readonly Suppli
                       </Link>
                     </Button>
                   )}
-                  <Button size="xs" variant="ghost" asChild>
-                    <Link to="/suppliers" search={{ supplier: s.supplierId, tab: "layouts" }} data-testid="insights-create-layout">
-                      {t("insights.actions.createLayout")}
-                    </Link>
-                  </Button>
-                  <Button size="xs" variant="ghost" asChild>
-                    <Link to="/suppliers" search={{ supplier: s.supplierId, tab: "routing" }} data-testid="insights-add-source-rule">
-                      {t("insights.actions.addSourceRule")}
-                    </Link>
-                  </Button>
+                  {actions.layouts && (
+                    <Button size="xs" variant="ghost" asChild>
+                      <Link to="/suppliers" search={{ supplier: s.supplierId, tab: "layouts" }} data-testid="insights-create-layout">
+                        {t("insights.actions.createLayout")}
+                      </Link>
+                    </Button>
+                  )}
+                  {actions.routing && (
+                    <Button size="xs" variant="ghost" asChild>
+                      <Link to="/suppliers" search={{ supplier: s.supplierId, tab: "routing" }} data-testid="insights-add-source-rule">
+                        {t("insights.actions.addSourceRule")}
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               )}
             </TableCell>

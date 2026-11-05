@@ -75,6 +75,10 @@ function InboxPage() {
   // The "New layouts" filter is offered to tenants with supplierLayouts (principle 6); others see the inbox as before.
   const features = useTenantFeatures();
   const layoutsOn = tenantScope && features.data?.supplierLayouts === true;
+  // A review due time comes from a type's `review.dueBy` (docs/11 §5.8), so "Urgent first" and the "Review due" column
+  // are offered with configurableTypes; a tenant without it sees the inbox as before (an address that sorts still does).
+  const dueOn = tenantScope && features.data?.configurableTypes === true;
+  const dueSort = search.sort === "reviewDue";
   const newLayoutFilter = search.flag === "NEW_LAYOUT" || !!search.pendingLayoutVersionId;
 
   const query = useMemo<DocumentListQuery>(
@@ -204,11 +208,15 @@ function InboxPage() {
           header: t("inbox.columns.flags"),
           cell: ({ row }) => <FlagCounts blocking={Number(row.original.blockingFlagCount)} warning={Number(row.original.warningFlagCount)} />,
         }),
-        helper.accessor("reviewDueAt", {
-          header: t("inbox.columns.reviewDue"),
-          cell: (info) => <ReviewDue dueAt={info.getValue() ?? null} />,
-          sortFn: "datetime",
-        }),
+        ...(dueOn || dueSort
+          ? [
+              helper.accessor("reviewDueAt", {
+                header: t("inbox.columns.reviewDue"),
+                cell: (info) => <ReviewDue dueAt={info.getValue() ?? null} />,
+                sortFn: "datetime",
+              }),
+            ]
+          : []),
         helper.accessor("createdAt", {
           header: t("inbox.columns.received"),
           cell: (info) => (
@@ -219,7 +227,7 @@ function InboxPage() {
           sortFn: "datetime",
         }),
       ]),
-    [t, i18n.language, fieldColumns, typeChoices, newLayoutFilter],
+    [t, i18n.language, fieldColumns, typeChoices, newLayoutFilter, dueOn, dueSort],
   );
   const columns = phone ? phoneColumns : desktopColumns;
 
@@ -356,15 +364,17 @@ function InboxPage() {
                 {search.pendingLayoutVersionId ? t("inbox.filters.pendingLayout") : t("inbox.filters.newLayouts")}
               </Toggle>
             )}
-            <Toggle
-              variant="outline"
-              pressed={search.sort === "reviewDue"}
-              onPressedChange={(on) => setSearch({ sort: on ? "reviewDue" : undefined })}
-              aria-label={t("inbox.filters.urgentFirst")}
-              data-testid="inbox-sort-due"
-            >
-              {t("inbox.filters.urgentFirst")}
-            </Toggle>
+            {(dueOn || dueSort) && (
+              <Toggle
+                variant="outline"
+                pressed={dueSort}
+                onPressedChange={(on) => setSearch({ sort: on ? "reviewDue" : undefined })}
+                aria-label={t("inbox.filters.urgentFirst")}
+                data-testid="inbox-sort-due"
+              >
+                {t("inbox.filters.urgentFirst")}
+              </Toggle>
+            )}
             {tenantScope && (
               <div className="flex flex-col gap-1">
                 <Label htmlFor="inbox-supplier" className="text-xs text-muted-foreground">

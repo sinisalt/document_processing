@@ -260,10 +260,24 @@ public static class InsightsEndpoints
         }).OrderByDescending(h => h.FailureRate).ThenByDescending(h => h.Total).ToList();
 
         // Open master-data conflicts: the newest non-dry run of each source (and of the one-off imports) when it left conflicts.
+        // One newest-run read per source (at most MaxSourcesPerTenant, on the (TenantId, SourceId, At) index), not every run
+        // the tenant ever had (P5 fix 4).
         var sources = await db.MasterDataSources.AsNoTracking().Select(s => new { s.Id, s.Name }).ToListAsync(ct);
-        var runs = await db.MasterDataRuns.AsNoTracking().Where(r => !r.DryRun).Select(r => new { r.Id, r.SourceId, r.At, r.Conflicts }).ToListAsync(ct);
-        var conflicts = runs.GroupBy(r => r.SourceId)
-            .Select(g => g.OrderByDescending(r => r.At).First())
+        var runs = new List<(Guid Id, Guid? SourceId, DateTimeOffset At, int Conflicts)>();
+        foreach (var sourceId in sources.Select(s => (Guid?)s.Id).Append(null))
+        {
+            var newest = await db.MasterDataRuns.AsNoTracking()
+                .Where(r => !r.DryRun && r.SourceId == sourceId)
+                .OrderByDescending(r => r.At)
+                .Select(r => new { r.Id, r.SourceId, r.At, r.Conflicts })
+                .FirstOrDefaultAsync(ct);
+            if (newest is not null)
+            {
+                runs.Add((newest.Id, newest.SourceId, newest.At, newest.Conflicts));
+            }
+        }
+
+        var conflicts = runs
             .Where(r => r.Conflicts > 0)
             .Select(r => new MasterDataConflicts(r.SourceId, r.SourceId is { } sid ? sources.FirstOrDefault(s => s.Id == sid)?.Name ?? sid.ToString() : "suppliers:import", r.Id, r.At, r.Conflicts))
             .OrderByDescending(c => c.Conflicts).ToList();

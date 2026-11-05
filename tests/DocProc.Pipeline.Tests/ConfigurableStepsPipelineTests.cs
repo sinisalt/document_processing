@@ -493,6 +493,38 @@ public sealed class ConfigurableStepsPipelineTests
         (await host.WithDbAsync(db => db.LlmUsage.AsNoTracking().CountAsync(u => u.Stage == LlmStage.Extract, Ct))).ShouldBe(0);
     }
 
+    /// <summary>
+    /// P5 fix 4: a model the price table does not list is recorded without a cost, so maxCostPerDocument could never be
+    /// reached. While the cap is set, the llm step does not call such a model (LLM_BUDGET_EXCEEDED, reason unpriced).
+    /// </summary>
+    [Fact]
+    public async Task The_llm_step_s_maxCostPerDocument_does_not_call_a_model_without_a_price()
+    {
+        await using var host = await StartLlmHostAsync();
+        await EnableAsync(host);
+        await host.WithDbAsync(async db =>
+        {
+            var config = await db.LlmProviderConfigs.SingleAsync(c => c.TenantId == null && c.Kind == LlmProviderKind.Replay && c.Status == DocProc.Llm.Providers.ProviderConfigStatus.Active, Ct);
+            config.Models = new Dictionary<string, string>(config.Models, StringComparer.Ordinal) { [nameof(LlmStage.Extract)] = "acme-unlisted-model" };
+            await db.SaveChangesAsync(Ct);
+        });
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Musterfirma GmbH");
+        await SetOverridesAsync(host, supplier.Id, """[{"op":"param","step":"llm","params":{"maxCostPerDocument":5}}]""");
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice, usage: new LlmUsage(500, 20));
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice, usage: new LlmUsage(6_000, 800));
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.Status.ShouldBe(DocumentStatus.NeedsReview);
+        var flag = document.Flags.Where(f => f.Code == FlagCodes.LlmBudgetExceeded).ShouldHaveSingleItem();
+        flag.Params!["reason"].ShouldBe("unpriced");
+        flag.Params["model"].ShouldBe("acme-unlisted-model");
+        flag.Params["period"].ShouldBe("document");
+        (await host.WithDbAsync(db => db.LlmUsage.AsNoTracking().CountAsync(u => u.Stage == LlmStage.Extract, Ct))).ShouldBe(0);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static Task<PipelineTestHost> StartLlmHostAsync(bool forceLlmClassification = false) =>
