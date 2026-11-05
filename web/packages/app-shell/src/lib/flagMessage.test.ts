@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createI18n } from "../i18n";
 import en from "../i18n/en/common.json";
 import de from "../i18n/de/common.json";
-import { flagMessage, type FlagText } from "./flagMessage";
+import { flagDetail, flagMessage, type FlagText } from "./flagMessage";
 
 const labels: Record<string, string> = { dueDate: "Due date", invoiceNumber: "Invoice number", totalGross: "Gross total" };
 const deLabels: Record<string, string> = { dueDate: "Fälligkeitsdatum", invoiceNumber: "Rechnungsnummer", totalGross: "Bruttobetrag" };
@@ -176,5 +176,25 @@ describe("the flag message catalogue", () => {
       ...["LOW_CONFIDENCE.capped", "DATE_IMPLAUSIBLE.capped", "FIELD_REQUIRED.capped", "FIELD_INVALID.capped", "FIELD_INVALID.notChecked", "CHECKS_SKIPPED.patternBudget"].flatMap((key) => [`${key}_one`, `${key}_other`]),
     ];
     expect(variants.filter((key) => !enMessages.has(key))).toEqual([]);
+  });
+});
+
+describe("flagDetail", () => {
+  const row: FlagText = {
+    code: "X_PRICE_JUMP",
+    message: "Unusual price change against the last approved list",
+    field: "lines[76].price.amount",
+    params: { reason: "deltaRow", key: "104539", previous: "39.02", value: "54.63", changePercent: "40.01", "message.en": "Unusual price change against the last approved list" },
+  };
+
+  it("gives a deltaToPrevious row's key, previous and new value and the signed change, whatever the flag's code", () => {
+    expect(plain(flagDetail(row, { language: "en" }) ?? "")).toBe("104539: from 39.02 to 54.63 (+40.01%)");
+    expect(plain(flagDetail(row, { language: "de" }) ?? "")).toBe("104539: von 39,02 auf 54,63 (+40,01 %)");
+    expect(plain(flagDetail({ ...row, params: { ...row.params, previous: "1.5", value: "1.2", changePercent: "20" } }, { language: "en" }) ?? "")).toBe("104539: from 1.50 to 1.20 (-20%)");
+  });
+
+  it("gives nothing for other flags or a row without its numbers", () => {
+    expect(flagDetail(lowConfidence, { language: "en" })).toBeNull();
+    expect(flagDetail({ ...row, params: { reason: "deltaRow", key: "104539" } }, { language: "en" })).toBeNull();
   });
 });

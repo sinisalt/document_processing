@@ -1840,7 +1840,7 @@
         "tags": [
           "Outputs"
         ],
-        "summary": "A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}.",
+        "summary": "A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<destinationId>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}.",
         "operationId": "ReceiveIntegrationCallback",
         "parameters": [
           {
@@ -6863,12 +6863,12 @@
       }
     },
     "/api/v1/destinations/{id}/callback-secret": {
-      "put": {
+      "post": {
         "tags": [
           "Outputs"
         ],
-        "summary": "Sets or rotates the destination's callback secret; the replaced one is still accepted until the next rotation.",
-        "operationId": "SetDestinationCallbackSecret",
+        "summary": "Generates the destination's callback secret, or a new one (a rotation), and answers it once; the replaced one is still accepted until the next rotation. The platform makes every secret, so no two destinations share one.",
+        "operationId": "RotateDestinationCallbackSecret",
         "parameters": [
           {
             "name": "id",
@@ -6880,33 +6880,13 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetCallbackSecretRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DestinationResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                  "$ref": "#/components/schemas/CallbackSecretResponse"
                 }
               }
             }
@@ -8485,6 +8465,22 @@
           }
         },
         "description": "The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination."
+      },
+      "CallbackSecretResponse": {
+        "required": [
+          "destination",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/DestinationResponse"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "description": "`POST /destinations/{id}/callback-secret`: the destination with its new callback secret, which the platform\ngenerated (the HMAC key or bearer token the receiver signs its callbacks with). The secret is shown only in this\nanswer; it is never read back."
       },
       "ChangeMemberRoleRequest": {
         "required": [
@@ -17085,18 +17081,6 @@
           }
         },
         "description": "A draft's content (`PUT /output-mappings/{key}/versions/{v}`, If-Match: the revision)."
-      },
-      "SetCallbackSecretRequest": {
-        "required": [
-          "secret"
-        ],
-        "type": "object",
-        "properties": {
-          "secret": {
-            "type": "string"
-          }
-        },
-        "description": "`PUT /destinations/{id}/callback-secret`: the HMAC key or bearer token the receiver signs its callbacks with."
       },
       "SetDestinationSecretRequest": {
         "required": [

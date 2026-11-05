@@ -1812,6 +1812,16 @@ Extract runs after the built-in chain (§10.1 correction), so it reads what the 
 stored per document, step and request hash (`LookupResults`, the assignments only), so a retry or a reprocess that
 sends the same request does not call again. A failure is `LOOKUP_FAILED` (a warning by default), never a failed stage.
 
+Correction (P5, fix 3): "the assignments only" made the stored result outlive the mapping that made it. The key is the
+request (method, URL, body), so after a tenant fixed or changed a step's `response`, a reprocess that sent the same
+request got the old assignments and the new mapping never ran on that document (only a new step id or another request
+got out of it). `LookupResults` keeps the destination's answer as well (`ResponseJson`: the body's JSON text within
+the 256 KB cap, `null` for an empty or non-JSON body; migration `AcknowledgementOrderAndLookupAnswers`), and every run
+maps it with the step's current `response` over the current values. A reprocess that sends the same request still does
+not call again, and a changed mapping (or one that now fails, `LOOKUP_FAILED` with reason `mapping`) applies to it; the
+row keeps the assignments of the last mapping beside the answer. A row stored before has no answer and sends its
+request once more. `mode` is applied by the stage after the mapping, so it never was part of what is stored.
+
 ### 10.3 Runner and handler changes
 
 - `ProcessDocument` gains an optional `ConfigHash`. Old messages without it, such as messages in flight during a deploy, resolve the current configuration and pin it. A retry whose pinned hash no longer resolves raises `CONFIG_CHANGED` and uses the pinned snapshot.
@@ -2627,6 +2637,32 @@ of that second with a signature among them, is `replayed`; one of that second wi
 are applied per reference and second; more are answered `replayed` rather than forgetting a signature that could then
 be replayed.
 
+Correction (P5, fix 3): three gaps, as built.
+
+- The guard and the writes were a read-then-write: two signed callbacks of one reference that ran at the same time (a
+  receiver that timed out and sent the same request again, or a rejection at t and an acceptance at t+1 that arrived
+  together) both read the old `LastCallbackAt`, both passed, and both applied: two open `EXTERNAL_REJECTED` and two
+  integration issues, or the older rejection committed last and left the reference `Rejected`. A reference has an
+  `AcknowledgementVersion` (migration `AcknowledgementOrderAndLookupAnswers`): the writer of a callback or a status
+  answer moves it from the value it read to the next in the transaction of its writes
+  (`ExternalAcknowledgements.TrySaveAsync`), so of two that ran together the one that commits second finds it moved,
+  writes nothing, and applies its acknowledgements again on a fresh read (`ApplyInOrderAsync`, at most 5 times, then
+  `409` to the receiver): the same callback is then `replayed`, an older one changes nothing, a newer one applies in
+  order. A status answer that loses to a callback is dropped when the callback settled the reference. The version is
+  not an EF concurrency token, so the delivery processor's writes of the reference stay as they were.
+- "Must name the destination's own host" compared the host name only, while the rule for moving the destination itself
+  (P3, `PATCH /destinations/{id}`) compares the origin: an IntegrationAdmin without the secret could point the poll at
+  another port of the host (`https://erp.example:9443/…`), and the poller sent the destination's credentials there. The
+  poll must name the destination's origin: scheme, host and port (the scheme's default port written or not), when it
+  is set, at every poll, and when `PATCH` moves the destination while a poll is set.
+- The HMAC covered `"<timestamp>.<body>"` only, and the admin chose the secret (16 characters or more): two
+  destinations with the same secret (one ERP webhook secret configured by several tenants) took each other's signed
+  callbacks, replayed unchanged to the other destination's address inside the window. The signed text is
+  `"<X-DocProc-Timestamp>.<destinationId>.<body>"`, the destination id as in the callback URL (lower case, with
+  hyphens), and the platform generates the secret: `POST /destinations/{id}/callback-secret` makes a new one (256
+  random bits, base64url, 43 characters), answers it once (`{destination, secret}`; it is never read back) and keeps
+  the replaced one valid until the next rotation. `PUT /destinations/{id}/callback-secret {secret}` is gone.
+
 ### 13.9 Integration templates
 
 Platform `OutputMapping` rows (`TenantId` NULL) ship:
@@ -2954,8 +2990,8 @@ All endpoints are under `/api/v1` and are regenerated into `web/packages/api-cli
     `GET /rule-kinds` is not built yet.
   - Correction (P5, part C): built are `POST /document-types/{key}:upgrade-base {autoApprove?}` (the auto-approval of
     an adopted price-list type, §5.8), `POST /documents/{id}:resolve-revision {resolution, note?}`, `PUT
-    /destinations/{id}/acknowledgements`, `PUT /destinations/{id}/callback-secret`, `POST
-    /integrations/callbacks/{destinationId}`, `POST /documents/{id}:resolve-integration-issue {note}` (§13.8 names the
+    /destinations/{id}/acknowledgements`, `POST /destinations/{id}/callback-secret` (a `PUT` with the admin's secret
+    until P5 fix 3, §13.8), `POST /integrations/callbacks/{destinationId}`, `POST /documents/{id}:resolve-integration-issue {note}` (§13.8 names the
     action, no route), `POST /suppliers:import`, `/master-data-sources` CRUD with `:run`, `:dry-run` and `GET
     …/{id}/runs`, and `GET /master-data-runs/{id}`; `DocumentSummary.supersededBy`, `DocumentDetail.supersededByDocumentId`,
     `revisionOfDocumentId`, `revisionResolution` and `ReviewTaskDto.kind` are new.

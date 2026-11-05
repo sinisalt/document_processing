@@ -170,6 +170,9 @@
     "refresh": "Refresh",
     "back": "Back"
   },
+  "flagDetails": {
+    "deltaRow": "{{row}}: from {{previous}} to {{value}} ({{change}})"
+  },
   "flagMessages": {
     "UNREADABLE_PAGES": {
       "region": "Page {{page}}, {{area}}: {{detail}}",

@@ -249,6 +249,95 @@ public sealed class ConfigurableStepsPipelineTests
     }
 
     [Fact]
+    public async Task A_reprocess_after_the_response_mapping_changed_maps_the_stored_answer_again_without_a_second_call()
+    {
+        // docs/11 §10.2 (P5 fix 3): the answer is stored, not only what the first mapping made of it, so a fixed
+        // `response` expression applies to a reprocess that sends the same request, and the receiver is called once.
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200, """{"vendorId":"V-4711","vendorNo":"K-0042"}""") };
+        await using var host = await StartLookupHostAsync(receiver);
+        await EnableAsync(host);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Fischhandel Müller GmbH", vatId: FischhandelVat);
+        var destination = await AddDestinationAsync(host, receiver.BaseUrl + "/vendors?vat={{output.vat}}");
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """{"originalInvoiceReference": response.vendorId}"""));
+
+        var document = await IngestXmlAsync(host);
+        receiver.Requests.ShouldHaveSingleItem();
+        document.CanonicalJson.ShouldNotBeNull().ShouldContain("V-4711");
+
+        // The tenant fixes the mapping: the vendor number, not the id. The same request again: the stored answer is
+        // mapped by the new expression, and the receiver is not called.
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """{"originalInvoiceReference": response.vendorNo}"""));
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(1, "the same request is not sent again");
+        var again = await host.DocumentAsync(document.Id);
+        var field = (JsonNode.Parse(again.CanonicalJson!) as JsonObject)!["originalInvoiceReference"]!;
+        field["value"]!["verbatim"]!.GetValue<string>().ShouldBe("K-0042", "the new mapping ran on the stored answer");
+        again.AppliedConfigJson.ShouldNotBeNull().ShouldContain("\"cached\":true");
+        var stored = await host.WithDbAsync(db => db.LookupResults.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id, Ct));
+        stored.ResponseJson.ShouldNotBeNull().ShouldContain("K-0042");
+        stored.AssignmentsJson.ShouldNotBeNull().ShouldContain("K-0042", customMessage: "the row keeps what the last mapping gave");
+        stored.Attempts.ShouldBe(1, "the attempts of the call, not of the re-mapping");
+
+        // A mapping that fails on the stored answer is LOOKUP_FAILED (mapping), still without a call; fixed again, it maps.
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """"not an object""""));
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(1);
+        (await host.DocumentAsync(document.Id)).Flags.ShouldContain(f => f.Code == FlagCodes.LookupFailed && f.ResolvedAt == null && f.Params!["reason"] == "mapping");
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """{"originalInvoiceReference": response.vendorId}"""));
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(1);
+        (await host.DocumentAsync(document.Id)).CanonicalJson.ShouldNotBeNull().ShouldContain("V-4711");
+    }
+
+    [Theory]
+    [InlineData("\uFEFF{\"vendorId\":\"V-4711\"}", "V-4711", "{\"vendorId\":\"V-4711\"}")]
+    [InlineData("<html>not json</html>", "none", "null")]
+    public async Task A_lookup_keeps_the_answer_as_its_mapping_reads_it(string body, string expected, string kept)
+    {
+        // An answer with a byte order mark is kept without it (and maps as JSON); one that is not JSON is kept as null,
+        // which the mapping sees as a null response, on the call and on every reprocess.
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200, body) };
+        await using var host = await StartLookupHostAsync(receiver);
+        await EnableAsync(host);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Fischhandel Müller GmbH", vatId: FischhandelVat);
+        var destination = await AddDestinationAsync(host, receiver.BaseUrl + "/vendors?vat={{output.vat}}");
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """{"originalInvoiceReference": response = null ? "none" : response.vendorId}"""));
+
+        var document = await IngestXmlAsync(host);
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(1);
+        var field = (JsonNode.Parse((await host.DocumentAsync(document.Id)).CanonicalJson!) as JsonObject)!["originalInvoiceReference"]!;
+        field["value"]!["verbatim"]!.GetValue<string>().ShouldBe(expected);
+        (await host.WithDbAsync(db => db.LookupResults.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id, Ct))).ResponseJson.ShouldBe(kept);
+    }
+
+    [Fact]
+    public async Task A_lookup_row_stored_without_its_answer_sends_the_request_once_more()
+    {
+        // A row stored before the answers were kept holds only the assignments: it cannot be mapped again, so the
+        // request is sent once and the answer kept from then on.
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200, """{"vendorId":"V-4711"}""") };
+        await using var host = await StartLookupHostAsync(receiver);
+        await EnableAsync(host);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Fischhandel Müller GmbH", vatId: FischhandelVat);
+        var destination = await AddDestinationAsync(host, receiver.BaseUrl + "/vendors?vat={{output.vat}}");
+        await SetOverridesAsync(host, supplier.Id, Lookup(destination, """{"originalInvoiceReference": response.vendorId}"""));
+        var document = await IngestXmlAsync(host);
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.LookupResults.SingleAsync(r => r.DocumentId == document.Id, Ct);
+            row.ResponseJson = null;
+            await db.SaveChangesAsync(Ct);
+        });
+
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(2);
+        (await host.WithDbAsync(db => db.LookupResults.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id, Ct))).ResponseJson.ShouldNotBeNull();
+        await ReprocessFromExtractAsync(host, document.Id);
+        receiver.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task A_test_call_reaches_the_destination_every_time_and_stores_nothing()
     {
         using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200, """{"vendorId":"V-0815"}""") };

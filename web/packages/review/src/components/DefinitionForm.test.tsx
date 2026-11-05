@@ -146,6 +146,13 @@ describe("generated form of a delivery note", () => {
   });
 });
 
+/**
+ * A hang guard for the two renders of a 412-row list, not a speed check: each mounts a page of PAGE_SIZE rows of inputs,
+ * about 1 s on an idle machine and past vitest's 5 s default when the .NET suite runs on the same cores (the customer
+ * portal's vite.config.ts sets the same bound for its long renders).
+ */
+const LONG_RENDER = 30_000;
+
 describe("generated form of a price list", () => {
   const row = (i: number) => ({ supplierSku: extracted({ verbatim: `A-${i}` }), description: extracted(`Article ${i}`), price: extracted(money(i)), tiers: i === 0 ? [{ minQuantity: extracted(10), price: extracted(money(0.5)) }] : [] });
 
@@ -158,7 +165,7 @@ describe("generated form of a price list", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next rows" }));
     expect(screen.getByText(`Rows ${PAGE_SIZE + 1}–${2 * PAGE_SIZE} of 412`)).toBeInTheDocument();
     expect(input(`lines[${PAGE_SIZE}].supplierSku`)).toHaveValue(`A-${PAGE_SIZE}`);
-  });
+  }, LONG_RENDER);
 
   it("opens a long list on the rows a check flagged, and shows all rows on request", () => {
     // The P5 demo: March's list has one article up 40 % against February; deltaToPrevious names that row.
@@ -172,7 +179,7 @@ describe("generated form of a price list", () => {
     expect(screen.getByTestId("grid-filter-flagged-lines")).toHaveTextContent("Only the flagged rows (2)");
     fireEvent.click(screen.getByTestId("grid-filter-flagged-lines"));
     expect(document.querySelectorAll("[data-line]")).toHaveLength(2);
-  });
+  }, LONG_RENDER);
 
   it("shows every row of a short list, flagged or not, and offers the filter", () => {
     render(<Harness spec={templates.priceList} canonical={{ currency: extracted("EUR"), lines: [row(1), row(2), row(3)], ext: {} }} flaggedPaths={["lines[1].price.amount"]} />);

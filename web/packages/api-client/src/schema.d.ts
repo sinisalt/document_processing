@@ -239,9 +239,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Sets or rotates the destination's callback secret; the replaced one is still accepted until the next rotation. */
-        put: operations["SetDestinationCallbackSecret"];
-        post?: never;
+        put?: never;
+        /** Generates the destination's callback secret, or a new one (a rotation), and answers it once; the replaced one is still accepted until the next rotation. The platform makes every secret, so no two destinations share one. */
+        post: operations["RotateDestinationCallbackSecret"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1199,7 +1199,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}. */
+        /** A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<destinationId>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}. */
         post: operations["ReceiveIntegrationCallback"];
         delete?: never;
         options?: never;
@@ -2668,6 +2668,15 @@ export interface components {
             replayed: number | string;
             /** Format: int32 */
             unknown: number | string;
+        };
+        /**
+         * @description `POST /destinations/{id}/callback-secret`: the destination with its new callback secret, which the platform
+         *     generated (the HMAC key or bearer token the receiver signs its callbacks with). The secret is shown only in this
+         *     answer; it is never read back.
+         */
+        CallbackSecretResponse: {
+            destination: components["schemas"]["DestinationResponse"];
+            secret: string;
         };
         ChangeMemberRoleRequest: {
             role: string;
@@ -4950,10 +4959,6 @@ export interface components {
             sampleDocumentIds: null | string[];
             targetSchema: null | components["schemas"]["JsonElement"];
         };
-        /** @description `PUT /destinations/{id}/callback-secret`: the HMAC key or bearer token the receiver signs its callbacks with. */
-        SetCallbackSecretRequest: {
-            secret: string;
-        };
         /** @description `PUT /destinations/{id}/secret`: the new secret; the one it replaces is kept as the previous secret for the overlap of a rotation (docs/11 §16). */
         SetDestinationSecretRequest: {
             secret: string;
@@ -5631,6 +5636,7 @@ export type SchemaBundleImportItem = components['schemas']['BundleImportItem'];
 export type SchemaBundleImportRequest = components['schemas']['BundleImportRequest'];
 export type SchemaBundleImportResponse = components['schemas']['BundleImportResponse'];
 export type SchemaCallbackResponse = components['schemas']['CallbackResponse'];
+export type SchemaCallbackSecretResponse = components['schemas']['CallbackSecretResponse'];
 export type SchemaChangeMemberRoleRequest = components['schemas']['ChangeMemberRoleRequest'];
 export type SchemaChannelResponse = components['schemas']['ChannelResponse'];
 export type SchemaCorrectFieldsRequest = components['schemas']['CorrectFieldsRequest'];
@@ -5814,7 +5820,6 @@ export type SchemaRuleTestResponse = components['schemas']['RuleTestResponse'];
 export type SchemaRuleTestRuleResult = components['schemas']['RuleTestRuleResult'];
 export type SchemaSandboxRunRequest = components['schemas']['SandboxRunRequest'];
 export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
-export type SchemaSetCallbackSecretRequest = components['schemas']['SetCallbackSecretRequest'];
 export type SchemaSetDestinationSecretRequest = components['schemas']['SetDestinationSecretRequest'];
 export type SchemaSetDocumentTypeRequest = components['schemas']['SetDocumentTypeRequest'];
 export type SchemaSourceBox = components['schemas']['SourceBox'];
@@ -6411,7 +6416,7 @@ export interface operations {
             };
         };
     };
-    SetDestinationCallbackSecret: {
+    RotateDestinationCallbackSecret: {
         parameters: {
             query?: never;
             header?: never;
@@ -6420,11 +6425,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetCallbackSecretRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {
@@ -6432,16 +6433,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DestinationResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    "application/json": components["schemas"]["CallbackSecretResponse"];
                 };
             };
         };

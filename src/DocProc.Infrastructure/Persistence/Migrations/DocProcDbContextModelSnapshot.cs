@@ -515,6 +515,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("AcknowledgementVersion")
+                        .HasColumnType("int");
+
                     b.Property<Guid>("DestinationId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1754,6 +1757,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nchar(64)")
                         .IsFixedLength();
+
+                    b.Property<string>("ResponseJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Status")
                         .IsRequired()

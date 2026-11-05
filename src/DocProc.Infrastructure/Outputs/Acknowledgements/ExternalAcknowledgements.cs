@@ -162,10 +162,13 @@ public sealed record AcknowledgementConfig(CallbackConfig? Callback, StatusPollC
         node[name] is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
 
     /// <summary>
-    /// Whether a status poll template and the destination's <c>urlTemplate</c> (in its config JSON) name the same host,
-    /// placeholders filled with a dummy. The poll sends the destination's headers and credentials, so it may only go there.
+    /// Whether a status poll template and the destination's <c>urlTemplate</c> (in its config JSON) name the same origin:
+    /// scheme, host and effective port (the scheme's default when none is written), placeholders filled with a dummy.
+    /// The poll sends the destination's headers and credentials, so it may only go where the destination itself sends
+    /// them, the same rule as a change of the destination's own URL (<see cref="DestinationConfig.SecretRedirects"/>):
+    /// another port of the same host is another receiver (docs/11 §13.8, Correction (P5) fix 3).
     /// </summary>
-    public static bool SameHost(string pollTemplate, string? destinationConfigJson)
+    public static bool SameOrigin(string pollTemplate, string? destinationConfigJson)
     {
         ArgumentNullException.ThrowIfNull(pollTemplate);
         string? template;
@@ -178,10 +181,13 @@ public sealed record AcknowledgementConfig(CallbackConfig? Callback, StatusPollC
             template = null;
         }
 
-        var destinationHost = HostOf(template);
-        return destinationHost is not null && string.Equals(HostOf(pollTemplate), destinationHost, StringComparison.OrdinalIgnoreCase);
+        var destination = OriginOf(template);
+        return destination is not null && OriginOf(pollTemplate) is { } poll
+            && string.Equals(poll.Scheme, destination.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(poll.IdnHost, destination.IdnHost, StringComparison.OrdinalIgnoreCase)
+            && poll.Port == destination.Port;
 
-        static string? HostOf(string? url)
+        static Uri? OriginOf(string? url)
         {
             if (url is null)
             {
@@ -189,7 +195,7 @@ public sealed record AcknowledgementConfig(CallbackConfig? Callback, StatusPollC
             }
 
             var filled = System.Text.RegularExpressions.Regex.Replace(url, @"\{\{[^}]*\}\}|\{[^}]*\}", "x", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
-            return Uri.TryCreate(filled, UriKind.Absolute, out var uri) ? uri.IdnHost : null;
+            return Uri.TryCreate(filled, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http" ? uri : null;
         }
     }
 
@@ -483,6 +489,123 @@ public static class ExternalAcknowledgements
 
         AddEvent(db, document, DocumentEventTypes.ExternallyAccepted, details, now);
         return AcknowledgementOutcome.Applied;
+    }
+
+    /// <summary>How often the acknowledgements of one callback are applied again after another acknowledgement of one of their references won the race.</summary>
+    public const int MaxApplyAttempts = 5;
+
+    /// <summary>
+    /// Applies the acknowledgements of one callback and saves them, ordered per reference (docs/11 §13.8): each attempt
+    /// reads, guards and writes on a fresh context and is saved by <see cref="TrySaveAsync"/>; when another
+    /// acknowledgement of one of the references committed first, the attempt is dropped and the reports are applied again
+    /// on what is there now (a replay then answers <see cref="AcknowledgementOutcome.Replayed"/>, and an older callback
+    /// changes nothing). The outcomes in the order of the reports, or null when every one of
+    /// <see cref="MaxApplyAttempts"/> attempts lost.
+    /// </summary>
+    public static async Task<IReadOnlyList<AcknowledgementOutcome>?> ApplyInOrderAsync(ISystemDbContextFactory contexts, OutputDestination destination, IReadOnlyList<AcknowledgementReport> reports, string source, DateTimeOffset now, CallbackStamp? stamp, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(reports);
+        for (var attempt = 1; attempt <= MaxApplyAttempts; attempt++)
+        {
+            var db = contexts.CreatePlatformScoped();
+            await using (db.ConfigureAwait(false))
+            {
+                var outcomes = new List<AcknowledgementOutcome>(reports.Count);
+                foreach (var report in reports)
+                {
+                    outcomes.Add(await ApplyAsync(db, destination, report, source, now, cancellationToken, stamp).ConfigureAwait(false));
+                }
+
+                if (await TrySaveAsync(db, cancellationToken).ConfigureAwait(false))
+                {
+                    return outcomes;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Saves the tracked writes of the acknowledgements applied on <paramref name="db"/>, ordered per reference (docs/11
+    /// §13.8, Correction (P5) fix 3). In one transaction, every reference that was changed has its
+    /// <see cref="DocumentExternalRef.AcknowledgementVersion"/> moved from the value read to the next, and only then are
+    /// the writes saved. When another acknowledgement of the same reference committed since it was read (the version
+    /// moved, or a reference both created was inserted first, or a review task both changed was changed first), nothing
+    /// is written and false comes back: the caller drops the context's changes and applies the acknowledgement again on
+    /// what is there now, so the order guard sees the other one (a replay answers "replayed", an older callback changes
+    /// nothing) and a rejection never opens a second flag or a second integration issue.
+    /// </summary>
+    public static async Task<bool> TrySaveAsync(DocProcDbContext db, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(
+            async ct =>
+            {
+                var changed = db.ChangeTracker.Entries<DocumentExternalRef>()
+                    .Where(e => e.State == EntityState.Modified)
+                    .Select(e => (Entry: e, Read: e.Property(r => r.AcknowledgementVersion).OriginalValue))
+                    .ToList();
+                await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+                foreach (var (entry, read) in changed)
+                {
+                    var id = entry.Entity.Id;
+                    var moved = await db.DocumentExternalRefs
+                        .Where(r => r.Id == id && r.AcknowledgementVersion == read)
+                        .ExecuteUpdateAsync(u => u.SetProperty(r => r.AcknowledgementVersion, read + 1), ct).ConfigureAwait(false);
+                    if (moved == 0)
+                    {
+                        await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                        return false;
+                    }
+                }
+
+                try
+                {
+                    await db.SaveChangesAsync(acceptAllChangesOnSuccess: false, ct).ConfigureAwait(false);
+                }
+                catch (DbUpdateException exception) when (IsConflict(exception))
+                {
+                    await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                    return false;
+                }
+
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
+                foreach (var (entry, read) in changed)
+                {
+                    entry.Property(r => r.AcknowledgementVersion).CurrentValue = read + 1;
+                }
+
+                db.ChangeTracker.AcceptAllChanges();
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A save that lost to another acknowledgement of the same reference: a concurrency token of a row both changed (a
+    /// review task), or the unique (document, destination) index of a reference both created.
+    /// </summary>
+    private static bool IsConflict(DbUpdateException exception)
+    {
+        if (exception is DbUpdateConcurrencyException)
+        {
+            return true;
+        }
+
+        for (Exception? inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner.Message.Contains("IX_DocumentExternalRefs_DocumentId_DestinationId", StringComparison.OrdinalIgnoreCase)
+                || inner.Message.Contains("DocumentExternalRefs.DocumentId", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Completes the open integration-issue tasks of a document.</summary>

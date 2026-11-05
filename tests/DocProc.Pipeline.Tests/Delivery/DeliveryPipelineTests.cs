@@ -4,6 +4,7 @@ using DocProc.Application.Abstractions;
 using DocProc.Application.Pipeline;
 using DocProc.Domain.Documents;
 using DocProc.Domain.Flags;
+using DocProc.Infrastructure.Outputs.Acknowledgements;
 using DocProc.Infrastructure.Outputs.Delivery;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
@@ -235,6 +236,61 @@ public sealed class DeliveryPipelineTests
     }
 
     /// <summary>
+    /// A status poll and a callback of one reference that run at the same time (docs/11 §13.8, P5 fix 3): the receiver
+    /// calls back "accepted" while the poll's "rejected" is on its way. The callback commits first, so the poll's writes
+    /// are dropped: the reference was settled by the callback, and no EXTERNAL_REJECTED or integration issue is opened.
+    /// </summary>
+    [Fact]
+    public async Task A_status_answer_that_loses_to_a_callback_of_the_same_reference_changes_nothing()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver, settings => settings["Delivery:StatusPollInterval"] = "00:00:00");
+        var binding = await BindAsync(host, receiver, ApExpression);
+        await host.WithDbAsync(async db =>
+        {
+            var destination = await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId);
+            destination.CallbackConfigJson = new JsonObject
+            {
+                ["callback"] = new JsonObject { ["auth"] = "hmacSha256" },
+                ["statusPoll"] = new JsonObject
+                {
+                    ["urlTemplate"] = receiver.BaseUrl + "/status/{documentId}",
+                    ["intervalMinutes"] = 5,
+                    ["mapping"] = """{ "status": state = "REJ" ? "rejected" : "pending", "message": reason }""",
+                },
+            }.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+        var document = await AutoApproveAsync(host);
+        var contexts = host.Services.GetRequiredService<ISystemDbContextFactory>();
+        var outputDestination = await host.WithDbAsync(db => db.OutputDestinations.AsNoTracking().SingleAsync(d => d.Id == binding.DestinationId));
+
+        // While the poll waits for its answer, the receiver's callback "accepted" is applied and committed.
+        IReadOnlyList<AcknowledgementOutcome>? callback = null;
+        receiver.Respond = request =>
+        {
+            if (!request.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal))
+            {
+                return new ReceiverAnswer(201, "{}");
+            }
+
+            callback = ExternalAcknowledgements.ApplyInOrderAsync(contexts, outputDestination, [new AcknowledgementReport(document.Id, null, ExternalRefStatus.Accepted, null)], AcknowledgementSources.Callback, host.Clock.GetUtcNow(), new CallbackStamp(host.Clock.GetUtcNow(), new string('a', 64)), CancellationToken.None).GetAwaiter().GetResult();
+            return new ReceiverAnswer(200, """{"state":"REJ","reason":"Vendor blocked"}""");
+        };
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        var poller = host.Services.GetRequiredService<ExternalStatusPoller>();
+        (await poller.PollDueAsync(Ct)).ShouldBe(0, "the poll's answer lost to the callback");
+
+        callback.ShouldNotBeNull().ShouldBe([AcknowledgementOutcome.Applied]);
+        var reference = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == document.Id));
+        reference.Status.ShouldBe(ExternalRefStatus.Accepted, "the callback's answer stands");
+        reference.AcknowledgementVersion.ShouldBe(1, "only the callback was applied");
+        reference.Polls.ShouldBe(1);
+        (await host.WithDbAsync(db => db.DocumentFlags.AsNoTracking().CountAsync(f => f.DocumentId == document.Id && f.Code == DocProc.Domain.Flags.FlagCodes.ExternalRejected))).ShouldBe(0);
+        (await host.WithDbAsync(db => db.ReviewTasks.AsNoTracking().CountAsync(t => t.DocumentId == document.Id && t.Kind == ReviewTaskKind.IntegrationIssue))).ShouldBe(0);
+    }
+
+    /// <summary>
     /// A status answer is about the reference that was polled (docs/11 §13.8): one that names another document's id of
     /// the same destination changes the polled document, never the other one. A destination moved to another host since
     /// its poll was set is not polled: the poll would carry the destination's credentials to the old host.
@@ -280,6 +336,20 @@ public sealed class DeliveryPipelineTests
         references.Single(r => r.DocumentId == second.Id).Status.ShouldBe(ExternalRefStatus.Pending, "the other document is untouched");
         (await host.WithDbAsync(db => db.DocumentFlags.AsNoTracking().CountAsync(f => f.DocumentId == second.Id && f.Code == DocProc.Domain.Flags.FlagCodes.ExternalRejected))).ShouldBe(0);
 
+        // The destination moves to another port of the same host: another origin, so another receiver, and the poll
+        // (which names the old port) would carry its credentials there; it is not sent (docs/11 §13.8, P5 fix 3).
+        await host.WithDbAsync(async db =>
+        {
+            var destination = await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId);
+            destination.ConfigJson = new JsonObject { ["urlTemplate"] = $"http://127.0.0.1:{receiver.Port + 1}/api/ap/invoices" }.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+        var beforePortMove = receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal));
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        (await poller.PollDueAsync(Ct)).ShouldBe(0);
+        receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)).ShouldBe(beforePortMove, "no poll goes to another port of the host");
+        (await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == second.Id))).Message!.ShouldContain("no longer on the destination's origin");
+
         // The destination moves to another host (with that host's secret, say); its poll still names the old one.
         await host.WithDbAsync(async db =>
         {
@@ -291,7 +361,7 @@ public sealed class DeliveryPipelineTests
         host.Clock.Advance(TimeSpan.FromMinutes(6));
         (await poller.PollDueAsync(Ct)).ShouldBe(0);
         receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)).ShouldBe(asked, "no poll leaves the destination's host");
-        (await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == second.Id))).Message!.ShouldContain("no longer on the destination's host");
+        (await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == second.Id))).Message!.ShouldContain("no longer on the destination's origin");
     }
 
     /// <summary>

@@ -1996,6 +1996,28 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       `DELETE /destinations/{id}` answers 409 naming the master-data source that reads it instead of 500;
     - docs/09: Nordwind's IBAN in the P5 demo's setup curl, January's delivery in its run summary;
     - the Integrations test of the destinations list waited 1 s for the tab's first full render (see the test).
+  - Done, fix 3 (the third review of P5, recorded as "Correction (P5, fix 3)" in docs/11 §10.2 and §13.8; migration
+    `AcknowledgementOrderAndLookupAnswers`):
+    - the acknowledgements of one reference are applied in order when they run at the same time: the writer moves the
+      reference's `AcknowledgementVersion` in the transaction of its writes, and the one that commits second applies
+      again on a fresh read (the callback up to 5 times, then 409; a status answer is dropped when a callback settled
+      the reference), so a resent callback is `replayed` and a rejection racing a later acceptance ends accepted, with
+      one flag and one integration issue at most (API, pipeline and SQL Server tests run them concurrently);
+    - an `http-lookup` keeps the destination's answer (`LookupResults.ResponseJson`) and maps it with the step's current
+      `response` on every run, so a changed mapping applies to a reprocess that sends the same request, still without a
+      second call (a row stored before sends its request once more);
+    - a status poll must name the destination's origin (scheme, host and port), not only its host, when it is set, at
+      every poll and when the destination moves;
+    - the callback HMAC covers `<timestamp>.<destinationId>.<body>`, and the platform generates the callback secret
+      (`POST /destinations/{id}/callback-secret`, answered once; the admin's `PUT … {secret}` is gone), so a signed
+      callback does not authenticate at another destination and no two destinations share a secret; the
+      Acknowledgements dialog generates it and shows it once with Copy;
+    - the review screen's flag row of a `deltaToPrevious` row shows the key, the previous and the new value and the
+      signed change ("104539: from 39.02 to 54.63 (+40.01%)"), which a definition's own message left out;
+    - the two 412-row renders of the review package's form tests get a 30 s bound, as the portal's long renders have
+      (they took about 1 s idle and passed 5 s while the .NET suite ran).
+  - Left for later (fix 3): a receiver that only supports one webhook secret for several tenants must now be given
+    one secret per destination; the platform does not import a secret the admin chose.
   - Left for later (fix 2): a destination that a pipeline `http-lookup` step names (in supplier, group or layout version
     `pipelineOverrides`) can still be deleted; the step then raises `LOOKUP_FAILED` at run time. The pipeline stages
     still read the whole document row, the canonical tree included, asynchronously (the per-stage cost of a 1 MB tree

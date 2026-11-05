@@ -413,8 +413,10 @@ reprocesses exactly as before.
   destination for 30 s. `response` is JSONata over `{response, status, values}` and gives `{"<field path>": value}` (at
   most 50; a key, a bag key `ext.x` or a composite member `supplier.vatId`), written as `Inferred` (`source.method:
   Lookup`, confidence 0.95), only where the field is Missing unless `mode: override`, never over a reviewer's value.
-  The result is stored per document, step and request hash (`LookupResults`, the assignments only), so a retry or a
-  reprocess that sends the same request reuses it. A failure is `LOOKUP_FAILED {stepId, reason, httpStatus}` (warning;
+  The destination's answer is stored per document, step and request hash (`LookupResults.ResponseJson`, with the
+  assignments of the last mapping beside it), so a retry or a reprocess that sends the same request does not call
+  again; the step's current `response` maps the stored answer on every run, so a changed mapping applies to a
+  reprocess (P5 fix 3; a row stored before has no answer and sends its request once more). A failure is `LOOKUP_FAILED {stepId, reason, httpStatus}` (warning;
   blocking with `onFailure: block`; none with `ignore`); `appliedConfig.lookups.<stepId>` says what each step wrote.
 - **LLM budgets** (`/llm-budgets` above). Before every LLM call the gateway compares the spend of each budget's period
   (the current UTC day or month, or the document) with its limit, adding the call's estimate (the average of the
@@ -529,20 +531,28 @@ reprocesses exactly as before.
   - `PUT /destinations/{id}/acknowledgements {callback?: {auth: hmacSha256|bearer, mapping?}, statusPoll?:
     {urlTemplate, intervalMinutes (1-1440, 15), mapping?, maxPolls (1-2000, 288)}}` (an empty object turns both off);
     a poll template takes `{externalId}` and `{documentId}` after the host only and must name the destination's own
-    host (the poll sends the destination's credentials); mappings are JSONata checked by the renderer;
-  - `PUT /destinations/{id}/callback-secret {secret}` (16 or more characters): two slots, so the replaced secret is
-    accepted until the next rotation (`DestinationResponse.hasCallbackSecret`, `hasPreviousCallbackSecret`,
-    `acknowledgements`);
+    origin, scheme, host and port (the poll sends the destination's credentials; another port is another receiver,
+    P5 fix 3); mappings are JSONata checked by the renderer;
+  - `POST /destinations/{id}/callback-secret` (no body): the platform generates a new callback secret (256 random
+    bits, base64url, 43 characters) and answers it once, `{destination, secret}` (`CallbackSecretResponse`; it is
+    never read back), so no two destinations share one (P5 fix 3; the admin no longer chooses it). Two slots, so the
+    replaced secret is accepted until the next rotation (`DestinationResponse.hasCallbackSecret`,
+    `hasPreviousCallbackSecret`, `acknowledgements`);
   - `POST /integrations/callbacks/{destinationId}` (anonymous; 64 KB): `hmacSha256` needs `X-DocProc-Timestamp` (Unix
-    seconds, within 5 minutes) and `X-DocProc-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<body>">`, `bearer`
+    seconds, within 5 minutes) and `X-DocProc-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<destinationId>.<body>">`
+    (the destination id as in the URL, lower case with hyphens, so a signed callback does not authenticate at another
+    destination), `bearer`
     `Authorization: Bearer <secret>`; the mapping (or the body itself) gives `{documentId | externalId, status:
     accepted|posted|rejected|pending, message?}` or a list of at most 100; answers `{applied, pending, unknown,
     problems, replayed}` (`401` unauthenticated, `404` without callbacks, `422` when nothing reads as an acknowledgement).
     A signed callback that is older than the last one applied to a document's reference, or that one again (a replay
-    inside the 5 minutes), changes nothing and counts in `replayed`; a bearer callback is applied as it comes;
-  - `PATCH /destinations/{id}` refuses (`400` under `config`) a config that moves the destination to another host while
-    its status poll names the old host: turn the poll off first, then set it again for the new host. The poller skips
-    a poll whose URL is no longer on the destination's host and says so in the reference's message;
+    inside the 5 minutes), changes nothing and counts in `replayed`; a bearer callback is applied as it comes. Two
+    acknowledgements of one reference that run at the same time are applied in order (the second to commit reads the
+    reference again, P5 fix 3); `409` when a callback lost that race five times, to be sent again;
+  - `PATCH /destinations/{id}` refuses (`400` under `config`) a config that moves the destination to another origin
+    (scheme, host or port) while its status poll names the old one: turn the poll off first, then set it again for the
+    new address. The poller skips a poll whose URL is no longer on the destination's origin and says so in the
+    reference's message;
   - a destination with acknowledgements keeps a delivered document's external reference `Pending`; the status poller
     (`Delivery:StatusPollInterval`) asks the poll URL with the destination's headers and authentication through the
     delivery client (public addresses, TLS, no redirects, 10 s, 64 KB) until it is decided or `maxPolls` ran out; the

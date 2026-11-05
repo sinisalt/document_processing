@@ -80,3 +80,25 @@ export function flagMessage(flag: FlagText, options: FlagMessageOptions = {}): s
   } as Record<string, unknown>);
   return missing || typeof text !== "string" || text.length === 0 ? flag.message : text;
 }
+
+/**
+ * The data behind a flag that its sentence does not show, in the UI language, or null when there is none to show. A
+ * row of `deltaToPrevious` (`reason: deltaRow`, docs/11 §11) carries the row's key, the previous and the new value and
+ * the change, which a definition's own message ("Unusual price change against the last approved list") leaves out:
+ * `104539: from 39.02 to 54.63 (+40.01%)`. It keys on the reason, so a definition flag with its own code shows it too.
+ */
+export function flagDetail(flag: FlagText, options: FlagMessageOptions = {}): string | null {
+  const params = flag.params ?? {};
+  if (params.reason !== "deltaRow" || !i18n.isInitialized) return null;
+  const previous = Number(params.previous);
+  const value = Number(params.value);
+  const change = Number(params.changePercent);
+  if (!params.key || !Number.isFinite(previous) || !Number.isFinite(value) || !Number.isFinite(change)) return null;
+  const lng = options.language;
+  const amount = (n: number) => formatNumber(n, lng, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  // changePercent is the size of the move; the direction is the one from the previous value to the new one.
+  const signed = value < previous ? -Math.abs(change) : Math.abs(change);
+  const percent = new Intl.NumberFormat(lng ?? (i18n.language || "en"), { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 2 }).format(signed / 100);
+  const text = i18n.t("flagDetails.deltaRow", { ns: "common", lng, row: params.key, previous: amount(previous), value: amount(value), change: percent, interpolation: { escapeValue: false } });
+  return typeof text === "string" && text.length > 0 && text !== "flagDetails.deltaRow" ? text : null;
+}

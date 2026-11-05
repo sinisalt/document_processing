@@ -213,19 +213,22 @@ describe("master-data import", () => {
 });
 
 describe("destination acknowledgements", () => {
-  it("saves a bearer callback and a status poll, and sets the callback secret", async () => {
+  it("saves a bearer callback and a status poll, and generates the callback secret, shown once", async () => {
     api.handlers.set("PUT /api/v1/destinations/{id}/acknowledgements", () => ({ body: {} }));
-    api.handlers.set("PUT /api/v1/destinations/{id}/callback-secret", () => ({ body: {} }));
+    api.handlers.set("POST /api/v1/destinations/{id}/callback-secret", () => ({ body: { destination: { id: "dest-1", hasCallbackSecret: true }, secret: "q3Jt0b5x-generated-by-the-platform_abcdefghi" } }));
     const destination = { id: "dest-1", name: "erp-ap", transport: "http", acknowledgements: null, hasCallbackSecret: false, hasPreviousCallbackSecret: false } as never;
     renderWith(<AcknowledgementsDialog destination={destination} open onOpenChange={() => undefined} />);
     fireEvent.click(await screen.findByTestId("ack-callback"));
     await choose(screen.getByTestId("ack-auth"), "Bearer token");
     expect(screen.getByTestId("ack-callback-url")).toHaveTextContent("/api/v1/integrations/callbacks/dest-1");
-    fireEvent.change(screen.getByTestId("ack-secret"), { target: { value: "short" } });
-    expect(screen.getByTestId("ack-secret-set")).toBeDisabled();
-    fireEvent.change(screen.getByTestId("ack-secret"), { target: { value: "a-callback-secret-of-32-characters" } });
+    // The platform makes the secret: there is nothing to type, and it is shown once after it was generated.
+    expect(screen.queryByTestId("ack-secret")).toBeNull();
+    expect(screen.queryByTestId("ack-secret-once")).toBeNull();
     fireEvent.click(screen.getByTestId("ack-secret-set"));
-    await waitFor(() => expect(callsTo("PUT /api/v1/destinations/{id}/callback-secret")[0]?.options.body).toEqual({ secret: "a-callback-secret-of-32-characters" }));
+    expect(await screen.findByTestId("ack-secret-value")).toHaveTextContent("q3Jt0b5x-generated-by-the-platform_abcdefghi");
+    expect(callsTo("POST /api/v1/destinations/{id}/callback-secret")).toHaveLength(1);
+    expect(callsTo("POST /api/v1/destinations/{id}/callback-secret")[0]!.options.body).toBeUndefined();
+    expect(screen.getByTestId("ack-secret-set")).toHaveTextContent("Generate a new one");
     fireEvent.click(screen.getByTestId("ack-poll"));
     fireEvent.change(screen.getByTestId("ack-url"), { target: { value: "https://erp.example/api/ap/invoices/{externalId}/status" } });
     fireEvent.click(screen.getByTestId("ack-save"));

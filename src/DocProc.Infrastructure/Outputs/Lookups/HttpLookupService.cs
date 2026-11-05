@@ -63,8 +63,10 @@ public sealed record LookupOutcome(bool Succeeded, IReadOnlyDictionary<string, J
 /// 408, 425, 429, 5xx), and a circuit breaker per destination (5 failures in a row keep it closed for 30 s).</description></item>
 /// <item><description>The answer: the <c>response</c> expression maps <c>{response, status, values}</c> to an object of
 /// field paths and values (at most <see cref="MaxAssignments"/>), which the stage writes as <c>Inferred</c>.</description></item>
-/// <item><description>Idempotent per document version: the result is stored under the step and the hash of the request
-/// sent (<see cref="LookupResult"/>), and a retry or a reprocess that sends the same request reuses it.</description></item>
+/// <item><description>Idempotent per document version: the destination's answer is stored under the step and the hash
+/// of the request sent (<see cref="LookupResult"/>), and a retry or a reprocess that sends the same request reuses it
+/// instead of calling again; the step's current <c>response</c> expression maps the stored answer on every run, so a
+/// fixed or changed mapping applies to a reprocess (docs/11 §10.2, Correction (P5) fix 3).</description></item>
 /// <item><description>A failure is an outcome, never an exception: the stage raises <c>LOOKUP_FAILED</c>.</description></item>
 /// </list>
 /// </summary>
@@ -163,7 +165,7 @@ public sealed partial class HttpLookupService(
 
         var body = method == "POST" ? Encoding.UTF8.GetBytes((request ?? new JsonObject()).ToJsonString()) : [];
         var requestHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{method}\n{uri.AbsoluteUri}\n{Encoding.UTF8.GetString(body)}")));
-        var cached = call.DryRun ? null : await CachedAsync(call, requestHash, cancellationToken).ConfigureAwait(false);
+        var cached = call.DryRun ? null : await CachedAsync(call, destination.Id, requestHash, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
             return cached;
@@ -176,9 +178,11 @@ public sealed partial class HttpLookupService(
 
         var watch = Stopwatch.StartNew();
         var (outcome, responseBody) = await SendAsync(destination, config, method, uri, body, requestHash, step, cancellationToken).ConfigureAwait(false);
+        string? answer = null;
         if (outcome.Succeeded)
         {
-            outcome = await MapAsync(call, step, outcome, responseBody, cancellationToken).ConfigureAwait(false);
+            answer = AnswerText(responseBody);
+            outcome = await MapAsync(call, step, outcome, ParseAnswer(answer), cancellationToken).ConfigureAwait(false);
         }
 
         if (call.DryRun)
@@ -192,34 +196,66 @@ public sealed partial class HttpLookupService(
             (_, current) => outcome.Succeeded || outcome.Reason == "mapping"
                 ? (0, DateTimeOffset.MinValue)
                 : current.Failures + 1 >= BreakerThreshold ? (0, clock.GetUtcNow() + BreakerOpenFor) : (current.Failures + 1, current.OpenUntil));
-        await StoreAsync(call, destination.Id, requestHash, outcome, (int)watch.ElapsedMilliseconds, cancellationToken).ConfigureAwait(false);
+        await StoreAsync(call, destination.Id, requestHash, answer, outcome, (int)watch.ElapsedMilliseconds, cancellationToken).ConfigureAwait(false);
         return outcome;
+    }
+
+    /// <summary>
+    /// The answer as it is kept and mapped: the body's own JSON text when it is JSON, else <c>null</c> (the mapping then
+    /// sees a null response and the status).
+    /// </summary>
+    private static string AnswerText(byte[] body)
+    {
+        if (body.Length == 0)
+        {
+            return "null";
+        }
+
+        // Without a byte order mark: the text is parsed again as a string, which does not skip one.
+        var text = Encoding.UTF8.GetString(body).TrimStart('\uFEFF');
+        return ParseAnswer(text) is null && !IsJsonNull(text) ? "null" : text;
+
+        static bool IsJsonNull(string text) => text.Trim() == "null";
+    }
+
+    /// <summary>A kept answer as the mapping reads it; null for <c>null</c> and for text that is not JSON.</summary>
+    private static JsonNode? ParseAnswer(string answer)
+    {
+        try
+        {
+            return JsonNode.Parse(answer);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Closes every breaker (tests).</summary>
     public static void ResetBreakers() => Breakers.Clear();
 
-    private async Task<LookupOutcome?> CachedAsync(LookupCall call, string requestHash, CancellationToken cancellationToken)
+    /// <summary>
+    /// The stored answer to the same request, mapped again by the step's current <c>response</c> expression (the
+    /// destination is not called); null when no answer to this request is stored. A row stored before the answers were
+    /// kept (only its assignments) counts as none, so its request is sent once more.
+    /// </summary>
+    private async Task<LookupOutcome?> CachedAsync(LookupCall call, Guid destinationId, string requestHash, CancellationToken cancellationToken)
     {
         var row = await db.LookupResults.AsNoTracking()
-            .Where(r => r.TenantId == call.TenantId && r.DocumentId == call.DocumentId && r.StepId == call.Step.Id && r.RequestHash == requestHash && r.Status == LookupCallStatus.Succeeded)
-            .Select(r => new { r.AssignmentsJson, r.HttpStatus })
+            .Where(r => r.TenantId == call.TenantId && r.DocumentId == call.DocumentId && r.StepId == call.Step.Id && r.RequestHash == requestHash && r.ResponseJson != null)
+            .Select(r => new { r.ResponseJson, r.HttpStatus })
             .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        if (row is null)
+        if (row?.ResponseJson is not { } answer)
         {
             return null;
         }
 
-        var assignments = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
-        if (!string.IsNullOrEmpty(row.AssignmentsJson) && JsonNode.Parse(row.AssignmentsJson) is JsonObject stored)
-        {
-            foreach (var (path, value) in stored)
-            {
-                assignments[path] = value?.DeepClone();
-            }
-        }
-
-        return new LookupOutcome(true, assignments, true, null, null, row.HttpStatus, 0);
+        var response = ParseAnswer(answer);
+        var sent = new LookupOutcome(true, new Dictionary<string, JsonNode?>(StringComparer.Ordinal), true, null, null, row.HttpStatus, 0);
+        var outcome = await MapAsync(call, call.Step, sent, response, cancellationToken).ConfigureAwait(false);
+        outcome = outcome with { Cached = true };
+        await StoreAsync(call, destinationId, requestHash, answer, outcome, 0, cancellationToken).ConfigureAwait(false);
+        return outcome;
     }
 
     private async Task<(LookupOutcome Outcome, byte[] Body)> SendAsync(OutputDestination destination, JsonObject config, string method, Uri uri, byte[] body, string requestHash, ResolvedStep step, CancellationToken cancellationToken)
@@ -360,18 +396,8 @@ public sealed partial class HttpLookupService(
         return (last, []);
     }
 
-    private async Task<LookupOutcome> MapAsync(LookupCall call, ResolvedStep step, LookupOutcome sent, byte[] responseBody, CancellationToken cancellationToken)
+    private async Task<LookupOutcome> MapAsync(LookupCall call, ResolvedStep step, LookupOutcome sent, JsonNode? response, CancellationToken cancellationToken)
     {
-        JsonNode? response;
-        try
-        {
-            response = responseBody.Length == 0 ? null : JsonNode.Parse(responseBody);
-        }
-        catch (JsonException)
-        {
-            response = null; // Not JSON: the mapping sees a null response and the status.
-        }
-
         var input = new JsonObject { ["response"] = response, ["status"] = sent.HttpStatus, ["values"] = call.Values.DeepClone() };
         var expression = step.Text("response") ?? string.Empty;
         var rendered = await renderer.RenderAsync(new RenderRequest(expression, input, call.Today), cancellationToken).ConfigureAwait(false);
@@ -414,7 +440,7 @@ public sealed partial class HttpLookupService(
         return sent with { Assignments = assignments };
     }
 
-    private async Task StoreAsync(LookupCall call, Guid destinationId, string requestHash, LookupOutcome outcome, int durationMs, CancellationToken cancellationToken)
+    private async Task StoreAsync(LookupCall call, Guid destinationId, string requestHash, string? answer, LookupOutcome outcome, int durationMs, CancellationToken cancellationToken)
     {
         try
         {
@@ -429,12 +455,16 @@ public sealed partial class HttpLookupService(
             }
 
             row.DestinationId = destinationId;
+            row.ResponseJson = answer ?? row.ResponseJson;
             row.Status = outcome.Succeeded ? LookupCallStatus.Succeeded : LookupCallStatus.Failed;
             row.HttpStatus = outcome.HttpStatus;
             row.AssignmentsJson = outcome.Succeeded ? new JsonObject(outcome.Assignments.Select(a => KeyValuePair.Create(a.Key, a.Value?.DeepClone()))).ToJsonString() : null;
             row.Error = outcome.Succeeded ? null : Shorten($"{outcome.Reason}: {outcome.Message}", 1000);
-            row.Attempts = outcome.Attempts;
-            row.DurationMs = durationMs;
+            if (!outcome.Cached)
+            {
+                row.Attempts = outcome.Attempts;
+                row.DurationMs = durationMs;
+            }
             await store.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException exception)

@@ -484,6 +484,15 @@ public sealed class DocumentExternalRef : ITenantScoped
     /// </summary>
     public string? LastCallbackSignatures { get; set; }
 
+    /// <summary>
+    /// Grows by one with every acknowledgement applied to the reference (a callback or a status answer). The writer
+    /// moves it from the value it read to the next in the transaction of its writes (<c>ExternalAcknowledgements.TrySaveAsync</c>),
+    /// so two acknowledgements of one reference that ran at the same time cannot both pass the order guard: the one that
+    /// commits second finds it moved, rolls back, and reads the reference again (docs/11 §13.8, Correction (P5) fix 3).
+    /// It is not an EF concurrency token, so the delivery processor's writes of the reference are not ordered by it.
+    /// </summary>
+    public int AcknowledgementVersion { get; set; }
+
     /// <summary>The characters of a signature kept (a hex HMAC-SHA256 is 64).</summary>
     public const int CallbackSignatureLength = 64;
 

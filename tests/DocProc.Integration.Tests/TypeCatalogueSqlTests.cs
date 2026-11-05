@@ -197,6 +197,27 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
+            // Fix 3 first: the acknowledgement version of every reference, and an http-lookup's stored answer. Down to fix
+            // 2, both columns are gone and the rows stay (the earlier build reuses the lookup's assignments).
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                foreach (var reference in await seeding.DocumentExternalRefs.ToListAsync(ct))
+                {
+                    reference.AcknowledgementVersion = 3;
+                }
+
+                seeding.LookupResults.Add(new LookupResult { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = target, StepId = "fix3Lookup", RequestHash = new string('c', 64), DestinationId = Guid.CreateVersion7(), Status = LookupCallStatus.Succeeded, HttpStatus = 200, AssignmentsJson = """{"ext.vendor":"V-3"}""", ResponseJson = """{"vendorId":"V-3"}""", Attempts = 1, DurationMs = 9, CreatedAt = DateTimeOffset.UtcNow });
+                await seeding.SaveChangesAsync(ct);
+            }
+
+            await migrator.MigrateAsync("20261105092247_CallbackSignaturesPerSecond", ct);
+            foreach (var (table, column) in new[] { ("DocumentExternalRefs", "AcknowledgementVersion"), ("LookupResults", "ResponseJson") })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID({"dbo." + table}) AND name = {column}").SingleAsync(ct)).ShouldBe(0, $"{table}.{column}");
+            }
+
+            (await platform.Database.SqlQuery<string>($"SELECT CAST([AssignmentsJson] AS nvarchar(max)) AS [Value] FROM [LookupResults] WHERE [StepId] = N'fix3Lookup'").SingleAsync(ct)).ShouldContain("V-3");
+
             // Down to fix 1, a reference keeps the last signature in the column of fix 1.
             await migrator.MigrateAsync("20261105062528_AcknowledgementReplayGuard", ct);
             (await platform.Database.SqlQuery<string>($"SELECT TOP 1 [LastCallbackSignature] AS [Value] FROM [DocumentExternalRefs]").SingleAsync(ct)).ShouldBe(new string('c', 64));

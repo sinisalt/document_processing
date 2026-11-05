@@ -25,18 +25,20 @@ public sealed class PipelineSnapshot : ITenantScoped
 /// <summary>How one <c>http-lookup</c> call ended (docs/11 §10.2).</summary>
 public enum LookupCallStatus
 {
-    /// <summary>The destination answered, and the response mapping gave the field assignments.</summary>
+    /// <summary>The destination answered, and the response mapping gave the field assignments (the last time it ran).</summary>
     Succeeded,
 
-    /// <summary>The call or its mapping failed; the step raised <c>LOOKUP_FAILED</c> (unless <c>onFailure: ignore</c>).</summary>
+    /// <summary>The call or its mapping (the last time it ran) failed; the step raised <c>LOOKUP_FAILED</c> (unless <c>onFailure: ignore</c>).</summary>
     Failed,
 }
 
 /// <summary>
 /// The result of one <c>http-lookup</c> call for a document (docs/11 §10.2), keyed by the step and the hash of the
 /// request it sent: a retry of the stage, or a reprocess that sends the same request, reuses the answer instead of
-/// calling the destination again (idempotent and cached per document version). Holds only the mapped assignments,
-/// never the response body.
+/// calling the destination again (idempotent and cached per document version). It keeps the destination's answer
+/// (<see cref="ResponseJson"/>), which the step's current <c>response</c> expression maps on every run, so a changed
+/// mapping applies to a reprocess without a second call (docs/11 §10.2, Correction (P5) fix 3); the assignments of the
+/// last mapping are kept beside it.
 /// </summary>
 public sealed class LookupResult : ITenantScoped
 {
@@ -59,8 +61,15 @@ public sealed class LookupResult : ITenantScoped
     /// <summary>The http status of the last attempt, when one answered.</summary>
     public int? HttpStatus { get; set; }
 
-    /// <summary>The field assignments (<c>{path: value}</c>) the response mapping gave; null for a failure.</summary>
+    /// <summary>The field assignments (<c>{path: value}</c>) the response mapping gave the last time it ran; null for a failure.</summary>
     public string? AssignmentsJson { get; set; }
+
+    /// <summary>
+    /// The destination's answer as the response mapping reads it: the body's JSON text (at most 256 KB), or <c>null</c>
+    /// for an empty or non-JSON body. Null when the destination gave no answer to map (a failed call), and on rows
+    /// stored before the answers were kept, whose request is then sent once more.
+    /// </summary>
+    public string? ResponseJson { get; set; }
 
     /// <summary>Why the call failed (<c>timeout</c>, <c>status</c>, <c>blocked</c>, <c>mapping</c>, ...); null for a success.</summary>
     public string? Error { get; set; }

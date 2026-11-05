@@ -25,8 +25,12 @@ namespace DocProc.Api.Endpoints;
 /// document, or that one again (a replay inside the timestamp window): they change nothing.</para>
 public sealed record CallbackResponse(int Applied, int Pending, int Unknown, IReadOnlyList<string> Problems, int Replayed = 0);
 
-/// <summary><c>PUT /destinations/{id}/callback-secret</c>: the HMAC key or bearer token the receiver signs its callbacks with.</summary>
-public sealed record SetCallbackSecretRequest(string Secret);
+/// <summary>
+/// <c>POST /destinations/{id}/callback-secret</c>: the destination with its new callback secret, which the platform
+/// generated (the HMAC key or bearer token the receiver signs its callbacks with). The secret is shown only in this
+/// answer; it is never read back.
+/// </summary>
+public sealed record CallbackSecretResponse(DestinationResponse Destination, string Secret);
 
 /// <summary><c>POST /documents/{id}:resolve-integration-issue</c>: the reviewer's note (required).</summary>
 public sealed record ResolveIntegrationIssueRequest(string? Note);
@@ -60,7 +64,7 @@ public static class IntegrationEndpoints
             .AllowAnonymous()
             .WithMetadata(new RequestSizeLimitAttribute(MaxCallbackBytes))
             .WithName("ReceiveIntegrationCallback")
-            .WithSummary("A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}.");
+            .WithSummary("A receiving system reports the fate of delivered documents (docs/11 §13.8): authenticated by the destination's callback secret (X-DocProc-Signature: sha256=<hex HMAC of '<X-DocProc-Timestamp>.<destinationId>.<body>'>, or Authorization: Bearer); the destination's callback mapping turns the body into {documentId|externalId, status, message}.");
 
         var destinations = group.MapGroup("/destinations").WithTags("Outputs");
         destinations.MapPut("/{id:guid}/acknowledgements", SetAcknowledgementsAsync)
@@ -68,11 +72,11 @@ public static class IntegrationEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(32 * 1024))
             .WithName("SetDestinationAcknowledgements")
             .WithSummary("Sets how the destination reports back (docs/11 §13.8): callback {auth: hmacSha256|bearer, mapping?} and/or statusPoll {urlTemplate, intervalMinutes, mapping?, maxPolls?}; an empty object turns both off.");
-        destinations.MapPut("/{id:guid}/callback-secret", SetCallbackSecretAsync)
+        destinations.MapPost("/{id:guid}/callback-secret", RotateCallbackSecretAsync)
             .RequireAuthorization(Policies.IntegrationAdmin)
-            .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
-            .WithName("SetDestinationCallbackSecret")
-            .WithSummary("Sets or rotates the destination's callback secret; the replaced one is still accepted until the next rotation.");
+            .WithMetadata(new RequestSizeLimitAttribute(1024))
+            .WithName("RotateDestinationCallbackSecret")
+            .WithSummary("Generates the destination's callback secret, or a new one (a rotation), and answers it once; the replaced one is still accepted until the next rotation. The platform makes every secret, so no two destinations share one.");
 
         group.MapPost("/documents/{id:guid}:resolve-integration-issue", ResolveIssueAsync)
             .WithTags("Documents")
@@ -83,8 +87,6 @@ public static class IntegrationEndpoints
         return group;
     }
 
-    /// <summary>Whether a status poll template and the destination's <c>urlTemplate</c> name the same host (placeholders filled with a dummy).</summary>
-    internal static bool SameHost(string pollTemplate, string destinationConfigJson) => AcknowledgementConfig.SameHost(pollTemplate, destinationConfigJson);
 
     /// <summary>Where a destination's callback secret lives (two slots); computed from the ids.</summary>
     internal static string CallbackSecretReference(Guid tenantId, Guid destinationId, int slot) => $"tenant/{tenantId:D}/destination/{destinationId:D}/callback/{slot}";
@@ -124,7 +126,7 @@ public static class IntegrationEndpoints
             }
         }
 
-        if (!Authenticated(callback.Auth, request, body, candidates, now))
+        if (!Authenticated(callback.Auth, request, destination.Id, body, candidates, now))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Not authenticated", detail: "The callback's signature or token does not match the destination's callback secret.");
         }
@@ -161,35 +163,33 @@ public static class IntegrationEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Too many acknowledgements", detail: $"A callback carries at most {MaxReportsPerCallback} acknowledgements.");
         }
 
-        int applied = 0, pending = 0, unknown = 0, replayed = 0;
         var stamp = CallbackStampOf(callback.Auth, request);
         var problems = new List<string>();
+        var reports = new List<AcknowledgementReport>();
         foreach (var item in items)
         {
-            if (AcknowledgementReport.Read(item, out var problem) is not { } report)
+            if (AcknowledgementReport.Read(item, out var problem) is { } report)
+            {
+                reports.Add(report);
+            }
+            else
             {
                 problems.Add(problem!);
-                continue;
-            }
-
-            switch (await ExternalAcknowledgements.ApplyAsync(db, destination, report, AcknowledgementSources.Callback, now, ct, stamp))
-            {
-                case AcknowledgementOutcome.Applied:
-                    applied++;
-                    break;
-                case AcknowledgementOutcome.StillPending:
-                    pending++;
-                    break;
-                case AcknowledgementOutcome.Replayed:
-                    replayed++;
-                    break;
-                default:
-                    unknown++;
-                    break;
             }
         }
 
-        await db.SaveChangesAsync(ct);
+        // The order guard and the writes are one unit per attempt: when another acknowledgement of a reference committed
+        // since this one read it (a resent request, or a rejection and an acceptance that arrived together), the attempt
+        // is dropped and the reports are applied again on a fresh context, which then sees the other one.
+        if (await ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, reports, AcknowledgementSources.Callback, now, stamp, ct) is not { } outcomes)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Acknowledgement busy", detail: "Other acknowledgements of these documents were applied at the same time; send the callback again.");
+        }
+
+        var applied = outcomes.Count(o => o == AcknowledgementOutcome.Applied);
+        var pending = outcomes.Count(o => o == AcknowledgementOutcome.StillPending);
+        var replayed = outcomes.Count(o => o == AcknowledgementOutcome.Replayed);
+        var unknown = outcomes.Count(o => o == AcknowledgementOutcome.UnknownDocument);
         if (applied + pending + replayed == 0 && problems.Count > 0)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Not an acknowledgement", detail: string.Join(" ", problems.Take(5)));
@@ -218,9 +218,11 @@ public static class IntegrationEndpoints
     /// <summary>
     /// The callback's credential against each active secret, in constant time: <c>hmacSha256</c> needs a timestamp
     /// (Unix seconds) within <see cref="SignatureWindow"/> and <c>X-DocProc-Signature: sha256=&lt;hex&gt;</c> of
-    /// <c>"&lt;timestamp&gt;.&lt;body&gt;"</c>; <c>bearer</c> needs <c>Authorization: Bearer &lt;secret&gt;</c>.
+    /// <c>"&lt;timestamp&gt;.&lt;destinationId&gt;.&lt;body&gt;"</c> (the destination of the address, so a signed
+    /// callback captured for one destination does not authenticate at another); <c>bearer</c> needs
+    /// <c>Authorization: Bearer &lt;secret&gt;</c>.
     /// </summary>
-    internal static bool Authenticated(string auth, HttpRequest request, byte[] body, IReadOnlyList<string> secrets, DateTimeOffset now)
+    internal static bool Authenticated(string auth, HttpRequest request, Guid destinationId, byte[] body, IReadOnlyList<string> secrets, DateTimeOffset now)
     {
         if (secrets.Count == 0)
         {
@@ -258,16 +260,19 @@ public static class IntegrationEndpoints
             return false;
         }
 
-        return secrets.Any(s => CryptographicOperations.FixedTimeEquals(given, Sign(s, timestamp, body)));
+        return secrets.Any(s => CryptographicOperations.FixedTimeEquals(given, Sign(s, timestamp, destinationId, body)));
     }
 
-    /// <summary>The HMAC-SHA256 a receiver sends: over the timestamp, a dot and the raw body.</summary>
-    public static byte[] Sign(string secret, string timestamp, byte[] body)
+    /// <summary>
+    /// The HMAC-SHA256 a receiver sends: over the timestamp, a dot, the destination id of the callback address (lower
+    /// case with hyphens, as in the URL), a dot and the raw body.
+    /// </summary>
+    public static byte[] Sign(string secret, string timestamp, Guid destinationId, byte[] body)
     {
         ArgumentNullException.ThrowIfNull(secret);
         ArgumentNullException.ThrowIfNull(timestamp);
         ArgumentNullException.ThrowIfNull(body);
-        var prefix = Encoding.UTF8.GetBytes(timestamp + ".");
+        var prefix = Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{timestamp}.{destinationId:D}."));
         var data = new byte[prefix.Length + body.Length];
         prefix.CopyTo(data, 0);
         body.CopyTo(data, prefix.Length);
@@ -324,10 +329,10 @@ public static class IntegrationEndpoints
         {
             errors["statusPoll"] = "Only an http destination is polled (its headers and authentication are used).";
         }
-        else if (config?.StatusPoll is { } poll && !SameHost(poll.UrlTemplate, destination.ConfigJson))
+        else if (config?.StatusPoll is { } poll && !AcknowledgementConfig.SameOrigin(poll.UrlTemplate, destination.ConfigJson))
         {
-            // The poll sends the destination's credentials, so it goes to the destination's own host only.
-            errors["statusPoll.urlTemplate"] = "must name the host of the destination's urlTemplate (the poll sends the destination's credentials).";
+            // The poll sends the destination's credentials, so it goes to the destination's own origin only.
+            errors["statusPoll.urlTemplate"] = "must name the origin (scheme, host and port) of the destination's urlTemplate (the poll sends the destination's credentials).";
         }
 
         foreach (var (field, expression) in new[] { ("callback.mapping", config?.Callback?.Mapping), ("statusPoll.mapping", config?.StatusPoll?.Mapping) })
@@ -360,9 +365,19 @@ public static class IntegrationEndpoints
         return TypedResults.Ok(DestinationResponse.From(destination));
     }
 
-    private static async Task<Results<Ok<DestinationResponse>, ValidationProblem, ProblemHttpResult>> SetCallbackSecretAsync(
+    /// <summary>The random bytes of a generated callback secret (256 bits, 43 characters of base64url).</summary>
+    public const int CallbackSecretBytes = 32;
+
+    /// <summary>
+    /// A new callback secret: random, base64url without padding (safe in a header and a bearer token). The platform
+    /// makes it, never the admin, so two destinations, in one tenant or in two, never share one (docs/11 §13.8,
+    /// Correction (P5) fix 3): a receiver that holds one destination's secret cannot authenticate at another.
+    /// </summary>
+    internal static string NewCallbackSecret() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(CallbackSecretBytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static async Task<Results<Ok<CallbackSecretResponse>, ProblemHttpResult>> RotateCallbackSecretAsync(
         Guid id,
-        SetCallbackSecretRequest request,
         ITenantContext tenant,
         [FromServices] DocProcDbContext db,
         [FromServices] ITenantFeatures features,
@@ -381,20 +396,16 @@ public static class IntegrationEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Destination not found", detail: $"The tenant has no destination {id}.");
         }
 
-        if (string.IsNullOrEmpty(request?.Secret) || request.Secret.Length is < 16 or > DestinationEndpoints.MaxSecretLength)
-        {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal) { ["secret"] = [$"secret is 16 to {DestinationEndpoints.MaxSecretLength} characters."] });
-        }
-
         // Two slots alternate, so the replaced secret stays accepted while the receiver moves over.
+        var secret = NewCallbackSecret();
         var slot = destination.CallbackSecretRef == CallbackSecretReference(destination.TenantId, destination.Id, 1) ? 2 : 1;
         var reference = CallbackSecretReference(destination.TenantId, destination.Id, slot);
-        await secrets.SetAsync(reference, request.Secret, ct);
+        await secrets.SetAsync(reference, secret, ct);
         destination.PreviousCallbackSecretRef = destination.CallbackSecretRef is null ? null : CallbackSecretReference(destination.TenantId, destination.Id, slot == 1 ? 2 : 1);
         destination.CallbackSecretRef = reference;
         destination.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
-        return TypedResults.Ok(DestinationResponse.From(destination));
+        return TypedResults.Ok(new CallbackSecretResponse(DestinationResponse.From(destination), secret));
     }
 
     private static async Task<Results<Ok<DocumentDetail>, ValidationProblem, ProblemHttpResult>> ResolveIssueAsync(

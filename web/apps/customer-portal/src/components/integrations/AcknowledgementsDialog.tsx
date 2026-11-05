@@ -2,16 +2,16 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { KeyRound, Loader2, Save } from "lucide-react";
-import { Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Switch, Textarea } from "@docproc/ui";
+import { Check, Copy, KeyRound, Loader2, Save } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Switch, Textarea } from "@docproc/ui";
 import { ApiError, queryKeys, unwrap, useApi } from "@docproc/app-shell";
 import type { Destination } from "./api";
 import { acknowledgementBody, acknowledgementDraft, callbackUrl, type AcknowledgementDraft, type CallbackAuth } from "./acknowledgements";
 
 /**
  * How a destination reports back (docs/11 §13.8, §19 item 4 "callback setup"): a callback the receiver posts with an
- * HMAC signature or a bearer token (the secret write-only, two slots for a rotation), and/or a status poll of the
- * destination's own host, each with an optional JSONata mapping to `{documentId | externalId, status, message}`. A
+ * HMAC signature or a bearer token (the platform generates the secret and shows it once; two slots for a rotation),
+ * and/or a status poll of the destination's own origin, each with an optional JSONata mapping to `{documentId | externalId, status, message}`. A
  * rejection raises `EXTERNAL_REJECTED` on the settled document and opens an integration issue.
  */
 export function AcknowledgementsDialog({ destination, open, onOpenChange }: { destination: Destination; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -19,7 +19,9 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
   const { client } = useApi();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AcknowledgementDraft>(() => acknowledgementDraft(destination.acknowledgements));
-  const [secret, setSecret] = useState("");
+  // The generated secret, shown once in this dialog; never read back from the API.
+  const [secret, setSecret] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const set = <K extends keyof AcknowledgementDraft>(key: K, value: AcknowledgementDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.outputs.destinations() });
@@ -38,14 +40,24 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
       else toast.error(error instanceof ApiError ? error.title : String(error), { description: error instanceof ApiError ? (error.problem?.detail ?? undefined) : undefined });
     },
   });
-  const setCallbackSecret = useMutation({
-    mutationFn: async () => unwrap(await client.PUT("/api/v1/destinations/{id}/callback-secret", { params: { path: { id: destination.id } }, body: { secret } })),
-    onSuccess: async () => {
-      setSecret("");
+  const rotateSecret = useMutation({
+    mutationFn: async () => unwrap(await client.POST("/api/v1/destinations/{id}/callback-secret", { params: { path: { id: destination.id } } })),
+    onSuccess: async (answer) => {
+      setSecret(answer.secret);
+      setCopied(false);
       toast.success(t("integrations.acknowledgements.secretSet"));
       await invalidate();
     },
   });
+  const copy = async () => {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      setCopied(true);
+    } catch {
+      toast.error(t("integrations.acknowledgements.copyFailed"));
+    }
+  };
   const error = (key: string) => errors[key]?.join(" ");
 
   return (
@@ -89,18 +101,32 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
                 {error("callback.mapping") && <p className="text-xs text-destructive">{error("callback.mapping")}</p>}
               </div>
               <div className="grid gap-1">
-                <Label htmlFor="ack-secret" className="flex items-center gap-2 text-xs">
+                <Label className="flex items-center gap-2 text-xs">
                   {t("integrations.acknowledgements.secret")}
                   {destination.hasCallbackSecret ? <Badge variant="success">{t("integrations.acknowledgements.secretIsSet")}</Badge> : <Badge variant="warning">{t("integrations.acknowledgements.noSecret")}</Badge>}
                   {destination.hasPreviousCallbackSecret && <Badge variant="outline">{t("integrations.acknowledgements.previousSecret")}</Badge>}
                 </Label>
                 <div className="flex gap-2">
-                  <Input id="ack-secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="ack-secret" />
-                  <Button type="button" variant="outline" disabled={secret.length < 16 || setCallbackSecret.isPending} onClick={() => setCallbackSecret.mutate()} data-testid="ack-secret-set">
-                    {setCallbackSecret.isPending ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
-                    {destination.hasCallbackSecret ? t("integrations.acknowledgements.rotate") : t("integrations.acknowledgements.setSecret")}
+                  <Button type="button" variant="outline" disabled={rotateSecret.isPending} onClick={() => rotateSecret.mutate()} data-testid="ack-secret-set">
+                    {rotateSecret.isPending ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
+                    {destination.hasCallbackSecret || secret ? t("integrations.acknowledgements.rotate") : t("integrations.acknowledgements.setSecret")}
                   </Button>
                 </div>
+                {secret && (
+                  <Alert data-testid="ack-secret-once">
+                    <KeyRound aria-hidden />
+                    <AlertTitle>{t("integrations.acknowledgements.oneTime")}</AlertTitle>
+                    <AlertDescription className="grid gap-2">
+                      <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs select-all" data-testid="ack-secret-value">
+                        {secret}
+                      </code>
+                      <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => void copy()}>
+                        {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+                        {copied ? t("integrations.acknowledgements.copied") : t("integrations.acknowledgements.copy")}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <p className="text-xs text-muted-foreground">{t("integrations.acknowledgements.secretHint")}</p>
               </div>
             </div>

@@ -1,4 +1,5 @@
 using DocProc.Infrastructure.Outputs;
+using DocProc.Infrastructure.Outputs.Acknowledgements;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -145,6 +146,68 @@ public sealed class OutputsSqlTests(SqlServerFixture sqlServer) : IClassFixture<
     /// uses), under the tenant's session context, so the entries take 1, 2, ... in commit order; another tenant sees
     /// neither the entries nor the counter.
     /// </summary>
+    /// <summary>
+    /// The acknowledgements of one reference on SQL Server, run at the same time (docs/11 §13.8, P5 fix 3): the same
+    /// signed rejection sent by several requests at once is applied once, with one EXTERNAL_REJECTED and one integration
+    /// issue; the others see it and answer "replayed". A rejection and a later acceptance sent together end accepted.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_acknowledgements_of_one_reference_apply_in_order_once()
+    {
+        DockerFacts.SkipUnlessAvailable();
+        var ct = TestContext.Current.CancellationToken;
+        P3Rows rows;
+        await using (var asTenant = NewContext(TenantContext.ForTenant(TenantA)))
+        {
+            rows = await SeedAsync(asTenant, TenantA, ct);
+        }
+
+        var contexts = new PlatformContexts(this);
+        OutputDestination destination;
+        Guid documentId;
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            destination = await platform.OutputDestinations.AsNoTracking().SingleAsync(d => d.Id == rows.DestinationId, ct);
+            documentId = await platform.DocumentExternalRefs.Where(r => r.DestinationId == rows.DestinationId).Select(r => r.DocumentId).SingleAsync(ct);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var at = DateTimeOffset.FromUnixTimeSeconds(now.ToUnixTimeSeconds());
+        var rejection = new AcknowledgementReport(null, "ERP-1", ExternalRefStatus.Rejected, "Vendor blocked");
+        var stamp = new CallbackStamp(at.AddSeconds(-1), new string('a', 64));
+        var runs = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => Task.Run(() => ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, [rejection], AcknowledgementSources.Callback, now, stamp, ct), ct)));
+        var outcomes = runs.Select(r => r.ShouldNotBeNull().ShouldHaveSingleItem()).ToList();
+        outcomes.Count(o => o == AcknowledgementOutcome.Applied).ShouldBe(1, string.Join(", ", outcomes));
+        outcomes.Count(o => o == AcknowledgementOutcome.Replayed).ShouldBe(5);
+        await using (var platform = NewContext(TenantContext.Platform()))
+        {
+            (await platform.DocumentFlags.CountAsync(f => f.DocumentId == documentId && f.Code == Domain.Flags.FlagCodes.ExternalRejected, ct)).ShouldBe(1);
+            (await platform.ReviewTasks.CountAsync(t => t.DocumentId == documentId && t.Kind == ReviewTaskKind.IntegrationIssue, ct)).ShouldBe(1);
+            (await platform.DocumentExternalRefs.SingleAsync(r => r.DestinationId == rows.DestinationId, ct)).AcknowledgementVersion.ShouldBe(1);
+        }
+
+        // A rejection at t and an acceptance at t+1 sent together, a few times over: the acceptance wins every time.
+        var acceptance = new AcknowledgementReport(null, "ERP-1", ExternalRefStatus.Accepted, null);
+        for (var round = 1; round <= 3; round++)
+        {
+            var older = new CallbackStamp(at.AddSeconds(round * 2), new string((char)('a' + round), 64));
+            var newer = new CallbackStamp(at.AddSeconds((round * 2) + 1), new string((char)('k' + round), 64));
+            var both = await Task.WhenAll(
+                Task.Run(() => ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, [rejection], AcknowledgementSources.Callback, now, older, ct), ct),
+                Task.Run(() => ExternalAcknowledgements.ApplyInOrderAsync(contexts, destination, [acceptance], AcknowledgementSources.Callback, now, newer, ct), ct));
+            both[1].ShouldNotBeNull().ShouldBe([AcknowledgementOutcome.Applied], "the newer acceptance always applies");
+            await using var platform = NewContext(TenantContext.Platform());
+            (await platform.DocumentExternalRefs.SingleAsync(r => r.DestinationId == rows.DestinationId, ct)).Status.ShouldBe(ExternalRefStatus.Accepted, $"round {round}: {both[0]?.Single()}");
+            (await platform.DocumentFlags.CountAsync(f => f.DocumentId == documentId && f.Code == Domain.Flags.FlagCodes.ExternalRejected && f.ResolvedAt == null, ct)).ShouldBe(0, $"round {round}");
+            (await platform.ReviewTasks.CountAsync(t => t.DocumentId == documentId && t.Kind == ReviewTaskKind.IntegrationIssue && t.Status == ReviewTaskStatus.Open, ct)).ShouldBe(0, $"round {round}");
+        }
+    }
+
+    private sealed class PlatformContexts(OutputsSqlTests tests) : ISystemDbContextFactory
+    {
+        public DocProcDbContext CreatePlatformScoped() => tests.NewContext(TenantContext.Platform());
+    }
+
     [Fact]
     public async Task Feed_entries_take_the_destinations_next_sequence_number_under_the_tenants_policy()
     {

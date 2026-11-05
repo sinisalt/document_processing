@@ -293,13 +293,14 @@ public static class DestinationEndpoints
             ? DestinationConfig.SecretRedirects(current, config)
             : [];
         // The status poll sends the destination's headers and credentials to its urlTemplate, which must stay on the
-        // destination's host (docs/11 §13.8): a config that moves the destination elsewhere while a poll names the old
-        // host is refused, so the new host's secret never reaches the old one. Turn the poll off (or set it again) first.
+        // destination's origin (docs/11 §13.8: scheme, host and port): a config that moves the destination elsewhere while
+        // a poll names the old origin is refused, so the new place's secret never reaches the old one. Turn the poll off
+        // (or set it again) first.
         if (config is not null
             && DocProc.Infrastructure.Outputs.Acknowledgements.AcknowledgementConfig.Of(destination.CallbackConfigJson).StatusPoll is { } poll
-            && !DocProc.Infrastructure.Outputs.Acknowledgements.AcknowledgementConfig.SameHost(poll.UrlTemplate, config.ToJsonString()))
+            && !DocProc.Infrastructure.Outputs.Acknowledgements.AcknowledgementConfig.SameOrigin(poll.UrlTemplate, config.ToJsonString()))
         {
-            errors.Add("config", $"The destination's status poll asks {poll.UrlTemplate}, which would no longer be the destination's host and would get its credentials: turn the status poll off (PUT acknowledgements) before moving the destination, then set it again for the new host.");
+            errors.Add("config", $"The destination's status poll asks {poll.UrlTemplate}, which would no longer be the destination's origin (scheme, host and port) and would get its credentials: turn the status poll off (PUT acknowledgements) before moving the destination, then set it again for the new address.");
         }
 
         if (redirects.Count > 0 && string.IsNullOrEmpty(request.Secret))

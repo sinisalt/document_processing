@@ -635,7 +635,8 @@ built-in steps as before, whatever a supplier's settings say. Budgets need no sw
   "request": "{\"vat\": supplier.vatId}", "response": "{\"ext.erpVendorId\": response.id}"}}}`. The Extract stage
   calls it (https to a public host only; in Development `Delivery:DevelopmentHosts` lets `mock-erp:8080` through, as for
   deliveries), writes the mapped values as Inferred (`source.method: Lookup`), keeps the answer per document and request
-  in `LookupResults`, and raises `LOOKUP_FAILED` when the call or the mapping fails.
+  in `LookupResults` (a reprocess that sends the same request maps the kept answer with the step's current `response`,
+  without calling again), and raises `LOOKUP_FAILED` when the call or the mapping fails.
 - **Cap the LLM.** `PUT /api/v1/llm-budgets {"budgets": [{"period": "month", "limitUsd": 50}, {"period": "day", "limitUsd": 0,
   "stage": "Extract"}]}` (TenantAdmin). A call that would pass a budget is not made; the document goes on without it
   and to review with `LLM_BUDGET_EXCEEDED`. `GET /api/v1/llm-budgets` shows each budget with this period's spend. The
@@ -706,13 +707,14 @@ docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings
 - **Acknowledgements**: `PUT /api/v1/destinations/{id}/acknowledgements` with `{"statusPoll": {"urlTemplate":
   "http://mock-erp:8080/api/ap/invoices/{externalId}/status", "intervalMinutes": 1, "mapping": "{ \"status\":
   state = \"POSTED\" ? \"posted\" : (state = \"REJECTED\" ? \"rejected\" : \"pending\"), \"message\": text }"}}`
-  (the poll goes to the destination's own host) makes the platform ask `mock-erp` after each delivery;
+  (the poll goes to the destination's own origin: scheme, host and port) makes the platform ask `mock-erp` after each delivery;
   `POST http://localhost:8086/__control/erp-ap-status/reject-all` makes it answer `REJECTED` ("Kreditor gesperrt"), so
   the next poll raises `EXTERNAL_REJECTED` and an integration-issue task (the document stays approved; the review
   screen's panel resolves it with a note), and `…/reset` goes back to `POSTED`. A receiver that calls back instead
-  gets `PUT /api/v1/destinations/{id}/acknowledgements {"callback": {"auth": "hmacSha256", "mapping": …}}` and `PUT
-  /api/v1/destinations/{id}/callback-secret {"secret": "…"}`, and signs `<X-DocProc-Timestamp>.<body>` with it in
-  `X-DocProc-Signature: sha256=<hex>` on `POST /api/v1/integrations/callbacks/{destinationId}`.
+  gets `PUT /api/v1/destinations/{id}/acknowledgements {"callback": {"auth": "hmacSha256", "mapping": …}}` and `POST
+  /api/v1/destinations/{id}/callback-secret` (the platform generates the secret and answers it once, `{"destination":
+  …, "secret": "…"}`), and signs `<X-DocProc-Timestamp>.<destinationId>.<body>` with it in `X-DocProc-Signature:
+  sha256=<hex>` on `POST /api/v1/integrations/callbacks/{destinationId}` (the destination id as in that URL).
 - **Supplier master data** (TenantAdmin): `POST /api/v1/suppliers:import {"format": "csv", "content": "Kreditor;Name;
   USt-IdNr\nV-10042;Nordwind Großhandel GmbH;DE312456789", "columns": {"attributes.erpVendorId": "Kreditor", "name":
   "Name", "vatId": "USt-IdNr"}}` answers the dry run's report; `"dryRun": false` applies it, and the same file again
@@ -1427,7 +1429,8 @@ few seconds and takes a file once it has not changed for 5 s, so a drop shows up
    412 prices and the header `priceListId` `PL-2027-02`, `validFrom` `20270201`, `vendorNo` `V-10042`.
 10. **One article up 40 %.** Copy `Nordwind_Preisliste_2027-03.pdf` into the folder. It goes to review with two
     warnings of `r_delta` ("Unusual price change against the last approved list"): the list's, and the row's on
-    "Line 77 · Amount" (article 104539, 39.02 → 54.63, +40 %). The Articles grid opens on that row only ("1 of 412
+    "Line 77 · Amount", whose flag row reads "104539: from 39.02 to 54.63 (+40.01%)" (in German "104539: von 39,02 auf
+    54,63 (+40,01 %)"): the article number, February's price, March's, and the change. The Articles grid opens on that row only ("1 of 412
     rows: the rows a check flagged"); Show all 412 rows shows the others, Only the flagged row (1) goes back.
 11. **Specials.** Post the specials layout (curl below; it reads "gültig am" dates, which a layout learned from an
     undated list could not, docs/11 §23 Correction (P5, part E)): Suppliers > Nordwind > Layouts shows

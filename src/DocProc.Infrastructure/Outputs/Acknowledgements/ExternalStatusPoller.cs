@@ -67,33 +67,40 @@ public sealed class ExternalStatusPoller(
 
             var reference = await db.DocumentExternalRefs.SingleAsync(r => r.Id == row.Id, cancellationToken).ConfigureAwait(false);
             var (report, problem) = await AskAsync(destination, poll, reference, cancellationToken).ConfigureAwait(false);
-            if (report is null)
+            var documentId = reference.DocumentId;
+
+            // The answer and its writes are saved in the order of the reference's acknowledgements: when a callback (or
+            // another poll) changed the reference while the receiver was asked, the writes are dropped and the reference
+            // read again; one that is no longer Pending was settled by that acknowledgement, which stands.
+            AcknowledgementOutcome? outcome = null;
+            for (var attempt = 1; attempt <= MaxApplyAttempts; attempt++)
             {
-                reference.Message = problem is null ? reference.Message : Shorten(problem, 1000);
-                if (reference.Polls >= poll.MaxPolls)
+                if (attempt > 1)
                 {
-                    reference.NextPollAt = null;
-                    reference.Message = Shorten($"Status polling stopped after {reference.Polls} polls. {problem}", 1000);
+                    db.ChangeTracker.Clear();
+                    reference = await db.DocumentExternalRefs.SingleOrDefaultAsync(r => r.Id == row.Id, cancellationToken).ConfigureAwait(false);
+                    if (reference is null || reference.Status != ExternalRefStatus.Pending)
+                    {
+                        outcome = null;
+                        break;
+                    }
                 }
 
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                if (logger.IsEnabled(LogLevel.Information))
+                outcome = await ApplyAnswerAsync(db, destination, poll, reference, report, problem, cancellationToken).ConfigureAwait(false);
+                if (await ExternalAcknowledgements.TrySaveAsync(db, cancellationToken).ConfigureAwait(false))
                 {
-                    logger.LogInformation("Status poll of document {DocumentId} at {Destination}: {Problem}", reference.DocumentId, destination.Name, problem);
+                    break;
                 }
 
-                continue;
+                outcome = null;
             }
 
-            // The answer is about this reference whatever ids it names: it is applied to the reference itself, never to
-            // another document of the destination whose receiver id the answer happens to name.
-            var outcome = await ExternalAcknowledgements.ApplyToReferenceAsync(db, destination, reference, report, AcknowledgementSources.StatusPoll, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
-            if (outcome == AcknowledgementOutcome.StillPending && reference.Polls >= poll.MaxPolls)
+            db.ChangeTracker.Clear();
+            if (report is null && logger.IsEnabled(LogLevel.Information))
             {
-                reference.NextPollAt = null;
+                logger.LogInformation("Status poll of document {DocumentId} at {Destination}: {Problem}", documentId, destination.Name, problem);
             }
 
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             if (outcome == AcknowledgementOutcome.Applied)
             {
                 applied++;
@@ -103,6 +110,38 @@ public sealed class ExternalStatusPoller(
         return applied;
     }
 
+    /// <summary>How often a status answer is applied again after another acknowledgement of the reference won the race.</summary>
+    public const int MaxApplyAttempts = 3;
+
+    /// <summary>
+    /// Applies one status answer to the reference (tracked, not saved): a failure keeps the reason and stops the poll at
+    /// <c>maxPolls</c>; an answer goes to <see cref="ExternalAcknowledgements.ApplyToReferenceAsync"/>. Null for a failure.
+    /// </summary>
+    private async Task<AcknowledgementOutcome?> ApplyAnswerAsync(DocProcDbContext db, OutputDestination destination, StatusPollConfig poll, DocumentExternalRef reference, AcknowledgementReport? report, string? problem, CancellationToken cancellationToken)
+    {
+        if (report is null)
+        {
+            reference.Message = problem is null ? reference.Message : Shorten(problem, 1000);
+            if (reference.Polls >= poll.MaxPolls)
+            {
+                reference.NextPollAt = null;
+                reference.Message = Shorten($"Status polling stopped after {reference.Polls} polls. {problem}", 1000);
+            }
+
+            return null;
+        }
+
+        // The answer is about this reference whatever ids it names: it is applied to the reference itself, never to
+        // another document of the destination whose receiver id the answer happens to name.
+        var outcome = await ExternalAcknowledgements.ApplyToReferenceAsync(db, destination, reference, report, AcknowledgementSources.StatusPoll, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        if (outcome == AcknowledgementOutcome.StillPending && reference.Polls >= poll.MaxPolls)
+        {
+            reference.NextPollAt = null;
+        }
+
+        return outcome;
+    }
+
     private async Task<(AcknowledgementReport? Report, string? Problem)> AskAsync(OutputDestination destination, StatusPollConfig poll, DocumentExternalRef reference, CancellationToken cancellationToken)
     {
         if (!AcknowledgementConfig.PollTemplateIsValid(poll.UrlTemplate) || !Uri.TryCreate(ExternalAcknowledgements.PollUrl(poll, reference), UriKind.Absolute, out var uri))
@@ -110,11 +149,12 @@ public sealed class ExternalStatusPoller(
             return (null, "The status poll URL template does not give an absolute URL.");
         }
 
-        // The poll carries the destination's headers and credentials, so it goes only to the destination's own host: a
-        // destination moved to another host since its poll was set (with that host's secret) is not polled (§13.8).
-        if (!AcknowledgementConfig.SameHost(poll.UrlTemplate, destination.ConfigJson))
+        // The poll carries the destination's headers and credentials, so it goes only to the destination's own origin
+        // (scheme, host and port): a destination moved elsewhere since its poll was set (with that place's secret) is
+        // not polled (§13.8).
+        if (!AcknowledgementConfig.SameOrigin(poll.UrlTemplate, destination.ConfigJson))
         {
-            return (null, "The status poll URL is no longer on the destination's host; the poll was not sent. Set the status poll again for the destination's current address.");
+            return (null, "The status poll URL is no longer on the destination's origin (scheme, host and port); the poll was not sent. Set the status poll again for the destination's current address.");
         }
 
         var answer = await reader.GetAsync(destination, uri, Timeout, MaxResponseBytes, new Dictionary<string, string> { ["X-DocProc-Document-Id"] = reference.DocumentId.ToString() }, cancellationToken).ConfigureAwait(false);
