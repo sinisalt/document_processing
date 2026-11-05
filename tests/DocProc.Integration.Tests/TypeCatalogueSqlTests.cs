@@ -186,15 +186,21 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 seeding.MasterDataRuns.Add(new MasterDataRun { Id = Guid.CreateVersion7(), TenantId = TenantA, SourceId = source.Id, Trigger = MasterDataTrigger.Schedule, Created = 1, ReportJson = """{"created":1,"rows":[]}""", At = now, By = "schedule" });
                 await seeding.SaveChangesAsync(ct);
 
-                // The callback order of the fix migration: the last signed callback applied to a reference.
+                // The callback order of the fix migrations: the signed callbacks applied to a reference in the second of
+                // its last one (fix 2 keeps them all).
                 foreach (var reference in await seeding.DocumentExternalRefs.ToListAsync(ct))
                 {
                     reference.LastCallbackAt = now;
-                    reference.LastCallbackSignature = new string('c', 64);
+                    reference.LastCallbackSignatures = $"{new string('b', 64)} {new string('c', 64)}";
                 }
 
                 await seeding.SaveChangesAsync(ct);
             }
+
+            // Down to fix 1, a reference keeps the last signature in the column of fix 1.
+            await migrator.MigrateAsync("20261105062528_AcknowledgementReplayGuard", ct);
+            (await platform.Database.SqlQuery<string>($"SELECT TOP 1 [LastCallbackSignature] AS [Value] FROM [DocumentExternalRefs]").SingleAsync(ct)).ShouldBe(new string('c', 64));
+            (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DocumentExternalRefs') AND name = N'LastCallbackSignatures'").SingleAsync(ct)).ShouldBe(0);
 
             await migrator.MigrateAsync("20261104231037_TenantIdentificationRules", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104231037_TenantIdentificationRules");

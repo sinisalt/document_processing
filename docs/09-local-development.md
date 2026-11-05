@@ -1417,7 +1417,8 @@ few seconds and takes a file once it has not changed for 5 s, so a drop shows up
 8. **Approve and save as layout.** Fields: the New layout panel's key is `nordwind-price-list`, name "Nordwind price
    list" > Approve > Approve and save as layout. A `MappingAuthor`'s save is replayed and Active at once: the Layout saved
    dialog says "Active", "8 fields replayed on 1 documents; lowest agreement 100 %", and with the tenant's warm-up 0
-   no document of the design waits for a warm-up.
+   no document of the design waits for a warm-up. The approved list is delivered like any other: the mock ERP has
+   `POST /api/article-prices` (202) with `priceListId` `PL-2027-01` (the `article-prices` binding of step 2).
 9. **Next month's list.** Copy `Nordwind_Preisliste_2027-02.pdf` into the same folder. It is identified by
    `nordwind-price-list` (the header's layout chip; `supplierLayoutVersionId` set, `typeSource` stays `Supplier`, the
    folder rule's pin), its 412 rows read by the learned `column-table`, "Anzahl Artikel: 412" read and checked (`r_count`),
@@ -1470,7 +1471,7 @@ tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/tok
 H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"
 # Step 2: types, suppliers, channel, warm-up 0 (the outputs: "Demo: outputs and delivery", steps 3 to 8, and the pos-hub ones below).
 for t in std.price-list std.daily-specials; do curl -s -X POST $API/document-types -H "$H" -H "$J" -d "{\"from\":{\"template\":\"$t\",\"mode\":\"adopt\"}}" | jq .key; done
-NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","ibans":["DE44 2005 0550 1234 5678 90"],"emailDomains":["nordwind.example"]}' | jq -r .id)
 curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"},"settings":{"layouts":{"required":true}}}' > /dev/null
 SF=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Südhof Feinkost GmbH","vatId":"DE298765432"}' | jq -r .id)
 curl -s -X PATCH $API/suppliers/$SF -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-20077"}}' > /dev/null
@@ -1523,8 +1524,9 @@ with both identifiers, the approve dialog and the Active layout, February auto-a
 flags and the grid filtered to article 104539, the review queue and the inbox with the urgent specials first, the
 pending specials layout, its activation, yesterday's copy blocked, the second list's revision panel, the Südhof
 list's identifiers with the rule's test, the rule active, Bergquell's timeline and the type editor's Identification
-tab. The mock ERP journal had `POST /api/article-prices` (202) for February (412 prices, `PL-2027-02`) and April, and
-`POST /api/promotions` (201) for the first specials list (44 items).
+tab. The mock ERP journal had `POST /api/article-prices` (202) for January (`PL-2027-01`, sent when step 8 approves it:
+the `article-prices` binding of step 2 exists by then), February (412 prices, `PL-2027-02`) and April (`PL-2027-04`),
+and `POST /api/promotions` (201) for the first specials list (44 items).
 
 What the run showed that is not yet as it should be: the pre-fill reads Valid from at the first place a type label
 finds it (page 2's running title on this list, where the date ends the line), so the reviewer confirms it on page 1;

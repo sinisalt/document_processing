@@ -151,4 +151,102 @@ public sealed class RuleExpressionTests
         var huge = new JsonObject { ["note"] = new string('x', 1_000) };
         Should.Throw<RuleExpressionBudgetException>(() => expression.Test(huge, huge));
     }
+
+    /// <summary>A price list of <paramref name="rows"/> rows as the values view holds it (about 280 characters a row).</summary>
+    internal static JsonObject PriceList(int rows) => new()
+    {
+        ["validFrom"] = "2027-02-01",
+        ["lines"] = new JsonArray([.. Enumerable.Range(0, rows).Select(i => (JsonNode)new JsonObject
+        {
+            ["articleNumber"] = $"NW-{i:D5}",
+            ["description"] = $"Artikel {i} Bio Vollmilch 3,8 % Fett 1 l Tetra Pak, regional",
+            ["unitPrice"] = new JsonObject { ["amount"] = i + 0.25m, ["currency"] = "EUR" },
+            ["unit"] = "Stück",
+            ["packSize"] = "12x1l",
+            ["gtin"] = $"40{i:D11}",
+            ["quantity"] = 1,
+        })]),
+    };
+
+    [Fact]
+    public void String_of_an_object_or_a_list_stops_at_the_string_limit_without_writing_the_rest()
+    {
+        var values = PriceList(450);
+        values.ToJsonString().Length.ShouldBeGreaterThan(100_000);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Should.Throw<RuleExpressionBudgetException>(() => RuleExpression.Parse("$length($string($$))", Vars).Evaluate(values))
+            .Message.ShouldContain($"{ExpressionLimits.MaxString} characters");
+        Should.Throw<RuleExpressionBudgetException>(() => RuleExpression.Parse("$string(lines)", Vars).Evaluate(values));
+        Should.Throw<RuleExpressionBudgetException>(() => RuleExpression.Parse("$string($$) & 'x'", Vars).Evaluate(values));
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1));
+
+        // Below the limit, the text is the compact JSON it always was.
+        RuleExpression.Parse("$string(lines[0])", Vars).Evaluate(Doc)!.GetValue<string>().ShouldBe(Doc["lines"]![0]!.ToJsonString());
+        RuleExpression.Parse("$string(lines.sku)", Vars).Evaluate(Doc)!.GetValue<string>().ShouldBe("""["A","B","A"]""");
+        RuleExpression.Parse("$string(total)", Vars).Evaluate(Doc)!.GetValue<string>().ShouldBe(Doc["total"]!.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("$$ = $$")]
+    [InlineData("$$ in $$")]
+    [InlineData("$count($distinct($$.lines)) > 0")]
+    [InlineData("$count($$.lines[$$ = $$]) > 0")]
+    public void Comparing_whole_objects_costs_a_step_per_node(string text)
+    {
+        // One evaluation over a 450-row list: a deep comparison of the document is thousands of steps, not one, so a
+        // few of them reach the evaluation's limit instead of running for seconds.
+        var values = PriceList(450);
+        var expression = RuleExpression.Parse(string.Join(" and ", Enumerable.Repeat(text, 10)), Vars);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Should.Throw<RuleExpressionBudgetException>(() => expression.Test(values, values));
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void Objects_compare_by_value()
+    {
+        RuleExpression.Parse("lines[0] = lines[0]", Vars).Test(Doc, Doc).ShouldBeTrue();
+        RuleExpression.Parse("lines[0] = lines[1]", Vars).Test(Doc, Doc).ShouldBeFalse();
+        RuleExpression.Parse("lines[1] in lines", Vars).Test(Doc, Doc).ShouldBeTrue();
+        RuleExpression.Parse("$count($distinct(lines.unitPrice)) = 2", Vars).Test(Doc, Doc).ShouldBeTrue();
+        var copy = JsonNode.Parse("""{ "a": { "x": 1, "y": [1, "b", null] }, "b": { "y": [1, "b", null], "x": 1.0 }, "c": { "x": 1, "y": [1, "b"] } }""")!;
+        RuleExpression.Parse("a = b", Vars).Test(copy, copy).ShouldBeTrue("the order of the members does not matter, nor 1 against 1.0");
+        RuleExpression.Parse("a = c", Vars).Test(copy, copy).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void An_evaluation_and_a_budget_stop_at_their_time()
+    {
+        var values = PriceList(450);
+        var expression = RuleExpression.Parse("$count(lines[quantity > 0]) > 0", Vars);
+        expression.Test(values, values).ShouldBeTrue();
+
+        // A rule's budget whose time is spent stops every evaluation on it, also one that would take few steps.
+        var spent = new ExpressionBudget(maxTime: TimeSpan.FromTicks(1));
+        Should.Throw<RuleExpressionBudgetException>(() => expression.Test(values, values, budget: spent)).Message.ShouldContain("ran longer than");
+        spent.Elapsed.ShouldBeGreaterThan(TimeSpan.Zero, "the time the evaluation ran is spent from the budget");
+
+        // The document's budget is the rules' parent: once its time is spent, a new rule's budget stops at once.
+        var document = ExpressionBudget.ForDocument(TimeSpan.FromMilliseconds(1));
+        var first = ExpressionBudget.ForRule(document);
+        Should.Throw<RuleExpressionBudgetException>(() =>
+        {
+            while (true)
+            {
+                expression.Test(values, values, budget: first);
+            }
+        });
+        Should.Throw<RuleExpressionBudgetException>(() => RuleExpression.Parse("1 = 1", Vars).Test(values, values, budget: ExpressionBudget.ForRule(document)))
+            .Message.ShouldContain("rules' expressions ran longer than");
+    }
+
+    [Fact]
+    public void Reading_an_array_costs_a_step_per_item()
+    {
+        // $$.lines reads 20,000 items: alone it is within an evaluation's steps, three times it is not.
+        var rows = new JsonArray([.. Enumerable.Range(0, 20_000).Select(i => (JsonNode)i)]);
+        var big = new JsonObject { ["rows"] = rows };
+        RuleExpression.Parse("$count(rows) = 20000", Vars).Test(big, big).ShouldBeTrue();
+        Should.Throw<RuleExpressionBudgetException>(() => RuleExpression.Parse("$count(rows) + $count(rows) + $count(rows) > 0", Vars).Test(big, big));
+    }
 }

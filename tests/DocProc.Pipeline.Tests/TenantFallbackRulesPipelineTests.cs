@@ -84,6 +84,46 @@ public sealed class TenantFallbackRulesPipelineTests
     }
 
     [Fact]
+    public async Task A_document_classified_again_counts_once_and_takes_its_count_back_when_the_rule_no_longer_decides()
+    {
+        await using var host = await StartAsync();
+        var version = await AddRuleAsync(host, "price-list", PriceListRule);
+        var document = await RunAsync(host, PriceListPdf);
+        Task<int> MatchedAsync() => host.WithDbAsync(async db => (await db.TypeIdentificationRules.AsNoTracking().SingleAsync(r => r.Id == version.RuleId)).Matched);
+        (await MatchedAsync()).ShouldBe(1);
+
+        // A reprocess from Classify: the rule decides again, and the document still counts once.
+        await ReclassifyAsync(host, document.Id);
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == document.Id))).IdentificationRuleVersionId.ShouldBe(version.Id);
+        (await MatchedAsync()).ShouldBe(1, "classified again by the same rule: its count is taken back and counted once more");
+
+        // The rule is disabled: classified again, the document is no longer the rule's, and its count is taken back.
+        await host.WithDbAsync(async db =>
+        {
+            (await db.TypeIdentificationRules.SingleAsync(r => r.Id == version.RuleId)).Status = TypeIdentificationRuleStatus.Disabled;
+            await db.SaveChangesAsync();
+        });
+        host.Llm.Enqueue("""{ "documentType": "Other", "confidence": 0.5, "language": "de", "supplierNameHint": null }""");
+        await ReclassifyAsync(host, document.Id);
+        (await host.WithDbAsync(db => db.Documents.AsNoTracking().SingleAsync(d => d.Id == document.Id))).IdentificationRuleVersionId.ShouldBeNull();
+        (await MatchedAsync()).ShouldBe(0);
+    }
+
+    /// <summary>What <c>POST /documents/{id}:reprocess {fromStage: Classify}</c> does: back to Split, then the Classify stage again.</summary>
+    private static async Task ReclassifyAsync(PipelineTestHost host, Guid documentId)
+    {
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Documents.SingleAsync(d => d.Id == documentId);
+            row.Status = DocumentStatus.Split;
+            row.FailureReason = null;
+            await db.SaveChangesAsync();
+        });
+        await host.PipelineQueue.EnqueueAsync(new DocProc.Application.Pipeline.ProcessDocument(PipelineTestHost.TenantA, documentId, DocProc.Application.Pipeline.PipelineStage.Classify), CancellationToken.None);
+        await host.RunUntilIdleAsync();
+    }
+
+    [Fact]
     public async Task Rules_of_two_types_that_both_hold_decide_nothing()
     {
         await using var host = await StartAsync();

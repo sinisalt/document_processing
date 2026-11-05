@@ -44,49 +44,69 @@ public static class DocumentQueries
                 .FirstOrDefault(),
             d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => t.SlaDueAt).Min());
 
-    public static DocumentSummary ToSummary(DocumentRow row)
-    {
-        var d = row.Document;
-        return new DocumentSummary(
+    /// <summary>
+    /// The summaries of <paramref name="documents"/>, read column by column: a list (the inbox, the review queue) reads
+    /// only what <see cref="DocumentSummary"/> shows, never the canonical tree, the applied configuration or the page
+    /// keys (a 400-row price list's tree is about 1 MB, and the list would read it for every row). Same joins and the
+    /// same review priority and due time as <see cref="Rows"/>; one statement.
+    /// </summary>
+    public static IQueryable<DocumentSummary> Summaries(DocProcDbContext db, IQueryable<Document> documents) =>
+        from d in documents
+        join t in db.Tenants on d.TenantId equals t.Id into tenants
+        from t in tenants.DefaultIfEmpty()
+        select new DocumentSummary(
             d.Id,
             d.TenantId,
-            row.TenantName,
+            t != null ? t.Name : null,
             d.Status,
             d.Type,
             d.TypeConfidence,
             d.SupplierId,
-            row.SupplierName,
+            d.Supplier != null ? d.Supplier.Name : null,
             d.DocumentNumber,
             d.IssueDate,
             d.Currency,
             d.TotalGross,
             d.ExtractionMethod,
             d.PageCount,
-            row.BlockingFlagCount,
-            row.WarningFlagCount,
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
+            d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
             d.CreatedAt,
             d.UpdatedAt,
             d.ApprovedAt,
             d.ValidFrom,
             d.ValidUntil,
             d.LineCount,
-            row.ReviewPriority,
-            row.ReviewDueAt)
+            d.ReviewTasks.Where(r => r.Status == ReviewTaskStatus.Open || r.Status == ReviewTaskStatus.InProgress)
+                .OrderBy(r => r.Priority == ReviewPriority.Urgent ? 0 : r.Priority == ReviewPriority.High ? 1 : 2)
+                .Select(r => (ReviewPriority?)r.Priority)
+                .FirstOrDefault(),
+            d.ReviewTasks.Where(r => r.Status == ReviewTaskStatus.Open || r.Status == ReviewTaskStatus.InProgress).Select(r => r.SlaDueAt).Min())
         {
             SupersededBy = d.SupersededByDocumentId,
         };
-    }
 
-    /// <summary>Loads one document with everything the detail needs; tracked when the caller is going to modify it.</summary>
-    public static Task<DocumentRow?> FindForDetailAsync(DocProcDbContext db, Guid id, bool track, CancellationToken ct)
+    /// <summary>
+    /// Loads one document with everything the detail needs; tracked when the caller is going to modify it. The row is
+    /// read without its canonical tree and applied configuration, which are streamed in after it
+    /// (<see cref="DocumentJsonColumns"/>): a 400-row price list's tree is about 1 MB, which SqlClient reads
+    /// asynchronously inside a buffered row in seconds.
+    /// </summary>
+    public static async Task<DocumentRow?> FindForDetailAsync(DocProcDbContext db, Guid id, bool track, CancellationToken ct)
     {
-        var documents = track ? db.Documents : db.Documents.AsNoTracking();
-        return Rows(db, documents
+        var documents = DocumentJsonColumns.WithoutTrees(db);
+        var row = await Rows(db, (track ? documents : documents.AsNoTracking())
                 .Where(d => d.Id == id)
                 .Include(d => d.Flags)
                 .Include(d => d.IngestionItem!)
                 .ThenInclude(i => i.Ingestion))
             .SingleOrDefaultAsync(ct);
+        if (row is not null)
+        {
+            await DocumentJsonColumns.LoadTreesAsync(db, row.Document, ct);
+        }
+
+        return row;
     }
 
     public static DocumentDetail ToDetail(DocumentRow row, DocumentDefinitionRef? definition = null)

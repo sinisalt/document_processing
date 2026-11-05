@@ -107,11 +107,35 @@ internal sealed class TenantIdentification(DocProcDbContext db, ITenantFeatures 
         var ruleId = await db.TypeIdentificationRuleVersions.AsNoTracking().Where(v => v.Id == pinned).Select(v => (Guid?)v.RuleId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         if (ruleId is { } id)
         {
-            await db.TypeIdentificationRules.Where(r => r.Id == id && r.Matched > 0)
-                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Matched, r => r.Matched - 1), cancellationToken).ConfigureAwait(false);
+            Count(id, -1);
         }
 
         return true;
+    }
+
+    // The changes to the rules' Matched counts this unit of work made, by rule: written by ApplyCountsAsync once the
+    // stage's work is saved, so a stage retried after a failed save, or dropped as stale, does not count, and a document
+    // classified again by the same rule (a reprocess) takes its count back and counts once more, a change of nothing.
+    private readonly Dictionary<Guid, int> _counts = [];
+
+    private void Count(Guid ruleId, int delta) => _counts[ruleId] = _counts.GetValueOrDefault(ruleId) + delta;
+
+    /// <summary>Forgets the counts of an attempt that is not saved (the stage starts again).</summary>
+    public void DiscardCounts() => _counts.Clear();
+
+    /// <summary>
+    /// Writes the <c>Matched</c> counts <see cref="ReleaseAsync"/> and <see cref="Record"/> changed, as one
+    /// increment per rule (never below 0); the stage calls it after its work is committed (<c>AfterCommit</c>).
+    /// </summary>
+    public async Task ApplyCountsAsync(CancellationToken cancellationToken)
+    {
+        var counts = _counts.Where(c => c.Value != 0).ToList();
+        _counts.Clear();
+        foreach (var (ruleId, delta) in counts)
+        {
+            await db.TypeIdentificationRules.Where(r => r.Id == ruleId)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Matched, r => r.Matched + delta < 0 ? 0 : r.Matched + delta), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -119,7 +143,7 @@ internal sealed class TenantIdentification(DocProcDbContext db, ITenantFeatures 
     /// <c>NEW_LAYOUT</c>: an event only), with the rule, its version and the evidence; rules of two types that held are
     /// recorded as a conflict that decided nothing.
     /// </summary>
-    public async Task RecordAsync(Document document, TenantRuleResult result, bool decided, CancellationToken cancellationToken)
+    public void Record(Document document, TenantRuleResult result, bool decided)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(result);
@@ -143,8 +167,7 @@ internal sealed class TenantIdentification(DocProcDbContext db, ITenantFeatures 
         if (decided)
         {
             document.IdentificationRuleVersionId = selected.Candidate.VersionId;
-            await db.TypeIdentificationRules.Where(r => r.Id == selected.Candidate.RuleId)
-                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Matched, r => r.Matched + 1), cancellationToken).ConfigureAwait(false);
+            Count(selected.Candidate.RuleId, 1);
         }
 
         timeline.Record(document, IdentifiedEvent, null, null, new

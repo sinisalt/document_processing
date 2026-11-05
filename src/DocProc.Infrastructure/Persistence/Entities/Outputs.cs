@@ -476,8 +476,22 @@ public sealed class DocumentExternalRef : ITenantScoped
     /// </summary>
     public DateTimeOffset? LastCallbackAt { get; set; }
 
-    /// <summary>The signature (hex HMAC) of that callback, to tell it from another callback signed in the same second.</summary>
-    public string? LastCallbackSignature { get; set; }
+    /// <summary>
+    /// The signatures (hex HMAC, at most <see cref="CallbackSignatureLength"/> characters each, separated by a space) of
+    /// every signed callback applied at <see cref="LastCallbackAt"/>, oldest first: a callback signed in that same second
+    /// is applied only when its signature is not among them (docs/11 §13.8, Correction (P5) fix 2), and at most
+    /// <see cref="MaxCallbackSignatures"/> are applied in one second.
+    /// </summary>
+    public string? LastCallbackSignatures { get; set; }
+
+    /// <summary>The characters of a signature kept (a hex HMAC-SHA256 is 64).</summary>
+    public const int CallbackSignatureLength = 64;
+
+    /// <summary>The most signed callbacks applied to one reference in one second of their timestamps.</summary>
+    public const int MaxCallbackSignatures = 16;
+
+    /// <summary>The length of <see cref="LastCallbackSignatures"/>.</summary>
+    public const int CallbackSignaturesLength = MaxCallbackSignatures * (CallbackSignatureLength + 1);
 }
 
 public enum LookupTableSource

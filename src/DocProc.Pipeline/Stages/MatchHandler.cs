@@ -61,6 +61,9 @@ internal sealed class MatchHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
+        // A tenant rule's Matched count follows the stage's saved result (docs/11 §6.6): written once the stage committed.
+        tenantRules.DiscardCounts();
+        AfterCommit(tenantRules.ApplyCountsAsync);
         // A supplier a reviewer assigned (docs/11 §12.1 :assign-supplier) is the document's from then on: a reprocess
         // from Classify, or a part of a review split that inherited it, keeps it while the supplier exists.
         if (document.SupplierMatchMethod == SupplierMatchMethod.Human && document.SupplierId is { } assignedId)
@@ -224,7 +227,7 @@ internal sealed class MatchHandler(
                 {
                     var proposedOnly = managed?.Result.Resolution == LayoutResolution.NewLayout;
                     ruled = new ClassificationOutcome(DocumentTypeKey.FromStored(heldRule.Candidate.DocumentTypeKey), 1.0, proposedOnly ? TypeSource.Proposed : TypeSource.Identification);
-                    await tenantRules.RecordAsync(document, tenantRule, decided: !proposedOnly, cancellationToken).ConfigureAwait(false);
+                    tenantRules.Record(document, tenantRule, decided: !proposedOnly);
                 }
             }
 

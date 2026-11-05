@@ -441,7 +441,7 @@ public static class MasterDataEndpoints
                 {
                     errors.Add("schedule", $"schedule is a cron expression (CRON_TZ=<zone> minute hour day month weekday): {cronError ?? "too long"}.");
                 }
-                else if (parsed!.ShortestGap(DateTimeOffset.UtcNow) < MinScheduleGap)
+                else if (parsed!.ShortestGap() < MinScheduleGap)
                 {
                     // Every run reads up to 2 MB from the tenant's system and rewrites suppliers: not every minute.
                     errors.Add("schedule", $"schedule runs at most every {MinScheduleGap.TotalMinutes:0} minutes.");

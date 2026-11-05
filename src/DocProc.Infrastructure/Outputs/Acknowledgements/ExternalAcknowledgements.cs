@@ -348,6 +348,24 @@ public static class ExternalAcknowledgements
         return ApplyCoreAsync(db, destination, reference, report with { DocumentId = reference.DocumentId }, source, now, null, cancellationToken);
     }
 
+    /// <summary>The signature as kept on the reference: at most <see cref="DocumentExternalRef.CallbackSignatureLength"/> characters, without spaces.</summary>
+    private static string SignatureKey(string signature)
+    {
+        var key = signature.Replace(" ", string.Empty, StringComparison.Ordinal);
+        return key.Length <= DocumentExternalRef.CallbackSignatureLength ? key : key[..DocumentExternalRef.CallbackSignatureLength];
+    }
+
+    /// <summary>
+    /// Whether a callback signed in the second of the last one applied may be applied: its signature is not among those
+    /// applied in that second, and fewer than <see cref="DocumentExternalRef.MaxCallbackSignatures"/> were (more in one
+    /// second are refused as replays rather than forgetting one that could then be replayed).
+    /// </summary>
+    private static bool CanApplyInSameSecond(string? applied, string signature)
+    {
+        var seen = (applied ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return seen.Length < DocumentExternalRef.MaxCallbackSignatures && !seen.Contains(SignatureKey(signature), StringComparer.Ordinal);
+    }
+
     private static async Task<AcknowledgementOutcome> ApplyCoreAsync(DocProcDbContext db, OutputDestination destination, DocumentExternalRef? reference, AcknowledgementReport report, string source, DateTimeOffset now, CallbackStamp? stamp, CancellationToken cancellationToken)
     {
         var tenantId = destination.TenantId;
@@ -359,9 +377,10 @@ public static class ExternalAcknowledgements
         }
 
         // A signed callback is ordered by its own timestamp against the last one applied to the reference: an older one
-        // (a late or replayed "rejected" after an "accepted") or that same callback again changes nothing.
+        // (a late or replayed "rejected" after an "accepted"), or one of the same second whose signature was applied
+        // already (every one of that second is kept), changes nothing.
         if (stamp is not null && reference?.LastCallbackAt is { } last
-            && (stamp.At < last || (stamp.At == last && string.Equals(reference.LastCallbackSignature, stamp.Signature, StringComparison.Ordinal))))
+            && (stamp.At < last || (stamp.At == last && !CanApplyInSameSecond(reference.LastCallbackSignatures, stamp.Signature))))
         {
             return AcknowledgementOutcome.Replayed;
         }
@@ -395,8 +414,11 @@ public static class ExternalAcknowledgements
         reference.Message = report.Message;
         if (stamp is not null)
         {
+            var signature = SignatureKey(stamp.Signature);
+            reference.LastCallbackSignatures = reference.LastCallbackAt == stamp.At && reference.LastCallbackSignatures is { Length: > 0 } seen
+                ? $"{seen} {signature}"
+                : signature;
             reference.LastCallbackAt = stamp.At;
-            reference.LastCallbackSignature = stamp.Signature.Length <= 64 ? stamp.Signature : stamp.Signature[..64];
         }
 
         if (report.Status == ExternalRefStatus.Pending)

@@ -259,8 +259,8 @@
     "CHECKS_SKIPPED": {
       "patternBudget_one": "{{count}} Musterprüfung wurde übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
       "patternBudget_other": "{{count}} Musterprüfungen wurden übersprungen: das Dokument hat die Grenze für Musterprüfungen erreicht. Bitte die Werte von Hand prüfen.",
-      "expressionBudget_one": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Schrittgrenze erreicht. Bitte die Werte von Hand prüfen.",
-      "expressionBudget_other": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Schrittgrenze erreicht. Bitte die Werte von Hand prüfen."
+      "expressionBudget_one": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Grenze für Schritte, Zeit oder Textlänge erreicht. Bitte die Werte von Hand prüfen.",
+      "expressionBudget_other": "Eine Regel wurde nicht zu Ende geprüft: ihre Ausdrücke haben auf diesem Dokument ihre Grenze für Schritte, Zeit oder Textlänge erreicht. Bitte die Werte von Hand prüfen."
     },
     "DELIVERY_FAILED": {
       "default": "Die Zustellung an {{destination}} ist endgültig fehlgeschlagen: {{error}}. Ein Integrations-Admin kann sie erneut senden."

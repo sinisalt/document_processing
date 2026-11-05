@@ -93,26 +93,43 @@ public sealed class CronSchedule
     }
 
     /// <summary>
-    /// The shortest time between two runs over the day after <paramref name="from"/> (at most 200 runs looked at), or
-    /// <see cref="TimeSpan.MaxValue"/> when it runs once or never in that day: a save-time check of how often it runs.
+    /// The shortest time two consecutive runs can be apart on any day the schedule runs, from its minute and hour fields
+    /// alone (docs/11 §6.8, Correction (P5) fix 2): between two times of one day, and from the last time of a day to the
+    /// first of the next as if the next day ran too (a day it does not run only makes the gap longer). It does not depend
+    /// on today's date, so <c>* * * * 0</c> (every minute on Sundays) is a one-minute schedule on a Wednesday too: a
+    /// save-time check of how often it runs. A day of 24 hours is assumed; a clock change moves a run by an hour at most.
     /// </summary>
-    public TimeSpan ShortestGap(DateTimeOffset from)
+    public TimeSpan ShortestGap()
     {
-        var shortest = TimeSpan.MaxValue;
-        var previous = Next(from);
-        var end = from.AddDays(1);
-        for (var i = 0; i < 200 && previous is { } at && at < end; i++)
+        var times = new List<int>();
+        for (var hour = 0; hour < 24; hour++)
         {
-            if (Next(at) is not { } next)
+            if (!_hours[hour])
             {
-                break;
+                continue;
             }
 
-            shortest = next - at < shortest ? next - at : shortest;
-            previous = next;
+            for (var minute = 0; minute < 60; minute++)
+            {
+                if (_minutes[minute])
+                {
+                    times.Add((hour * 60) + minute);
+                }
+            }
         }
 
-        return shortest;
+        if (times.Count == 0)
+        {
+            return TimeSpan.MaxValue;
+        }
+
+        var shortest = (24 * 60) - times[^1] + times[0];
+        for (var i = 1; i < times.Count; i++)
+        {
+            shortest = Math.Min(shortest, times[i] - times[i - 1]);
+        }
+
+        return TimeSpan.FromMinutes(shortest);
     }
 
     /// <summary>The first matching minute after <paramref name="after"/>, as a UTC time; null when none within a year.</summary>

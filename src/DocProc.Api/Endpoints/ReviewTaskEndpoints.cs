@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
-using DocProc.Domain.Flags;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -119,14 +118,16 @@ public static class ReviewTaskEndpoints
         }
 
         var size = PageCursor.ClampLimit(limit);
-        var rows = await Rows(db, query
+        var rows = await RowsAsync(
+            db,
+            query
                 .OrderBy(t => t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2)
                 .ThenBy(t => t.SlaDueAt == null ? 1 : 0)
                 .ThenBy(t => t.SlaDueAt)
                 .ThenBy(t => t.CreatedAt)
                 .ThenBy(t => t.Id)
-                .Take(size + 1))
-            .ToListAsync(ct);
+                .Take(size + 1),
+            ct);
         var hasMore = rows.Count > size;
         if (hasMore)
         {
@@ -223,31 +224,32 @@ public static class ReviewTaskEndpoints
     }
 
     private static async Task<ReviewTaskDto> LoadDtoAsync(DocProcDbContext db, Guid id, CancellationToken ct) =>
-        ToDto(await Rows(db, db.ReviewTasks.AsNoTracking().Where(t => t.Id == id)).SingleAsync(ct));
+        ToDto((await RowsAsync(db, db.ReviewTasks.AsNoTracking().Where(t => t.Id == id), ct)).Single());
 
-    /// <summary>One statement: the tenant name is a LEFT JOIN on <c>Tenants</c>, the document summary a join as well.</summary>
-    private static IQueryable<ReviewTaskRow> Rows(DocProcDbContext db, IQueryable<ReviewTask> tasks) =>
-        from t in tasks
-        join tenant in db.Tenants on t.TenantId equals tenant.Id into tenants
-        from tenant in tenants.DefaultIfEmpty()
-        select new ReviewTaskRow(
-            t,
-            tenant != null ? tenant.Name : null,
-            t.Document == null
-                ? null
-                : new DocumentRow(
-                    t.Document,
-                    tenant != null ? tenant.Name : null,
-                    t.Document.Supplier != null ? t.Document.Supplier.Name : null,
-                    t.Document.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
-                    t.Document.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
-                    t.Document.ReviewTasks.Where(o => o.Status == ReviewTaskStatus.Open || o.Status == ReviewTaskStatus.InProgress).Select(o => (ReviewPriority?)o.Priority).FirstOrDefault(),
-                    t.Document.ReviewTasks.Where(o => o.Status == ReviewTaskStatus.Open || o.Status == ReviewTaskStatus.InProgress).Select(o => o.SlaDueAt).FirstOrDefault()));
+    /// <summary>
+    /// The tasks with their tenant's name (a LEFT JOIN on <c>Tenants</c>) and their documents' summaries, read by
+    /// <see cref="DocumentQueries.Summaries"/> in one more statement for the page: a queue never reads the documents'
+    /// canonical trees (a 400-row price list's is about 1 MB).
+    /// </summary>
+    private static async Task<List<ReviewTaskRow>> RowsAsync(DocProcDbContext db, IQueryable<ReviewTask> tasks, CancellationToken ct)
+    {
+        var rows = await (
+            from t in tasks
+            join tenant in db.Tenants on t.TenantId equals tenant.Id into tenants
+            from tenant in tenants.DefaultIfEmpty()
+            select new { Task = t, TenantName = tenant != null ? tenant.Name : null })
+            .ToListAsync(ct);
+        var ids = rows.Select(r => r.Task.DocumentId).Distinct().ToList();
+        var documents = ids.Count == 0
+            ? []
+            : await DocumentQueries.Summaries(db, db.Documents.AsNoTracking().Where(d => ids.Contains(d.Id))).ToDictionaryAsync(d => d.Id, ct);
+        return [.. rows.Select(r => new ReviewTaskRow(r.Task, r.TenantName, documents.GetValueOrDefault(r.Task.DocumentId)))];
+    }
 
     private static ReviewTaskDto ToDto(ReviewTaskRow row)
     {
         var t = row.Task;
-        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document is null ? null : DocumentQueries.ToSummary(row.Document), t.Priority) { Kind = t.Kind };
+        return new ReviewTaskDto(t.Id, t.TenantId, row.TenantName, t.DocumentId, t.Reason, t.AssignedTo, t.Status, t.CreatedAt, t.SlaDueAt, t.CompletedAt, row.Document, t.Priority) { Kind = t.Kind };
     }
 
     /// <summary>The queue position of a priority: urgent 0, high 1, normal 2.</summary>
@@ -261,5 +263,5 @@ public static class ReviewTaskEndpoints
     private static ProblemHttpResult NotFound(Guid id) =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Review task not found", detail: $"No review task {id} is visible in the current scope.");
 
-    private sealed record ReviewTaskRow(ReviewTask Task, string? TenantName, DocumentRow? Document);
+    private sealed record ReviewTaskRow(ReviewTask Task, string? TenantName, DocumentSummary? Document);
 }

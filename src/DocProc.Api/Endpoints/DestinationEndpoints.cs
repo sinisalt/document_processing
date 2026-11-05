@@ -470,6 +470,11 @@ public static class DestinationEndpoints
             return Conflict("Destination in use", "Bindings or deliveries refer to this destination; remove the bindings, or disable the destination to keep its delivery history.");
         }
 
+        if (await db.MasterDataSources.Where(s => s.DestinationId == id).Select(s => s.Name).FirstOrDefaultAsync(ct) is { } source)
+        {
+            return Conflict("Destination in use", $"The master-data source '{source}' reads from this destination; remove the source, or point it at another destination, first.");
+        }
+
         db.OutputDestinations.Remove(destination);
         await db.SaveChangesAsync(ct);
         foreach (var slot in new[] { 1, 2 })

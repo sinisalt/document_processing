@@ -32,7 +32,7 @@ public static class RuleKinds
     public static readonly IReadOnlyDictionary<string, string[]> ExpressionParams = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["requiredIf"] = ["when"],
-        ["arithmetic"] = ["expression"],
+        ["arithmetic"] = ["expression", "when"],
         ["expression"] = ["predicate"],
     };
 
@@ -150,11 +150,12 @@ public static class RuleKinds
         yield return new RuleKindDescriptor(
             "arithmetic",
             P5,
-            "On every row of rows (or once), expression gives the number at equals (a path in the row), within tolerance.",
+            "On every row of rows (or once) where when holds (every row without when), expression gives the number at equals (a path in the row), within tolerance; a row where expression gives no number (an absent operand: write an optional one as $sum(discountAmount)) fails as not checked.",
             Params(
                 Required("expression", "equals"),
                 ("rows", PathSchema()),
                 ("expression", ExpressionSchema()),
+                ("when", ExpressionSchema()),
                 ("equals", PathSchema()),
                 ("tolerance", new JsonObject { ["type"] = "number", ["minimum"] = 0 })),
             ["rows"]);

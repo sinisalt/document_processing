@@ -60,6 +60,9 @@ internal sealed class ClassifyHandler(
 
     protected override async Task<StageOutcome> RunAsync(Document document, ProcessDocument message, CancellationToken cancellationToken)
     {
+        // A tenant rule's Matched count follows the stage's saved result (docs/11 §6.6): written once the stage committed.
+        tenantRules.DiscardCounts();
+        AfterCommit(tenantRules.ApplyCountsAsync);
         if (document.TypeSource == TypeSource.Human)
         {
             // docs/11 §9.4 rule 1: a type a reviewer set (:set-type, a typed split part) stands. A reprocess from Classify or
@@ -116,7 +119,7 @@ internal sealed class ClassifyHandler(
         // The tenant fallback rules (docs/11 §8.5, §9.4 step 2, P5): for a supplier unknown at Classify, or known without
         // layouts of its own or its group (and layouts.required off), a tenant rule that holds decides the type; under
         // NEW_LAYOUT it only proposes one. They run after the supplier's layouts and before the keyword rules and the LLM.
-        document.IdentificationRuleVersionId = null;
+        await tenantRules.ReleaseAsync(document, cancellationToken).ConfigureAwait(false);
         DocProc.Mapping.Identification.TenantRuleResult? tenantRule = null;
         var tenantRuleDecides = false;
         if (outcome is null && identification?.Result.Resolution is null or LayoutResolution.NotManaged or LayoutResolution.NewLayout)
@@ -156,7 +159,7 @@ internal sealed class ClassifyHandler(
         await RecordIdentificationAsync(document, identification, cancellationToken).ConfigureAwait(false);
         if (tenantRule is not null && (tenantRule.Resolution == DocProc.Mapping.Identification.TenantRuleResolution.Conflicting || outcome.Type.Value == tenantRule.Selected?.Candidate.DocumentTypeKey))
         {
-            await tenantRules.RecordAsync(document, tenantRule, tenantRuleDecides, cancellationToken).ConfigureAwait(false);
+            tenantRules.Record(document, tenantRule, tenantRuleDecides);
         }
 
         pipelines.RecordBudget(document, StepKindCatalogue.ClassifyLlm, budget);

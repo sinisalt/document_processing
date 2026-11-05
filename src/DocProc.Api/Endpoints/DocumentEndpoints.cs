@@ -240,17 +240,18 @@ public static partial class DocumentEndpoints
         }
 
         var size = PageCursor.ClampLimit(limit);
-        List<DocumentRow> rows;
+        // The summaries only (DocumentQueries.Summaries): a list never reads the documents' canonical trees.
+        List<DocumentSummary> items;
         if (byReviewDue)
         {
             // The page is the first size + 1 documents in that order; the order is applied again in memory, after the
             // projection's joins, with the same keys the summary shows (and the cursor carries).
-            rows = [.. (await DocumentQueries.Rows(db, ByReviewDue(query, after).Take(size + 1)).ToListAsync(ct))
+            items = [.. (await DocumentQueries.Summaries(db, ByReviewDue(query, after).Take(size + 1)).ToListAsync(ct))
                 .OrderBy(r => ReviewRank(r.ReviewPriority))
                 .ThenBy(r => r.ReviewDueAt is null ? 1 : 0)
                 .ThenBy(r => r.ReviewDueAt)
-                .ThenByDescending(r => r.Document.CreatedAt)
-                .ThenByDescending(r => r.Document.Id)];
+                .ThenByDescending(r => r.CreatedAt)
+                .ThenByDescending(r => r.Id)];
         }
         else
         {
@@ -259,20 +260,19 @@ public static partial class DocumentEndpoints
                 query = query.Where(d => d.CreatedAt < c.At || (d.CreatedAt == c.At && d.Id.CompareTo(c.Id) < 0));
             }
 
-            rows = await DocumentQueries.Rows(db, query
+            items = await DocumentQueries.Summaries(db, query
                     .OrderByDescending(d => d.CreatedAt)
                     .ThenByDescending(d => d.Id)
                     .Take(size + 1))
                 .ToListAsync(ct);
         }
 
-        var hasMore = rows.Count > size;
+        var hasMore = items.Count > size;
         if (hasMore)
         {
-            rows.RemoveAt(rows.Count - 1);
+            items.RemoveAt(items.Count - 1);
         }
 
-        var items = rows.Select(DocumentQueries.ToSummary).ToList();
         if (columns.Count > 0 && items.Count > 0)
         {
             items = await WithFieldColumnsAsync(db, items, columns, ct);

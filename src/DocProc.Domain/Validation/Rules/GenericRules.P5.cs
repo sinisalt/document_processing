@@ -96,7 +96,7 @@ public static partial class GenericRules
         }
 
         var variables = VariablesFor(context);
-        var budget = new ExpressionBudget();
+        var budget = ExpressionBudget.ForRule(context.ExpressionBudget);
         var scopes = rows is null ? [new PathValue(string.Empty, view.Values)] : ValuePaths.Select(view.Values, rows).ToList();
         var flags = new List<DocumentFlag>();
         foreach (var scope in scopes)
@@ -312,6 +312,14 @@ public static partial class GenericRules
 
     // ---------------------------------------------------------------- arithmetic
 
+    /// <summary>
+    /// <c>arithmetic</c>: on every row of <c>rows</c> (or once on the document) whose <c>equals</c> value is a number,
+    /// <c>expression</c> gives that number within <c>tolerance</c>. A row where the expression gives no number (an
+    /// operand is absent) was not checked and raises <c>RULE_FAILED {reason: arithmeticAbsent}</c>, so the rule does not
+    /// pass for the review gate without checking it (docs/11 §11, Correction (P5) fix 2): write an optional operand as
+    /// <c>$sum(discountAmount)</c> (0 when absent), and leave rows out on purpose with <c>when</c>, a condition evaluated
+    /// on each row as in <c>requiredIf</c>.
+    /// </summary>
     private static List<DocumentFlag> EvaluateArithmetic(DocumentView view, RuleParams p, ValidationContext context)
     {
         var equals = String(p, "equals");
@@ -327,9 +335,15 @@ public static partial class GenericRules
             return error is null ? [] : [ExpressionFailed(rows ?? equals, "expression", error)];
         }
 
+        var when = ExpressionOf(p, "when", out var whenError);
+        if (when is null && whenError is not null)
+        {
+            return [ExpressionFailed(rows ?? equals, "when", whenError)];
+        }
+
         var tolerance = Decimal(p, "tolerance") ?? DefaultTolerance;
         var variables = VariablesFor(context);
-        var budget = new ExpressionBudget();
+        var budget = ExpressionBudget.ForRule(context.ExpressionBudget);
         var scopes = rows is null ? [new PathValue(string.Empty, view.Values)] : ValuePaths.Select(view.Values, rows).ToList();
         var flags = new List<DocumentFlag>();
         foreach (var scope in scopes)
@@ -347,8 +361,15 @@ public static partial class GenericRules
             }
 
             decimal? computed;
+            var evaluating = "when";
             try
             {
+                if (when is not null && !when.Test(row, view.Values, variables, budget))
+                {
+                    continue;
+                }
+
+                evaluating = "expression";
                 computed = expression.EvaluateNumber(row, view.Values, variables, budget);
             }
             catch (RuleExpressionBudgetException e)
@@ -358,11 +379,21 @@ public static partial class GenericRules
             }
             catch (RuleExpressionEvaluationException e)
             {
-                flags.Add(ExpressionFailed(at, "expression", e.Message));
+                flags.Add(ExpressionFailed(at, evaluating, e.Message));
                 continue;
             }
 
-            if (computed is { } value && Math.Abs(value - expected) > tolerance)
+            if (computed is not { } value)
+            {
+                flags.Add(RuleFailed(
+                    at,
+                    $"'{at}' was not checked: {expression.Text} gives no number on this row (an operand is absent).",
+                    "arithmeticAbsent",
+                    ("field", at),
+                    ("actual", FlagParams.Amount(expected)),
+                    ("expression", expression.Text)));
+            }
+            else if (Math.Abs(value - expected) > tolerance)
             {
                 flags.Add(RuleFailed(
                     at,
@@ -391,7 +422,7 @@ public static partial class GenericRules
         }
 
         var variables = VariablesFor(context);
-        var budget = new ExpressionBudget();
+        var budget = ExpressionBudget.ForRule(context.ExpressionBudget);
         var scopes = forEach is null ? [new PathValue(string.Empty, view.Values)] : ValuePaths.Select(view.Values, forEach).ToList();
         var flags = new List<DocumentFlag>();
         foreach (var scope in scopes)

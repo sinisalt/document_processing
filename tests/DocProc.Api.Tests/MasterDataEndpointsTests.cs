@@ -167,6 +167,21 @@ public sealed class MasterDataEndpointsTests(ApiFactory factory) : IClassFixture
         (await scheduled.Content.ReadFromJsonAsync<MasterDataSourceDto>(ApiFactory.Json, Ct))!.NextRunAt.ShouldBe(new DateTimeOffset(2026, 10, 31, 2, 15, 0, TimeSpan.Zero), "03:15 in Berlin (summer time until 25 October, so UTC+1 on the 31st)");
         (await admin.PostAsJsonAsync("/api/v1/master-data-sources", new { name = "ERP sync 2", transport = "http", destinationId = Guid.NewGuid() }, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest, "not a destination of the tenant");
 
+        // At most every 15 minutes on any day it runs, whatever day it is saved on.
+        foreach (var often in new[] { "* * * * *", "* * * * 0", "* * 6 * *", "*/5 3 * * 1-5" })
+        {
+            var refused = await admin.PostAsJsonAsync("/api/v1/master-data-sources", new { name = "ERP sync often", transport = "http", destinationId = destination, schedule = often }, Ct);
+            refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest, often);
+            (await refused.Content.ReadAsStringAsync(Ct)).ShouldContain("at most every 15 minutes");
+        }
+
+        // The destination a source reads cannot be removed under it: a 409 that names the source, not a 500.
+        factory.Run(db => db.Tenants.Single(t => t.Id == tenant).Settings.Features!.Outputs = true);
+        var inUse = await admin.DeleteAsync($"/api/v1/destinations/{destination}", Ct);
+        inUse.StatusCode.ShouldBe(HttpStatusCode.Conflict, await inUse.Content.ReadAsStringAsync(Ct));
+        (await inUse.Content.ReadAsStringAsync(Ct)).ShouldContain("ERP sync");
+        factory.Query(db => db.OutputDestinations.Count(d => d.Id == destination)).ShouldBe(1);
+
         // Another tenant sees nothing of it.
         using var other = factory.TenantAdminOf(factory.CreateTenant("Other sources"));
         (await other.GetAsync($"/api/v1/master-data-sources/{source.Id}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);

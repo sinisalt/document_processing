@@ -63,6 +63,14 @@ function renderWith(node: ReactNode) {
 
 const callsTo = (route: string) => api.calls.filter((c) => c.route === route);
 
+/**
+ * The wait for the tab's first content. Before it shows, the tab reads the settings, then the destinations, then renders
+ * every section (tables, Radix selects and dialogs); the first such render in this file takes about 0.5 s on an idle
+ * machine, and 1.4 s when the .NET suite ran on the same cores, past the 1 s that findBy waits by default. That wait is
+ * for this load, not a speed check, so it allows for a loaded machine.
+ */
+const tabLoaded = { timeout: 5_000 };
+
 beforeAll(async () => {
   await i18n.changeLanguage("en");
   Element.prototype.scrollIntoView = vi.fn();
@@ -98,14 +106,14 @@ describe("Settings > Integrations", () => {
   it("says the outputs switch is off and asks for nothing else", async () => {
     api.handlers.set("GET /api/v1/settings", () => ({ body: settings(false) }));
     renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
-    expect(await screen.findByTestId("integrations-off")).toHaveTextContent("Outputs are off for this tenant");
+    expect(await screen.findByTestId("integrations-off", undefined, tabLoaded)).toHaveTextContent("Outputs are off for this tenant");
     expect(callsTo("GET /api/v1/destinations")).toHaveLength(0);
   });
 
   it("lists destinations and creates an http destination with an API key header and its secret", async () => {
     api.handlers.set("POST /api/v1/destinations", ({ body }) => ({ status: 201, body: { ...destination, id: "dest-2", ...(body as object) } }));
     renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
-    const row = await screen.findByText("erp-articles");
+    const row = await screen.findByText("erp-articles", undefined, tabLoaded);
     expect(row.closest("tr")).toHaveTextContent("POST http://mock-erp:8080/api/article-prices");
 
     fireEvent.click(screen.getByTestId("new-destination"));
@@ -129,7 +137,7 @@ describe("Settings > Integrations", () => {
         : { body: { ...bearer, ...(body as object) } },
     );
     renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
-    fireEvent.click(await screen.findByTestId("edit-destination-erp-articles"));
+    fireEvent.click(await screen.findByTestId("edit-destination-erp-articles", undefined, tabLoaded));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/needs the secret again/)).toBeInTheDocument();
     fireEvent.change(within(dialog).getByTestId("destination-urlTemplate"), { target: { value: "https://erp-new.example/api/article-prices" } });
@@ -147,7 +155,7 @@ describe("Settings > Integrations", () => {
   it("shows the API's config error on its field", async () => {
     api.handlers.set("POST /api/v1/destinations", () => ({ status: 400, body: { title: "One or more validation errors occurred.", status: 400, errors: { "config.urlTemplate": ["urlTemplate is an absolute http(s) URL."] } } }));
     renderWith(<IntegrationsTab section="destinations" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
-    fireEvent.click(await screen.findByTestId("new-destination"));
+    fireEvent.click(await screen.findByTestId("new-destination", undefined, tabLoaded));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByTestId("destination-name"), { target: { value: "bad" } });
     fireEvent.change(within(dialog).getByTestId("destination-urlTemplate"), { target: { value: "ftp://x" } });
@@ -159,7 +167,7 @@ describe("Settings > Integrations", () => {
     api.handlers.set("GET /api/v1/output-mappings", () => ({ body: [{ id: "m1", key: "article-price-import", name: "Article prices", origin: "Custom", publishedVersion: 1, draftVersion: null, versions: [{ id: "v1", version: 1, state: "Published" }] }] }));
     api.handlers.set("POST /api/v1/output-bindings", ({ body }) => ({ status: 201, body: { id: "b1", ...(body as object) } }));
     renderWith(<IntegrationsTab section="bindings" onSectionChange={vi.fn()} mappingKey={null} onMappingKeyChange={vi.fn()} />);
-    fireEvent.click(await screen.findByTestId("new-binding"));
+    fireEvent.click(await screen.findByTestId("new-binding", undefined, tabLoaded));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByTestId("binding-name"), { target: { value: "article-prices" } });
     // The selects are Radix; their values are set through the same state the form submits, so drive the body builder too.

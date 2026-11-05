@@ -156,6 +156,24 @@ public sealed class IntegrationCallbackEndpointsTests(ApiFactory factory) : ICla
         var later = await anonymous.SendAsync(Callback(setup.Destination, rejection, Secret, now), Ct);
         (await later.Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!.Applied.ShouldBe(1);
         factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).Status).ShouldBe(ExternalRefStatus.Rejected);
+
+        // In one second of timestamps: the receiver accepts right after it rejected. The acceptance is another callback
+        // and applies; the rejection of that second captured and sent again is a replay, and so is the acceptance.
+        var sameSecond = await anonymous.SendAsync(Callback(setup.Destination, acceptance, Secret, now), Ct);
+        (await sameSecond.Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!.Applied.ShouldBe(1);
+        factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).Status).ShouldBe(ExternalRefStatus.Accepted);
+        var issues = factory.Query(db => db.ReviewTasks.Count(t => t.DocumentId == setup.Document));
+        foreach (var replayed in new[] { rejection, acceptance })
+        {
+            var again = (await (await anonymous.SendAsync(Callback(setup.Destination, replayed, Secret, now), Ct)).Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!;
+            again.Applied.ShouldBe(0);
+            again.Replayed.ShouldBe(1);
+        }
+
+        factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).Status).ShouldBe(ExternalRefStatus.Accepted);
+        factory.Query(db => db.ReviewTasks.Count(t => t.DocumentId == setup.Document)).ShouldBe(issues, "no new integration issue");
+        Flags(setup.Document).ShouldAllBe(f => f.ResolvedAt != null, "no EXTERNAL_REJECTED open again");
+        factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).LastCallbackSignatures!.Split(' ', StringSplitOptions.None).Length).ShouldBe(2);
     }
 
     [Fact]

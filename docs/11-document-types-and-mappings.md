@@ -993,7 +993,10 @@ entities are left for later) and `Transport` `http` (an http destination of the 
 placeholders, read through the delivery client) or `upload` (records in `:run`); no blob transport. `MatchKeys` are
 `attributes.<key>`, `vatId` and `iban` (empty: that order with `attributes.erpVendorId`), the conflict policy is a JSON
 object by attribute, by `attributes` or `*`, and a schedule is a 5-field cron, optionally after `CRON_TZ=<zone>`, for
-http sources only, at most every 15 minutes. `MasterDataRun` keeps its report (per record the action, the changed
+http sources only, at most every 15 minutes (Correction (P5, fix 2): measured from the minute and hour fields, on any
+day the schedule runs; the check looked at the 24 hours after the save only, so `* * * * 0`, every minute on Sundays,
+was accepted on a Wednesday). A destination a source reads is not deleted under it: `DELETE /destinations/{id}` answers
+409 naming the source. `MasterDataRun` keeps its report (per record the action, the changed
 attributes and the conflicts, at most 1,000 rows) in `ReportJson` instead of a blob, with `Trigger`, `DryRun`,
 `Status`, `Unchanged` and `Errors`.
 
@@ -1903,7 +1906,7 @@ Correction (P5, part B), as built (`RuleExpression`, `GenericRules`, `ReviewGate
   `requiredIf.when` and `arithmetic.expression`. A comparison with an absent value is false, as in JSONata.
 - The parameters as built: `requiredIf {path, when}`, `compare {left, op: eq|ne|lt|le|gt|ge, right | value,
   tolerance?}`, `sumEquals {path, equals, tolerance? (0.02), perItemTolerance?}`, `arithmetic {rows?, expression,
-  equals, tolerance?}` (`equals` a path in the row) and `expression {predicate, forEach?, field?}`.
+  equals, tolerance?, when?}` (`equals` a path in the row; `when` since fix 2) and `expression {predicate, forEach?, field?}`.
 - Correction (P5, fix 1): two shapes publish accepted checked nothing. `requiredIf` evaluated `when` once on the
   document, so a row path with a row condition (`path: lines[*].unit, when: "quantity > 0"`) required nothing; it takes
   `rows` now (`{rows: lines[*], path: unit, when: "quantity > 0"}`: `path` a field of each row, `when` evaluated on each
@@ -1916,6 +1919,22 @@ Correction (P5, part B), as built (`RuleExpression`, `GenericRules`, `ReviewGate
   end the empty string, as in JSONata), `ordered` keys of different kinds (a date and a number) raise `RULE_FAILED
   {reason: orderedMixed}`, and what a rule still cannot evaluate raises `RULE_FAILED {reason: expressionError}`
   instead of failing the stage (or answering 500 to an inline revalidation).
+- Correction (P5, fix 2): the step bound did not bound the work, and two shapes still passed without checking. One step
+  could do work in proportion to the whole document: `$string($$)` serialised the values view (and was not held to
+  the string limit, which only `&` checked, after concatenating), and `=`, `in` and `$distinct` compared whole
+  objects; a per-row `expression` on a 450-row list ran for two minutes inside both step bounds. Steps are now paid in
+  proportion to the data: reading an array costs a step per item, comparing two objects a step per node, serialising
+  a step per node and per 128 characters, and a string function a step per 128 characters it reads. `$string` of an
+  object or a list (and `&`) stops before it writes more than 10,000 characters and raises the budget. Time is
+  bounded as well: 1 s per evaluation, 2 s per rule and document, and 5 s for all the rules' expressions of one
+  validation (`ValidationContext.ExpressionBudget`, the parent of each rule's); past it, the rule raises `CHECKS_SKIPPED
+  {reason: expressionBudget}` as for steps. And `arithmetic` passed every row where its expression gave no number, so
+  the example above (`quantity*unitPrice-discountAmount = lineNet`) checked only the rows with a discount, and counted
+  as passed for `requirePassedRules`: a row whose `equals` value is a number and whose expression gives none (an
+  absent operand) raises `RULE_FAILED {reason: arithmeticAbsent}` (not checked). An optional operand is written
+  `quantity*unitPrice-$sum(discountAmount)` (`$sum` of nothing is 0), and `arithmetic` takes `when` (a condition
+  evaluated on each row, as `requiredIf.when`) to leave rows out on purpose, for example `when: "$exists(quantity)"`
+  for discount lines without a quantity.
 - Definition-scoped codes are not derived from the rule id (`X_<RULEID>`): a definition declares its codes in a new
   top-level `flags` block (`{code: X_…, severity?, message?, description?}`) and a rule of a generic kind names one in
   `flag`. Its flags carry the code, the rule's severity (else the declaration's, else warning), its message and
@@ -2598,6 +2617,15 @@ a config that moves the destination to another host while its status poll names 
 receiver names its own id. An acceptance resolves the destination's open `EXTERNAL_REJECTED` and completes the
 integration issue when none is left; an approval completes every open review task of the document, the issue too;
 `POST /documents/{id}:resolve-integration-issue {note}` resolves it with a note.
+
+Correction (P5, fix 2): "that one again" held for the last callback only. Timestamps are in seconds, so a receiver that
+rejects and then accepts within one second sends two callbacks of the same timestamp, and the captured rejection,
+replayed inside the window, was applied again (`EXTERNAL_REJECTED` open again, a second integration issue, the
+reference back to `Rejected`). The reference keeps the signatures of every signed callback applied in the second of
+its last one (`LastCallbackSignatures`, migration `CallbackSignaturesPerSecond`): a callback of an earlier second, or
+of that second with a signature among them, is `replayed`; one of that second with a new signature applies. At most 16
+are applied per reference and second; more are answered `replayed` rather than forgetting a signature that could then
+be replayed.
 
 ### 13.9 Integration templates
 

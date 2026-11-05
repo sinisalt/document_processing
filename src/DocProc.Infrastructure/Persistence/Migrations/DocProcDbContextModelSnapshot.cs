@@ -529,9 +529,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastCallbackAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.Property<string>("LastCallbackSignature")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
+                    b.Property<string>("LastCallbackSignatures")
+                        .HasMaxLength(1040)
+                        .HasColumnType("nvarchar(1040)");
 
                     b.Property<string>("Message")
                         .HasMaxLength(2000)

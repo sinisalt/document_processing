@@ -1727,8 +1727,9 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - budgets are their own table with day, month and document periods, not a monthly cap in `TenantLlmPolicies`; a
       refused call is not recorded in the usage rows.
   - Left for later (part A's scope):
-    - the UI of docs/11 §19 for pipelines and budgets (the supplier sheet's processing tab, a parameter form per step
-      kind from `GET /step-kinds`, the budgets in the AI settings); the API is complete, the admin console has the switch;
+    - the UI of docs/11 §19 for pipelines and budgets (built in part D: the supplier's Processing tab with a parameter
+      form per step kind from `GET /step-kinds`, and the LLM budgets in Settings > AI; what is still left is the
+      `pipelineOverrides` of a supplier group and of a layout version, which have no UI, see part D's list);
     - a layout version's `ruleOverrides`, `llmHints` and the reduced LLM schema per layout version (`CoverageJson` is
       stored, `params.reducedSchema` is not read); a new layout version saved from review does not carry the previous
       version's `pipelineOverrides` over;
@@ -1977,6 +1978,28 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       flags is written without `flags`; the down/up test reads the result under those rules;
     - docs/09: Nordwind's IBAN and Südhof's vendor number in the setup curl, the timeline string of step 15, and the
       flags of the v2 price list in "Demo: manual mapping".
+  - Done, fix 2 (the second review of P5, recorded as "Correction (P5, fix 2)" in docs/11 §6.8, §11 and §13.8):
+    - rule expressions pay steps in proportion to the data (array items read, nodes compared or serialised, characters
+      read), `$string` of an object or a list stops at the 10,000-character limit before writing more, and time is
+      bounded: 1 s per evaluation, 2 s per rule and document, 5 s for all the rules of one validation
+      (`ValidationContext.ExpressionBudget`); past any bound the rule raises `CHECKS_SKIPPED {expressionBudget}`;
+    - `arithmetic` fails a row whose expression gives no number (`RULE_FAILED {arithmeticAbsent}`) instead of passing
+      it, and takes `when` to leave rows out on purpose; an optional operand is `$sum(discountAmount)`;
+    - signed callbacks: every signature applied in the second of the last callback is kept (`LastCallbackSignatures`,
+      migration `CallbackSignaturesPerSecond`), so a same-second callback replayed is refused;
+    - a tenant rule's `Matched` count is taken back when a document is classified again, and the counts are written
+      after the Classify or Match stage has saved (a retried or dropped attempt counts nothing);
+    - the inbox, the review queue and the review-task detail read the documents' summary columns only, never the
+      canonical tree; the document detail reads the row without its trees and streams them in after it
+      (`DocumentJsonColumns`): SqlClient reads a 1 MB value inside a buffered row asynchronously in about 1.5 s;
+    - a master-data schedule's 15-minute minimum holds on every day it runs (`* * * * 0` was accepted on weekdays), and
+      `DELETE /destinations/{id}` answers 409 naming the master-data source that reads it instead of 500;
+    - docs/09: Nordwind's IBAN in the P5 demo's setup curl, January's delivery in its run summary;
+    - the Integrations test of the destinations list waited 1 s for the tab's first full render (see the test).
+  - Left for later (fix 2): a destination that a pipeline `http-lookup` step names (in supplier, group or layout version
+    `pipelineOverrides`) can still be deleted; the step then raises `LOOKUP_FAILED` at run time. The pipeline stages
+    still read the whole document row, the canonical tree included, asynchronously (the per-stage cost of a 1 MB tree
+    above), as the API did before fix 2.
   - Left for later (fix 1), roll-forward only after a downgrade from P5 to P4: a type adopted (or a tenant type created)
     under P5 with no earlier version stays on template v2 (the earlier build cannot compile what it lacks, such as a P5
     rule kind, and reports such rules as not run, which sends the documents to review); the definition flags' codes

@@ -44,5 +44,11 @@ public sealed record ValidationContext(DateOnly Today, ValidationOptions Options
     /// </summary>
     public PatternBudget PatternBudget { get; init; } = new();
 
+    /// <summary>
+    /// The time the rules' expressions of this validation may run together (<see cref="Expressions.ExpressionBudget.ForDocument"/>,
+    /// docs/11 §11): every rule's own budget draws on it. A new context gets one of its own; a copy made with <c>with</c> shares it.
+    /// </summary>
+    public Expressions.ExpressionBudget ExpressionBudget { get; init; } = Expressions.ExpressionBudget.ForDocument();
+
     public static ValidationContext For(DateOnly today, TenantContext? tenant = null) => new(today, ValidationOptions.Default, tenant);
 }

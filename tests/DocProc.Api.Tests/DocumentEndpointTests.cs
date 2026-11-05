@@ -28,6 +28,23 @@ public sealed class DocumentEndpointTests(ApiFactory factory) : IClassFixture<Ap
     private static Uri Document(Guid id, string suffix = "") => new($"/api/v1/documents/{id}{suffix}", UriKind.Relative);
 
     [Fact]
+    public void The_inbox_and_the_review_queue_read_no_tree_and_the_detail_reads_its_tree_apart()
+    {
+        // A list reads the summary columns only: a 400-row price list's tree is about 1 MB, and the list read it for
+        // every row (the P5 demo's inbox and review queue took 4 to 6 s with three of them).
+        var list = factory.Query(db => DocumentQueries.Summaries(db, db.Documents.OrderByDescending(d => d.CreatedAt).Take(50)).ToQueryString());
+        foreach (var column in new[] { "CanonicalJson", "AppliedConfigJson", "PageImageKeys" })
+        {
+            list.ShouldNotContain(column);
+        }
+
+        // The detail's row leaves both trees out (they are streamed in after it, LargeDocumentReadSqlTests).
+        var detail = factory.Query(db => DocumentQueries.Rows(db, DocumentJsonColumns.WithoutTrees(db).Where(d => d.Id == Guid.Empty)).ToQueryString());
+        detail.ShouldContain("NULL AS [CanonicalJson]");
+        detail.ShouldContain("NULL AS [AppliedConfigJson]");
+    }
+
+    [Fact]
     public async Task List_filters_by_status_type_supplier_flag_issue_date_and_text()
     {
         // A tenant of its own so other tests' documents do not interfere with the counts.

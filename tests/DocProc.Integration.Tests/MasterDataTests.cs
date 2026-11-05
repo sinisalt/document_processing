@@ -44,10 +44,21 @@ public sealed class MasterDataTests
     [Fact]
     public void The_shortest_gap_tells_how_often_a_schedule_runs()
     {
-        var from = new DateTimeOffset(2026, 11, 5, 0, 0, 0, TimeSpan.Zero);
-        CronSchedule.Parse("* * * * *").ShortestGap(from).ShouldBe(TimeSpan.FromMinutes(1));
-        CronSchedule.Parse("*/15 * * * *").ShortestGap(from).ShouldBe(TimeSpan.FromMinutes(15));
-        CronSchedule.Parse("0 3 * * *").ShortestGap(from).ShouldBe(TimeSpan.FromDays(1));
+        CronSchedule.Parse("* * * * *").ShortestGap().ShouldBe(TimeSpan.FromMinutes(1));
+        CronSchedule.Parse("*/15 * * * *").ShortestGap().ShouldBe(TimeSpan.FromMinutes(15));
+        CronSchedule.Parse("0 3 * * *").ShortestGap().ShouldBe(TimeSpan.FromDays(1));
+        CronSchedule.Parse("0 3,15 * * *").ShortestGap().ShouldBe(TimeSpan.FromHours(12));
+        CronSchedule.Parse("CRON_TZ=Europe/Berlin 15 2 * * *").ShortestGap().ShouldBe(TimeSpan.FromDays(1));
+    }
+
+    [Theory]
+    [InlineData("* * * * 0")] // every minute on Sundays, whatever day it is saved on
+    [InlineData("* * 6 * *")] // every minute on the 6th
+    [InlineData("*/5 3 * * 1-5")]
+    [InlineData("5,55 0,23 * * *")] // 23:55 and 00:05 the next day are 10 minutes apart
+    public void A_schedule_that_runs_more_often_than_every_15_minutes_on_some_day_has_a_short_gap(string cron)
+    {
+        CronSchedule.Parse(cron).ShortestGap().ShouldBeLessThan(TimeSpan.FromMinutes(15), cron);
     }
 
     [Fact]

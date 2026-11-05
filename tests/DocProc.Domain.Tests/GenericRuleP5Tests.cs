@@ -112,7 +112,65 @@ public sealed class GenericRuleP5Tests
         var flag = Run(Values(v => v["items"]![1]!["lineNet"]!["amount"] = 12), rule).ShouldHaveSingleItem();
         flag.Field.ShouldBe("items[1].lineNet");
         flag.Params!["expected"].ShouldBe("10.50");
-        Run(Values(v => v["items"]![1]!["quantity"] = null), rule).ShouldBeEmpty("an absent operand is not checked");
+        var absent = Run(Values(v => v["items"]![1]!["quantity"] = null), rule).ShouldHaveSingleItem("a row with an absent operand was not checked: it fails, never passes");
+        absent.Code.ShouldBe(FlagCodes.RuleFailed);
+        absent.Field.ShouldBe("items[1].lineNet");
+        absent.Params!["reason"].ShouldBe("arithmeticAbsent");
+    }
+
+    [Fact]
+    public void Arithmetic_with_an_optional_operand_checks_the_rows_without_it_and_when_leaves_rows_out()
+    {
+        // docs/11 §11's example: the discount is on some rows only. Written as a plain operand, the rows without it
+        // were not checked at all; now they fail as not checked, and $sum(discountAmount) (0 when absent) checks them.
+        var values = Values(v => v["items"] = JsonNode.Parse("""
+            [
+              { "sku": "A", "quantity": 2, "unitPrice": 10, "lineNet": 99 },
+              { "sku": "B", "quantity": 1, "unitPrice": 10, "discountAmount": 1, "lineNet": 99 },
+              { "sku": "C", "quantity": 3, "unitPrice": 10, "lineNet": 30 }
+            ]
+            """));
+        var plain = Run(values, Rule("arithmetic", """{ "rows": "items[*]", "expression": "quantity * unitPrice - discountAmount", "equals": "lineNet" }"""));
+        plain.Select(f => (f.Field, f.Params!["reason"])).ShouldBe([("items[0].lineNet", "arithmeticAbsent"), ("items[1].lineNet", "arithmetic"), ("items[2].lineNet", "arithmeticAbsent")]);
+
+        var optional = Run(values, Rule("arithmetic", """{ "rows": "items[*]", "expression": "quantity * unitPrice - $sum(discountAmount)", "equals": "lineNet" }"""));
+        optional.Select(f => (f.Field, f.Params!["reason"])).ShouldBe([("items[0].lineNet", "arithmetic"), ("items[1].lineNet", "arithmetic")], "row 0 (2 x 10 = 20, printed 99) is checked now; row 2 is right");
+
+        // A rule that checks the discounted rows only says so with when.
+        var discounted = Run(values, Rule("arithmetic", """{ "rows": "items[*]", "when": "$exists(discountAmount)", "expression": "quantity * unitPrice - discountAmount", "equals": "lineNet" }"""));
+        discounted.ShouldHaveSingleItem().Field.ShouldBe("items[1].lineNet");
+
+        // The review gate does not count a rule as passed that left a row unchecked.
+        var result = Validate(Values(v => v["items"]![1]!["quantity"] = null), Rule("arithmetic", """{ "rows": "items[*]", "expression": "quantity * unitPrice", "equals": "lineNet" }"""));
+        result.Passed("r_arithmetic").ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("$count($$.items[$length($string($$)) > 0]) > 0")]
+    [InlineData("$count($$.items[$$ = $$]) > 0")]
+    [InlineData("$length($string($$)) > 0 and $length($string($$)) > 0 and $length($string($$)) > 0")]
+    [InlineData("$$ = $$ and $$ = $$ and $$ = $$ and $$ = $$ and $$ = $$ and $$ = $$ and $$ = $$ and $$ = $$")]
+    public void An_expression_rule_whose_steps_do_work_as_large_as_the_document_stops_in_time_with_CHECKS_SKIPPED(string predicate)
+    {
+        // A 450-row list (over 100,000 characters as JSON), the predicate evaluated per row: before the steps were paid
+        // in proportion to the data, these ran for minutes and raised nothing.
+        var values = Values(v => v["items"] = RuleExpressionTests.PriceList(450)["lines"]!.DeepClone());
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var flag = Run(values, Rule("expression", $$"""{ "forEach": "items[*]", "predicate": {{System.Text.Json.JsonSerializer.Serialize(predicate)}} }""")).ShouldHaveSingleItem();
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10));
+        flag.Code.ShouldBe(FlagCodes.ChecksSkipped);
+        flag.Params!["reason"].ShouldBe("expressionBudget");
+    }
+
+    [Fact]
+    public void The_rules_of_one_document_share_the_documents_expression_time()
+    {
+        var rule = Rule("expression", """{ "forEach": "items[*]", "predicate": "quantity > 0" }""");
+        Run(Values(), rule).ShouldBeEmpty();
+        var spent = Context with { ExpressionBudget = Validation.Expressions.ExpressionBudget.ForDocument(TimeSpan.Zero) };
+        var flag = Run(Values(), rule, spent).ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.ChecksSkipped);
+        flag.Params!["reason"].ShouldBe("expressionBudget");
     }
 
     [Fact]
