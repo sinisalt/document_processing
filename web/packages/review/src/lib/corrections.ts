@@ -73,11 +73,14 @@ export function diffCorrections(specs: readonly FieldSpec[], initial: unknown, c
     if (spec.readOnly) continue;
     const before = normalize(getByPath(initial, spec.path));
     const after = normalize(getByPath(current, spec.path));
-    if (sameValue(spec.kind, before, after)) continue;
-    const correction: FieldCorrection = { path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null };
     // A value taken from the page (map mode) is saved with the place it was read from, unless it was retyped since.
     const taken = mapped?.[spec.path];
-    if (taken && normalize(taken.text) === after) correction.source = taken.source;
+    const fromPage = !!taken && normalize(taken.text) === after;
+    // The same value taken from the page is still sent: the reviewer pointed at where it is printed (a pre-filled value
+    // read from a running title on page 2, confirmed on page 1), and a layout saved from the document learns that place.
+    if (sameValue(spec.kind, before, after) && !fromPage) continue;
+    const correction: FieldCorrection = { path: spec.path, value: toCorrectionValue(spec.kind, after), reason: reason?.trim() ? reason.trim() : null };
+    if (fromPage) correction.source = taken.source;
     corrections.push(correction);
   }
   return corrections;

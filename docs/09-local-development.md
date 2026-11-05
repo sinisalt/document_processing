@@ -686,13 +686,17 @@ docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings
   "supersedes"|"additional"|"duplicate"}`, the panel above the form). Without `configurableSteps` a specials list
   without a printed date has no `validFrom` (the `defaults` step that falls back to the day received does not run).
 - **The P5 demo files** are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/
-  DemoPriceLists.cs`, redrawn only with `REGENERATE_DEMO_PDFS=<file name>`): `Nordwind_Preisliste_2027-02.pdf` (12
-  prices changed within 25 %, "Anzahl Artikel: 412"), `Nordwind_Preisliste_2027-03.pdf` (one article, number 104539,
-  up 40 % against February), `Nordwind_Tagesangebote.pdf` and `Nordwind_Tagesangebote_Nachtrag.pdf` (two lists
+  DemoPriceLists.cs`, redrawn only with `REGENERATE_DEMO_PDFS=<file name>`): `Nordwind_Preisliste_2027-01.pdf` (the
+  P2 list's 412 articles and prices in the design of the later lists, "Anzahl Artikel: 412"),
+  `Nordwind_Preisliste_2027-02.pdf` (12 prices changed within 25 %, "Anzahl Artikel: 412"),
+  `Nordwind_Preisliste_2027-03.pdf` (one article, number 104539, up 40 % against February),
+  `Nordwind_Preisliste_2027-04.pdf` (February's prices with two small changes), `Nordwind_Tagesangebote.pdf` and `Nordwind_Tagesangebote_Nachtrag.pdf` (two lists
   without a date, so valid on the day received), `Nordwind_Tagesangebote_2026-11-04.pdf` (printed for 4 November 2026,
   expired on any later day), `Suedhof_Preisliste_2027-01.pdf`, `Suedhof_Preisliste_2027-02.pdf` (Südhof Feinkost, a
   supplier without layouts) and `Bergquell_Preisliste_2027.pdf` (a sender that is no supplier). The pipeline tests
-  `PriceListsEndToEndTests` run them with the layouts they use.
+  `PriceListsEndToEndTests` and `PriceListDemoFixturesTests` run them with the layouts they use, and
+  `fixtures/demo/layouts/nordwind-daily-specials.json` is the specials layout "Demo: price lists, specials and
+  fallback rules" posts.
 - **Specials to a POS hub**: copy `fixtures/outputs/pos-promotions.jsonata` into a mapping for `daily-specials`, bind it
   to an http destination `http://mock-erp:8080/api/promotions` with the condition `roles.validUntil >= $today()`; the
   stub answers `201` with a `promotionId`, and its request journal (`GET http://localhost:8086/__admin/requests`) shows
@@ -1347,6 +1351,180 @@ What the run showed that is not yet as it should be: values the pre-fill placed 
 rows are not editable in the generated form (the layout derives a single row's amounts from the totals, docs/11 §8.2,
 Correction (P4, part D)); and the table tool is offered only for a definition-driven type, so a tenant on the built-in
 invoice record learns its lines from the record's values, not from a drawn table.
+
+### Demo: price lists, specials and fallback rules
+
+The three P5 demos of docs/11 §23, in the browser: Nordwind's first price list dropped into a watched folder is
+routed, held with `NEW_LAYOUT`, mapped once and saved as the layout `nordwind-price-list`; next month's list is read
+by that layout, checked against its printed row count and the previous list and delivered to the mock ERP without
+review, and a list with one price up 40 % waits in review with that row shown. A daily specials list sorts to the top
+of the queue as urgent and goes to the POS stub; a copy printed for yesterday is blocked as expired, and a second list
+of the same day is a revision. Last, a ConfigAdmin turns "Preisliste" in the title of a Südhof Feinkost list into a
+fallback rule for every supplier without own layouts; the next Südhof list and one from an unknown sender are typed by
+it, without keywords or the LLM, while Nordwind's lists are still decided by Nordwind's layout. Run it on a fresh compose
+stack (`docker compose up --build`, no LLM key needed), portal on http://localhost:5173, admin console on
+http://localhost:5174, the mock ERP's journal on http://localhost:8086/__admin/requests.
+
+The files are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceLists.cs`, see
+"Price lists, master data and acknowledgements" above): `Nordwind_Preisliste_2027-01.pdf` (the 412 articles of the P2
+list in the design of the later lists, with "Anzahl Artikel: 412" on page 1), `…-02.pdf` (12 prices changed within
+25 %), `…-03.pdf` (article 104539 up 40 %), `…-04.pdf` (February's prices with two small changes), the three
+Tagesangebote lists, the two Südhof lists and Bergquell's. The specials layout is `fixtures/demo/layouts/nordwind-daily-specials.json`.
+The watched folder is `fixtures/dropzone/tenant-a/scanner/`; on Linux the worker's user must be able to write it
+(`mkdir -p fixtures/dropzone/tenant-a/scanner && chmod -R a+rwX fixtures/dropzone/tenant-a`). The worker scans it every
+few seconds and takes a file once it has not changed for 5 s, so a drop shows up within about 15 s.
+
+1. **Switch on.** As `superadmin` in the admin console: Tenants > Gasthaus zur Post GmbH > Settings > Feature
+   switches: Configurable document types, Types of the tenant's own, Outputs, Source routing, Supplier layouts and
+   Configurable steps on. Types of the tenant's own (`customTypes`) gives the tenant's keyword set, which types the
+   first Südhof list; Configurable steps runs the templates' `defaults` step, which dates an undated specials list.
+2. **What the earlier demos leave** (on a fresh stack; curl below): the adopted `price-list` and `daily-specials`;
+   Nordwind (VAT id `DE312456789`, ERP vendor number `V-10042`, Layouts required) and Südhof Feinkost GmbH (`DE298765432`,
+   `V-20077`) as suppliers; the watched folder channel `Scanner` (path `scanner`, stable for 5 s); the tenant's
+   warm-up 0 (Settings > General > Layouts and routing, the P4 demo's last step); and the P3 demo's outputs: the
+   `erp-uom` lookup table, the `erp-articles` destination, the `article-price-import` mapping (published) and its
+   `article-prices` binding, plus a `pos-hub` destination `http://mock-erp:8080/api/promotions` with the `pos-promotions`
+   mapping of `fixtures/outputs/pos-promotions.jsonata` for `daily-specials` and a binding with the condition
+   `roles.validUntil >= $today()`.
+3. **Auto-approval.** As `tenant-a-admin`: Settings > Document types > Price list (open it). The adopted type says
+   "Auto-approval is off: every document of this type goes to review" (adopting the v2 template keeps it off, docs/11
+   §5.8); Switch auto-approval on ("Auto-approval of price-list is on."). The same for Daily specials.
+4. **The folder rules.** Suppliers > Nordwind Großhandel GmbH > Routing > Add source rule: channel Scanner, folder
+   prefix `lieferanten/nordwind/preislisten/`, pins Price list > Save ("Rule saved: channel Scanner, folder
+   lieferanten/nordwind/preislisten/ → Nordwind Großhandel GmbH, Exclusive, pins price-list"). The same with
+   `lieferanten/nordwind/angebote/`, pinning Daily specials.
+5. **The first list.** Copy `Nordwind_Preisliste_2027-01.pdf` to `fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind/preislisten/`.
+   It is routed to Nordwind by the folder rule (`supplierMatchMethod: SourceRule`), typed by its pin, kept as one
+   document of 14 pages (the type's split mode is `never`), and held with `NEW_LAYOUT`: Nordwind is layout-managed and
+   has no price-list layout. The New layout panel says "Pre-filled: 5 values": the supplier's name, VAT id and IBAN
+   from master data, Valid from and the printed article count from the type's labels; Approve is blocked by
+   `NEW_LAYOUT`, `r_table` ("not read by a table mapping") and `r_count`.
+6. **Map it once.** As `tenant-a-reviewer` (a `MappingAuthor`), open it from the inbox: Match to Price list ("Matched
+   to price-list."). Map (M): focus Price list no. and click `PL-2027-01`, Enter; Valid from ← `01.01.2027` in "gültig
+   ab 01.01.2027" on page 1 (the pre-fill read it from page 2's running title; a click on page 1 puts the value's place
+   there, and the layout learns it there), Currency ← `EUR`, Printed article count ← `412` in "Anzahl Artikel: 412";
+   Save corrections. Table: drag a box on page 1 from just above and left of "Art.-Nr." to just above the footer rule
+   and right of "ab 50" (as in "Demo: manual mapping", step 6), Read all pages: `412 rows, 0 rejected, 14 pages read`;
+   Write 412 rows. `r_table` and `r_count` resolve.
+7. **Mark the design.** Identify (I): drag a box around "Preisliste" in the title (proposed `text "Preisliste" (page 1,
+   title area)`) > Add identifier; drag a box around "gültig ab" under it > Add identifier. The card: "Holds for this
+   document", "Matches 0 of the supplier's last 0 documents".
+8. **Approve and save as layout.** Fields: the New layout panel's key is `nordwind-price-list`, name "Nordwind price
+   list" > Approve > Approve and save as layout. A `MappingAuthor`'s save is replayed and Active at once: the Layout saved
+   dialog says "Active", "8 fields replayed on 1 documents; lowest agreement 100 %", and with the tenant's warm-up 0
+   no document of the design waits for a warm-up.
+9. **Next month's list.** Copy `Nordwind_Preisliste_2027-02.pdf` into the same folder. It is identified by
+   `nordwind-price-list` (the header's layout chip; `supplierLayoutVersionId` set, `typeSource` stays `Supplier`, the
+   folder rule's pin), its 412 rows read by the learned `column-table`, "Anzahl Artikel: 412" read and checked (`r_count`),
+   the 12 changed prices within 25 % of January's (`r_delta` passes), and it is AutoApproved with no flag. The
+   Deliveries tab: `erp-articles · article-prices`, Delivered; the mock ERP has `POST /api/article-prices` (202) with
+   412 prices and the header `priceListId` `PL-2027-02`, `validFrom` `20270201`, `vendorNo` `V-10042`.
+10. **One article up 40 %.** Copy `Nordwind_Preisliste_2027-03.pdf` into the folder. It goes to review with two
+    warnings of `r_delta` ("Unusual price change against the last approved list"): the list's, and the row's on
+    "Line 77 · Amount" (article 104539, 39.02 → 54.63, +40 %). The Articles grid opens on that row only ("1 of 412
+    rows: the rows a check flagged"); Show all 412 rows shows the others, Only the flagged row (1) goes back.
+11. **Specials.** Post the specials layout (curl below; it reads "gültig am" dates, which a layout learned from an
+    undated list could not, docs/11 §23 Correction (P5, part E)): Suppliers > Nordwind > Layouts shows
+    "nordwind-daily-specials" version 1 Candidate. Copy `Nordwind_Tagesangebote.pdf` (two pages, no date printed) to
+    `…/scanner/lieferanten/nordwind/angebote/`. It arrives with `NEW_LAYOUT` naming the Candidate, valid today (the
+    `defaults` step takes the day received), and its review task is Urgent, due at 23:59:59 today: the Review queue
+    lists it first with the Urgent badge, and the inbox's Urgent first puts it at the top. Open it: Confirm against pending
+    layout ("Confirmed against nordwind-daily-specials.") > Approve > Approve and save as layout: the layout is Active
+    ("4 fields replayed on 1 documents; lowest agreement 100 %": the date the list does not print is not counted). The
+    mock ERP has `POST /api/promotions` (201) with `promotionId` `V-10042-20261105`, valid from today 00:00 to 23:59:59,
+    and the list's 44 rows.
+12. **Yesterday's copy.** Copy `Nordwind_Tagesangebote_2026-11-04.pdf` into the same folder: identified by the specials
+    layout, which reads "gültig am 04.11.2026"; blocked by `r_not_expired` ("These specials have already expired",
+    `DATE_IMPLAUSIBLE` on Valid until). The file is dated 4 November 2026, so it is expired on any later day.
+13. **A second list of the day.** Copy `Nordwind_Tagesangebote_Nachtrag.pdf`: identified, valid today, and held with
+    `REVISION_OF` naming the first list; its panel compares both lists side by side and resolves it (supersedes,
+    additional, duplicate).
+14. **A supplier without layouts.** As `tenant-a-admin` (a ConfigAdmin): Inbox > Upload > `Suedhof_Preisliste_2027-01.pdf`.
+    It is matched to Südhof Feinkost by its VAT id and typed `price-list` by the tenant's keyword set ("Preisliste",
+    `typeSource: Rule`); Südhof has no layouts, so nothing fills it. Open it: Identify (I), drag a box around "Preisliste"
+    in the title > Add identifier. The card counts "Matches n of the tenant's last n documents" and notes Nordwind's
+    lists as decided by Nordwind's layouts. Under "Use for all suppliers without own layouts": name `Preisliste im
+    Titel` > Use for all suppliers without own layouts: "Rule Preisliste im Titel is a draft. Would have matched 0
+    documents of this type, 0 other documents (of 3 tested)" (Nordwind's approved lists are left out: Nordwind has own
+    layouts). Activate: "Rule Preisliste im Titel is active".
+15. **Typed by the rule.** Upload `Suedhof_Preisliste_2027-02.pdf` and `Bergquell_Preisliste_2027.pdf` (Bergquell is no
+    supplier of the tenant). Both are typed `price-list` by the rule: `typeSource: Identification`,
+    `identificationRuleVersionId` set, the timeline's "Type identified by a tenant rule", no LLM cost, Bergquell with
+    `SUPPLIER_UNMATCHED`. Copy `Nordwind_Preisliste_2027-04.pdf` into the price-list folder: it is decided by
+    `nordwind-price-list` (`identificationRuleVersionId` empty) and AutoApproved. Settings > Document types > Price list
+    > Identification lists the rule with its test.
+
+The same through the API, with `$H` tenant A's admin token and `$R` its reviewer's (Keycloak password grant as in
+"Demo: types as data"); the review of steps 6 to 8 is the review endpoints of "Demo: manual mapping" and "Demo:
+routing and layouts" (`:match-layout`, `PATCH …/fields` with a `source`, `regions:table` with `write: true`, `:approve
+{learnLayout}`):
+
+```bash
+API=http://localhost:5100/api/v1; J='content-type: application/json'; PDF=fixtures/demo/uploads/tenant-a; DROP=fixtures/dropzone/tenant-a/scanner/lieferanten/nordwind
+tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password -d client_id=docproc-portal -d username=$1 -d password=$1 | jq -r .access_token; }
+H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"
+# Step 2: types, suppliers, channel, warm-up 0 (the outputs: "Demo: outputs and delivery", steps 3 to 8, and the pos-hub ones below).
+for t in std.price-list std.daily-specials; do curl -s -X POST $API/document-types -H "$H" -H "$J" -d "{\"from\":{\"template\":\"$t\",\"mode\":\"adopt\"}}" | jq .key; done
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"},"settings":{"layouts":{"required":true}}}' > /dev/null
+SF=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Südhof Feinkost GmbH","vatId":"DE298765432"}' | jq -r .id)
+SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
+curl -s $API/settings -H "$H" | jq '.settings | .layoutReviewWarmup = 0' | curl -s -X PUT $API/settings -H "$H" -H "$J" -d @- | jq .settings.layoutReviewWarmup
+POS=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"pos-hub","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/promotions","responseMapping":"promotionId"}}' | jq -r .id)
+jq -n --rawfile e fixtures/outputs/pos-promotions.jsonata '{key:"pos-promotions",name:"POS promotions",sourceTypeKey:"daily-specials",engine:"jsonata",expression:$e}' | curl -s -X POST $API/output-mappings -H "$H" -H "$J" -d @- | jq .key
+curl -s -X POST $API/output-mappings/pos-promotions/versions/1:publish -H "$H" -H "$J" -d '{}' > /dev/null
+curl -s -X POST $API/output-bindings -H "$H" -H "$J" -d "{\"name\":\"pos-specials\",\"documentTypeKey\":\"daily-specials\",\"mappingKey\":\"pos-promotions\",\"destinationId\":\"$POS\",\"condition\":\"roles.validUntil >= \$today()\"}" | jq .id
+# Step 3: auto-approval of the adopted types (ConfigAdmin).
+for k in price-list daily-specials; do curl -s -X POST "$API/document-types/$k:upgrade-base" -H "$H" -H "$J" -d '{"autoApprove":true}' | jq .publishedVersion; done
+# Step 4: the folder rules.
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/preislisten/\",\"pinTypeKey\":\"price-list\"}" | jq .describe
+curl -s -X POST $API/suppliers/$NW/source-rules -H "$H" -H "$J" -d "{\"channelId\":\"$SCANNER\",\"folderPrefix\":\"lieferanten/nordwind/angebote/\",\"pinTypeKey\":\"daily-specials\"}" | jq .describe
+# Steps 5, 9, 10, 12, 13 and 15 drop files: wait until each document has left the pipeline (GET $API/documents/{id}
+# answers NeedsReview, AutoApproved or Approved) before the next, since each step depends on the one before.
+mkdir -p $DROP/preislisten $DROP/angebote && chmod -R a+rwX fixtures/dropzone/tenant-a
+cp $PDF/Nordwind_Preisliste_2027-01.pdf $DROP/preislisten/
+# ... steps 6 to 8 in review, then:
+cp $PDF/Nordwind_Preisliste_2027-02.pdf $DROP/preislisten/
+curl -s "$API/documents?type=price-list&limit=10" -H "$R" | jq '.items[] | {documentNumber, status, lineCount}'
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/article-prices")
+  | {status: .responseDefinition.status, list: (.request.body | fromjson | .header.priceListId), prices: (.request.body | fromjson | .prices | length)}]'
+cp $PDF/Nordwind_Preisliste_2027-03.pdf $DROP/preislisten/
+# Step 11: the specials layout as a Candidate, then the first list.
+curl -s -X POST $API/suppliers/$NW/layouts -H "$H" -H "$J" -d @fixtures/demo/layouts/nordwind-daily-specials.json | jq '.versions[0].status'
+cp $PDF/Nordwind_Tagesangebote.pdf $DROP/angebote/
+curl -s "$API/review-tasks?limit=3" -H "$R" | jq '.items[] | {documentId, priority, slaDueAt}'
+# ... confirmed and approved in review (POST $API/documents/{id}:approve {"learnLayout":{"pendingLayoutVersionId":…}}), then:
+curl -s http://localhost:8086/__admin/requests | jq '[.requests[] | select(.request.url == "/api/promotions") | .request.body | fromjson | {promotionId, validFrom, validTo, items: (.items | length)}]'
+cp $PDF/Nordwind_Tagesangebote_2026-11-04.pdf $DROP/angebote/
+cp $PDF/Nordwind_Tagesangebote_Nachtrag.pdf $DROP/angebote/
+# Step 14: the Südhof list, and the rule from it (the API the review screen's button calls).
+curl -s -X POST $API/ingestions -H "$H" -F "files=@$PDF/Suedhof_Preisliste_2027-01.pdf;type=application/pdf" | jq .id
+SFDOC=$(curl -s "$API/documents?type=price-list&limit=50" -H "$H" | jq -r '[.items[] | select(.supplierName == "Südhof Feinkost GmbH")][0].id')
+RULE=$(curl -s -X POST "$API/documents/$SFDOC/identification-rules" -H "$H" -H "$J" -d '{"name":"Preisliste im Titel","rule":{"all":[{"text":"Preisliste","page":1,"region":"title"}]}}' | tee /dev/stderr | jq -r .id)
+curl -s -X POST "$API/identification-rules/$RULE/versions/1:activate" -H "$H" -H "$J" -d '{"confirmOtherTypes":false}' | jq '{status, activeVersion}'
+# Step 15.
+for f in Suedhof_Preisliste_2027-02.pdf Bergquell_Preisliste_2027.pdf; do curl -s -X POST $API/ingestions -H "$H" -F "files=@$PDF/$f;type=application/pdf" | jq .id; done
+cp $PDF/Nordwind_Preisliste_2027-04.pdf $DROP/preislisten/
+curl -s "$API/documents?type=price-list&limit=20" -H "$H" | jq -r '.items[].id' | while read id; do curl -s $API/documents/$id -H "$H" | jq -c '{supplierName, documentNumber, status, typeSource, identificationRuleVersionId, supplierLayoutVersionId}'; done
+```
+
+The run behind this section (compose project `p5d`, 2026-11-05, no LLM key, the Replay platform configuration of the
+demo data active) used a Playwright script that clicks through steps 1, 3, 4, 6 to 8, 10, 11 and 14 and drops or
+uploads the files of the other steps, polling for each document before the next step (44 checks, all passed; the queue and inbox screenshots were retaken once their rows had loaded); its
+screenshots show the switches, the auto-approval switch off and on, the folder rule and the Nordwind rules, the January
+list's New layout panel with its pre-fill, map mode on the printed count, the table tool with 412 rows, Identify mode
+with both identifiers, the approve dialog and the Active layout, February auto-approved and its delivery, March's
+flags and the grid filtered to article 104539, the review queue and the inbox with the urgent specials first, the
+pending specials layout, its activation, yesterday's copy blocked, the second list's revision panel, the Südhof
+list's identifiers with the rule's test, the rule active, Bergquell's timeline and the type editor's Identification
+tab. The mock ERP journal had `POST /api/article-prices` (202) for February (412 prices, `PL-2027-02`) and April, and
+`POST /api/promotions` (201) for the first specials list (44 items).
+
+What the run showed that is not yet as it should be: the pre-fill reads Valid from at the first place a type label
+finds it (page 2's running title on this list, where the date ends the line), so the reviewer confirms it on page 1;
+the learned Valid from is a region of page 1 (the label "gültig ab" does not read the date back, since the line goes
+on after it), which holds while the supplier keeps the design; and documents typed by the tenant rule carry
+`UNSUPPORTED_TYPE` and are filled in review, since without an LLM provider no step extracts a type without a layout.
 
 ## Settings reference
 

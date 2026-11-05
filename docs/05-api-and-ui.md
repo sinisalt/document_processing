@@ -704,6 +704,17 @@ One monorepo, two apps sharing a component and API-client package:
     sample", "Create layout" (the supplier's Layouts tab) and "Add source rule" (its Routing tab), automation per
     supplier, the Unknown rates, layouts to look at, overridden fallback rules, delivery health and master-data
     conflicts for the last 7, 30 or 90 days.
+- Added by the P5 demos (part E; no new route, docs/09 "Demo: price lists, specials and fallback rules"):
+  - Review screen: a repeating group over one page (200 rows) opens on the rows the open flags name ("1 of 412 rows:
+    the rows a check flagged", a price list's row that `deltaToPrevious` names), with "Show all n rows" and back;
+    a shorter group offers the same filter. A value taken from the page in map mode is sent with its place even when
+    it equals the stored value (a confirmed pre-fill), and counts as an unsaved change until then. In the tenant's
+    scope the Identification card counts the tenant's recent documents and notes the documents of suppliers with own
+    layouts instead of flagging them as a conflict.
+  - Settings > Document types, an adopted type: whether it auto-approves, and for a ConfigAdmin "Switch auto-approval
+    on/off" (`POST /document-types/{key}:upgrade-base {autoApprove}`).
+  - `:match-layout` that confirms the proposed type keeps the pre-fill's record (`appliedConfig.prefill`), so the New
+    layout panel still lists the pre-filled values and their sources.
 
 ### Shared UI decisions
 

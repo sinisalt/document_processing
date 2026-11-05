@@ -574,6 +574,8 @@
       "holds": "Holds for this document",
       "doesNotHold": "Does not hold for this document: {{failed}}",
       "recent": "Matches {{matched}} of the supplier's last {{tested}} documents",
+      "recentTenant": "Matches {{matched}} of the tenant's last {{tested}} documents",
+      "overlapTenant": "Documents of suppliers with own layouts are decided by those layouts, never by a fallback rule: {{layouts}}.",
       "noLayout": "no layout",
       "overlapTitle": "Also matches documents of other layouts",
       "overlap": "Add an identifier that tells them apart: {{layouts}}",

@@ -343,4 +343,29 @@ describe("type editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fork to edit" }));
     await waitFor(() => expect(calls.find((c) => c.method === "POST")?.options.body).toEqual({ from: { template: "std.credit-note", mode: "copy" }, key: "CreditNote", definition: null }));
   });
+
+  it("switches the auto-approval of an adopted type with :upgrade-base", async () => {
+    // docs/11 §5.8: adopting an opt-in template (std.price-list v2) keeps auto-approval off until a ConfigAdmin switches it.
+    let on = false;
+    const priceList = () => type("price-list", "Adopted", { baseTemplate: "std.price-list", baseVersion: 2, publishedVersion: on ? 3 : 2, versions: [version(2, on ? "Deprecated" : "Published"), ...(on ? [version(3, "Published")] : [])] });
+    handlers.set("GET /api/v1/document-types", () => ({ status: 200, data: [priceList()] }));
+    handlers.set("GET /api/v1/document-types/{key}", () => ({ status: 200, data: priceList() }));
+    handlers.set("GET /api/v1/document-types/{key}/versions/{version}", (options) => {
+      const n = (options.params as { path: { version: number } }).path.version;
+      return { status: 200, data: { key: "price-list", version: version(n, n === (on ? 3 : 2) ? "Published" : "Deprecated"), definition: { key: "price-list", version: n, fields: [], processing: { review: { autoApprove: on } } }, formSpec: null, jsonSchema: null, llmSchema: null, descriptors: null } };
+    });
+    handlers.set("POST /api/v1/document-types/{key}:upgrade-base", () => {
+      on = true;
+      return { status: 200, data: priceList() };
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Open price-list" }));
+    const state = await screen.findByTestId("type-auto-approval");
+    expect(state).toHaveAttribute("data-state", "off");
+    expect(state).toHaveTextContent("every document of this type goes to review");
+    fireEvent.click(screen.getByTestId("type-auto-approval-toggle"));
+    await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.path === "/api/v1/document-types/{key}:upgrade-base")?.options).toEqual({ params: { path: { key: "price-list" } }, body: { autoApprove: true } }));
+    await waitFor(() => expect(screen.getByTestId("type-auto-approval")).toHaveAttribute("data-state", "on"));
+    expect(toast.success).toHaveBeenCalledWith("Auto-approval of price-list is on.");
+  });
 });

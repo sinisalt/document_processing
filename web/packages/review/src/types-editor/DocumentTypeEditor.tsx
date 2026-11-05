@@ -113,6 +113,18 @@ export function DocumentTypeEditor({ typeKey, canEdit, onBack }: DocumentTypeEdi
     },
   });
 
+  // An adopted type follows its template; a ConfigAdmin switches its auto-approval (docs/11 §5.8: adopting an opt-in
+  // template keeps it off; `POST /document-types/{key}:upgrade-base {autoApprove}` publishes the switch).
+  const autoApproval = useMutation({
+    mutationFn: async (autoApprove: boolean) =>
+      unwrap(await client.POST("/api/v1/document-types/{key}:upgrade-base", { params: { path: { key: typeKey } }, body: { autoApprove } })),
+    onSuccess: async (updated, autoApprove) => {
+      await invalidate();
+      setChosen(updated.publishedVersion ? Number(updated.publishedVersion) : null);
+      toast.success(autoApprove ? t("types.autoApproval.switchedOn", { key: typeKey }) : t("types.autoApproval.switchedOff", { key: typeKey }));
+    },
+  });
+
   const title = type.data ? (localized(type.data.name, i18n.language) ?? type.data.key) : typeKey;
   const detail = version.data?.detail;
   const isDraft = detail?.version.state === "Draft";
@@ -158,7 +170,27 @@ export function DocumentTypeEditor({ typeKey, canEdit, onBack }: DocumentTypeEdi
       {type.data?.origin === "Adopted" && (
         <Alert>
           <AlertTitle>{t("types.adoptedTitle")}</AlertTitle>
-          <AlertDescription>{t("types.adoptedHint")}</AlertDescription>
+          <AlertDescription className="flex flex-col gap-2">
+            <span>{t("types.adoptedHint")}</span>
+            {detail && detail.version.state === "Published" && (
+              <span className="flex flex-wrap items-center gap-2" data-testid="type-auto-approval" data-state={autoApproveOf(detail.definition) ? "on" : "off"}>
+                <span>{autoApproveOf(detail.definition) ? t("types.autoApproval.on") : t("types.autoApproval.off")}</span>
+                {canEdit && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => autoApproval.mutate(!autoApproveOf(detail.definition))}
+                    disabled={autoApproval.isPending}
+                    aria-busy={autoApproval.isPending}
+                    data-testid="type-auto-approval-toggle"
+                  >
+                    {autoApproveOf(detail.definition) ? t("types.autoApproval.switchOff") : t("types.autoApproval.switchOn")}
+                  </Button>
+                )}
+              </span>
+            )}
+          </AlertDescription>
         </Alert>
       )}
       {!detail ? (
@@ -896,4 +928,10 @@ function JsonTab({ definition, editable, onApply }: { definition: Definition; ed
       )}
     </div>
   );
+}
+
+/** Whether a version's definition auto-approves (`processing.review.autoApprove`). */
+function autoApproveOf(definition: unknown): boolean {
+  const processing = (definition as { processing?: { review?: { autoApprove?: unknown } } } | null)?.processing;
+  return processing?.review?.autoApprove === true;
 }

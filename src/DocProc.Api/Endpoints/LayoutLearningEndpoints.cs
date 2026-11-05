@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DocProc.Application.Routing;
 using DocProc.Api.Auth;
 using DocProc.Api.Documents;
@@ -469,7 +470,15 @@ public static class LayoutLearningEndpoints
         // The reviewer confirms or changes the type (TypeSource Human); the pre-fill runs again only for another type or basis.
         var typeChanged = document.Type != key;
         var previous = new { typeKey = document.Type.Value, typeVersionId = document.DocumentTypeVersionId, typeSource = document.TypeSource };
+        var previousApplied = document.AppliedConfigJson;
         DocumentEndpoints.ApplyType(document, key, type, now);
+        if (!typeChanged && !basisChanged)
+        {
+            // The values stay as pre-filled (nothing runs again), so the record of where they came from stays too: the
+            // New layout panel keeps showing "Pre-filled: n values" with their sources after the type is confirmed.
+            KeepPrefill(document, previousApplied);
+        }
+
         DocumentEndpoints.AddSetTypeCorrection(db, document, previous, new { typeKey = key.Value, typeVersionId = type.VersionId, typeVersion = type.Version, matchLayout = true }, actor, now);
         DocumentQueries.AddEvent(db, document, LayoutEventTypes.Matched, null, actor, new { typeKey = key.Value, request.BasedOnLayoutId, request.PendingLayoutVersionId, request.SaveAs, request.TargetLayoutId, rerun = typeChanged || basisChanged }, now);
         await db.SaveChangesAsync(ct);
@@ -482,6 +491,20 @@ public static class LayoutLearningEndpoints
         }
 
         return TypedResults.Accepted($"/api/v1/documents/{id}", await DocumentEndpoints.FreshDetailAsync(db, id, configs, features, ct));
+    }
+
+    /// <summary>Copies the <c>prefill</c> record of the document's previous applied configuration into its current one.</summary>
+    internal static void KeepPrefill(Document document, string? previousApplied)
+    {
+        if (previousApplied is null || document.AppliedConfigJson is null
+            || JsonNode.Parse(previousApplied) is not JsonObject before || before["prefill"] is not JsonNode prefill
+            || JsonNode.Parse(document.AppliedConfigJson) is not JsonObject applied)
+        {
+            return;
+        }
+
+        applied["prefill"] = prefill.DeepClone();
+        document.AppliedConfigJson = applied.ToJsonString();
     }
 
     private static async Task<Results<Created<SupplierLayoutResponse>, ValidationProblem, ProblemHttpResult>> CreateVersionAsync(

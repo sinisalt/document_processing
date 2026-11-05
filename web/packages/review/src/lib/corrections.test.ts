@@ -91,6 +91,16 @@ describe("diffCorrections", () => {
     expect(diffCorrections(specs, initial, current)).toEqual([{ path: "issueDate", value: null, reason: null }]);
   });
 
+  it("sends a value taken from the page with its place even when it equals the stored one", () => {
+    // The P5 demo: a pre-filled "Valid from" read from page 2's running title, confirmed by a click on page 1, so the
+    // layout saved from the document learns the place on page 1. Retyped since, the place is not sent.
+    const source = { page: 1, bBox: { x0: 100, y0: 230, x1: 160, y1: 240 }, rawText: "27.10.2026" };
+    const mapped = { issueDate: { text: initial.issueDate as string, source } };
+    expect(diffCorrections(specs, initial, structuredClone(initial), null, mapped)).toEqual([{ path: "issueDate", value: initial.issueDate, reason: null, source }]);
+    expect(diffCorrections(specs, initial, structuredClone(initial))).toEqual([]);
+    expect(diffCorrections(specs, initial, setByPath(initial, "issueDate", "2026-10-28"), null, mapped)).toEqual([{ path: "issueDate", value: "2026-10-28", reason: null }]);
+  });
+
   it("keeps a malformed number as text so the API's validation names the field", () => {
     const current = setByPath(initial, "lines[0].unitPrice", "abc");
     expect(diffCorrections(specs, initial, current)).toEqual([{ path: "lines[0].unitPrice", value: "abc", reason: null }]);

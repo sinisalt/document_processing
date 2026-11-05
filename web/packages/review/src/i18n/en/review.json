@@ -44,6 +44,10 @@
     "removeRow": "Remove row {{row}}",
     "columns": "Columns",
     "page": "Rows {{from}}–{{to}} of {{count}}",
+    "onlyFlagged_one": "Only the flagged row ({{count}})",
+    "onlyFlagged_other": "Only the flagged rows ({{count}})",
+    "showAll": "Show all {{count}} rows",
+    "filtered": "{{shown}} of {{count}} rows: the rows a check flagged. Show all to see the others.",
     "previousPage": "Previous rows",
     "nextPage": "Next rows",
     "nested_one": "{{count}} entry",
@@ -254,6 +258,14 @@
     "newVersion": "New version",
     "adoptedTitle": "Adopted from a template",
     "adoptedHint": "This type follows its template and cannot be edited. Fork it to add or change fields; documents keep using the published version until your copy is published.",
+    "autoApproval": {
+      "on": "Auto-approval is on: a document that passes every check of the type is approved without review.",
+      "off": "Auto-approval is off: every document of this type goes to review.",
+      "switchOn": "Switch auto-approval on",
+      "switchOff": "Switch auto-approval off",
+      "switchedOn": "Auto-approval of {{key}} is on.",
+      "switchedOff": "Auto-approval of {{key}} is off."
+    },
     "versionState": "v{{version}} · {{state}}",
     "states": {
       "Draft": "Draft",

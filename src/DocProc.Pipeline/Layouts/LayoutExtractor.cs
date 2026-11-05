@@ -56,6 +56,35 @@ internal sealed record LayoutApplication(
         })]),
         ["filledByLlm"] = filledByLlm,
     };
+
+    /// <summary>
+    /// The application once the type's later steps ran on its tree (docs/11 §5.8, the <c>defaults</c> step): a required
+    /// field the layout did not read but a default filled (a specials list without a printed date, valid on the day it
+    /// is received) is no drift of the layout. The drift is reported again without it, and <c>MAPPING_DRIFT</c> is
+    /// dropped when nothing else made it a drift (too few of the covered fields found on the page stays one).
+    /// </summary>
+    public LayoutApplication AfterDefaults(JsonObject tree)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+        var drift = Extraction.Drift;
+        if (!drift.IsDrift || drift.RequiredMissing.Count == 0)
+        {
+            return this;
+        }
+
+        var stillMissing = drift.RequiredMissing.Where(p => DocProc.Application.Documents.DefinitionTree.ValueOf(tree[p]) is null && tree[p] is not JsonArray).ToList();
+        if (stillMissing.Count == drift.RequiredMissing.Count)
+        {
+            return this;
+        }
+
+        var isDrift = stillMissing.Count > 0 || (drift.Covered > 0 && (double)drift.Found / drift.Covered < DriftReport.MinCoverage);
+        return this with
+        {
+            Extraction = Extraction with { Drift = drift with { RequiredMissing = stillMissing, IsDrift = isDrift } },
+            Flags = isDrift ? Flags : [.. Flags.Where(f => f.Code != FlagCodes.MappingDrift)],
+        };
+    }
 }
 
 /// <summary>

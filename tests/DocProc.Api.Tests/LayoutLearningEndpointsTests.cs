@@ -290,11 +290,26 @@ public sealed class LayoutLearningEndpointsTests : IClassFixture<ApiFactory>
         using var author = Author();
         var basis = await LearnAsync(author, await SeedAsync(name, WebShop("RE-2026-0051"), number: "RE-2026-0051"), new LearnLayoutRequest(LayoutKey: "nordwind-basis"));
         using var reviewer = Reviewer();
+        // What the layout-prefill step recorded (docs/11 §9.3): the New layout panel lists these sources.
+        _factory.Run(db =>
+        {
+            var row = db.Documents.Single(d => d.Id == document);
+            row.AppliedConfigJson = """{"typeKey":"Invoice","prefill":{"sources":{"supplier.vatId":"masterData","invoiceNumber":"definitionLabel"}}}""";
+            db.SaveChanges();
+        });
 
         var confirmed = await reviewer.PostAsJsonAsync($"/api/v1/documents/{document}:match-layout", new MatchLayoutRequest("Invoice"), ApiFactory.Json, Ct);
         confirmed.StatusCode.ShouldBe(HttpStatusCode.Accepted, await confirmed.Content.ReadAsStringAsync(Ct));
         (await confirmed.Content.ReadFromJsonAsync<DocumentDetail>(ApiFactory.Json, Ct))!.TypeSource.ShouldBe(TypeSource.Human);
         _factory.Queue.Documents.ShouldNotContain(m => m.DocumentId == document, "the proposed type confirmed keeps the pre-fill");
+        _factory.Run(db =>
+        {
+            // Compose run of the P5 demo: confirming the pinned type dropped this record, and the panel then said
+            // "Nothing could be pre-filled" over five pre-filled values.
+            var applied = System.Text.Json.Nodes.JsonNode.Parse(db.Documents.Single(d => d.Id == document).AppliedConfigJson!)!;
+            applied["typeSource"]!.GetValue<string>().ShouldBe("Human");
+            applied["prefill"]!["sources"]!["invoiceNumber"]!.GetValue<string>().ShouldBe("definitionLabel", "the values were not pre-filled again, so their record stays");
+        });
 
         var based = await reviewer.PostAsJsonAsync($"/api/v1/documents/{document}:match-layout", new MatchLayoutRequest("Invoice", BasedOnLayoutId: basis.Layout.Id, SaveAs: "newVersion", TargetLayoutId: basis.Layout.Id), ApiFactory.Json, Ct);
         based.StatusCode.ShouldBe(HttpStatusCode.Accepted);

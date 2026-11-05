@@ -399,6 +399,7 @@ internal sealed class ExtractHandler(
     {
         // docs/11 §5.8: the type's defaults step fills what the extraction left empty, before the lookups read the tree.
         await ExtractDefaults.RunAsync(Db, document, type, pipeline, application.Document.Root, tenantCurrency, cancellationToken).ConfigureAwait(false);
+        application = application.AfterDefaults(application.Document.Root);
         var lookupRun = await lookups.RunAsync(document, type, pipeline, application.Document.Root, typedRecord: false, tenantCurrency, cancellationToken).ConfigureAwait(false);
         Apply(document, application.Document, type.Roles, definitionDriven: true);
         document.ExtractionMethod = ExtractionMethod.Profile;

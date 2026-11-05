@@ -588,10 +588,34 @@ public sealed class LayoutLearning(DocProcDbContext db, IContainerBlobStore blob
 
             var expectedValue = ValueAt(expected, path);
             var actualValue = ValueAt(actual, path);
-            result[path] = expectedValue is null ? "skipped" : actualValue is null ? "missing" : ValueComparison.Agree(expectedValue, actualValue) ? "hit" : "mismatch";
+            // A value the document does not print (the defaults step's day received for a specials list without a date)
+            // is nothing the layout could read there: the field is not counted on this document, as a value it lacks.
+            result[path] = expectedValue is null || (actualValue is null && !IsPrinted(expected, path)) ? "skipped"
+                : actualValue is null ? "missing"
+                : ValueComparison.Agree(expectedValue, actualValue) ? "hit" : "mismatch";
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Whether the document's value of a root field was read from its pages (its source names a page) or confirmed by
+    /// a human; a value written by a default, a lookup or the supplier's settings has no place on the page. Members of a
+    /// composite count as printed: their envelope is the composite's.
+    /// </summary>
+    internal static bool IsPrinted(JsonObject tree, string path)
+    {
+        if (path.Contains('.', StringComparison.Ordinal) || tree[path] is not JsonObject field || !DefinitionTree.IsEnvelope(field))
+        {
+            return true;
+        }
+
+        if (field["status"] is JsonValue status && status.TryGetValue<string>(out var s) && s == nameof(FieldStatus.Corrected))
+        {
+            return true;
+        }
+
+        return field["source"] is JsonObject source && source["page"] is not null;
     }
 
     /// <summary>

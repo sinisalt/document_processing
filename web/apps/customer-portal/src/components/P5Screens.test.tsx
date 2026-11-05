@@ -47,6 +47,7 @@ const { SupplierProcessingTab } = await import("./suppliers/SupplierProcessingTa
 const { MasterDataPanel } = await import("./integrations/MasterDataPanel");
 const { AcknowledgementsDialog } = await import("./integrations/AcknowledgementsDialog");
 const { TenantRuleAction } = await import("./review/TenantRuleAction");
+const { IdentificationCard } = await import("./review/IdentificationCard");
 const { DeliveriesTab } = await import("./review/DeliveriesTab");
 const insightsRoute = await import("@/routes/insights");
 const inboxRoute = await import("@/routes/documents.index");
@@ -256,6 +257,43 @@ describe("use for all suppliers without own layouts", () => {
     const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Activate anyway" }));
     await waitFor(() => expect(screen.getByTestId("tenant-rule-saved")).toHaveAttribute("data-state", "Active"));
+  });
+});
+
+describe("the Identification card in the tenant's scope", () => {
+  // The P5 demo (Südhof): the recent documents of the tenant include Nordwind's lists of its own layout. They are no
+  // conflict of a fallback rule, which never decides for a supplier with own layouts, so the card says so instead of
+  // the red "also matches documents of other layouts" of a supplier's layout.
+  const doc = (id: string, layoutKey: string | null) => ({ documentId: id, evidence: [], failed: [], fileName: null, layoutId: layoutKey ? "l-1" : null, layoutKey, matched: true, status: "Approved", supplierId: null, typeKey: "price-list" });
+  const response = { describe: "all of: text Preisliste", hash: "h", matched: 3, positiveIdentifiers: 1, tested: 3, overlaps: [{ documentIds: ["d-1", "d-2"], documents: 2, layoutId: "l-1", layoutKey: "nordwind-price-list" }], documents: [doc("doc-7", null), doc("d-1", "nordwind-price-list"), doc("d-2", "nordwind-price-list"), doc("d-3", null)] };
+  const card = (tenantScope: boolean) => (
+    <IdentificationCard
+      draft={{ connective: "all", chips: [{ id: "c-1", identifier: { text: "Preisliste", page: 1, region: "title" } as never, describe: "text \"Preisliste\" (page 1, title area)", negative: false }] }}
+      onDraftChange={() => undefined}
+      proposal={null}
+      onAdd={() => undefined}
+      onCancel={() => undefined}
+      onUpdate={() => undefined}
+      here={{ data: response as never, isFetching: false, error: null }}
+      recent={{ data: response as never, isFetching: false, error: null }}
+      documentId="doc-7"
+      active
+      onActivate={() => undefined}
+      tenantScope={tenantScope}
+    />
+  );
+
+  it("names the tenant's documents and notes the other layouts without a conflict", () => {
+    renderWith(card(true));
+    expect(screen.getByTestId("identify-recent")).toHaveTextContent("Matches 3 of the tenant's last 3 documents");
+    expect(screen.queryByTestId("identify-overlap")).toBeNull();
+    expect(screen.getByTestId("identify-overlap-tenant")).toHaveTextContent("decided by those layouts, never by a fallback rule: nordwind-price-list (2)");
+  });
+
+  it("keeps the conflict for a supplier's layout", () => {
+    renderWith(card(false));
+    expect(screen.getByTestId("identify-recent")).toHaveTextContent("Matches 3 of the supplier's last 3 documents");
+    expect(screen.getByTestId("identify-overlap")).toHaveTextContent("nordwind-price-list (2)");
   });
 });
 

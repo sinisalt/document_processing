@@ -131,9 +131,11 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
   // "Unsaved" means a correction would be sent, not that an input was touched: "58,80" for 58.8 changes nothing.
   const [hasChanges, setHasChanges] = useState(false);
   useEffect(() => {
-    const subscription = form.watch((values) => setHasChanges(diffCorrections(specs, initial, values).length > 0));
+    // A value confirmed from the page (map mode) counts as a change even when it equals the stored one.
+    setHasChanges(diffCorrections(specs, initial, form.getValues(), undefined, mapped).length > 0);
+    const subscription = form.watch((values) => setHasChanges(diffCorrections(specs, initial, values, undefined, mapped).length > 0));
     return () => subscription.unsubscribe();
-  }, [form, specs, initial]);
+  }, [form, specs, initial, mapped]);
 
   // Leaving with unsaved corrections asks first: the back button, Esc, the sidebar, browser Back, and closing the tab.
   const leave = useBlocker({ shouldBlockFn: blockAlways, enableBeforeUnload: hasChanges, disabled: !hasChanges, withResolver: true });
@@ -273,7 +275,8 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
         toast.info(t("review.save.nothing"));
         return;
       }
-      const count = diffCorrections(specs, initial, values).length;
+      const count = diffCorrections(specs, initial, values, undefined, mapped).length;
+      setMapped({});
       queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
       void queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
       toast.success(t("review.save.saved", { count }));
@@ -299,6 +302,8 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
       return unwrap(await client.PATCH("/api/v1/documents/{id}/fields", { params: { path: { id: document.id } }, body: { corrections } }));
     },
     onSuccess: (updated) => {
+      // The values taken from the page went with this request: they are the document's own now.
+      setMapped({});
       queryClient.setQueryData(queryKeys.documents.detail(document.id), updated);
       void queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
     },
@@ -765,6 +770,7 @@ export function ReviewScreen({ document, canReview, threshold, locale, canManage
                         onActivate={() => changeIdentifyMode(true)}
                         identifiedBy={identifiedLayout && !learnable ? `${identifiedLayout.layoutKey} v${identifiedLayout.version}` : null}
                         canMark={canMarkIdentifiers}
+                        tenantScope={tenantRuleMarkable}
                         footer={
                           tenantRuleMarkable ? (
                             <TenantRuleAction

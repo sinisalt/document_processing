@@ -169,7 +169,7 @@ and exports, the Key Vault secret store, and credential validation of a new key.
 - Additional channels (SFTP, Peppol access point inbound, portal drag-and-drop bulk upload).
 - Accounting integrations (DATEV, Xero, QuickBooks, local ERPs) as webhook consumers or exporters.
 
-## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 done (parts A, B, C and D)
+## Configurable types (docs/11 §23) – P0 done, P1 done, P2 done (parts A, B and C), P3 done (parts A, B and C), P4 done (parts A, B, C and D), P5 done (parts A to E)
 
 The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they overlap. Status:
 
@@ -1674,7 +1674,7 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
     - left for later: a source rule's `subjectRegex` and `fileNameRegex` (400 characters) and a supplier attribute
       schema's `pattern` (400 characters) are only checked to compile, not against `PatternSize`; they run on a
       subject, a file name or an attribute value, short texts, where the worst shapes still take about half a second.
-- **P5, configurable steps, custom types end to end, rules and master data – done (parts A, B, C and D; the compose demos of docs/11 §23 were not run, see "Left for later").**
+- **P5, configurable steps, custom types end to end, rules and master data – done (parts A to E; the three compose demos of docs/11 §23 were run in part E).**
   - Done, part A (configurable steps and lookups), behind the new switch `configurableSteps` (off by default; off, every
     document runs the built-in steps as before and records no pipeline hash):
     - the step model of docs/11 §10.1 as data (`DocProc.Definitions.Pipelines`): `StepKindCatalogue` (every kind per
@@ -1899,6 +1899,55 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       than suppliers;
     - Insights: no `SupplierDailyStats` roll-up and no 14-day baseline alerts (docs/11 §16); the admin console's tenant
       tabs for types, layouts and integrations (docs/11 §19 "Admin console") are not built.
+  - Done, part E (the demo fixtures, the three P5 demos of docs/11 §23 run in compose, and what they exposed):
+    - fixtures drawn by `tests/DocProc.Pipeline.Tests/Pdf/DemoPriceLists.cs` (the generator of part C): the January
+      list `Nordwind_Preisliste_2027-01.pdf` (the P2 list's 412 articles in the later lists' design, with "Anzahl
+      Artikel: 412") and April's (February's prices with two small changes), next to part C's February, March,
+      Tagesangebote, Südhof and Bergquell lists; the specials layout `fixtures/demo/layouts/nordwind-daily-specials.json`;
+    - the demos run on a fresh compose stack (`p5d`) with Playwright in the portal and the admin console, no LLM key:
+      the folder rule `lieferanten/nordwind/preislisten/` pinning `price-list`, the January list held with `NEW_LAYOUT`
+      and pre-filled from master data and the type's labels, mapped with the table tool (412 rows), identified by
+      "Preisliste" and "gültig ab" and saved Active as `nordwind-price-list` by a `MappingAuthor`; February identified,
+      read (412 rows, the printed count checked), AutoApproved and delivered to `POST /api/article-prices`; March in
+      review with the 40 % row shown alone in the grid; the specials list urgent first in the queue, its posted layout
+      activated by confirming it, delivered to `POST /api/promotions`; yesterday's copy blocked by `r_not_expired`, the
+      second list of the day `REVISION_OF` the first; the Südhof rule from review with its save-time test, then Südhof's
+      next list and Bergquell's typed by it (`TypeSource=Identification`, no LLM), Nordwind's April list by its layout
+      (docs/09 "Demo: price lists, specials and fallback rules", screenshots of the run);
+    - fixed: the learner's `stopAt` (a footer starting like page 2's running title ended a 14-page table on page 1,
+      so the learned layout read 22 of 412 rows and stayed a Candidate) and labels (a label ends at a separator word of
+      the line); the field replay and the drift check count no field the document does not print and a default
+      filled (an undated specials list kept its posted layout a Candidate, and every later one got `MAPPING_DRIFT`);
+      a value taken from the page that equals the stored one is sent with its place (the pre-fill's page-2 place was
+      learned otherwise); `:match-layout` confirming the proposed type keeps the pre-fill's record (the panel said
+      "Nothing could be pre-filled" over five pre-filled values);
+    - built for the demos: the grid's filter to the rows the open flags name (a list over one page opens on them,
+      docs/11 §19 item 1), the auto-approval switch of an adopted type in the type editor (`:upgrade-base`, which section
+      23 asks of a `ConfigAdmin`), and the Identification card's wording in the tenant's scope (documents of suppliers
+      with own layouts are no conflict of a fallback rule);
+    - tests: `AnchorLearnerTests` (2, both failing before the fix), `PriceListDemoFixturesTests` (3: the posted specials
+      layout activated by an undated list, the dated copy expired, the second list without drift and a revision; Südhof
+      and Bergquell typed by the tenant rule and April by Nordwind's layout, no LLM; the January and April fixtures),
+      `LayoutLearningEndpointsTests` (the pre-fill record kept), web: `DefinitionForm` (2 filter cases),
+      `corrections` (a value taken from the page), `DocumentTypesPanel` (the auto-approval switch), `P5Screens` (2,
+      the card in the tenant's scope).
+  - Decided (part E, recorded as "Correction (P5, part E)" in docs/11 §8.3, §12.3, §12.6, §19 and §23):
+    - the price-list demo starts from a January list that prints its count (a layout learns only what the first list
+      shows); the P2 file is unchanged because its LLM replay fixtures key on its bytes;
+    - the specials layout is posted as a Candidate and confirmed in review, as the P4 ERP layout is: a layout learned
+      from an undated list could not read a printed date, so the expired copy would read as valid today;
+    - the specials list arrives through its own folder rule (`lieferanten/nordwind/angebote/`, pinning
+      `daily-specials`), so its review task is urgent from the start;
+    - "37 price lists" of the fallback demo is an example; the demo stack's test says 0, since Nordwind's approved
+      lists belong to a supplier with own layouts.
+  - Left for later (part E's scope):
+    - the grid's other filters (rejected rows, low confidence, page n);
+    - the pre-fill reads a type label's first hit in the document (here page 2's running title); a learned date of a
+      line that goes on after it is a region, not a label rule;
+    - documents typed by a tenant rule or the keyword set without a layout carry `UNSUPPORTED_TYPE` and are filled in
+      review when no LLM provider is configured (the compose default);
+    - the expired specials copy is a fixed date (4 November 2026), expired on any day after it rather than always
+      "yesterday".
 - **P6** – not started.
 
 ## Risks and open questions

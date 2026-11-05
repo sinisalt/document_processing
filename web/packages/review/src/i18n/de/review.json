@@ -44,6 +44,10 @@
     "removeRow": "Zeile {{row}} entfernen",
     "columns": "Spalten",
     "page": "Zeilen {{from}}–{{to}} von {{count}}",
+    "onlyFlagged_one": "Nur die markierte Zeile ({{count}})",
+    "onlyFlagged_other": "Nur die markierten Zeilen ({{count}})",
+    "showAll": "Alle {{count}} Zeilen zeigen",
+    "filtered": "{{shown}} von {{count}} Zeilen: die Zeilen, die eine Prüfung markiert hat. Alle zeigen, um die übrigen zu sehen.",
     "previousPage": "Vorherige Zeilen",
     "nextPage": "Nächste Zeilen",
     "nested_one": "{{count}} Eintrag",
@@ -254,6 +258,14 @@
     "newVersion": "Neue Version",
     "adoptedTitle": "Aus einer Vorlage übernommen",
     "adoptedHint": "Dieser Typ folgt seiner Vorlage und lässt sich nicht bearbeiten. Kopieren Sie ihn, um Felder hinzuzufügen oder zu ändern; Dokumente nutzen die veröffentlichte Version, bis Ihre Kopie veröffentlicht ist.",
+    "autoApproval": {
+      "on": "Automatische Freigabe ist an: ein Dokument, das alle Prüfungen des Typs besteht, wird ohne Prüfung freigegeben.",
+      "off": "Automatische Freigabe ist aus: jedes Dokument dieses Typs geht in die Prüfung.",
+      "switchOn": "Automatische Freigabe einschalten",
+      "switchOff": "Automatische Freigabe ausschalten",
+      "switchedOn": "Automatische Freigabe von {{key}} ist an.",
+      "switchedOff": "Automatische Freigabe von {{key}} ist aus."
+    },
     "versionState": "v{{version}} · {{state}}",
     "states": {
       "Draft": "Entwurf",

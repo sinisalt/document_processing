@@ -160,6 +160,27 @@ describe("generated form of a price list", () => {
     expect(input(`lines[${PAGE_SIZE}].supplierSku`)).toHaveValue(`A-${PAGE_SIZE}`);
   });
 
+  it("opens a long list on the rows a check flagged, and shows all rows on request", () => {
+    // The P5 demo: March's list has one article up 40 % against February; deltaToPrevious names that row.
+    const lines = Array.from({ length: 412 }, (_, i) => row(i));
+    render(<Harness spec={templates.priceList} canonical={{ currency: extracted("EUR"), lines, ext: {} }} flaggedPaths={["lines[300].price.amount", "lines", "lines[76].price.amount"]} />);
+    expect([...document.querySelectorAll("[data-line]")].map((e) => e.getAttribute("data-line"))).toEqual(["76", "300"]);
+    expect(screen.getByTestId("grid-filtered-lines")).toHaveTextContent("2 of 412 rows");
+    expect(screen.queryByTestId("grid-pager")).toBeNull();
+    fireEvent.click(screen.getByTestId("grid-filter-flagged-lines"));
+    expect(screen.getByText(`Rows 1–${PAGE_SIZE} of 412`)).toBeInTheDocument();
+    expect(screen.getByTestId("grid-filter-flagged-lines")).toHaveTextContent("Only the flagged rows (2)");
+    fireEvent.click(screen.getByTestId("grid-filter-flagged-lines"));
+    expect(document.querySelectorAll("[data-line]")).toHaveLength(2);
+  });
+
+  it("shows every row of a short list, flagged or not, and offers the filter", () => {
+    render(<Harness spec={templates.priceList} canonical={{ currency: extracted("EUR"), lines: [row(1), row(2), row(3)], ext: {} }} flaggedPaths={["lines[1].price.amount"]} />);
+    expect(document.querySelectorAll("[data-line]")).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("grid-filter-flagged-lines"));
+    expect([...document.querySelectorAll("[data-line]")].map((e) => e.getAttribute("data-line"))).toEqual(["1"]);
+  });
+
   it("names the grid after the definition's label of the group (Articles), not the invoice family's line items", () => {
     render(<Harness spec={templates.priceList} canonical={{ currency: extracted("EUR"), lines: [row(1), row(2)], ext: {} }} />);
     const grid = screen.getByTestId("line-item-grid");

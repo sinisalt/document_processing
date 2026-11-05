@@ -25,6 +25,12 @@ export interface IdentificationCardProps {
   canMark?: boolean;
   /** Below the test: "use for all suppliers without own layouts" for a ConfigAdmin (docs/11 §12.10 step 5). */
   footer?: ReactNode;
+  /**
+   * The identifiers are tested in the tenant's scope (a typed document no layout filled, for a tenant fallback rule):
+   * the recent documents are the tenant's, and documents of other layouts are no conflict, since a fallback rule never
+   * decides for a supplier with own layouts (docs/11 §8.5).
+   */
+  tenantScope?: boolean;
 }
 
 /**
@@ -32,7 +38,7 @@ export interface IdentificationCardProps {
  * these" or "Any of these", per chip widen the location, case-sensitive, "must not contain" and remove; the rule's
  * live test on this document and on the supplier's recent documents, with the overlaps with other layouts in red.
  */
-export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy, canMark = true, footer }: IdentificationCardProps) {
+export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCancel, onUpdate, here, recent, documentId, active, onActivate, identifiedBy, canMark = true, footer, tenantScope = false }: IdentificationCardProps) {
   const { t } = useTranslation();
   const holds = here.data?.documents.find((d) => d.documentId === documentId);
   const others = (recent.data?.documents ?? []).filter((d) => d.documentId !== documentId);
@@ -177,11 +183,16 @@ export function IdentificationCard({ draft, onDraftChange, proposal, onAdd, onCa
               )}
               {recent.data && (
                 <span data-testid="identify-recent">
-                  {t("review.identify.recent", { matched: matched.length, tested: others.length })}
+                  {t(tenantScope ? "review.identify.recentTenant" : "review.identify.recent", { matched: matched.length, tested: others.length })}
                   {perLayout.size > 0 && ` (${[...perLayout.entries()].map(([key, count]) => `${key}: ${count}`).join(", ")})`}
                 </span>
               )}
-              {overlaps.length > 0 && (
+              {overlaps.length > 0 && tenantScope && (
+                <p className="text-xs text-muted-foreground" data-testid="identify-overlap-tenant">
+                  {t("review.identify.overlapTenant", { layouts: overlaps.map((o) => `${o.layoutKey} (${String(o.documents)})`).join(", ") })}
+                </p>
+              )}
+              {overlaps.length > 0 && !tenantScope && (
                 <Alert variant="destructive" data-testid="identify-overlap">
                   <AlertTitle>{t("review.identify.overlapTitle")}</AlertTitle>
                   <AlertDescription>{t("review.identify.overlap", { layouts: overlaps.map((o) => `${o.layoutKey} (${String(o.documents)})`).join(", ") })}</AlertDescription>

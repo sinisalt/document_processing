@@ -12,9 +12,16 @@ namespace DocProc.Pipeline.Tests.Pdf;
 /// PDF they are redrawn only on request (<c>REGENERATE_DEMO_PDFS=&lt;file name&gt;</c>, <c>DemoFixtureTests</c>). Every
 /// value is computed, so the tests know what a layout reads:
 /// <list type="bullet">
+/// <item><see cref="January"/>: the P2 list (<see cref="DemoPriceList"/>, the same 412 articles and prices) as Nordwind
+/// prints it from January on, in the design of the later lists and with "Anzahl Artikel: 412" on page 1, so that a layout
+/// learned from it in review reads the printed count of every later list (docs/11 §23 P5, Correction (P5, part E)). The
+/// P2 file stays as it was: its LLM replay fixtures key on its bytes.</item>
 /// <item><see cref="February"/>: next month's Nordwind list (<c>PL-2027-02</c>, valid from 1 February 2027, "Anzahl
 /// Artikel: 412"), with 12 prices changed against January, all within 25 % (<see cref="FebruaryChanges"/>).</item>
 /// <item><see cref="March"/>: February's prices with one article up 40 % (<see cref="MarchRaisedArticle"/>).</item>
+/// <item><see cref="April"/>: February's prices with two small changes (<see cref="AprilChanges"/>), so it passes against
+/// February while March waits in review (against an approved March the raised article falls back by 29 %). The tenant
+/// fallback demo drops it to show that Nordwind's lists are still decided by Nordwind's own layout.</item>
 /// <item><see cref="Specials"/>, <see cref="SpecialsSecond"/>, <see cref="SpecialsDated"/>: two-page "Tagesangebote"
 /// lists without a printed date (valid on the day they are received), a second one for the same day, and one printed
 /// "gültig am 04.11.2026", which has expired on any later day.</item>
@@ -75,6 +82,21 @@ internal static class DemoPriceLists
     /// <summary>The article March raises by 40 % against February.</summary>
     public const int MarchRaisedArticle = 77;
 
+    /// <summary>The two articles (by number) whose price April changes against February, both within 25 %.</summary>
+    public static readonly IReadOnlyDictionary<int, decimal> AprilChanges = new Dictionary<int, decimal> { [5] = 1.03m, [150] = 0.98m };
+
+    public static PriceList January { get; } = new(
+        "Nordwind_Preisliste_2027-01.pdf",
+        Nordwind,
+        "Preisliste Januar 2027",
+        "PL-2027-01",
+        DemoPriceList.ValidFrom,
+        "01.01.2027",
+        "02.11.2026",
+        DemoPriceList.RowCount,
+        DemoPriceList.Articles,
+        DemoPriceList.RowsPerPage);
+
     public static PriceList February { get; } = new(
         "Nordwind_Preisliste_2027-02.pdf",
         Nordwind,
@@ -99,6 +121,18 @@ internal static class DemoPriceLists
         Reprice(Reprice(DemoPriceList.Articles, FebruaryChanges), new Dictionary<int, decimal> { [MarchRaisedArticle] = 1.40m }),
         DemoPriceList.RowsPerPage);
 
+    public static PriceList April { get; } = new(
+        "Nordwind_Preisliste_2027-04.pdf",
+        Nordwind,
+        "Preisliste April 2027",
+        "PL-2027-04",
+        "2027-04-01",
+        "01.04.2027",
+        "01.03.2027",
+        DemoPriceList.RowCount,
+        Reprice(Reprice(DemoPriceList.Articles, FebruaryChanges), AprilChanges),
+        DemoPriceList.RowsPerPage);
+
     public static PriceList SuedhofJanuary { get; } = new(
         "Suedhof_Preisliste_2027-01.pdf", Suedhof, "Preisliste Januar 2027", "SF-2027-01", "2027-01-01", "01.01.2027", "15.12.2026", null,
         Subset("SF-", 330, 48, 1.0m), [22, 26]);
@@ -111,7 +145,7 @@ internal static class DemoPriceLists
         "Bergquell_Preisliste_2027.pdf", Bergquell, "Preisliste 2027", "BQ-27", "2027-01-01", "01.01.2027", "01.12.2026", null,
         Subset("BQ-", 300, 36, 0.97m), [22, 14]);
 
-    public static IReadOnlyList<PriceList> Lists { get; } = [February, March, SuedhofJanuary, SuedhofFebruary, UnknownSender];
+    public static IReadOnlyList<PriceList> Lists { get; } = [January, February, March, April, SuedhofJanuary, SuedhofFebruary, UnknownSender];
 
     /// <summary>A copy of the articles with the given prices multiplied (tiers follow the new price).</summary>
     private static List<Article> Reprice(IReadOnlyList<Article> articles, IReadOnlyDictionary<int, decimal> factors) =>

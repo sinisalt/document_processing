@@ -208,6 +208,72 @@ public sealed class AnchorLearnerTests
         result.Fields.Single(f => f.Path == "lines").Verified.ShouldBeTrue("the rule reads the two confirmed rows back, not the total line");
     }
 
+    [Fact]
+    public void A_footer_printed_on_every_page_is_no_stop_line_of_a_table_that_runs_over_the_pages()
+    {
+        // The P5 price-list demo (compose run): the line under the last row of the last page is the footer "Nordwind
+        // Großhandel GmbH · Amtsgericht …"; page 2 opens with the running title "Nordwind Großhandel GmbH · Preisliste …".
+        // A stop line "^Nordwind" would end the table at the top of page 2, and the layout read page 1 only (22 of 412 rows).
+        static PageBuilder ListPage(int number, int first, int count)
+        {
+            var page = new PageBuilder(number);
+            var top = 100.0;
+            if (number > 1)
+            {
+                page.Text(60, 40, "Nordwind Großhandel GmbH · Preisliste 2027 · gültig ab 01.01.2027");
+                top = 80;
+            }
+
+            page.Line(top, (60, "Art.-Nr."), (160, "Bezeichnung"), (500, "Menge"), (700, "Betrag"));
+            for (var i = 0; i < count; i++)
+            {
+                page.Line(top + 16 + (i * 16), (60, $"1002{first + i:00}"), (160, $"Artikel {first + i}"), (500, "1"), (700, $"{first + i},00"));
+            }
+
+            return page.Text(60, 950, "Nordwind Großhandel GmbH · Amtsgericht Hamburg HRB 99812");
+        }
+
+        var words = IdentificationRuleTests.Words(ListPage(1, 1, 3), ListPage(2, 4, 3));
+        var rows = Enumerable.Range(1, 2).SelectMany(n => PageGeometry.Lines(words.Page(n)!.Words)
+            .Where(l => l.Words[0].Text.StartsWith("1002", StringComparison.Ordinal))
+            .Select(l => (IReadOnlyList<LearnTableCell>)
+            [
+                new LearnTableCell("supplierSku", n, l.Words[0].Box, l.Words[0].Text),
+                new LearnTableCell("description", n, PageGeometry.Union(l.Words.Skip(1).Take(2))!.Value, "Artikel"),
+                new LearnTableCell("quantity", n, l.Words[3].Box, l.Words[3].Text),
+                new LearnTableCell("lineNet", n, l.Words[4].Box, l.Words[4].Text),
+            ])).ToList();
+        rows.Count.ShouldBe(6);
+        var spec = JsonNode.Parse("""
+            { "page": 1, "bBox": { "x0": 50, "y0": 95, "x1": 800, "y1": 900 }, "path": "lines", "rowAnchor": "supplierSku",
+              "headerRow": { "y0": 98, "y1": 112 }, "pages": "1-*",
+              "columns": [ { "x0": 50, "x1": 150, "field": "supplierSku", "header": "Art.-Nr." }, { "x0": 150, "x1": 490, "field": "description", "header": "Bezeichnung" },
+                           { "x0": 490, "x1": 690, "field": "quantity", "header": "Menge" }, { "x0": 690, "x1": 800, "field": "lineNet", "header": "Betrag" } ] }
+            """)!.AsObject();
+
+        var result = AnchorLearner.Learn(new LearnRequest(words, [], [new LearnTable("lines", rows, RowFields, "supplierSku", spec)], ValueLocale.German));
+
+        var rule = result.Mapping["fields"]!["lines"]!.AsObject();
+        rule["stopAt"].ShouldBeNull("the footer starts like the running title above the rows of page 2");
+        result.Fields.Single(f => f.Path == "lines").Verified.ShouldBeTrue("every confirmed row is read back");
+        Run(result.Mapping, words).Tables["lines"].Rows.Count.ShouldBe(6);
+    }
+
+    [Fact]
+    public void A_label_ends_at_a_separator_of_the_line()
+    {
+        // "Nordwind Großhandel GmbH · Preisliste Januar 2027 · gültig ab 01.01.2027": the label is "gültig ab", not the
+        // whole line before the date (which names the month and does not match next month's list).
+        var words = IdentificationRuleTests.Words(new PageBuilder(1).Text(60, 40, "Nordwind Großhandel GmbH · Preisliste Januar 2027 · gültig ab 01.01.2027"));
+        var result = AnchorLearner.Learn(new LearnRequest(words, [Sample(words, "issueDate", "01.01.2027", JsonValue.Create("2027-01-01"))], [], ValueLocale.German));
+
+        var date = result.Fields.Single(f => f.Path == "issueDate");
+        date.Strategies[0].ShouldBe(LayoutStrategies.LabelRight);
+        date.Label.ShouldBe("gültig ab");
+        var february = IdentificationRuleTests.Words(new PageBuilder(1).Text(60, 40, "Nordwind Großhandel GmbH · Preisliste Februar 2027 · gültig ab 01.02.2027"));
+        Run(result.Mapping, february).Hits.Single(h => h.Path == "issueDate").Value!.ToString().ShouldBe("2027-02-01");
+    }
+
     [Theory]
     [InlineData(FieldKinds.String, "123 456789", "[0-9]{3}\\s?[0-9]{6}")]
     [InlineData(FieldKinds.Identifier, "WS-2026-000318", "[A-Z]{2}-[0-9]{4}-[0-9]{6}")]

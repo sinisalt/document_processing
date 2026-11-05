@@ -1324,6 +1324,14 @@ Correction (P4, part D), found by the P4 demo:
 - **Dry-run replay** (`:replay`) has two parts, stored in `ReplayJson`:
   - The **identification test**: the rule must hold on the documents the version was built from, and must not hold on any approved document that belongs to another of the supplier's (or group's) layouts, nor on the pending documents of another Candidate layout. An overlap blocks activation and names the documents, so the author adds a distinguishing identifier (section 8.5). A rule with an `allowOcrErrors` identifier is tested with that tolerance.
   - The **field replay**: the field mapping runs only over the **replay set**, the approved documents (of the last N of the supplier and type, plus golden documents) on which this version's identification rule holds, and stores a per-field hit, mismatch and missing matrix. Documents of the supplier's other designs are not in the set, because the field rules were never meant for them. For version 1 of a layout with `Origin=NewLayoutReview` the replay set is the source document plus any siblings re-tested against it (12.10); one document is enough. For a new version of an existing layout the set also contains that layout's recent approved documents on which the new rule holds.
+  Correction (P5, part E), found by the P5 specials demo: a field the version covers but the document does not print
+  (a specials list without a date, whose `validFrom` the type's `defaults` step takes from the day received) counted
+  as "missing" on that document, so the replay of a posted specials layout confirmed by an undated list was 0 % for
+  `validFrom` and the layout stayed a Candidate. As built, a root field whose value has no place on the page (its
+  source names no page and it is not Corrected) and that the version reads nothing for is "skipped" on that document,
+  like a field without a value. In the same way the drift check (§8.2) no longer counts a required field the layout
+  did not read when the `defaults` step filled it: `MAPPING_DRIFT` is raised only when other required fields stay
+  empty or fewer than 70 % of the covered fields were found on the page.
 - **Activate** has one condition, used everywhere in this document (8.4, 12.6, 12.10): the identification test passes, and field agreement on a non-empty replay set is at or above the tenant threshold (default 90 % per field). Who may activate, and with which warm-up, is the layout activation policy (decision 2 in section 24, `TenantSettings.LayoutActivation`); by default that is a `MappingAuthor`. Alternatively the version runs in **Shadow**: it is applied but its values are not written, and agreement with the active path is recorded.
 - The first `ReviewWarmup` documents under a new Active version always go to review. `ReviewWarmup` comes from the activation policy: by default 0 for version 1 of a layout saved from a `NEW_LAYOUT` review and activated by a `MappingAuthor` (the reviewer has just checked every value of the source document), and 5 for every other version (editor, LLM proposal, import, new version of an existing layout).
   Correction (P4, warm-up): decision 2 of section 24 sets the warm-up to 5 for every new layout version, version 1 of a
@@ -1920,6 +1928,12 @@ A "Map from page" toggle sits next to Words (`PageViewer.tsx:125-128`). It is on
 - The reviewer focuses a field (`focusedPath` already exists, `ReviewScreen.tsx:96`) or presses M. They click or shift-click words, or drag a rectangle. `FieldHighlightOverlay` gains `selectionMode`, `onRegionSelected(page, bBox, words)` and `onWordClick`. Word rects become pointer-active only in this mode (`FieldHighlightOverlay.tsx:68`). The image stays non-draggable.
 - `toNormalized` (`overlay.ts:37-42`, unused today) converts the selection. It is hit-tested against `normalizedWords` and joined in reading order (y-bucket, then x). The client calls `GET /documents/{id}/pages/{n}/words?bbox=` for authoritative text plus parse candidates per kind, using the supplier locale. The preview reads, for example, "28.10.2026 → 2026-10-28" and can be edited before accepting.
 - Enter assigns and moves to the next empty required field. Tab skips. Esc cancels.
+  Correction (P5, part E), found by the P5 price-list demo: the portal sent only values that differ from the stored
+  ones, so a pre-filled value confirmed by clicking it on the page kept the pre-fill's place (`gültig ab` read from
+  the running title of page 2, "Nordwind Großhandel GmbH · Preisliste Januar 2027 · gültig ab 01.01.2027") and the
+  layout saved from the document learned that line, month included. As built, a value taken from the page is sent
+  with its place even when it equals the stored value (it is then Corrected by the reviewer, confidence 1), and it
+  counts as an unsaved change until it is saved.
 - If there are no words under the box (a scanned page with a weak text layer), `POST /documents/{id}/regions:read {page, bBox}` crops the page PNG and runs `IOcrProvider` on that region only.
 - Correction (P2): suppliers have no locale before their settings (P4), so `/words` and `regions:read` read the candidates in the request's `locale` (`de-DE`, `en-US`, …) or else the tenant's country. Boxes are in page units (0 to 1000 on both axes, like every stored box), a word carries its index in the stored text layer (what `source.words: [[page, i]]` names), and `source` says `pdfText`, `ocr` or `none` (a page without a text layer). The repository ships no `IOcrProvider` implementation (docs/01 plans Tesseract; docs/07 lists it as open), so `regions:read` answers `501` with `code: OCR_NOT_CONFIGURED` on a host without one; the region's words are placed back in page units and nothing is stored.
 - **Match fields.** The reviewer drags a value chip from one field onto another; the correction op is `move`, with history kept.
@@ -2010,6 +2024,14 @@ This needs new normalizers (`NormalizeHandler.cs:42-48` throws "unsupported form
   keeps the row anchor on a mapped column (the definition's anchor field when a column is mapped to it, else the
   anchor chosen, else the first mapped column) when the columns are assigned, instead of the proposal's guess, which
   could anchor the rows on the unit column.
+- Correction (P5, part E), found by the P5 price-list demo: on a 14-page list the line under the last row of the last
+  page is the footer ("Nordwind Großhandel GmbH · Amtsgericht …"), and page 2 opens with the running title
+  "Nordwind Großhandel GmbH · Preisliste …". The learned `stopAt` "^Nordwind" ended the table at the top of page 2,
+  so the layout read 22 of 412 rows, its lines replayed at 0 % and it stayed a Candidate. As built, the first line
+  under the rows is no `stopAt` when a line that starts with the same word is printed above the rows of the last page
+  or on another page the table runs over (the table reader leaves repeated running titles and footers out by itself).
+  A label learned to the left of a value also ends at a separator word of the line ("·", "|", "–"): the label of the
+  date in "… · Preisliste Januar 2027 · gültig ab 01.01.2027" is "gültig ab", not the whole line before it.
 
 ### 12.7 Re-split and re-type in review
 
@@ -3047,6 +3069,18 @@ and Processing tabs, `supplierLayouts` for its Identification tab and for "use f
   tenant}` and the live tests with `{tenant: true}`. The `REVISION_OF` panel compares the earlier document's facts
   (number, validity, rows, status, dates) rather than its pages. The grid's row filter "changed against the previous
   list" is not built (the rows are in the `deltaToPrevious` flag's parameters).
+
+Correction (P5, part E), as built for the P5 demos (docs/09 "Demo: price lists, specials and fallback rules"):
+- **Review screen (item 1).** The grid (`RepeatingGroupGrid`) filters to the rows the open flags name: a list with
+  more rows than one page (200) opens on them ("1 of 412 rows: the rows a check flagged"), so a price list whose
+  `deltaToPrevious` names one row shows that row, with "Show all 412 rows" and back; a shorter list offers the filter.
+  The filters "rejected rows", "low confidence" and "page n" remain unbuilt. In the tenant's scope the Identification
+  card counts "the tenant's last n documents" and notes documents of suppliers with own layouts as decided by those
+  layouts, without the red "also matches documents of other layouts" of a supplier's layout, which a fallback rule
+  never conflicts with.
+- **Document types (item 2).** An adopted type shows whether it auto-approves, and a `ConfigAdmin` switches it
+  ("Switch auto-approval on", `POST /document-types/{key}:upgrade-base {autoApprove}`, §5.8), which section 23 asks
+  of a `ConfigAdmin` before price lists auto-approve.
 - **Suppliers sheet (item 3).** A Processing tab holds the supplier's `pipelineOverrides` (the group's and a layout
   version's are not edited in the UI yet).
 
@@ -3284,8 +3318,32 @@ Every phase is demonstrated with `docker compose up`, using the GreenMail mailbo
   - Demo, price lists: the folder rule `lieferanten/nordwind/preislisten/` (pin `price-list`, 7.5) is added. The first 14-page Nordwind price list (412 rows, repeated headers, tier prices "ab 10" and "ab 50") dropped there is routed to Nordwind and stays one document. Nordwind is layout-managed since P4 but has no price-list layout, so it arrives with `NEW_LAYOUT`, pre-filled against `price-list` from Nordwind's master data. The reviewer maps the table once with the table tool, marks "Preisliste" in the title and the "gültig ab" line as identifiers, and approves with "save as layout", which a `MappingAuthor` activates as `nordwind-price-list`. Next month's list, dropped in the same folder, is identified by that layout, read entirely by its `column-table`, checked against the printed row count and the previous list (12 rows changed, all within 25 %), auto-approved with no warm-up, and delivered to `mock-erp` `POST /api/article-prices` as the payload of 13.10.
     Correction (P4, warm-up): "with no warm-up" holds only because the demo tenant's warm-up was set to 0 in the P4 demo;
     under the default of 5 the first five lists under the new layout version go to review. A copy of it with one article up 40 % goes to review with that row filtered.
+    Correction (P5, part E), as run (docs/09 "Demo: price lists, specials and fallback rules"): "checked against the
+    printed row count" needs a count the layout reads, and a layout learns only what the reviewer confirmed on the
+    first list. The P2 list prints no count, so the demo's first list is `Nordwind_Preisliste_2027-01.pdf`, the same
+    412 articles in the design of the later lists with "Anzahl Artikel: 412", which the reviewer maps to the printed
+    article count (the P2 file stays as it was: its LLM replay fixtures key on its bytes). Price lists auto-approve only
+    after a `ConfigAdmin` switches auto-approval on (adopting the v2 template keeps it off, §5.8). The folder rule pins
+    the type, so the next lists have `TypeSource=Supplier` with the layout version set (the layout identified the
+    design within the pinned type, §9.4). The tenant's warm-up 0 and the outputs of the P3 demo (the `article-price-import`
+    mapping, its binding and destination, the supplier's `erpVendorId`) are set up first, since the stack is fresh.
   - Demo, specials: a two-page "Tagesangebote" list from the same supplier sorts to the top of the queue as urgent, is approved, and goes to the `pos-promotions` WireMock stub as the payload of 13.10; a copy dated yesterday is blocked as expired, and a second list on the same day arrives with `REVISION_OF`.
+    Correction (P5, part E), as run: an undated specials list is valid on the day received (the `defaults` step), so a
+    layout learned from it in review has no rule for a printed date, and a copy printed "gültig am 04.11.2026" would be
+    read as valid today. The demo therefore posts the specials layout (`fixtures/demo/layouts/nordwind-daily-specials.json`,
+    with a `regex-anywhere` rule for "gültig am") as a Candidate, as the P4 demo posts its ERP layout; the first list,
+    dropped into a folder rule `lieferanten/nordwind/angebote/` that pins `daily-specials`, arrives with `NEW_LAYOUT`
+    naming it, urgent with its task due at 23:59:59 of the day, and a `MappingAuthor` confirms and approves it, which
+    activates the layout. The copy is dated 4 November 2026, so it is "yesterday" on the day of the run and expired on
+    any later day. The `pos-promotions` mapping and its binding (`roles.validUntil >= $today()`) are set up first.
   - Demo, tenant fallback rule: a document from Südhof Feinkost, a supplier without layouts, is opened in review; the reviewer marks "Preisliste" in the title and, as `ConfigAdmin`, chooses "use for all suppliers without own layouts". The save-time test shows "would have matched 37 price lists, 0 other documents". After activation the next Südhof list, and one from an unknown sender, are typed `price-list` by the rule (`TypeSource=Identification`, `IdentificationRuleVersionId` set), with keywords and the LLM not called, while Nordwind's documents are still decided by Nordwind's own layouts.
+    Correction (P5, part E), as run: "37 price lists" is an example of a tenant with history. On the demo stack the
+    save-time test reads "would have matched 0 documents of this type, 0 other documents (of 3 tested)": Nordwind's
+    approved lists are left out because Nordwind has own layouts, and no other approved document names "Preisliste".
+    The first Südhof list is typed `price-list` by the tenant's keyword set, which needs `customTypes` (without it, and
+    without an LLM key, the LLM classifier of the demo stack has no recorded answer for it). Nordwind's list after the
+    activation is `Nordwind_Preisliste_2027-04.pdf` (February's prices with two small changes), decided by
+    `nordwind-price-list` and auto-approved.
   - Processing UI.
   - Master-data import and scheduled sync.
   - Callbacks and status polling with `EXTERNAL_REJECTED`.

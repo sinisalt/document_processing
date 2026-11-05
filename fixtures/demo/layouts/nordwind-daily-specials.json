@@ -1,0 +1,30 @@
+{
+  "layoutKey": "nordwind-daily-specials",
+  "name": "Nordwind daily specials",
+  "documentTypeKey": "daily-specials",
+  "identification": {
+    "all": [{ "text": "Tagesangebote", "page": 1, "region": "title" }]
+  },
+  "mapping": {
+    "locale": "de-DE",
+    "fields": {
+      "validFrom": { "rules": [{ "strategy": "regex-anywhere", "pattern": "gültig am\\s+(\\d{2}\\.\\d{2}\\.\\d{4})", "group": 1, "page": 1 }] },
+      "currency": { "rules": [{ "strategy": "regex-anywhere", "pattern": "Alle Preise in ([A-Z]{3})", "group": 1, "page": 1 }] },
+      "supplier.name": { "rules": [{ "strategy": "constant", "value": "Nordwind Großhandel GmbH" }] },
+      "lines": {
+        "strategy": "column-table",
+        "page": "*",
+        "bBox": [60, 280, 935, 940],
+        "headerRow": { "y0": 280, "y1": 296 },
+        "columns": [
+          { "x0": 60, "x1": 158, "field": "supplierSku", "header": "Art.-Nr." },
+          { "x0": 158, "x1": 531, "field": "description", "header": "Bezeichnung" },
+          { "x0": 531, "x1": 672, "field": "packDescription", "header": "Gebinde" },
+          { "x0": 672, "x1": 796, "field": "price", "header": "Angebot" },
+          { "x0": 796, "x1": 934, "field": "previousPrice", "header": "statt" }
+        ],
+        "rowAnchor": "supplierSku"
+      }
+    }
+  }
+}

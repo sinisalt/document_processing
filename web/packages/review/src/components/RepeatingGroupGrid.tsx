@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWatch, type FieldValues } from "react-hook-form";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Columns3, MinusCircle, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Columns3, Filter, MinusCircle, Plus, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -83,6 +83,9 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
   const watched = useWatch<FieldValues>({ name: formName(node.path) });
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [page, setPage] = useState(0);
+  // null: the default, which shows only the flagged rows of a paged grid (a price list's rows that changed too much
+  // against the previous list, docs/11 §19 item 1); the reviewer switches to all rows and back.
+  const [onlyFlaggedChoice, setOnlyFlaggedChoice] = useState<boolean | null>(null);
 
   const rows = useMemo(() => {
     const stored = getByPath(canonical, node.path);
@@ -141,11 +144,15 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
     [node.arithmetic, rows, watched],
   );
 
-  const paged = rows.length > PAGED_ABOVE;
-  const pageCount = paged ? Math.ceil(rows.length / PAGE_SIZE) : 1;
+  const flaggedRows = useMemo(() => [...flagged.lines].filter((index) => index < rows.length).sort((a, b) => a - b), [flagged.lines, rows.length]);
+  const onlyFlagged = flaggedRows.length > 0 && (onlyFlaggedChoice ?? rows.length > PAGED_ABOVE);
+  // The rows the grid shows, by index: every row, or the flagged ones only.
+  const visible = useMemo(() => (onlyFlagged ? flaggedRows : rows.map((_, index) => index)), [onlyFlagged, flaggedRows, rows]);
+  const paged = visible.length > PAGED_ABOVE;
+  const pageCount = paged ? Math.ceil(visible.length / PAGE_SIZE) : 1;
   const current = Math.min(page, pageCount - 1);
   const first = paged ? current * PAGE_SIZE : 0;
-  const last = paged ? Math.min(rows.length, first + PAGE_SIZE) : rows.length;
+  const last = paged ? Math.min(visible.length, first + PAGE_SIZE) : visible.length;
 
   const canEdit = !disabled && !!onStructuralChange;
   const max = node.field.maxItems;
@@ -240,6 +247,23 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
             </Badge>
           ))}
         <span className="ml-auto flex items-center gap-2">
+          {flaggedRows.length > 0 && (
+            <Button
+              type="button"
+              variant={onlyFlagged ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={onlyFlagged}
+              onClick={() => {
+                setOnlyFlaggedChoice(!onlyFlagged);
+                setPage(0);
+              }}
+              data-testid={`grid-filter-flagged-${node.path}`}
+              data-state={onlyFlagged ? "on" : "off"}
+            >
+              <Filter aria-hidden />
+              {onlyFlagged ? t("grid.showAll", { count: rows.length }) : t("grid.onlyFlagged", { count: flaggedRows.length })}
+            </Button>
+          )}
           {optional.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -306,8 +330,8 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
               ))}
             </TableRow>
           </TableHeader>
-          {rows.slice(first, last).map((row, offset) => {
-            const index = first + offset;
+          {visible.slice(first, last).map((index) => {
+            const row = rows[index]!;
             const result = arithmetic[index];
             const rowClass = cn(
               result?.status === "mismatch" && "bg-destructive/5",
@@ -365,10 +389,15 @@ export function RepeatingGroupGrid({ node, layout, canonical, disabled, threshol
           })}
         </Table>
       </div>
+      {onlyFlagged && (
+        <p className="text-xs text-muted-foreground" data-testid={`grid-filtered-${node.path}`}>
+          {t("grid.filtered", { shown: visible.length, count: rows.length })}
+        </p>
+      )}
       {paged && (
         <div className="flex items-center justify-end gap-2 text-sm" data-testid="grid-pager">
           <span className="text-muted-foreground" aria-live="polite">
-            {t("grid.page", { from: first + 1, to: last, count: rows.length })}
+            {t("grid.page", { from: first + 1, to: last, count: visible.length })}
           </span>
           <Button type="button" variant="outline" size="icon-sm" aria-label={t("grid.previousPage")} disabled={current === 0} onClick={() => setPage(current - 1)}>
             <ChevronLeft aria-hidden />

@@ -574,6 +574,8 @@
       "holds": "Trifft auf dieses Dokument zu",
       "doesNotHold": "Trifft nicht auf dieses Dokument zu: {{failed}}",
       "recent": "Trifft auf {{matched}} der letzten {{tested}} Dokumente des Lieferanten zu",
+      "recentTenant": "Trifft auf {{matched}} der letzten {{tested}} Dokumente des Mandanten zu",
+      "overlapTenant": "Dokumente von Lieferanten mit eigenen Layouts entscheiden deren Layouts, nie eine Ersatzregel: {{layouts}}.",
       "noLayout": "kein Layout",
       "overlapTitle": "Trifft auch auf Dokumente anderer Layouts zu",
       "overlap": "Ein Merkmal hinzufügen, das sie unterscheidet: {{layouts}}",

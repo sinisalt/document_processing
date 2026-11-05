@@ -292,8 +292,15 @@ public static partial class AnchorLearner
             }
         }
 
+        // A separator printed between two parts of a line ("Nordwind Großhandel GmbH · Preisliste 2027 · gültig ab")
+        // ends the label: the words before it are another part of the line, which another document prints otherwise.
+        if (IsSeparator(left[0].Text))
+        {
+            return null;
+        }
+
         var label = new List<IndexedWord> { left[0] };
-        for (var i = 1; i < left.Count && label[0].Box.X0 - left[i].Box.X1 <= LabelWordGap; i++)
+        for (var i = 1; i < left.Count && label[0].Box.X0 - left[i].Box.X1 <= LabelWordGap && !IsSeparator(left[i].Text); i++)
         {
             label.Insert(0, left[i]);
         }
@@ -383,6 +390,9 @@ public static partial class AnchorLearner
 
         return null;
     }
+
+    /// <summary>A word of punctuation alone ("·", "|", "–", "/"): it separates the parts of a line and belongs to no label.</summary>
+    private static bool IsSeparator(string text) => text.Length > 0 && !text.Any(char.IsLetterOrDigit);
 
     /// <summary>A label has a letter and is not mostly digits (a value printed beside another is no label).</summary>
     private static bool IsLabel(string text)
@@ -696,6 +706,30 @@ public static partial class AnchorLearner
 
         var bottom = cells.Where(c => c.Page == lastPage).Max(c => c.Box.Y1);
         var after = PageGeometry.Lines(last.Words).FirstOrDefault(l => l.Box.Y0 >= bottom - 1 && l.Words.Any(w => w.Box.CenterX >= tableX0 && w.Box.CenterX <= tableX1) && l.Words[0].Text.Any(char.IsLetter));
-        return after is null ? null : "^" + Regex.Escape(after.Words[0].Text);
+        if (after is null)
+        {
+            return null;
+        }
+
+        // A line that starts the same way above the rows, or on another page the table runs over, would end the table
+        // there: a footer or running title printed on every page ("Nordwind Großhandel GmbH · …" at the top of page 2)
+        // is no end of the table, and the table reader leaves such repeated lines out by itself.
+        var first = after.Words[0].Text;
+        var firstPage = cells.Min(c => c.Page);
+        for (var number = firstPage; number <= lastPage; number++)
+        {
+            if (words.Page(number) is not { } page)
+            {
+                continue;
+            }
+
+            var limit = number == lastPage ? bottom - 1 : double.MaxValue;
+            if (PageGeometry.Lines(page.Words).Any(l => l.Box.Y0 < limit && string.Equals(l.Words[0].Text, first, StringComparison.Ordinal)))
+            {
+                return null;
+            }
+        }
+
+        return "^" + Regex.Escape(first);
     }
 }

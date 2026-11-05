@@ -214,6 +214,9 @@ call), LLM budgets, the type editor's Rules, Processing and Identification tabs 
 review gate, a rule test against a document, tenant fallback rules), "use for all suppliers without own layouts" in
 review, the revision panel side by side, urgent-first sorting, master-data import and sources, destination
 acknowledgements and Insights > Onboarding (docs/09 "Processing, rules and onboarding screens").
+P5 part E runs the three P5 demos of docs/11 §23 in compose: Nordwind's price lists learned in review and then
+auto-approved and delivered, daily specials urgent, expired and revised, and a fallback rule for suppliers without own
+layouts (docs/09 "Demo: price lists, specials and fallback rules"; the files are in `fixtures/demo/uploads/tenant-a`).
 
 **Reset.** `docker compose down` keeps the data (SQL, blobs, Keycloak, secrets live in named
 volumes); `docker compose down -v` deletes the volumes, and the next `up` starts from the seed.
