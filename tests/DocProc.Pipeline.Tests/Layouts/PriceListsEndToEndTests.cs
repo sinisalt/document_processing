@@ -113,6 +113,51 @@ public sealed class PriceListsEndToEndTests
     private static byte[] Upload(string fileName) => File.ReadAllBytes(DemoFixtureTests.UploadPath(fileName));
 
     [Fact]
+    public async Task A_type_adopted_at_version_1_follows_the_template_to_version_2_with_auto_approval_still_off()
+    {
+        // docs/11 §5.8: "adopted types move to it automatically, ... an automatic template upgrade never switches
+        // review.autoApprove on". The start-up seeder does it (TypeCatalogueSeeder.EnsureAllAsync).
+        await using var host = await PipelineTestHost.StartAsync();
+        var v1 = TypeCatalogueSeedSql.FrozenTemplates().Single(t => t.Template.Key == "std.price-list").Template;
+        var now = host.Clock.GetUtcNow();
+        await host.WithDbAsync(async db =>
+        {
+            await TypeCatalogueSeeder.AddMissingPlatformTemplatesAsync(db, now);
+            var definition = new DocumentTypeDefinition
+            {
+                Id = Guid.CreateVersion7(),
+                TenantId = PipelineTestHost.TenantA,
+                Key = "price-list",
+                Name = new Dictionary<string, string>(v1.Name, StringComparer.Ordinal),
+                Origin = DocProc.Application.Configuration.DefinitionOrigin.Adopted,
+                BaseDefinitionId = TypeCatalogueRows.PlatformDefinitionId("std.price-list"),
+                BaseVersion = 1,
+                Status = DocumentTypeStatus.Active,
+                PublishedVersion = 1,
+                CreatedAt = now,
+                CreatedBy = "test",
+                UpdatedAt = now,
+            };
+            definition.Versions.Add(TypeCatalogueRows.PublishedVersion(Guid.CreateVersion7(), definition.Id, PipelineTestHost.TenantA, TypeCatalogueRows.Compile(TypeCatalogueRows.Adopted(v1, "price-list")), now, "test", "Adopted std.price-list v1"));
+            db.DocumentTypeDefinitions.Add(definition);
+            await db.SaveChangesAsync();
+
+            (await TypeCatalogueSeeder.UpgradeAdoptedTypesAsync(db, now)).ShouldBe(1);
+            await db.SaveChangesAsync();
+            (await TypeCatalogueSeeder.UpgradeAdoptedTypesAsync(db, now)).ShouldBe(0, "a type on the newest version stays");
+        });
+
+        var moved = await host.WithDbAsync(db => db.DocumentTypeDefinitions.AsNoTracking().Include(d => d.Versions).SingleAsync(d => d.TenantId == PipelineTestHost.TenantA && d.Key == "price-list"));
+        moved.PublishedVersion.ShouldBe(2);
+        moved.BaseVersion.ShouldBe(2);
+        moved.Versions.Single(v => v.Version == 1).State.ShouldBe(DocumentTypeVersionState.Deprecated, "documents pinned to it keep it");
+        var published = DocProc.Definitions.DefinitionSerializer.Parse(moved.Versions.Single(v => v.Version == 2).DefinitionJson);
+        published.Processing.Review.AutoApprove.ShouldBeFalse("an automatic upgrade never switches auto-approval on");
+        published.Rules.Select(r => r.Id).ShouldContain("r_table");
+        published.Base!.Version.ShouldBe(2);
+    }
+
+    [Fact]
     public void The_validate_stage_owns_the_table_flags_so_a_revalidation_clears_them()
     {
         // tableComplete raises TABLE_ROWS_REJECTED and TABLE_PAGE_NO_ROWS; a code the stage does not own would stay open
