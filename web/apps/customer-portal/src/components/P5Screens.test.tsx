@@ -215,7 +215,7 @@ describe("master-data import", () => {
 describe("destination acknowledgements", () => {
   it("saves a bearer callback and a status poll, and generates the callback secret, shown once", async () => {
     api.handlers.set("PUT /api/v1/destinations/{id}/acknowledgements", () => ({ body: {} }));
-    api.handlers.set("POST /api/v1/destinations/{id}/callback-secret", () => ({ body: { destination: { id: "dest-1", hasCallbackSecret: true }, secret: "q3Jt0b5x-generated-by-the-platform_abcdefghi" } }));
+    api.handlers.set("POST /api/v1/destinations/{id}/callback-secret", () => ({ body: { destination: { id: "dest-1", hasCallbackSecret: true, hasPreviousCallbackSecret: false }, secret: "q3Jt0b5x-generated-by-the-platform_abcdefghi" } }));
     const destination = { id: "dest-1", name: "erp-ap", transport: "http", acknowledgements: null, hasCallbackSecret: false, hasPreviousCallbackSecret: false } as never;
     renderWith(<AcknowledgementsDialog destination={destination} open onOpenChange={() => undefined} />);
     fireEvent.click(await screen.findByTestId("ack-callback"));
@@ -229,6 +229,8 @@ describe("destination acknowledgements", () => {
     expect(callsTo("POST /api/v1/destinations/{id}/callback-secret")).toHaveLength(1);
     expect(callsTo("POST /api/v1/destinations/{id}/callback-secret")[0]!.options.body).toBeUndefined();
     expect(screen.getByTestId("ack-secret-set")).toHaveTextContent("Generate a new one");
+    expect(screen.getByText("Set")).toBeInTheDocument();
+    expect(screen.queryByText("Not set")).toBeNull();
     fireEvent.click(screen.getByTestId("ack-poll"));
     fireEvent.change(screen.getByTestId("ack-url"), { target: { value: "https://erp.example/api/ap/invoices/{externalId}/status" } });
     fireEvent.click(screen.getByTestId("ack-save"));

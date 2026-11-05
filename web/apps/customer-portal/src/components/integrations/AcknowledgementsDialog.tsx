@@ -22,6 +22,8 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
   // The generated secret, shown once in this dialog; never read back from the API.
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // The secret slots as the last generation answered them (the dialog keeps the destination it was opened with).
+  const [slots, setSlots] = useState({ current: destination.hasCallbackSecret, previous: destination.hasPreviousCallbackSecret });
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const set = <K extends keyof AcknowledgementDraft>(key: K, value: AcknowledgementDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.outputs.destinations() });
@@ -44,6 +46,7 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
     mutationFn: async () => unwrap(await client.POST("/api/v1/destinations/{id}/callback-secret", { params: { path: { id: destination.id } } })),
     onSuccess: async (answer) => {
       setSecret(answer.secret);
+      setSlots({ current: answer.destination.hasCallbackSecret, previous: answer.destination.hasPreviousCallbackSecret });
       setCopied(false);
       toast.success(t("integrations.acknowledgements.secretSet"));
       await invalidate();
@@ -103,13 +106,13 @@ export function AcknowledgementsDialog({ destination, open, onOpenChange }: { de
               <div className="grid gap-1">
                 <Label className="flex items-center gap-2 text-xs">
                   {t("integrations.acknowledgements.secret")}
-                  {destination.hasCallbackSecret ? <Badge variant="success">{t("integrations.acknowledgements.secretIsSet")}</Badge> : <Badge variant="warning">{t("integrations.acknowledgements.noSecret")}</Badge>}
-                  {destination.hasPreviousCallbackSecret && <Badge variant="outline">{t("integrations.acknowledgements.previousSecret")}</Badge>}
+                  {slots.current ? <Badge variant="success">{t("integrations.acknowledgements.secretIsSet")}</Badge> : <Badge variant="warning">{t("integrations.acknowledgements.noSecret")}</Badge>}
+                  {slots.previous && <Badge variant="outline">{t("integrations.acknowledgements.previousSecret")}</Badge>}
                 </Label>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" disabled={rotateSecret.isPending} onClick={() => rotateSecret.mutate()} data-testid="ack-secret-set">
                     {rotateSecret.isPending ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
-                    {destination.hasCallbackSecret || secret ? t("integrations.acknowledgements.rotate") : t("integrations.acknowledgements.setSecret")}
+                    {slots.current ? t("integrations.acknowledgements.rotate") : t("integrations.acknowledgements.setSecret")}
                   </Button>
                 </div>
                 {secret && (
