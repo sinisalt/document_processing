@@ -402,6 +402,35 @@ public sealed class DocumentTypeCatalogue(DocProcDbContext db, TimeProvider cloc
         return CatalogueResult<PublishReport>.Ok(await CheckAsync(definition, candidate.Id, candidate.DefinitionJson, earlier, cancellationToken).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// One version of a type (a draft too) compiled as the validate stage would run it: what the type editor's rule test
+    /// runs against a document (<c>POST /document-types/{key}/versions/{v}:test-rules</c>). <see cref="CatalogueStatus.Invalid"/>
+    /// with the publish problems when the version does not compile.
+    /// </summary>
+    public async Task<CatalogueResult<EffectiveType>> EffectiveVersionAsync(Guid tenantId, string key, int version, CancellationToken cancellationToken)
+    {
+        var definition = await LoadDefinitionAsync(tenantId, key, tracked: false, cancellationToken).ConfigureAwait(false);
+        var candidate = definition is null ? null : await db.DocumentTypeVersions.AsNoTracking()
+            .Where(v => v.DefinitionId == definition.Id && v.Version == version)
+            .Select(v => new { v.Id, v.DefinitionJson })
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (definition is null || candidate is null)
+        {
+            return CatalogueResult<EffectiveType>.Fail(CatalogueStatus.NotFound, $"Type '{key}' has no version {version}.");
+        }
+
+        var earlier = await EarlierKeysAsync(definition.Id, candidate.Id, cancellationToken).ConfigureAwait(false);
+        var report = await CheckAsync(definition, candidate.Id, candidate.DefinitionJson, earlier, cancellationToken).ConfigureAwait(false);
+        if (report.Definition is not { } parsed || report.Compiled is not { } compiled || report.Problems.Count > 0)
+        {
+            return CatalogueResult<EffectiveType>.Fail(CatalogueStatus.Invalid, $"Version {version} of '{key}' does not pass the publish checks; validate it first.", report.Problems);
+        }
+
+        var templateKey = parsed.Base?.Template ?? definition.BaseDefinition?.Key ?? parsed.Key;
+        var templateVersion = parsed.Base?.Version ?? definition.BaseVersion ?? parsed.Version;
+        return CatalogueResult<EffectiveType>.Ok(new EffectiveType(definition.Key, parsed, definition.Origin, templateKey, templateVersion, candidate.Id, () => compiled));
+    }
+
     /// <summary>Publishes the draft <paramref name="version"/> when the publish checks pass.</summary>
     public async Task<CatalogueResult<CatalogueType>> PublishAsync(Guid tenantId, string key, int version, int? ifMatch, string? changeNote, string actor, CancellationToken cancellationToken)
     {

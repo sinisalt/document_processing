@@ -2166,6 +2166,123 @@
         }
       }
     },
+    "/api/v1/rule-kinds": {
+      "get": {
+        "tags": [
+          "Pipelines"
+        ],
+        "summary": "The rule kinds a definition may name, with their parameter schemas (docs/11 §11, §18).",
+        "operationId": "ListRuleKinds",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuleKindResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/lookups:test": {
+      "post": {
+        "tags": [
+          "Pipelines"
+        ],
+        "summary": "Calls an http-lookup step's destination for one document and maps the answer, without writing or storing anything (docs/11 §10.2, §19).",
+        "operationId": "TestLookup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupTestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/insights/automation": {
+      "get": {
+        "tags": [
+          "Insights"
+        ],
+        "summary": "Automation per supplier, suppliers without layouts by volume, Unknown rates, layouts and rules to look at, delivery health and master-data conflicts (docs/11 §17).",
+        "operationId": "GetAutomationInsights",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationInsights"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/api-keys": {
       "get": {
         "tags": [
@@ -5473,6 +5590,70 @@
         }
       }
     },
+    "/api/v1/document-types/{key}/versions/{version}:test-rules": {
+      "post": {
+        "tags": [
+          "Document types"
+        ],
+        "summary": "Runs the checks of a version (a draft too) on one document of the type and reports each rule's outcome; nothing is written (docs/11 §19, the type editor's rule test).",
+        "operationId": "TestDocumentTypeRules",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/document-types/{key}/versions/{version}:publish": {
       "post": {
         "tags": [
@@ -8003,6 +8184,121 @@
         },
         "description": "`POST /documents/{id}:assign-supplier` (docs/11 §12.1): a supplier of the document's tenant, and optionally\nAssignSupplierRemember? AssignSupplierRequest.Remember: a source rule made from the document's own source (docs/11 §18, needs `sourceRouting`)."
       },
+      "AutomationInsights": {
+        "required": [
+          "from",
+          "to",
+          "documents",
+          "autoApproved",
+          "unknown",
+          "suppliers",
+          "suppliersWithoutLayouts",
+          "unknownByChannel",
+          "unknownBySourceRule",
+          "degradedLayouts",
+          "staleLayouts",
+          "candidatesWaiting",
+          "overriddenRules",
+          "destinations",
+          "masterDataConflicts"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "documents": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "autoApproved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknown": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "suppliers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierAutomation"
+            }
+          },
+          "suppliersWithoutLayouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierAutomation"
+            }
+          },
+          "unknownByChannel": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnknownRate"
+            }
+          },
+          "unknownBySourceRule": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnknownRate"
+            }
+          },
+          "degradedLayouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LayoutAttention"
+            }
+          },
+          "staleLayouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LayoutAttention"
+            }
+          },
+          "candidatesWaiting": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LayoutAttention"
+            }
+          },
+          "overriddenRules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OverriddenRule"
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DestinationHealth"
+            }
+          },
+          "masterDataConflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MasterDataConflicts"
+            }
+          }
+        },
+        "description": "`GET /insights/automation` (docs/11 §17, the Insights &gt; Onboarding screen): what to onboard next and what\nneeds attention, for the window `[from, to]` (UTC dates, at most int InsightsEndpoints.MaxDays days)."
+      },
       "BulkReprocessItem": {
         "required": [
           "documentId",
@@ -9431,6 +9727,59 @@
             "type": "string"
           }
         }
+      },
+      "DestinationHealth": {
+        "required": [
+          "destinationId",
+          "name",
+          "total",
+          "failed",
+          "deadLettered",
+          "failureRate"
+        ],
+        "type": "object",
+        "properties": {
+          "destinationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "deadLettered": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failureRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "Deliveries of one destination in the window: total, failed, dead-lettered and the failure rate."
       },
       "DestinationResponse": {
         "required": [
@@ -11889,6 +12238,53 @@
           }
         }
       },
+      "InsightLayout": {
+        "required": [
+          "layoutId",
+          "typeKey",
+          "layoutKey",
+          "name",
+          "version",
+          "state",
+          "lastMatchedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "layoutId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "layoutKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "state": {
+            "type": "string"
+          },
+          "lastMatchedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "description": "A layout of a supplier as Insights lists it: its type, key, the state of its newest version and the documents waiting for a Candidate."
+      },
       "ItemDisposition": {
         "enum": [
           "Candidate",
@@ -11936,6 +12332,70 @@
           "Tenant",
           null
         ]
+      },
+      "LayoutAttention": {
+        "required": [
+          "layoutId",
+          "ownerId",
+          "supplierName",
+          "typeKey",
+          "layoutKey",
+          "version",
+          "state",
+          "lastMatchedAt",
+          "waiting"
+        ],
+        "type": "object",
+        "properties": {
+          "layoutId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supplierName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "layoutKey": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "state": {
+            "type": "string"
+          },
+          "lastMatchedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "waiting": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "A layout worth a look: degraded, not matched for 180 days, or a Candidate with documents waiting for its activation."
       },
       "LayoutEvaluationDto": {
         "required": [
@@ -12820,6 +13280,78 @@
         },
         "description": "A lookup table without its entries: the tenant's (`Platform` false) or a platform code list."
       },
+      "LookupTestRequest": {
+        "required": [
+          "documentId",
+          "params"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "params": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "stepId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "`POST /pipelines/lookups:test`: an `http-lookup` step's parameters, tried against one document (the\nprocessing UI's \"Test call\"). `StepId` names the step in the request headers (default `lookupTest`)."
+      },
+      "LookupTestResponse": {
+        "required": [
+          "succeeded",
+          "assignments",
+          "reason",
+          "message",
+          "httpStatus",
+          "attempts"
+        ],
+        "type": "object",
+        "properties": {
+          "succeeded": {
+            "type": "boolean"
+          },
+          "assignments": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "httpStatus": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "attempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "What the test call gave: whether it succeeded, the field assignments the response mapping made (nothing is written\nto the document and nothing is stored), or the reason it failed with the destination's status and the attempts."
+      },
       "MarkGoldenRequest": {
         "type": "object",
         "properties": {
@@ -12831,6 +13363,45 @@
           }
         },
         "description": "`POST /documents/{id}:golden`: an optional note."
+      },
+      "MasterDataConflicts": {
+        "required": [
+          "sourceId",
+          "name",
+          "runId",
+          "at",
+          "conflicts"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "conflicts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "The last run of a master-data source when it left conflicts open."
       },
       "MasterDataRunDto": {
         "required": [
@@ -14012,6 +14583,54 @@
           }
         },
         "description": "A platform integration template (`GET /output-templates`, docs/11 §13.9) and the tenant's mappings copied from it."
+      },
+      "OverriddenRule": {
+        "required": [
+          "ruleId",
+          "name",
+          "typeKey",
+          "matched",
+          "overridden",
+          "rate"
+        ],
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "matched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "overridden": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "A tenant identification rule with how often reviewers overrode the type it gave."
       },
       "PageOfDeliverySummary": {
         "required": [
@@ -16209,6 +16828,165 @@
         },
         "description": "The sender authentication a routing test assumes: the SPF, DKIM and DMARC results and the DKIM signing domains."
       },
+      "RuleKindResponse": {
+        "required": [
+          "kind",
+          "phase",
+          "description",
+          "paramsSchema",
+          "pathParams",
+          "expressionParams"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "paramsSchema": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "pathParams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expressionParams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "One rule kind of this deployment (`GET /rule-kinds`, docs/11 §18): what the type editor's rule form is drawn from."
+      },
+      "RuleTestFlag": {
+        "required": [
+          "code",
+          "severity",
+          "message",
+          "field",
+          "params"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "field": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "params": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "One flag a check raised in a rule test."
+      },
+      "RuleTestRequest": {
+        "required": [
+          "documentId"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "description": "`POST /document-types/{key}/versions/{v}:test-rules`: the document of the type the version's checks run on."
+      },
+      "RuleTestResponse": {
+        "required": [
+          "documentId",
+          "typeKey",
+          "version",
+          "rules",
+          "flags",
+          "blocking"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeKey": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTestRuleResult"
+            }
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTestFlag"
+            }
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "description": "The rule test of the type editor (docs/11 §19): every rule's outcome on the document, every flag the checks raised\n(the structural check and the coded duplicate check too) and whether one blocks. The document is not changed."
+      },
+      "RuleTestRuleResult": {
+        "required": [
+          "id",
+          "kind",
+          "outcome",
+          "flags"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTestFlag"
+            }
+          }
+        },
+        "description": "One rule of the version: `passed` (ran, raised nothing but notes), `warned`, `failed` (blocking) or\n`notRun` (the validate step is off, or the kind has no evaluator), with the flags it raised."
+      },
       "SandboxRunRequest": {
         "required": [
           "documentId"
@@ -16794,6 +17572,92 @@
           }
         },
         "description": "One recent document of a supplier, for the supplier activity view (docs/05 \"Suppliers: ... activity\")."
+      },
+      "SupplierAutomation": {
+        "required": [
+          "supplierId",
+          "name",
+          "documents",
+          "autoApproved",
+          "autoApprovalRate",
+          "correctionsPerDocument",
+          "llmCostUsd",
+          "openNewLayout",
+          "layouts",
+          "sampleDocumentId"
+        ],
+        "type": "object",
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "documents": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "autoApproved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "autoApprovalRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "correctionsPerDocument": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "llmCostUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "openNewLayout": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "layouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InsightLayout"
+            }
+          },
+          "sampleDocumentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        },
+        "description": "One supplier's automation in the window (docs/11 §17): documents, auto-approved, corrections per document, LLM cost,\nits layouts with their state (none, Candidate, Active, Degraded), the open `NEW_LAYOUT` documents and a sample\ndocument to open."
       },
       "SupplierEntityAttributesRequest": {
         "required": [
@@ -18548,6 +19412,58 @@
           null
         ]
       },
+      "UnknownRate": {
+        "required": [
+          "id",
+          "name",
+          "supplierId",
+          "documents",
+          "unknown",
+          "rate"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "supplierId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "documents": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknown": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        },
+        "description": "The Unknown rate of one channel or one source rule."
+      },
       "UpgradeBaseRequest": {
         "required": [
           "autoApprove"
@@ -18636,6 +19552,9 @@
     },
     {
       "name": "Pipelines"
+    },
+    {
+      "name": "Insights"
     },
     {
       "name": "API keys"

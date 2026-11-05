@@ -183,6 +183,38 @@ public sealed class ConfigurableStepsPipelineTests
     }
 
     [Fact]
+    public async Task A_test_call_reaches_the_destination_every_time_and_stores_nothing()
+    {
+        using var receiver = new FakeReceiver { Default = new ReceiverAnswer(200, """{"vendorId":"V-0815"}""") };
+        await using var host = await StartLookupHostAsync(receiver);
+        await EnableAsync(host);
+        var destination = await AddDestinationAsync(host, receiver.BaseUrl + "/vendors?vat={{output.vat}}");
+        // A document without lookups: the test call of the processing UI (POST /pipelines/lookups:test) runs on it.
+        var document = await IngestXmlAsync(host);
+        var step = new ResolvedStep("erpVendor", StepKindCatalogue.HttpLookup, PipelinePhases.Extract, new JsonObject
+        {
+            ["destinationId"] = destination.ToString("D"),
+            ["request"] = """{"vat": "DE811177936"}""",
+            ["response"] = """{"originalInvoiceReference": response.vendorId}""",
+        }, Enabled: true, PipelineSources.Supplier, Fixed: false, Runs: true);
+
+        for (var call = 1; call <= 2; call++)
+        {
+            using var scope = host.CreateTenantScope(PipelineTestHost.TenantA);
+            var lookups = scope.ServiceProvider.GetRequiredService<HttpLookupService>();
+            var outcome = await lookups.RunAsync(new LookupCall(PipelineTestHost.TenantA, document.Id, document.Version, document.Type.Value, step, new JsonObject(), new DateOnly(2026, 11, 5)) { DryRun = true }, Ct);
+            outcome.Succeeded.ShouldBeTrue(outcome.Message);
+            outcome.Cached.ShouldBeFalse("a test call never answers from the stored results");
+            outcome.Assignments["originalInvoiceReference"]!.GetValue<string>().ShouldBe("V-0815");
+            receiver.Requests.Count.ShouldBe(call);
+        }
+
+        receiver.Requests[0].PathAndQuery.ShouldBe("/vendors?vat=DE811177936");
+        (await host.WithDbAsync(db => db.LookupResults.AsNoTracking().CountAsync(r => r.DocumentId == document.Id, Ct))).ShouldBe(0, "nothing is stored");
+        (await host.DocumentAsync(document.Id)).CanonicalJson.ShouldNotBeNull().ShouldNotContain("V-0815", customMessage: "nothing is written to the document");
+    }
+
+    [Fact]
     public async Task A_failing_lookup_is_retried_within_its_bound_then_raises_LOOKUP_FAILED_and_the_document_goes_on()
     {
         using var receiver = new FakeReceiver { Default = new ReceiverAnswer(503, "{}") };

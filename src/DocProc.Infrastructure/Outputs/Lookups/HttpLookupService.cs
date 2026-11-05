@@ -26,7 +26,14 @@ namespace DocProc.Infrastructure.Outputs.Lookups;
 /// <param name="Step">The resolved step with its parameters.</param>
 /// <param name="Values">The values view of the document as Extract has it so far.</param>
 /// <param name="Today">Today in the tenant's time zone (<c>$today()</c>).</param>
-public sealed record LookupCall(Guid TenantId, Guid DocumentId, int DocumentVersion, string TypeKey, ResolvedStep Step, JsonObject Values, DateOnly Today);
+public sealed record LookupCall(Guid TenantId, Guid DocumentId, int DocumentVersion, string TypeKey, ResolvedStep Step, JsonObject Values, DateOnly Today)
+{
+    /// <summary>
+    /// A test call (<c>POST /pipelines/lookups:test</c>, the processing UI's "Test call"): the destination is called
+    /// as a run calls it, but no stored answer is reused, nothing is stored and the breaker does not count it.
+    /// </summary>
+    public bool DryRun { get; init; }
+}
 
 /// <summary>What one <c>http-lookup</c> call gave.</summary>
 /// <param name="Succeeded">The destination answered and the mapping gave assignments (possibly none).</param>
@@ -156,7 +163,7 @@ public sealed partial class HttpLookupService(
 
         var body = method == "POST" ? Encoding.UTF8.GetBytes((request ?? new JsonObject()).ToJsonString()) : [];
         var requestHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{method}\n{uri.AbsoluteUri}\n{Encoding.UTF8.GetString(body)}")));
-        var cached = await CachedAsync(call, requestHash, cancellationToken).ConfigureAwait(false);
+        var cached = call.DryRun ? null : await CachedAsync(call, requestHash, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
             return cached;
@@ -172,6 +179,11 @@ public sealed partial class HttpLookupService(
         if (outcome.Succeeded)
         {
             outcome = await MapAsync(call, step, outcome, responseBody, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (call.DryRun)
+        {
+            return outcome;
         }
 
         Breakers.AddOrUpdate(

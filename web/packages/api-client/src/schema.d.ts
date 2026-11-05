@@ -422,6 +422,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-types/{key}/versions/{version}:test-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs the checks of a version (a draft too) on one document of the type and reports each rule's outcome; nothing is written (docs/11 §19, the type editor's rule test). */
+        post: operations["TestDocumentTypeRules"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types/{key}/versions/{version}:validate": {
         parameters: {
             query?: never;
@@ -1156,6 +1173,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Automation per supplier, suppliers without layouts by volume, Unknown rates, layouts and rules to look at, delivery health and master-data conflicts (docs/11 §17). */
+        get: operations["GetAutomationInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/callbacks/{destinationId}": {
         parameters: {
             query?: never;
@@ -1786,6 +1820,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pipelines/lookups:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Calls an http-lookup step's destination for one document and maps the answer, without writing or storing anything (docs/11 §10.2, §19). */
+        post: operations["TestLookup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receiving-entities": {
         parameters: {
             query?: never;
@@ -1919,6 +1970,23 @@ export interface paths {
         put?: never;
         /** Dry-runs the tenant's source rules against a source (channel, sender, recipients, mailbox, folder, subject, file name, sender authentication) and explains the result: winner, runners-up, conflicts and the type (docs/11 §18). */
         post: operations["TestRouting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rule-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The rule kinds a definition may name, with their parameter schemas (docs/11 §11, §18). */
+        get: operations["ListRuleKinds"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2527,6 +2595,32 @@ export interface components {
             /** Format: uuid */
             supplierId: string;
         };
+        /**
+         * @description `GET /insights/automation` (docs/11 §17, the Insights &gt; Onboarding screen): what to onboard next and what
+         *     needs attention, for the window `[from, to]` (UTC dates, at most int InsightsEndpoints.MaxDays days).
+         */
+        AutomationInsights: {
+            /** Format: int32 */
+            autoApproved: number | string;
+            candidatesWaiting: components["schemas"]["LayoutAttention"][];
+            degradedLayouts: components["schemas"]["LayoutAttention"][];
+            destinations: components["schemas"]["DestinationHealth"][];
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: date */
+            from: string;
+            masterDataConflicts: components["schemas"]["MasterDataConflicts"][];
+            overriddenRules: components["schemas"]["OverriddenRule"][];
+            staleLayouts: components["schemas"]["LayoutAttention"][];
+            suppliers: components["schemas"]["SupplierAutomation"][];
+            suppliersWithoutLayouts: components["schemas"]["SupplierAutomation"][];
+            /** Format: date */
+            to: string;
+            /** Format: int32 */
+            unknown: number | string;
+            unknownByChannel: components["schemas"]["UnknownRate"][];
+            unknownBySourceRule: components["schemas"]["UnknownRate"][];
+        };
         /** @description One document of a bulk reprocess: queued, or why not. */
         BulkReprocessItem: {
             /** Format: uuid */
@@ -2889,6 +2983,20 @@ export interface components {
             kind: string;
             name: string;
             path: string;
+        };
+        /** @description Deliveries of one destination in the window: total, failed, dead-lettered and the failure rate. */
+        DestinationHealth: {
+            /** Format: int32 */
+            deadLettered: number | string;
+            /** Format: uuid */
+            destinationId: string;
+            /** Format: int32 */
+            failed: number | string;
+            /** Format: double */
+            failureRate: number | string;
+            name: string;
+            /** Format: int32 */
+            total: number | string;
         };
         /**
          * @description A destination as the API shows it. The secret is write-only: bool DestinationResponse.HasSecret and DateTimeOffset? DestinationResponse.SecretSetAt
@@ -3577,6 +3685,19 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description A layout of a supplier as Insights lists it: its type, key, the state of its newest version and the documents waiting for a Candidate. */
+        InsightLayout: {
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            name: string;
+            state: string;
+            typeKey: string;
+            /** Format: int32 */
+            version: null | number | string;
+        };
         /**
          * @description What stage 1 decided about an item. ItemDisposition.Candidate is the undecided state the channels store; every other
          *     value is final. Exactly one ItemDisposition.Accepted item per tenant and SHA-256 may exist: the filtered unique index
@@ -3594,6 +3715,23 @@ export interface components {
         JsonObject: Record<string, never>;
         /** @enum {unknown} */
         KeyOwner: "Platform" | "Tenant" | null;
+        /** @description A layout worth a look: degraded, not matched for 180 days, or a Candidate with documents waiting for its activation. */
+        LayoutAttention: {
+            /** Format: date-time */
+            lastMatchedAt: null | string;
+            /** Format: uuid */
+            layoutId: string;
+            layoutKey: string;
+            /** Format: uuid */
+            ownerId: string;
+            state: string;
+            supplierName: null | string;
+            typeKey: string;
+            /** Format: int32 */
+            version: null | number | string;
+            /** Format: int32 */
+            waiting: number | string;
+        };
         /** @description One layout version as the resolver evaluated it for a document (`layouts:resolve`). */
         LayoutEvaluationDto: {
             documentTypeKey: string;
@@ -3830,9 +3968,45 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /**
+         * @description `POST /pipelines/lookups:test`: an `http-lookup` step's parameters, tried against one document (the
+         *     processing UI's "Test call"). `StepId` names the step in the request headers (default `lookupTest`).
+         */
+        LookupTestRequest: {
+            /** Format: uuid */
+            documentId: string;
+            params: components["schemas"]["JsonElement"];
+            stepId?: null | string;
+        };
+        /**
+         * @description What the test call gave: whether it succeeded, the field assignments the response mapping made (nothing is written
+         *     to the document and nothing is stored), or the reason it failed with the destination's status and the attempts.
+         */
+        LookupTestResponse: {
+            assignments: components["schemas"]["JsonElement"];
+            /** Format: int32 */
+            attempts: number | string;
+            /** Format: int32 */
+            httpStatus: null | number | string;
+            message: null | string;
+            reason: null | string;
+            succeeded: boolean;
+        };
         /** @description `POST /documents/{id}:golden`: an optional note. */
         MarkGoldenRequest: {
             note?: null | string;
+        };
+        /** @description The last run of a master-data source when it left conflicts open. */
+        MasterDataConflicts: {
+            /** Format: date-time */
+            at: string;
+            /** Format: int32 */
+            conflicts: number | string;
+            name: string;
+            /** Format: uuid */
+            runId: string;
+            /** Format: uuid */
+            sourceId: null | string;
         };
         /** @description One run with its report. */
         MasterDataRunDto: {
@@ -4120,6 +4294,19 @@ export interface components {
             sourceTypeKey: null | string;
             /** Format: int32 */
             version: number | string;
+        };
+        /** @description A tenant identification rule with how often reviewers overrode the type it gave. */
+        OverriddenRule: {
+            /** Format: int32 */
+            matched: number | string;
+            name: string;
+            /** Format: int32 */
+            overridden: number | string;
+            /** Format: double */
+            rate: number | string;
+            /** Format: uuid */
+            ruleId: string;
+            typeKey: string;
         };
         /** @description One page of a cursor-paginated list (docs/05 "cursor pagination"); string? Page&lt;T&gt;.NextCursor is null on the last page. */
         PageOfDeliverySummary: {
@@ -4687,6 +4874,54 @@ export interface components {
             dmarc?: null | string;
             spf?: null | string;
         };
+        /** @description One rule kind of this deployment (`GET /rule-kinds`, docs/11 §18): what the type editor's rule form is drawn from. */
+        RuleKindResponse: {
+            description: string;
+            expressionParams: string[];
+            kind: string;
+            paramsSchema: components["schemas"]["JsonElement"];
+            pathParams: string[];
+            phase: string;
+        };
+        /** @description One flag a check raised in a rule test. */
+        RuleTestFlag: {
+            code: string;
+            field: null | string;
+            message: string;
+            params: null | {
+                [key: string]: string;
+            };
+            severity: string;
+        };
+        /** @description `POST /document-types/{key}/versions/{v}:test-rules`: the document of the type the version's checks run on. */
+        RuleTestRequest: {
+            /** Format: uuid */
+            documentId: string;
+        };
+        /**
+         * @description The rule test of the type editor (docs/11 §19): every rule's outcome on the document, every flag the checks raised
+         *     (the structural check and the coded duplicate check too) and whether one blocks. The document is not changed.
+         */
+        RuleTestResponse: {
+            blocking: boolean;
+            /** Format: uuid */
+            documentId: string;
+            flags: components["schemas"]["RuleTestFlag"][];
+            rules: components["schemas"]["RuleTestRuleResult"][];
+            typeKey: string;
+            /** Format: int32 */
+            version: number | string;
+        };
+        /**
+         * @description One rule of the version: `passed` (ran, raised nothing but notes), `warned`, `failed` (blocking) or
+         *     `notRun` (the validate step is off, or the kind has no evaluator), with the flags it raised.
+         */
+        RuleTestRuleResult: {
+            flags: components["schemas"]["RuleTestFlag"][];
+            id: string;
+            kind: string;
+            outcome: string;
+        };
         /**
          * @description `POST /sandbox/runs` (docs/11 §15.3): a stored document run through a draft configuration without side effects:
          *     a layout version (Guid? SandboxRunRequest.LayoutVersionId), or a draft rule and field mapping of string? SandboxRunRequest.TypeKey (the
@@ -4845,6 +5080,31 @@ export interface components {
             /** Format: double */
             totalGross: null | number | string;
             type: string;
+        };
+        /**
+         * @description One supplier's automation in the window (docs/11 §17): documents, auto-approved, corrections per document, LLM cost,
+         *     its layouts with their state (none, Candidate, Active, Degraded), the open `NEW_LAYOUT` documents and a sample
+         *     document to open.
+         */
+        SupplierAutomation: {
+            /** Format: double */
+            autoApprovalRate: number | string;
+            /** Format: int32 */
+            autoApproved: number | string;
+            /** Format: double */
+            correctionsPerDocument: number | string;
+            /** Format: int32 */
+            documents: number | string;
+            layouts: components["schemas"]["InsightLayout"][];
+            /** Format: double */
+            llmCostUsd: number | string;
+            name: string;
+            /** Format: int32 */
+            openNewLayout: number | string;
+            /** Format: uuid */
+            sampleDocumentId: null | string;
+            /** Format: uuid */
+            supplierId: string;
         };
         /** @description The body of `PUT /suppliers/{id}/entity-attributes/{entityId}`: the attributes, replacing the stored ones. */
         SupplierEntityAttributesRequest: {
@@ -5316,6 +5576,20 @@ export interface components {
         };
         /** @enum {unknown} */
         TypeSource: "Rule" | "Llm" | "Human" | "Structured" | "Supplier" | "Identification" | "Proposed" | null;
+        /** @description The Unknown rate of one channel or one source rule. */
+        UnknownRate: {
+            /** Format: int32 */
+            documents: number | string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: double */
+            rate: number | string;
+            /** Format: uuid */
+            supplierId: null | string;
+            /** Format: int32 */
+            unknown: number | string;
+        };
         /**
          * @description `POST /document-types/{key}:upgrade-base` (docs/11 §5.8): bool? UpgradeBaseRequest.AutoApprove switches the type's
          *     `review.autoApprove` on or off (null keeps it); the type moves to its template's newest version either way.
@@ -5345,6 +5619,7 @@ export type SchemaApprovalBlock = components['schemas']['ApprovalBlock'];
 export type SchemaApproveDocumentRequest = components['schemas']['ApproveDocumentRequest'];
 export type SchemaAssignSupplierRemember = components['schemas']['AssignSupplierRemember'];
 export type SchemaAssignSupplierRequest = components['schemas']['AssignSupplierRequest'];
+export type SchemaAutomationInsights = components['schemas']['AutomationInsights'];
 export type SchemaBulkReprocessItem = components['schemas']['BulkReprocessItem'];
 export type SchemaBulkReprocessRequest = components['schemas']['BulkReprocessRequest'];
 export type SchemaBundleImportItem = components['schemas']['BundleImportItem'];
@@ -5377,6 +5652,7 @@ export type SchemaDeliveryAttemptDto = components['schemas']['DeliveryAttemptDto
 export type SchemaDeliveryDetail = components['schemas']['DeliveryDetail'];
 export type SchemaDeliverySummary = components['schemas']['DeliverySummary'];
 export type SchemaDependentReferenceDto = components['schemas']['DependentReferenceDto'];
+export type SchemaDestinationHealth = components['schemas']['DestinationHealth'];
 export type SchemaDestinationResponse = components['schemas']['DestinationResponse'];
 export type SchemaDocumentCostsDto = components['schemas']['DocumentCostsDto'];
 export type SchemaDocumentDefinitionRef = components['schemas']['DocumentDefinitionRef'];
@@ -5421,12 +5697,14 @@ export type SchemaIngestionItemDto = components['schemas']['IngestionItemDto'];
 export type SchemaIngestionJsonUpload = components['schemas']['IngestionJsonUpload'];
 export type SchemaIngestionStatus = components['schemas']['IngestionStatus'];
 export type SchemaIngestionSummary = components['schemas']['IngestionSummary'];
+export type SchemaInsightLayout = components['schemas']['InsightLayout'];
 export type SchemaItemDisposition = components['schemas']['ItemDisposition'];
 export type SchemaItemKind = components['schemas']['ItemKind'];
 export type SchemaJoinDocumentsRequest = components['schemas']['JoinDocumentsRequest'];
 export type SchemaJsonElement = components['schemas']['JsonElement'];
 export type SchemaJsonObject = components['schemas']['JsonObject'];
 export type SchemaKeyOwner = components['schemas']['KeyOwner'];
+export type SchemaLayoutAttention = components['schemas']['LayoutAttention'];
 export type SchemaLayoutEvaluationDto = components['schemas']['LayoutEvaluationDto'];
 export type SchemaLayoutResolveResponse = components['schemas']['LayoutResolveResponse'];
 export type SchemaLayoutSuggestionDto = components['schemas']['LayoutSuggestionDto'];
@@ -5444,7 +5722,10 @@ export type SchemaLlmUsageResponse = components['schemas']['LlmUsageResponse'];
 export type SchemaLookupEntryDto = components['schemas']['LookupEntryDto'];
 export type SchemaLookupTableDetail = components['schemas']['LookupTableDetail'];
 export type SchemaLookupTableSummary = components['schemas']['LookupTableSummary'];
+export type SchemaLookupTestRequest = components['schemas']['LookupTestRequest'];
+export type SchemaLookupTestResponse = components['schemas']['LookupTestResponse'];
 export type SchemaMarkGoldenRequest = components['schemas']['MarkGoldenRequest'];
+export type SchemaMasterDataConflicts = components['schemas']['MasterDataConflicts'];
 export type SchemaMasterDataRunDto = components['schemas']['MasterDataRunDto'];
 export type SchemaMasterDataRunRequest = components['schemas']['MasterDataRunRequest'];
 export type SchemaMasterDataRunStatus = components['schemas']['MasterDataRunStatus'];
@@ -5465,6 +5746,7 @@ export type SchemaOutputMappingVersionSummary = components['schemas']['OutputMap
 export type SchemaOutputPreviewRequest = components['schemas']['OutputPreviewRequest'];
 export type SchemaOutputPreviewResponse = components['schemas']['OutputPreviewResponse'];
 export type SchemaOutputTemplateSummary = components['schemas']['OutputTemplateSummary'];
+export type SchemaOverriddenRule = components['schemas']['OverriddenRule'];
 export type SchemaPageOfDeliverySummary = components['schemas']['PageOfDeliverySummary'];
 export type SchemaPageOfDocumentSummary = components['schemas']['PageOfDocumentSummary'];
 export type SchemaPageOfIngestionSummary = components['schemas']['PageOfIngestionSummary'];
@@ -5520,6 +5802,11 @@ export type SchemaRoutingTestCandidate = components['schemas']['RoutingTestCandi
 export type SchemaRoutingTestRequest = components['schemas']['RoutingTestRequest'];
 export type SchemaRoutingTestResponse = components['schemas']['RoutingTestResponse'];
 export type SchemaRoutingTestSenderAuth = components['schemas']['RoutingTestSenderAuth'];
+export type SchemaRuleKindResponse = components['schemas']['RuleKindResponse'];
+export type SchemaRuleTestFlag = components['schemas']['RuleTestFlag'];
+export type SchemaRuleTestRequest = components['schemas']['RuleTestRequest'];
+export type SchemaRuleTestResponse = components['schemas']['RuleTestResponse'];
+export type SchemaRuleTestRuleResult = components['schemas']['RuleTestRuleResult'];
 export type SchemaSandboxRunRequest = components['schemas']['SandboxRunRequest'];
 export type SchemaSaveOutputMappingDraftRequest = components['schemas']['SaveOutputMappingDraftRequest'];
 export type SchemaSetCallbackSecretRequest = components['schemas']['SetCallbackSecretRequest'];
@@ -5534,6 +5821,7 @@ export type SchemaSplitPartRequest = components['schemas']['SplitPartRequest'];
 export type SchemaSplitPartResult = components['schemas']['SplitPartResult'];
 export type SchemaStepKindResponse = components['schemas']['StepKindResponse'];
 export type SchemaSupplierActivityItem = components['schemas']['SupplierActivityItem'];
+export type SchemaSupplierAutomation = components['schemas']['SupplierAutomation'];
 export type SchemaSupplierEntityAttributesRequest = components['schemas']['SupplierEntityAttributesRequest'];
 export type SchemaSupplierEntityAttributesResponse = components['schemas']['SupplierEntityAttributesResponse'];
 export type SchemaSupplierFromReviewResponse = components['schemas']['SupplierFromReviewResponse'];
@@ -5570,6 +5858,7 @@ export type SchemaTypeIdentificationRuleResponse = components['schemas']['TypeId
 export type SchemaTypeIdentificationRuleVersionRequest = components['schemas']['TypeIdentificationRuleVersionRequest'];
 export type SchemaTypeIdentificationRuleVersionResponse = components['schemas']['TypeIdentificationRuleVersionResponse'];
 export type SchemaTypeSource = components['schemas']['TypeSource'];
+export type SchemaUnknownRate = components['schemas']['UnknownRate'];
 export type SchemaUpgradeBaseRequest = components['schemas']['UpgradeBaseRequest'];
 export type SchemaValueCandidateDto = components['schemas']['ValueCandidateDto'];
 export type $defs = Record<string, never>;
@@ -6576,6 +6865,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PublishReportDto"];
                 };
+            };
+        };
+    };
+    TestDocumentTypeRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -7964,6 +8296,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionDetail"];
+                };
+            };
+        };
+    };
+    GetAutomationInsights: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationInsights"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
@@ -9450,6 +9814,46 @@ export interface operations {
             };
         };
     };
+    TestLookup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LookupTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupTestResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ListReceivingEntities: {
         parameters: {
             query?: never;
@@ -9733,6 +10137,26 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    ListRuleKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleKindResponse"][];
                 };
             };
         };

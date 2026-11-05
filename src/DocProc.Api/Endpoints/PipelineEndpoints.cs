@@ -4,9 +4,11 @@ using System.Text.Json.Nodes;
 using DocProc.Api.Auth;
 using DocProc.Application.Configuration;
 using DocProc.Application.Outputs;
+using DocProc.Definitions;
 using DocProc.Definitions.Pipelines;
 using DocProc.Domain.Documents;
 using DocProc.Infrastructure.Llm;
+using DocProc.Infrastructure.Outputs.Lookups;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
@@ -49,6 +51,21 @@ public sealed record LlmBudgetsResponse(IReadOnlyList<LlmBudgetResponse> Budgets
 /// <summary>The tenant's LLM budgets, as a whole: the list replaces the stored one (an empty list removes every budget).</summary>
 public sealed record PutLlmBudgetsRequest(IReadOnlyList<LlmBudgetDto>? Budgets);
 
+/// <summary>One rule kind of this deployment (<c>GET /rule-kinds</c>, docs/11 §18): what the type editor's rule form is drawn from.</summary>
+public sealed record RuleKindResponse(string Kind, string Phase, string Description, JsonElement ParamsSchema, IReadOnlyList<string> PathParams, IReadOnlyList<string> ExpressionParams);
+
+/// <summary>
+/// <c>POST /pipelines/lookups:test</c>: an <c>http-lookup</c> step's parameters, tried against one document (the
+/// processing UI's "Test call"). <c>StepId</c> names the step in the request headers (default <c>lookupTest</c>).
+/// </summary>
+public sealed record LookupTestRequest(Guid DocumentId, JsonElement Params, string? StepId = null);
+
+/// <summary>
+/// What the test call gave: whether it succeeded, the field assignments the response mapping made (nothing is written
+/// to the document and nothing is stored), or the reason it failed with the destination's status and the attempts.
+/// </summary>
+public sealed record LookupTestResponse(bool Succeeded, JsonElement Assignments, string? Reason, string? Message, int? HttpStatus, int Attempts);
+
 /// <summary>
 /// The configurable steps of P5 (docs/11 §10): the step-kind catalogue, the resolved pipeline of a type (for a supplier
 /// and a layout version), the pipelines documents ran (by hash), and the tenant's LLM budgets (§16).
@@ -80,6 +97,21 @@ public static class PipelineEndpoints
             .WithTags("Pipelines")
             .WithName("GetPipelineSnapshot")
             .WithSummary("The steps of a pipeline documents ran, by its hash (Documents.pipelineHash).");
+
+        group.MapGet("/rule-kinds", () => TypedResults.Ok<IReadOnlyList<RuleKindResponse>>(
+                [.. RuleKinds.Available.Values.OrderBy(k => k.Phase, StringComparer.Ordinal).ThenBy(k => k.Kind, StringComparer.Ordinal)
+                    .Select(k => new RuleKindResponse(k.Kind, k.Phase, k.Description, JsonSerializer.SerializeToElement(k.ParamsSchema), k.PathParams, RuleKinds.ExpressionParams.GetValueOrDefault(k.Kind) ?? []))]))
+            .RequireAuthorization(Policies.Read)
+            .WithTags("Pipelines")
+            .WithName("ListRuleKinds")
+            .WithSummary("The rule kinds a definition may name, with their parameter schemas (docs/11 §11, §18).");
+
+        group.MapPost("/pipelines/lookups:test", TestLookupAsync)
+            .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(64 * 1024))
+            .WithTags("Pipelines")
+            .WithName("TestLookup")
+            .WithSummary("Calls an http-lookup step's destination for one document and maps the answer, without writing or storing anything (docs/11 §10.2, §19).");
 
         var budgets = group.MapGroup("/llm-budgets").RequireAuthorization(Policies.TenantAdmin).WithTags("LLM");
         budgets.MapGet("/", ListBudgetsAsync).WithName("ListLlmBudgets").WithSummary("The tenant's LLM budgets with what was spent in each current period (docs/11 §16).");
@@ -144,6 +176,82 @@ public static class PipelineEndpoints
             [.. pipeline.Steps.Select(s => new ResolvedStepResponse(s.Id, s.Kind, s.Phase, JsonSerializer.SerializeToElement(s.Params), s.Enabled, s.Source, s.Fixed, s.Runs))],
             [.. pipeline.Notes.Select(n => $"{n.Source}{(n.Reference is { } r ? ":" + r : string.Empty)}[{n.Index}]: {n.Message}")],
             [.. config.Problems.Select(p => new PipelineProblemResponse(p.Path, p.Message))]);
+    }
+
+    private static async Task<Results<Ok<LookupTestResponse>, NotFound, ValidationProblem, ProblemHttpResult>> TestLookupAsync(
+        LookupTestRequest request,
+        ITenantContext tenant,
+        [FromServices] DocProcDbContext db,
+        [FromServices] ITenantFeatures features,
+        [FromServices] IOutputRenderer renderer,
+        [FromServices] IServiceProvider services,
+        CancellationToken ct)
+    {
+        if (RequireTenant(tenant, "Pipelines") is { } problem)
+        {
+            return problem;
+        }
+
+        var tenantId = tenant.TenantId!.Value;
+        if (!await features.IsEnabledAsync(tenantId, TenantFeature.ConfigurableSteps, ct))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Feature not enabled", detail: "The 'configurableSteps' feature is off for this tenant; a tenant admin switches it on in the settings (features.configurableSteps).");
+        }
+
+        var errors = new Errors();
+        var stepId = request.StepId ?? "lookupTest";
+        if (!PipelineResolver.IsStepId(stepId))
+        {
+            errors.Add("stepId", "A step id is a letter followed by letters, digits, '.', '_' or '-' (at most 64).");
+        }
+
+        var parameters = request.Params.ValueKind == JsonValueKind.Object ? JsonNode.Parse(request.Params.GetRawText()) as JsonObject : null;
+        if (parameters is null)
+        {
+            errors.Add("params", "params is the step's parameter object.");
+        }
+        else
+        {
+            foreach (var invalid in PipelineResolver.CheckParams(StepKindCatalogue.HttpLookup, parameters, "params", partial: false))
+            {
+                errors.Add(invalid.Path, invalid.Message);
+            }
+
+            // The checks a supplier's override gets at save: an http destination of the tenant, expressions that parse.
+            var asOverride = new PipelineOverride { Op = PipelineOverrideOps.InsertAfter, Step = "llm", With = new StepDefinition { Id = "lookupTest", Kind = StepKindCatalogue.HttpLookup, Params = parameters } };
+            var checks = new Errors();
+            await PipelineChecks.CheckLookupsAsync(db, renderer, [asOverride], "step", checks, ct);
+            foreach (var (field, messages) in checks.Fields())
+            {
+                foreach (var message in messages)
+                {
+                    errors.Add(field.Replace("step[0].with.params", "params", StringComparison.Ordinal), message);
+                }
+            }
+        }
+
+        if (errors.ToProblem() is { } invalidRequest)
+        {
+            return invalidRequest;
+        }
+
+        var lookups = services.GetService<HttpLookupService>();
+        var views = services.GetService<IDocumentDataViewBuilder>();
+        if (lookups is null || views is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Outputs not available", detail: "This host has no outputs (destinations) to call.");
+        }
+
+        var view = await views.BuildAsync(new DataViewRequest(request.DocumentId), ct);
+        if (view is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var step = new ResolvedStep(stepId, StepKindCatalogue.HttpLookup, PipelinePhases.Extract, parameters!, Enabled: true, PipelineSources.Supplier, Fixed: false, Runs: true);
+        var outcome = await lookups.RunAsync(new LookupCall(tenantId, request.DocumentId, view.DocumentVersion, view.TypeKey, step, view.View, view.Today) { DryRun = true }, ct);
+        var assignments = new JsonObject(outcome.Assignments.Select(a => KeyValuePair.Create(a.Key, a.Value?.DeepClone())));
+        return TypedResults.Ok(new LookupTestResponse(outcome.Succeeded, JsonSerializer.SerializeToElement(assignments), outcome.Reason, outcome.Message, outcome.HttpStatus, outcome.Attempts));
     }
 
     private static async Task<Results<Ok<PipelineSnapshotResponse>, NotFound, ProblemHttpResult>> SnapshotAsync(string hash, ITenantContext tenant, [FromServices] DocProcDbContext db, CancellationToken ct)

@@ -112,6 +112,7 @@ v1.MapMasterData();
 v1.MapLookupTables();
 v1.MapLlmAdmin();
 v1.MapPipelines();
+v1.MapInsights();
 
 // The development token issuer exists only while enabled (never in production: AddDocProcAuthentication refuses to start).
 if (app.Services.GetRequiredService<DevAuthOptions>().Enabled)

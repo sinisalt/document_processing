@@ -7,10 +7,12 @@ using DocProc.Application.Configuration;
 using DocProc.Definitions;
 using DocProc.Definitions.Compilation;
 using DocProc.Infrastructure.Catalogue;
+using DocProc.Infrastructure.Persistence;
 using DocProc.Infrastructure.Persistence.Entities;
 using DocProc.Infrastructure.Persistence.Tenancy;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using static DocProc.Api.Endpoints.EndpointSupport;
 
 namespace DocProc.Api.Endpoints;
@@ -176,6 +178,27 @@ public sealed record UpgradeBaseRequest(bool? AutoApprove);
 
 public sealed record PublishDocumentTypeRequest(string? ChangeNote);
 
+/// <summary><c>POST /document-types/{key}/versions/{v}:test-rules</c>: the document of the type the version's checks run on.</summary>
+public sealed record RuleTestRequest(Guid DocumentId);
+
+/// <summary>One flag a check raised in a rule test.</summary>
+public sealed record RuleTestFlag(string Code, string Severity, string Message, string? Field, IReadOnlyDictionary<string, string>? Params)
+{
+    public static RuleTestFlag From(DocProc.Domain.Flags.DocumentFlag flag) => new(flag.Code, flag.Severity.ToString(), flag.Message, flag.Field, flag.Params);
+}
+
+/// <summary>
+/// One rule of the version: <c>passed</c> (ran, raised nothing but notes), <c>warned</c>, <c>failed</c> (blocking) or
+/// <c>notRun</c> (the validate step is off, or the kind has no evaluator), with the flags it raised.
+/// </summary>
+public sealed record RuleTestRuleResult(string Id, string Kind, string Outcome, IReadOnlyList<RuleTestFlag> Flags);
+
+/// <summary>
+/// The rule test of the type editor (docs/11 §19): every rule's outcome on the document, every flag the checks raised
+/// (the structural check and the coded duplicate check too) and whether one blocks. The document is not changed.
+/// </summary>
+public sealed record RuleTestResponse(Guid DocumentId, string TypeKey, int Version, IReadOnlyList<RuleTestRuleResult> Rules, IReadOnlyList<RuleTestFlag> Flags, bool Blocking);
+
 public sealed record DefinitionProblemDto(string Where, string Message)
 {
     internal static DefinitionProblemDto From(DefinitionProblem p) => new(p.Where, p.Message);
@@ -261,6 +284,11 @@ public static class DocumentTypeEndpoints
             .RequireAuthorization(Policies.ConfigAdmin)
             .WithName("ValidateDocumentTypeVersion")
             .WithSummary("Runs the publish-time checks on a version and returns the report, without publishing.");
+        types.MapPost("/{key}/versions/{version:int}:test-rules", TestRulesAsync)
+            .RequireAuthorization(Policies.ConfigAdmin)
+            .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
+            .WithName("TestDocumentTypeRules")
+            .WithSummary("Runs the checks of a version (a draft too) on one document of the type and reports each rule's outcome; nothing is written (docs/11 §19, the type editor's rule test).");
         types.MapPost("/{key}/versions/{version:int}:publish", PublishAsync)
             .RequireAuthorization(Policies.ConfigAdmin)
             .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))
@@ -555,6 +583,66 @@ public static class DocumentTypeEndpoints
         }
 
         return result.Status == CatalogueStatus.Invalid ? Invalid(result) : Problem(result);
+    }
+
+    private static async Task<Results<Ok<RuleTestResponse>, NotFound, ValidationProblem, ProblemHttpResult>> TestRulesAsync(
+        string key,
+        int version,
+        RuleTestRequest request,
+        ITenantContext tenant,
+        [FromServices] DocProcDbContext db,
+        [FromServices] ITenantFeatures features,
+        [FromServices] DocumentTypeCatalogue catalogue,
+        [FromServices] DocProc.Domain.Validation.DocumentValidator validator,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (RequireTenant(tenant, What) is { } problem)
+        {
+            return problem;
+        }
+
+        var tenantId = tenant.TenantId!.Value;
+        if (await RequireFeatureAsync(features, tenantId, TenantFeature.ConfigurableTypes, ct) is { } off)
+        {
+            return off;
+        }
+
+        var document = await db.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == request.DocumentId, ct);
+        if (document is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (document.Type.Value != key || string.IsNullOrEmpty(document.CanonicalJson))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["documentId"] = [document.Type.Value != key ? $"The document is of type '{document.Type.Value}'; test the rules of '{key}' on one of its own documents." : "The document has no data to test the rules on yet."],
+            });
+        }
+
+        var effective = await catalogue.EffectiveVersionAsync(tenantId, key, version, ct);
+        if (effective.Status != CatalogueStatus.Ok)
+        {
+            return effective.Status == CatalogueStatus.Invalid ? Invalid(effective) : Problem(effective);
+        }
+
+        var type = effective.Value!;
+        var tenantRow = await db.Tenants.AsNoTracking().SingleAsync(t => t.Id == tenantId, ct);
+        var run = await DocProc.Pipeline.Support.DocumentChecks.RunAsync(db, document, type, tenantRow, DocProc.Pipeline.Support.DocumentChecks.TodayFor(tenantRow, clock.GetUtcNow()), validator, ct);
+        var notRun = run.Result?.RulesNotRun ?? [];
+        var rules = type.Definition.Rules.Select(rule =>
+        {
+            IReadOnlyList<DocProc.Domain.Flags.DocumentFlag> raised = run.Result?.ByRule.GetValueOrDefault(rule.Id) ?? [];
+            var outcome = notRun.Contains(rule.Id) || run.Result is null || !run.Result.ByRule.ContainsKey(rule.Id)
+                ? "notRun"
+                : raised.Any(f => f.Severity == DocProc.Domain.Flags.FlagSeverity.Blocking) ? "failed"
+                : raised.Any(f => f.Severity == DocProc.Domain.Flags.FlagSeverity.Warning) ? "warned"
+                : "passed";
+            return new RuleTestRuleResult(rule.Id, rule.Kind, outcome, [.. raised.Select(RuleTestFlag.From)]);
+        }).ToList();
+        return TypedResults.Ok(new RuleTestResponse(document.Id, key, version, rules, [.. run.Flags.Select(RuleTestFlag.From)], run.Flags.Any(f => f.Severity == DocProc.Domain.Flags.FlagSeverity.Blocking)));
     }
 
     private static async Task<Results<Ok<DocumentTypeDetail>, UnprocessableEntity<PublishReportDto>, ValidationProblem, ProblemHttpResult>> PublishAsync(

@@ -151,6 +151,9 @@ internal static partial class EndpointSupport
         /// <summary>Whether <paramref name="field"/> has an error already.</summary>
         public bool Has(string field) => _errors.ContainsKey(field);
 
+        /// <summary>The errors so far, by field.</summary>
+        public IEnumerable<KeyValuePair<string, string[]>> Fields() => _errors;
+
         public Errors Add(string field, string message, string? code = null, IReadOnlyDictionary<string, string>? parameters = null)
         {
             _errors[field] = [message];
