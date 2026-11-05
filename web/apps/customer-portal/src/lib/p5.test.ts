@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dueState, sortByReviewDue } from "./priority";
+import { documentSortOf, dueState } from "./priority";
 import { insightsWindow, percent } from "./insights";
 import { acknowledgementBody, acknowledgementDraft, callbackUrl } from "@/components/integrations/acknowledgements";
 import { csvHeader, guessColumns, importBody, isImportTarget, reportOf } from "@/components/integrations/masterData";
@@ -18,16 +18,10 @@ describe("review priority (docs/11 §11 dueBy)", () => {
     expect(dueState("not a date", now)).toBeNull();
   });
 
-  it("puts urgent reviews first, then by due time, keeping the list's order otherwise", () => {
-    const rows = [
-      { id: "a", priority: "Normal", due: null },
-      { id: "b", priority: "Urgent", due: "2026-11-05T22:59:59Z" },
-      { id: "c", priority: "High", due: null },
-      { id: "d", priority: "Urgent", due: "2026-11-05T12:00:00Z" },
-      { id: "e", priority: null, due: "2026-11-04T00:00:00Z" },
-      { id: "f", priority: "Normal", due: null },
-    ] as const;
-    expect(sortByReviewDue(rows, (r) => r.priority, (r) => r.due).map((r) => r.id)).toEqual(["d", "b", "c", "e", "a", "f"]);
+  it("asks the API for the urgent-first order across every page, not only the loaded one", () => {
+    expect(documentSortOf("reviewDue")).toBe("reviewDue");
+    expect(documentSortOf(undefined)).toBeUndefined();
+    expect(documentSortOf("anything else")).toBeUndefined();
   });
 });
 

@@ -311,6 +311,19 @@ public static class PublishChecks
                 yield return new DefinitionProblem(at, "needs right (a path) or value (a literal) to compare left with.");
             }
 
+            // Shapes that would check nothing (docs/11 §11, Correction (P5) fix1): two row paths are compared row by row,
+            // so they must name rows of one group; a requiredIf on rows evaluates its condition per row only with rows.
+            if (kind.Kind == "compare" && StringParam(parameters, "left") is { } leftPath && StringParam(parameters, "right") is { } rightPath
+                && RowGroup(leftPath) is { } leftGroup && RowGroup(rightPath) is { } rightGroup && leftGroup != rightGroup)
+            {
+                yield return new DefinitionProblem(at, $"left '{leftPath}' and right '{rightPath}' name rows of different groups ({leftGroup}, {rightGroup}), which cannot be compared row by row; compare with a single value, or with a field of the same rows.");
+            }
+
+            if (kind.Kind == "requiredIf" && StringParam(parameters, "rows") is null && StringParam(parameters, "path") is { } requiredPath && RowGroup(requiredPath) is { } requiredGroup)
+            {
+                yield return new DefinitionProblem(at, $"path '{requiredPath}' names rows: set rows to '{requiredGroup}' and path to the field of the row, so when is evaluated on each row (a condition on the document reads its fields with $$).");
+            }
+
             if (RuleKinds.RowRelativeParams.TryGetValue(kind.Kind, out var relative)
                 && parameters[relative.Relative] is JsonValue relativeValue && relativeValue.TryGetValue<string>(out var relativePath))
             {
@@ -359,6 +372,13 @@ public static class PublishChecks
                 }
             }
         }
+
+        static string? StringParam(JsonObject parameters, string name) =>
+            parameters[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+        // The rows a path names values of (the path up to its last [*]), or null for a single-valued path.
+        static string? RowGroup(string path) =>
+            path.LastIndexOf("[*]", StringComparison.Ordinal) is var end and >= 0 ? path[..(end + 3)] : null;
 
         static IEnumerable<string> PathsOf(JsonNode? node) => node switch
         {

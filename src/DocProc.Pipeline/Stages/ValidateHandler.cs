@@ -104,11 +104,13 @@ internal sealed class ValidateHandler(
 
         ValidationResult? result = null;
         var raised = new List<DocumentFlag>();
+        var threshold = tenant.Settings.AutoApproveConfidenceThreshold;
         if (document.CanonicalJson is { } json && resolved is not null && (type is not null || resolved.RunsValidateStep(ValidateStepKinds.Schema) || resolved.RequiredOutsideSchemaStep.Count > 0))
         {
             var run = await DocumentChecks.RunAsync(Db, document, resolved, tenant, Today(tenant), validator, cancellationToken).ConfigureAwait(false);
             result = type is null ? null : run.Result;
             raised.AddRange(run.Flags);
+            threshold = run.ConfidenceThreshold;
         }
 
         flags.Replace(document, OwnedFlags, raised);
@@ -132,7 +134,7 @@ internal sealed class ValidateHandler(
         // NEW_LAYOUT and LAYOUT_AMBIGUOUS block by name (docs/11 §11), so a severity override cannot let them through.
         // The definition's own gate conditions (docs/11 §11 layer 3, P5): requirePassedRules, blockOnWarnings and lines.
         var ruleHolds = type is { AutoApprove: true } && result is not null
-            ? ReviewGateRules.Evaluate(type.Definition.Processing.Review, result, type.Definition.Processing.Review.Lines is null ? null : ParseTree(document.CanonicalJson), type.Definition.Roles.LineItems, tenant.Settings.AutoApproveConfidenceThreshold)
+            ? ReviewGateRules.Evaluate(type.Definition.Processing.Review, result, type.Definition.Processing.Review.Lines is null ? null : ParseTree(document.CanonicalJson), type.Definition.Roles.LineItems, threshold)
             : [];
         var eligible = ruleHolds.Count == 0
                        && result is { IsEligibleForAutoApproval: true }
@@ -150,7 +152,7 @@ internal sealed class ValidateHandler(
             alwaysReview,
             layout = layout.Passes ? null : layout.Reason,
             gate = ruleHolds.Count == 0 ? null : ruleHolds.Select(h => new { reason = h.Reason, detail = h.Detail }).ToList(),
-            threshold = tenant.Settings.AutoApproveConfidenceThreshold,
+            threshold,
         });
 
         if (eligible)
@@ -162,6 +164,7 @@ internal sealed class ValidateHandler(
             document.ApprovedAt = now;
             document.ApprovedBy = ApprovedBy;
             Timeline.Transition(document, DocumentStatus.AutoApproved, new { by = ApprovedBy }, DocumentEventTypes.AutoApproved, now);
+            await DocumentRevisions.ApplyOnApprovalAsync(Db, document, ApprovedBy, now, cancellationToken).ConfigureAwait(false);
             // The outbox row commits with the decision (docs/11 §13.5); the publish message below is only a nudge,
             // and the publish sweeper finds the row if the message is lost.
             DocumentOutbox.Add(Db, document, now);

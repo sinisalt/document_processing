@@ -139,11 +139,28 @@ public static partial class DocumentEndpoints
         int? limit,
         string? fields,
         Guid? pendingLayoutVersionId,
+        string? sort,
         HttpContext http,
         [FromServices] DocProcDbContext db,
         CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var byReviewDue = false;
+        if (!string.IsNullOrWhiteSpace(sort))
+        {
+            switch (sort.Trim())
+            {
+                case DocumentSorts.Created:
+                    break;
+                case DocumentSorts.ReviewDue:
+                    byReviewDue = true;
+                    break;
+                default:
+                    errors["sort"] = [$"Must be {DocumentSorts.Created} or {DocumentSorts.ReviewDue}."];
+                    break;
+            }
+        }
+
         var statuses = ParseList<DocumentStatus>(status, "status", errors);
         var types = ParseTypeKeys(type, errors);
         var fieldFilters = ParseFieldFilters(http.Request.Query, errors);
@@ -222,17 +239,32 @@ public static partial class DocumentEndpoints
             query = query.Where(d => EF.Functions.Like(d.DocumentNumber!, pattern, "\\") || (d.Supplier != null && EF.Functions.Like(d.Supplier.Name, pattern, "\\")));
         }
 
-        if (after is { } c)
-        {
-            query = query.Where(d => d.CreatedAt < c.At || (d.CreatedAt == c.At && d.Id.CompareTo(c.Id) < 0));
-        }
-
         var size = PageCursor.ClampLimit(limit);
-        var rows = await DocumentQueries.Rows(db, query
-                .OrderByDescending(d => d.CreatedAt)
-                .ThenByDescending(d => d.Id)
-                .Take(size + 1))
-            .ToListAsync(ct);
+        List<DocumentRow> rows;
+        if (byReviewDue)
+        {
+            // The page is the first size + 1 documents in that order; the order is applied again in memory, after the
+            // projection's joins, with the same keys the summary shows (and the cursor carries).
+            rows = [.. (await DocumentQueries.Rows(db, ByReviewDue(query, after).Take(size + 1)).ToListAsync(ct))
+                .OrderBy(r => ReviewRank(r.ReviewPriority))
+                .ThenBy(r => r.ReviewDueAt is null ? 1 : 0)
+                .ThenBy(r => r.ReviewDueAt)
+                .ThenByDescending(r => r.Document.CreatedAt)
+                .ThenByDescending(r => r.Document.Id)];
+        }
+        else
+        {
+            if (after is { } c)
+            {
+                query = query.Where(d => d.CreatedAt < c.At || (d.CreatedAt == c.At && d.Id.CompareTo(c.Id) < 0));
+            }
+
+            rows = await DocumentQueries.Rows(db, query
+                    .OrderByDescending(d => d.CreatedAt)
+                    .ThenByDescending(d => d.Id)
+                    .Take(size + 1))
+                .ToListAsync(ct);
+        }
 
         var hasMore = rows.Count > size;
         if (hasMore)
@@ -246,8 +278,75 @@ public static partial class DocumentEndpoints
             items = await WithFieldColumnsAsync(db, items, columns, ct);
         }
 
-        var next = hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode() : null;
+        var next = !hasMore ? null
+            : byReviewDue ? PageCursor.ByDue(items[^1].CreatedAt, items[^1].Id, ReviewRank(items[^1].ReviewPriority), items[^1].ReviewDueAt).Encode()
+            : new PageCursor(items[^1].CreatedAt, items[^1].Id).Encode();
         return TypedResults.Ok(new Page<DocumentSummary>(items, next));
+    }
+
+    /// <summary>The orders of <c>GET /documents</c> (<c>?sort=</c>).</summary>
+    public static class DocumentSorts
+    {
+        /// <summary>Newest first (the default).</summary>
+        public const string Created = "created";
+
+        /// <summary>
+        /// "Urgent first" (docs/11 §6.2, §19 inbox): by the priority of the open review task (urgent, high, normal, then
+        /// documents without one), then its due time (none last), then newest first; across every page, not only the
+        /// loaded one.
+        /// </summary>
+        public const string ReviewDue = "reviewDue";
+    }
+
+    /// <summary>The rank of an open review task's priority in <see cref="DocumentSorts.ReviewDue"/>; 3 for a document without one.</summary>
+    private static int ReviewRank(ReviewPriority? priority) => priority switch
+    {
+        ReviewPriority.Urgent => 0,
+        ReviewPriority.High => 1,
+        ReviewPriority.Normal => 2,
+        _ => 3,
+    };
+
+    /// <summary>The documents in <see cref="DocumentSorts.ReviewDue"/> order, after <paramref name="after"/>.</summary>
+    private static IQueryable<Document> ByReviewDue(IQueryable<Document> query, PageCursor? after)
+    {
+        var keyed = query.Select(d => new
+        {
+            Document = d,
+            Rank = d.ReviewTasks
+                .Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .Select(t => (int?)(t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2))
+                .Min() ?? 3,
+            Due = d.ReviewTasks
+                .Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .Select(t => t.SlaDueAt)
+                .Min(),
+        });
+        if (after is { } c)
+        {
+            // A cursor of the default order (no rank) continues among the documents without a review task.
+            var rank = c.Rank ?? 3;
+            if (c.HasDue && c.Due is { } due)
+            {
+                keyed = keyed.Where(k => k.Rank > rank
+                                         || (k.Rank == rank && (k.Due == null || k.Due > due
+                                                                || (k.Due == due && (k.Document.CreatedAt < c.At || (k.Document.CreatedAt == c.At && k.Document.Id.CompareTo(c.Id) < 0))))));
+            }
+            else
+            {
+                keyed = keyed.Where(k => k.Rank > rank
+                                         || (k.Rank == rank && k.Due == null
+                                             && (k.Document.CreatedAt < c.At || (k.Document.CreatedAt == c.At && k.Document.Id.CompareTo(c.Id) < 0))));
+            }
+        }
+
+        return keyed
+            .OrderBy(k => k.Rank)
+            .ThenBy(k => k.Due == null ? 1 : 0)
+            .ThenBy(k => k.Due)
+            .ThenByDescending(k => k.Document.CreatedAt)
+            .ThenByDescending(k => k.Document.Id)
+            .Select(k => k.Document);
     }
 
     /// <summary>The most indexed fields one list request may ask for as columns.</summary>
@@ -569,6 +668,8 @@ public static partial class DocumentEndpoints
             document.Status = DocumentStatus.Approved;
             await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
             DocumentQueries.AddEvent(db, document, DocumentEventTypes.Approved, change, actor, new { comment = Clean(request?.Comment, 2000) }, now);
+            // A REVISION_OF resolved as supersedes takes effect with the approval (docs/11 §11).
+            await DocumentRevisions.ApplyOnApprovalAsync(db, document, actor, now, cancel);
             // The outbox row commits with the decision (docs/11 §13.5): if the process dies before the publish message
             // below is queued, the publish sweeper finds the row and publishes it.
             DocumentOutbox.Add(db, document, now);
@@ -644,6 +745,7 @@ public static partial class DocumentEndpoints
             document.Status = DocumentStatus.Rejected;
             await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Done, now, cancel);
             DocumentQueries.AddEvent(db, document, DocumentEventTypes.Rejected, change, actor, new { reason }, now);
+            await DocumentRevisions.ReleaseAsync(db, document, actor, "rejected", now, cancel);
             DocumentOutbox.Add(db, document, now);
             await db.SaveChangesAsync(cancel);
             return true;
@@ -753,6 +855,8 @@ public static partial class DocumentEndpoints
             // A review task for the old extraction is moot; the pipeline opens a new one if the rerun still needs a human.
             await CloseOpenTasksAsync(db, document.Id, ReviewTaskStatus.Skipped, now, cancel);
             DocumentQueries.AddEvent(db, document, DocumentEventTypes.Reprocessed, change, actor, new { fromStage = stage.ToString(), configMode }, now);
+            // A document sent back is no longer approved: what it superseded stands again until it is approved again.
+            await DocumentRevisions.ReleaseAsync(db, document, actor, "reprocessed", now, cancel);
             await db.SaveChangesAsync(cancel);
             return true;
         }, ct);

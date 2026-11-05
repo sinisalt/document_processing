@@ -21,7 +21,12 @@ internal sealed class StagePipeline(IPipelineConfigResolver resolver, DocumentFl
     public async Task<ResolvedPipeline> ResolveAsync(Document document, EffectiveType? type, string phase, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
-        var config = await resolver.ResolveAsync(new PipelineRequest(document.TenantId, type, document.SupplierId, document.SupplierLayoutVersionId), cancellationToken).ConfigureAwait(false);
+        // Split and Classify run before Match: a supplier's (and its layout's) overrides apply there only when the source
+        // named the supplier (docs/11 §10.1, Correction (P5 A)). A supplier Match found by VAT or IBAN in an earlier run
+        // (still on the document after :reprocess from Normalize or Classify) is not known yet at these phases.
+        var beforeMatch = phase is PipelinePhases.Split or PipelinePhases.Classify;
+        var known = !beforeMatch || DocProc.Pipeline.Stages.ClassifyHandler.KnownFromSource(document);
+        var config = await resolver.ResolveAsync(new PipelineRequest(document.TenantId, type, known ? document.SupplierId : null, known ? document.SupplierLayoutVersionId : null), cancellationToken).ConfigureAwait(false);
         if (!config.Configurable)
         {
             return config.Pipeline;

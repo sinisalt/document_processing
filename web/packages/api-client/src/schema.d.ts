@@ -2661,6 +2661,11 @@ export interface components {
             /** Format: int32 */
             pending: number | string;
             problems: string[];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            replayed: number | string;
             /** Format: int32 */
             unknown: number | string;
         };
@@ -6953,6 +6958,7 @@ export interface operations {
                 limit?: number | string;
                 pendingLayoutVersionId?: string;
                 q?: string;
+                sort?: string;
                 status?: string;
                 supplierId?: string;
                 to?: string;

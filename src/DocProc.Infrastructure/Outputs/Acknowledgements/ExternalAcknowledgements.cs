@@ -162,6 +162,38 @@ public sealed record AcknowledgementConfig(CallbackConfig? Callback, StatusPollC
         node[name] is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
 
     /// <summary>
+    /// Whether a status poll template and the destination's <c>urlTemplate</c> (in its config JSON) name the same host,
+    /// placeholders filled with a dummy. The poll sends the destination's headers and credentials, so it may only go there.
+    /// </summary>
+    public static bool SameHost(string pollTemplate, string? destinationConfigJson)
+    {
+        ArgumentNullException.ThrowIfNull(pollTemplate);
+        string? template;
+        try
+        {
+            template = destinationConfigJson is null ? null : JsonNode.Parse(destinationConfigJson)?["urlTemplate"]?.GetValue<string>();
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
+        {
+            template = null;
+        }
+
+        var destinationHost = HostOf(template);
+        return destinationHost is not null && string.Equals(HostOf(pollTemplate), destinationHost, StringComparison.OrdinalIgnoreCase);
+
+        static string? HostOf(string? url)
+        {
+            if (url is null)
+            {
+                return null;
+            }
+
+            var filled = System.Text.RegularExpressions.Regex.Replace(url, @"\{\{[^}]*\}\}|\{[^}]*\}", "x", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
+            return Uri.TryCreate(filled, UriKind.Absolute, out var uri) ? uri.IdnHost : null;
+        }
+    }
+
+    /// <summary>
     /// An absolute http(s) URL whose only placeholders are <c>{externalId}</c> and <c>{documentId}</c>, and only after the
     /// host (a placeholder may never choose where the request goes).
     /// </summary>
@@ -253,7 +285,17 @@ public enum AcknowledgementOutcome
     Applied,
     UnknownDocument,
     StillPending,
+
+    /// <summary>A signed callback older than the last one applied to the reference, or that one again: nothing changed.</summary>
+    Replayed,
 }
+
+/// <summary>
+/// The signed timestamp and signature of a callback (<c>X-DocProc-Timestamp</c>, <c>X-DocProc-Signature</c>), which order
+/// the callbacks of one reference (docs/11 §13.8): a replay inside the timestamp window, or a callback that arrives after
+/// a later one, is not applied.
+/// </summary>
+public sealed record CallbackStamp(DateTimeOffset At, string Signature);
 
 /// <summary>
 /// Applies a receiving system's acknowledgement to the document it names (docs/11 §13.8): the
@@ -266,7 +308,7 @@ public static class ExternalAcknowledgements
 {
     public const string Actor = "integration";
 
-    public static async Task<AcknowledgementOutcome> ApplyAsync(DocProcDbContext db, OutputDestination destination, AcknowledgementReport report, string source, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<AcknowledgementOutcome> ApplyAsync(DocProcDbContext db, OutputDestination destination, AcknowledgementReport report, string source, DateTimeOffset now, CancellationToken cancellationToken, CallbackStamp? stamp = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(destination);
@@ -284,10 +326,44 @@ public static class ExternalAcknowledgements
             reference = await db.DocumentExternalRefs.FirstOrDefaultAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.DocumentId == named, cancellationToken).ConfigureAwait(false);
         }
 
+        return await ApplyCoreAsync(db, destination, reference, report, source, now, stamp, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Applies a status answer to the reference that was polled (docs/11 §13.8): the answer is about this reference, so the
+    /// ids it names do not choose another document; a receiver id is learned only while the reference still holds the
+    /// document-id placeholder.
+    /// </summary>
+    public static Task<AcknowledgementOutcome> ApplyToReferenceAsync(DocProcDbContext db, OutputDestination destination, DocumentExternalRef reference, AcknowledgementReport report, string source, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(report);
+        if (reference.DestinationId != destination.Id || reference.TenantId != destination.TenantId)
+        {
+            throw new ArgumentException("The reference is not one of the destination's.", nameof(reference));
+        }
+
+        return ApplyCoreAsync(db, destination, reference, report with { DocumentId = reference.DocumentId }, source, now, null, cancellationToken);
+    }
+
+    private static async Task<AcknowledgementOutcome> ApplyCoreAsync(DocProcDbContext db, OutputDestination destination, DocumentExternalRef? reference, AcknowledgementReport report, string source, DateTimeOffset now, CallbackStamp? stamp, CancellationToken cancellationToken)
+    {
+        var tenantId = destination.TenantId;
+        var destinationId = destination.Id;
         var documentId = reference?.DocumentId ?? report.DocumentId;
         if (documentId is not { } id)
         {
             return AcknowledgementOutcome.UnknownDocument;
+        }
+
+        // A signed callback is ordered by its own timestamp against the last one applied to the reference: an older one
+        // (a late or replayed "rejected" after an "accepted") or that same callback again changes nothing.
+        if (stamp is not null && reference?.LastCallbackAt is { } last
+            && (stamp.At < last || (stamp.At == last && string.Equals(reference.LastCallbackSignature, stamp.Signature, StringComparison.Ordinal))))
+        {
+            return AcknowledgementOutcome.Replayed;
         }
 
         // Only a document this destination was sent: a delivery of it to the destination exists.
@@ -309,13 +385,20 @@ public static class ExternalAcknowledgements
             };
             db.DocumentExternalRefs.Add(reference);
         }
-        else if (report.ExternalId is { } newId && reference.ExternalId == id.ToString())
+        else if (report.ExternalId is { } newId && reference.ExternalId == id.ToString()
+                 && !await db.DocumentExternalRefs.AnyAsync(r => r.TenantId == tenantId && r.DestinationId == destinationId && r.Id != reference.Id && r.ExternalId == newId, cancellationToken).ConfigureAwait(false))
         {
-            reference.ExternalId = newId; // the receiver's own id, learned from its first answer
+            reference.ExternalId = newId; // the receiver's own id, learned from its first answer (never another reference's)
         }
 
         reference.UpdatedAt = now;
         reference.Message = report.Message;
+        if (stamp is not null)
+        {
+            reference.LastCallbackAt = stamp.At;
+            reference.LastCallbackSignature = stamp.Signature.Length <= 64 ? stamp.Signature : stamp.Signature[..64];
+        }
+
         if (report.Status == ExternalRefStatus.Pending)
         {
             reference.Status = ExternalRefStatus.Pending;

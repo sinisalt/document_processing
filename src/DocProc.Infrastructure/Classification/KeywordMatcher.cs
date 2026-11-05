@@ -24,8 +24,16 @@ internal static class KeywordMatcher
         }
 
         var hits = new List<KeywordHit>();
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var bounded = !ReferenceEquals(table, KeywordRuleTable.Default);
         foreach (var rule in table.Rules)
         {
+            // A tenant's table runs within a budget per page: the rules left when it is spent are not run on the page.
+            if (bounded && System.Diagnostics.Stopwatch.GetElapsedTime(started) > KeywordRuleTable.PageBudget)
+            {
+                break;
+            }
+
             MatchCollection matches;
             try
             {

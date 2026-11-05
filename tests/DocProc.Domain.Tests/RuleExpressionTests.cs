@@ -125,6 +125,17 @@ public sealed class RuleExpressionTests
         });
     }
 
+    [Theory]
+    [InlineData("$exists(lines[99999999999999999999])", false)]
+    [InlineData("$exists(lines[-99999999999])", false)]
+    [InlineData("$substring(note, 99999999999) = ''", true)]
+    [InlineData("$substring(note, -99999999999) = 'Herbst'", true)]
+    [InlineData("$substring(note, 1, 99999999999999) = 'erbst'", true)]
+    public void Indexes_and_substring_arguments_beyond_int_are_clamped(string text, bool expected)
+    {
+        RuleExpression.Parse(text, Vars).Test(Doc, Doc).ShouldBe(expected, text);
+    }
+
     [Fact]
     public void Type_errors_are_evaluation_errors()
     {

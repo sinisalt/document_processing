@@ -36,8 +36,13 @@ public static class DocumentQueries
             d.Supplier != null ? d.Supplier.Name : null,
             d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Blocking),
             d.Flags.Count(f => f.ResolvedAt == null && f.Severity == FlagSeverity.Warning),
-            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => (ReviewPriority?)t.Priority).FirstOrDefault(),
-            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => t.SlaDueAt).FirstOrDefault());
+            // The most urgent open task's priority and the earliest due time of the open tasks: what ?sort=reviewDue
+            // orders by, so a document with a review task and an integration issue shows (and sorts by) the pressing one.
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress)
+                .OrderBy(t => t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2)
+                .Select(t => (ReviewPriority?)t.Priority)
+                .FirstOrDefault(),
+            d.ReviewTasks.Where(t => t.Status == ReviewTaskStatus.Open || t.Status == ReviewTaskStatus.InProgress).Select(t => t.SlaDueAt).Min());
 
     public static DocumentSummary ToSummary(DocumentRow row)
     {

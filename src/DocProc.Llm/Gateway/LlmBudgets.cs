@@ -43,6 +43,25 @@ public sealed record LlmBudgetVerdict(bool Allowed, LlmBudget? Budget = null, de
 public interface ILlmBudgetGuard
 {
     Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Checks the budgets like <see cref="CheckAsync"/> and, when the call is allowed, holds its estimate as spent until
+    /// the reservation is disposed (after the call's usage row is written), so calls made at the same time each see
+    /// the others' estimates and the period's budget is not passed by parallel calls of one process. The default holds
+    /// nothing.
+    /// </summary>
+    async Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken) =>
+        new(await CheckAsync(tenantId, stage, documentId, cancellationToken).ConfigureAwait(false), null);
+}
+
+/// <summary>An allowed call's hold on its estimate (<see cref="ILlmBudgetGuard.ReserveAsync"/>); disposing releases it.</summary>
+public sealed class LlmBudgetReservation(LlmBudgetVerdict verdict, Action? release) : IDisposable
+{
+    private Action? _release = release;
+
+    public LlmBudgetVerdict Verdict { get; } = verdict;
+
+    public void Dispose() => Interlocked.Exchange(ref _release, null)?.Invoke();
 }
 
 /// <summary>The guard without budgets: every call is allowed (hosts without a database, and the default).</summary>

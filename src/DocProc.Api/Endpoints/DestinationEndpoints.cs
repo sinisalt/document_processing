@@ -292,6 +292,16 @@ public static class DestinationEndpoints
         var redirects = destination.Transport == OutputTransports.Http && destination.SecretRef is not null && config is not null
             ? DestinationConfig.SecretRedirects(current, config)
             : [];
+        // The status poll sends the destination's headers and credentials to its urlTemplate, which must stay on the
+        // destination's host (docs/11 §13.8): a config that moves the destination elsewhere while a poll names the old
+        // host is refused, so the new host's secret never reaches the old one. Turn the poll off (or set it again) first.
+        if (config is not null
+            && DocProc.Infrastructure.Outputs.Acknowledgements.AcknowledgementConfig.Of(destination.CallbackConfigJson).StatusPoll is { } poll
+            && !DocProc.Infrastructure.Outputs.Acknowledgements.AcknowledgementConfig.SameHost(poll.UrlTemplate, config.ToJsonString()))
+        {
+            errors.Add("config", $"The destination's status poll asks {poll.UrlTemplate}, which would no longer be the destination's host and would get its credentials: turn the status poll off (PUT acknowledgements) before moving the destination, then set it again for the new host.");
+        }
+
         if (redirects.Count > 0 && string.IsNullOrEmpty(request.Secret))
         {
             errors.Add("secret", $"This change sends the stored secret somewhere else ({string.Join(", ", redirects)} changed): give the secret again in the same request (secret).");

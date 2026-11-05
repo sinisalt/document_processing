@@ -23,9 +23,27 @@ public static class DefinitionSerializer
         // A number is a number: the web defaults would also read "1" for 1, and the meta-schema would have to allow it.
         NumberHandling = JsonNumberHandling.Strict,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { OmitEmptyFlags } },
         WriteIndented = true,
     };
+
+    /// <summary>
+    /// A definition without definition flags (docs/11 §11, P5) is written without <c>flags</c>, as before P5: the
+    /// stored JSON of every such definition stays readable by the build before P5, whose reader refuses a member it does
+    /// not know (Correction (P5) fix1).
+    /// </summary>
+    private static void OmitEmptyFlags(JsonTypeInfo info)
+    {
+        if (info.Type != typeof(TypeDefinition))
+        {
+            return;
+        }
+
+        foreach (var property in info.Properties.Where(p => p.Name == "flags"))
+        {
+            property.ShouldSerialize = static (_, value) => value is IReadOnlyCollection<FlagDeclaration> { Count: > 0 };
+        }
+    }
 
     /// <summary>The definition in <paramref name="json"/>; throws <see cref="DefinitionFormatException"/> when it is not one.</summary>
     public static TypeDefinition Parse(string json)

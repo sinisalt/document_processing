@@ -74,6 +74,12 @@ public static partial class GenericRules
 
     // ---------------------------------------------------------------- requiredIf
 
+    /// <summary>
+    /// <c>requiredIf</c>: the value at <c>path</c> is required whenever <c>when</c> holds. With <c>rows</c> (a path to
+    /// rows, for example <c>lines[*]</c>), <c>path</c> is a field of each row and <c>when</c> is evaluated on each row
+    /// (<c>$$</c> is the document), so <c>{rows: lines[*], path: unit, when: "quantity &gt; 0"}</c> requires a unit on
+    /// every row with a quantity. Without <c>rows</c>, <c>when</c> is evaluated once on the document.
+    /// </summary>
     private static List<DocumentFlag> EvaluateRequiredIf(DocumentView view, RuleParams p, ValidationContext context)
     {
         var path = String(p, "path");
@@ -82,35 +88,57 @@ public static partial class GenericRules
             return [];
         }
 
+        var rows = String(p, "rows");
         var when = ExpressionOf(p, "when", out var error);
         if (when is null)
         {
-            return error is null ? [] : [ExpressionFailed(path, "when", error)];
+            return error is null ? [] : [ExpressionFailed(rows is null ? path : $"{rows}.{path}", "when", error)];
         }
 
-        bool holds;
-        try
+        var variables = VariablesFor(context);
+        var budget = new ExpressionBudget();
+        var scopes = rows is null ? [new PathValue(string.Empty, view.Values)] : ValuePaths.Select(view.Values, rows).ToList();
+        var flags = new List<DocumentFlag>();
+        foreach (var scope in scopes)
         {
-            holds = when.Test(view.Values, view.Values, VariablesFor(context), new ExpressionBudget());
-        }
-        catch (RuleExpressionBudgetException e)
-        {
-            return [BudgetSkipped(path, e.Message)];
-        }
-        catch (RuleExpressionEvaluationException e)
-        {
-            return [ExpressionFailed(path, "when", e.Message)];
+            if (scope.Value is not JsonObject scoped)
+            {
+                continue;
+            }
+
+            var at = scope.Path.Length == 0 ? path : $"{scope.Path}.{path}";
+            bool holds;
+            try
+            {
+                holds = when.Test(scoped, view.Values, variables, budget);
+            }
+            catch (RuleExpressionBudgetException e)
+            {
+                flags.Add(BudgetSkipped(at, e.Message));
+                break;
+            }
+            catch (RuleExpressionEvaluationException e)
+            {
+                flags.Add(ExpressionFailed(at, "when", e.Message));
+                continue;
+            }
+
+            if (!holds)
+            {
+                continue;
+            }
+
+            foreach (var (valuePath, value) in ValuePaths.Select(scoped, path))
+            {
+                if (ValuePaths.IsEmpty(value))
+                {
+                    var full = scope.Path.Length == 0 ? valuePath : $"{scope.Path}.{valuePath}";
+                    flags.Add(FlagCodes.Create(FlagCodes.FieldRequired, $"'{full}' is required here ({when.Text}) and has no value.", full, FlagParams.Of(("field", full), ("when", when.Text))));
+                }
+            }
         }
 
-        if (!holds)
-        {
-            return [];
-        }
-
-        return ValuePaths.Select(view.Values, path)
-            .Where(v => ValuePaths.IsEmpty(v.Value))
-            .Select(v => FlagCodes.Create(FlagCodes.FieldRequired, $"'{v.Path}' is required here ({when.Text}) and has no value.", v.Path, FlagParams.Of(("field", v.Path), ("when", when.Text))))
-            .ToList();
+        return flags;
     }
 
     // ---------------------------------------------------------------- compare
@@ -129,10 +157,38 @@ public static partial class GenericRules
         IEnumerable<(PathValue Left, JsonNode? Right, string? RightPath)> pairs;
         if (String(p, "right") is { } right)
         {
+            // A single-valued side (a path without [*]) is compared with every value of the other side; two row paths
+            // are paired row by row. Rows whose counts differ cannot be paired: the rule fails instead of passing
+            // without comparing anything (publish refuses two row paths of different row groups).
             var seconds = ValuePaths.Select(view.Values, right).ToList();
-            pairs = firsts.Count == seconds.Count
-                ? firsts.Zip(seconds, (a, b) => (a, b.Value, (string?)b.Path))
-                : seconds.Count == 1 ? firsts.Select(a => (a, seconds[0].Value, (string?)seconds[0].Path)) : [];
+            var leftRows = left.Contains("[*]", StringComparison.Ordinal);
+            var rightRows = right.Contains("[*]", StringComparison.Ordinal);
+            if (!rightRows)
+            {
+                var single = seconds.Count > 0 ? seconds[0] : new PathValue(right, null);
+                pairs = firsts.Select(a => (a, single.Value, (string?)single.Path));
+            }
+            else if (!leftRows)
+            {
+                var single = firsts.Count > 0 ? firsts[0] : new PathValue(left, null);
+                pairs = seconds.Select(b => (single, b.Value, (string?)b.Path));
+            }
+            else if (firsts.Count == seconds.Count)
+            {
+                pairs = firsts.Zip(seconds, (a, b) => (a, b.Value, (string?)b.Path));
+            }
+            else
+            {
+                yield return RuleFailed(
+                    left,
+                    $"'{left}' has {firsts.Count.ToString(CultureInfo.InvariantCulture)} values and '{right}' {seconds.Count.ToString(CultureInfo.InvariantCulture)}; they cannot be compared pair by pair.",
+                    "compareUnpaired",
+                    ("field", left),
+                    ("otherField", right),
+                    ("count", firsts.Count.ToString(CultureInfo.InvariantCulture)),
+                    ("otherCount", seconds.Count.ToString(CultureInfo.InvariantCulture)));
+                yield break;
+            }
         }
         else if (p.TryGet("value", out var literal))
         {

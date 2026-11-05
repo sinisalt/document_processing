@@ -376,20 +376,26 @@ describe("the inbox and the queue with the dueBy priority", () => {
     ...extra,
   });
 
-  it("puts urgent lists first with ?sort=reviewDue and greys a superseded list with a link to its replacement", async () => {
-    api.handlers.set("GET /api/v1/documents", () => ({
+  it("asks the API for ?sort=reviewDue, shows its order and greys a superseded list with a link to its replacement", async () => {
+    // The server orders by priority and due time across every page (docs/11 §5.8, Correction (P5, fix 1)); the inbox
+    // shows the rows as they come instead of sorting the loaded page.
+    api.handlers.set("GET /api/v1/documents", (options) => ({
       body: {
-        items: [
-          summary("TA-old", { status: "Approved", supersededBy: "TA-new" }),
-          summary("PL-1", { type: "price-list" }),
-          summary("TA-new", { reviewPriority: "Urgent", reviewDueAt: "2026-11-05T22:59:59Z" }),
-        ],
+        items:
+          options.params?.query?.sort === "reviewDue"
+            ? [
+                summary("TA-new", { reviewPriority: "Urgent", reviewDueAt: "2026-11-05T22:59:59Z" }),
+                summary("TA-old", { status: "Approved", supersededBy: "TA-new" }),
+                summary("PL-1", { type: "price-list" }),
+              ]
+            : [],
         nextCursor: null,
       },
     }));
     routeSearch.current = { sort: "reviewDue", tab: "all" };
     await renderRoute(inboxRoute);
     await screen.findAllByText("TA-new");
+    expect(api.calls.some((call) => call.route === "GET /api/v1/documents" && (call.options.params as { query?: Record<string, unknown> })?.query?.sort === "reviewDue")).toBe(true);
     const rows = screen.getAllByRole("row").filter((row) => row.getAttribute("data-superseded") !== null || row.getAttribute("data-priority") !== null || within(row).queryByText(/^(TA-old|PL-1|TA-new)$/));
     const numbers = rows.map((row) => within(row).queryByText(/^(TA-old|PL-1|TA-new)$/)?.textContent).filter(Boolean);
     expect(numbers).toEqual(["TA-new", "TA-old", "PL-1"]);

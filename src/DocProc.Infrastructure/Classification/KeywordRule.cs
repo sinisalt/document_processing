@@ -163,8 +163,61 @@ internal static class KeywordRuleSet
     {
         var alternatives = phrases
             .OrderByDescending(p => p.Length)
-            .Select(p => Regex.Escape(p).Replace(@"\ ", @"\s+", StringComparison.Ordinal).Replace("-", @"[-\s]?", StringComparison.Ordinal));
+            .Select(PhrasePattern)
+            .Where(p => p.Length > 0)
+            .Distinct(StringComparer.Ordinal);
         var options = compiled ? Flags : Flags & ~RegexOptions.Compiled;
         return new Regex($@"(?<!\p{{L}})(?:{string.Join('|', alternatives)})(?!\p{{L}})", options, timeout);
+    }
+
+    /// <summary>
+    /// One phrase as a pattern: its words escaped, and each run of separators between them (spaces, hyphens, or both)
+    /// one token: <c>\s+</c> for spaces only, <c>[-\s]*</c> for a run with a hyphen ("Rechnungs-Nr" matches
+    /// "Rechnungs-Nr", "Rechnungs Nr" and "RechnungsNr"). A run is never two quantifiers side by side, so a phrase such
+    /// as "a - - - z" cannot backtrack over a run of white space on the page (the lookbehind keeps the pattern off
+    /// NonBacktracking, so the pattern itself has to stay linear). Separators at the ends are dropped.
+    /// </summary>
+    internal static string PhrasePattern(string phrase)
+    {
+        ArgumentNullException.ThrowIfNull(phrase);
+        var pattern = new System.Text.StringBuilder();
+        var word = new System.Text.StringBuilder();
+        var separatorHasHyphen = false;
+        var inSeparator = false;
+        foreach (var c in phrase.Trim())
+        {
+            if (char.IsWhiteSpace(c) || c == '-')
+            {
+                inSeparator = true;
+                separatorHasHyphen |= c == '-';
+                continue;
+            }
+
+            if (inSeparator)
+            {
+                Flush();
+                if (pattern.Length > 0)
+                {
+                    pattern.Append(separatorHasHyphen ? @"[-\s]*" : @"\s+");
+                }
+
+                inSeparator = false;
+                separatorHasHyphen = false;
+            }
+
+            word.Append(c);
+        }
+
+        Flush();
+        return pattern.ToString();
+
+        void Flush()
+        {
+            if (word.Length > 0)
+            {
+                pattern.Append(Regex.Escape(word.ToString()));
+                word.Clear();
+            }
+        }
     }
 }

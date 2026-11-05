@@ -54,6 +54,57 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
+    /// <summary>
+    /// After the Down to P4, the rows P5 wrote read under the rules of the build before P5 (Correction (P5) fix1): its
+    /// definition reader refuses <c>flags</c> and a rule's <c>flag</c>, its supplier settings reader refuses
+    /// <c>pipelineOverrides</c>, and its <c>SourceMethod</c> has no <c>Lookup</c>; the adopted type is back on the
+    /// version it had before the upgrade to template v2, with its pinned document, and the platform row publishes v1.
+    /// </summary>
+    private static async Task AssertReadableByTheBuildBeforeP5Async(DocProcDbContext platform, Guid document, Guid supplier, Guid group, Guid definition, Guid beforeUpgrade, Guid afterUpgrade, CancellationToken ct)
+    {
+        async Task<int> CountAsync(FormattableString sql) => await platform.Database.SqlQuery<int>(sql).SingleAsync(ct);
+
+        foreach (var table in new[] { "DocumentTypeVersions", "DocumentTypeVersionsHistory" })
+        {
+            (await platform.Database.SqlQuery<int>(System.Runtime.CompilerServices.FormattableStringFactory.Create(
+                $"SELECT COUNT(*) AS [Value] FROM [{table}] WHERE JSON_QUERY(CAST([DefinitionJson] AS nvarchar(max)), N'$.flags') IS NOT NULL OR CHARINDEX(N'X_DOWNGRADE', CAST([DefinitionJson] AS nvarchar(max))) > 0")).SingleAsync(ct))
+                .ShouldBe(0, $"{table}: no definition flags (the earlier reader refuses them)");
+        }
+
+        // The stored definitions still parse with the strict reader, without flags (as the earlier reader requires).
+        var stored = await platform.Database.SqlQuery<string>($"SELECT CAST([DefinitionJson] AS nvarchar(max)) AS [Value] FROM [DocumentTypeVersions] WHERE [DefinitionId] = {definition}").ToListAsync(ct);
+        stored.Count.ShouldBe(2);
+        stored.ShouldAllBe(json => DefinitionSerializer.Parse(json).Flags.Count == 0 && DefinitionSerializer.Parse(json).Rules.All(r => r.Flag == null));
+        (await CountAsync($"SELECT [PublishedVersion] AS [Value] FROM [DocumentTypeDefinitions] WHERE [Id] = {definition}")).ShouldBe(1, "back on the version it had before the upgrade");
+        (await CountAsync($"SELECT [BaseVersion] AS [Value] FROM [DocumentTypeDefinitions] WHERE [Id] = {definition}")).ShouldBe(1);
+        (await platform.Database.SqlQuery<string>($"SELECT [State] AS [Value] FROM [DocumentTypeVersions] WHERE [Id] = {beforeUpgrade}").SingleAsync(ct)).ShouldBe(nameof(DocumentTypeVersionState.Published));
+        (await platform.Database.SqlQuery<string>($"SELECT [State] AS [Value] FROM [DocumentTypeVersions] WHERE [Id] = {afterUpgrade}").SingleAsync(ct)).ShouldBe(nameof(DocumentTypeVersionState.Deprecated));
+        (await platform.Database.SqlQuery<Guid>($"SELECT [DocumentTypeVersionId] AS [Value] FROM [Documents] WHERE [Id] = {document}").SingleAsync(ct)).ShouldBe(beforeUpgrade, "the pinned document follows the restored version");
+        var platformPriceList = TypeCatalogueRows.PlatformDefinitionId("std.price-list");
+        (await CountAsync($"SELECT [PublishedVersion] AS [Value] FROM [DocumentTypeDefinitions] WHERE [Id] = {platformPriceList}")).ShouldBe(1, "the earlier build ships the template's first version");
+
+        // Supplier and group settings without pipeline overrides; their other settings stay.
+        foreach (var (table, id) in new[] { ("Suppliers", supplier), ("SupplierGroups", group) })
+        {
+            var settings = await platform.Database.SqlQuery<string>(System.Runtime.CompilerServices.FormattableStringFactory.Create($"SELECT CAST([SettingsJson] AS nvarchar(max)) AS [Value] FROM [{table}] WHERE [Id] = {{0}}", id)).SingleAsync(ct);
+            settings.ShouldNotContain("pipelineOverrides", Case.Sensitive, table);
+            DocProc.Application.Suppliers.SupplierSettings.Parse(settings).ShouldNotBe(DocProc.Application.Suppliers.SupplierSettings.Empty, $"{table}: the settings still read");
+        }
+
+        // The values an http-lookup wrote read as Profile values, in the document and its history; a value that is the
+        // word "Lookup" stays.
+        foreach (var table in new[] { "Documents", "DocumentsHistory" })
+        {
+            (await platform.Database.SqlQuery<int>(System.Runtime.CompilerServices.FormattableStringFactory.Create(
+                $"SELECT COUNT(*) AS [Value] FROM [{table}] WHERE CHARINDEX(N'\"method\":\"Lookup\"', CAST([CanonicalJson] AS nvarchar(max))) > 0")).SingleAsync(ct)).ShouldBe(0, table);
+        }
+
+        var tree = await platform.Database.SqlQuery<string>($"SELECT CAST([CanonicalJson] AS nvarchar(max)) AS [Value] FROM [Documents] WHERE [Id] = {document}").SingleAsync(ct);
+        tree.ShouldContain("\"method\":\"Profile\"");
+        tree.ShouldContain("\"value\":\"Lookup\"");
+        (await CountAsync($"SELECT COUNT(*) AS [Value] FROM [DocumentsHistory] WHERE [Id] = {document} AND CHARINDEX(N'\"method\":\"Profile\"', CAST([CanonicalJson] AS nvarchar(max))) > 0")).ShouldBeGreaterThan(0);
+    }
+
     [Fact]
     public async Task The_P1_to_P5_migrations_migrate_down_and_up_again()
     {
@@ -105,6 +156,8 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
+            Guid issue;
+
             // P5 part C first, with one of everything it writes: a revision resolved as supersedes, an integration-issue
             // review task, a destination with acknowledgements and a callback secret, a Pending external reference due
             // for a poll, and a master-data source with a run. Down to P5 part B, the tables and columns are gone and
@@ -121,7 +174,8 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 newer.RevisionOfDocumentId = older.Id;
                 newer.RevisionResolution = RevisionResolution.Supersedes;
                 older.SupersededByDocumentId = newer.Id;
-                seeding.ReviewTasks.Add(new ReviewTask { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = target, Reason = "EXTERNAL_REJECTED: erp", Kind = ReviewTaskKind.IntegrationIssue, Priority = ReviewPriority.High, CreatedAt = now });
+                issue = Guid.CreateVersion7();
+                seeding.ReviewTasks.Add(new ReviewTask { Id = issue, TenantId = TenantA, DocumentId = target, Reason = "EXTERNAL_REJECTED: erp", Kind = ReviewTaskKind.IntegrationIssue, Priority = ReviewPriority.High, CreatedAt = now });
                 if (!await seeding.DocumentExternalRefs.AnyAsync(r => r.DocumentId == seeded.DocumentId && r.DestinationId == seeded.DestinationId, ct))
                 {
                     seeding.DocumentExternalRefs.Add(new DocumentExternalRef { Id = Guid.CreateVersion7(), TenantId = TenantA, DocumentId = seeded.DocumentId, DestinationId = seeded.DestinationId, ExternalId = "AP-1", Status = ExternalRefStatus.Pending, NextPollAt = now, Polls = 2, UpdatedAt = now });
@@ -131,10 +185,26 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 seeding.MasterDataSources.Add(source);
                 seeding.MasterDataRuns.Add(new MasterDataRun { Id = Guid.CreateVersion7(), TenantId = TenantA, SourceId = source.Id, Trigger = MasterDataTrigger.Schedule, Created = 1, ReportJson = """{"created":1,"rows":[]}""", At = now, By = "schedule" });
                 await seeding.SaveChangesAsync(ct);
+
+                // The callback order of the fix migration: the last signed callback applied to a reference.
+                foreach (var reference in await seeding.DocumentExternalRefs.ToListAsync(ct))
+                {
+                    reference.LastCallbackAt = now;
+                    reference.LastCallbackSignature = new string('c', 64);
+                }
+
+                await seeding.SaveChangesAsync(ct);
             }
 
             await migrator.MigrateAsync("20261104231037_TenantIdentificationRules", ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104231037_TenantIdentificationRules");
+            (await platform.Database.SqlQuery<string>($"SELECT [Status] AS [Value] FROM [ReviewTasks] WHERE [Id] = {issue}").SingleAsync(ct))
+                .ShouldBe(nameof(ReviewTaskStatus.Skipped), "an open integration issue would be a document review task of a settled document to the earlier build");
+            foreach (var column in new[] { "LastCallbackAt", "LastCallbackSignature" })
+            {
+                (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.DocumentExternalRefs') AND name = {column}").SingleAsync(ct)).ShouldBe(0, column);
+            }
+
             foreach (var table in new[] { "MasterDataSources", "MasterDataRuns" })
             {
                 (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = {table}").SingleAsync(ct)).ShouldBe(0, table);
@@ -209,7 +279,64 @@ public sealed class TypeCatalogueSqlTests(SqlServerFixture sqlServer) : IClassFi
                 await seeding.SaveChangesAsync(ct);
             }
 
+            // What P5 writes into data the build before it reads (Correction (P5) fix1): supplier and group settings with
+            // pipeline overrides, a canonical tree with values an http-lookup wrote (twice, so the history has one too),
+            // and an adopted price list the start-up upgrade moved onto template v2, whose new version declares a
+            // definition flag that one of its rules raises, with a document pinned to that version.
+            var overriddenSupplier = Guid.CreateVersion7();
+            var overriddenGroup = Guid.CreateVersion7();
+            var movedDefinition = Guid.CreateVersion7();
+            var (beforeUpgrade, afterUpgrade) = (Guid.CreateVersion7(), Guid.CreateVersion7());
+            await using (var seeding = NewContext(TenantContext.ForTenant(TenantA)))
+            {
+                var now = DateTimeOffset.UtcNow;
+                const string Overrides = """[{"op":"disable","step":"duplicate"}]""";
+                seeding.SupplierGroups.Add(new SupplierGroup { Id = overriddenGroup, TenantId = TenantA, Name = "Overridden", SettingsJson = $$"""{"review":{"mode":"always"},"pipelineOverrides":{{Overrides}}}""", CreatedAt = now, UpdatedAt = now });
+                seeding.Suppliers.Add(new Supplier { Id = overriddenSupplier, TenantId = TenantA, Name = "Overridden GmbH", NormalizedName = "overridden", GroupId = overriddenGroup, SettingsJson = $$"""{"requireSenderAuth":true,"pipelineOverrides":{{Overrides}}}""", CreatedAt = now, UpdatedAt = now });
+
+                var template = StandardTemplates.Find("std.price-list").ShouldNotBeNull();
+                template.Version.ShouldBe(2, "P5 ships the price list's second template version");
+                var definition = new DocumentTypeDefinition
+                {
+                    Id = movedDefinition,
+                    TenantId = TenantA,
+                    Key = "price-list-moved",
+                    Name = new Dictionary<string, string>(template.Name, StringComparer.Ordinal),
+                    Origin = DefinitionOrigin.Adopted,
+                    BaseDefinitionId = TypeCatalogueRows.PlatformDefinitionId(template.Key),
+                    BaseVersion = 2,
+                    PublishedVersion = 2,
+                    CreatedAt = now,
+                    CreatedBy = "test",
+                    UpdatedAt = now,
+                };
+                var first = TypeCatalogueRows.PublishedVersion(beforeUpgrade, movedDefinition, TenantA, TypeCatalogueRows.Compile(TypeCatalogueRows.Adopted(template, definition.Key, 1)), now, "test");
+                var firstJson = System.Text.Json.Nodes.JsonNode.Parse(first.DefinitionJson)!.AsObject();
+                firstJson["base"]!["version"] = 1;
+                first.DefinitionJson = firstJson.ToJsonString();
+                first.State = DocumentTypeVersionState.Deprecated;
+                var second = TypeCatalogueRows.PublishedVersion(afterUpgrade, movedDefinition, TenantA, TypeCatalogueRows.Compile(TypeCatalogueRows.Adopted(template, definition.Key, 2)), now, "test");
+                var secondJson = System.Text.Json.Nodes.JsonNode.Parse(second.DefinitionJson)!.AsObject();
+                secondJson["flags"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject { ["code"] = "X_DOWNGRADE", ["severity"] = "warning" });
+                secondJson["rules"]![0]!["flag"] = "X_DOWNGRADE";
+                second.DefinitionJson = secondJson.ToJsonString();
+                definition.Versions.Add(first);
+                definition.Versions.Add(second);
+                seeding.DocumentTypeDefinitions.Add(definition);
+                await seeding.SaveChangesAsync(ct);
+
+                // The flag is in the history too: the version was published with it, then edited.
+                second.ChangeNote = "edited";
+                var pinned = await seeding.Documents.SingleAsync(d => d.Id == target, ct);
+                pinned.DocumentTypeVersionId = afterUpgrade;
+                pinned.CanonicalJson = """{"vendor":{"value":"V-1","status":"Inferred","source":{"method":"Lookup"}},"note":{"value":"Lookup","status":"Extracted","source":{"method":"Llm"}}}""";
+                await seeding.SaveChangesAsync(ct);
+                pinned.CanonicalJson = """{"vendor":{"value":"V-2","status":"Inferred","source":{"method":"Lookup"}},"note":{"value":"Lookup","status":"Extracted","source":{"method":"Llm"}}}""";
+                await seeding.SaveChangesAsync(ct);
+            }
+
             await migrator.MigrateAsync("20261104091721_LayoutLearningAndGovernance", ct);
+            await AssertReadableByTheBuildBeforeP5Async(platform, target, overriddenSupplier, overriddenGroup, movedDefinition, beforeUpgrade, afterUpgrade, ct);
             (await platform.Database.GetAppliedMigrationsAsync(ct)).Last().ShouldBe("20261104091721_LayoutLearningAndGovernance");
             (await platform.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM [Tenants] WHERE JSON_VALUE(CAST([Settings] AS nvarchar(max)), N'$.Features.ConfigurableSteps') IS NOT NULL").SingleAsync(ct)).ShouldBe(0);
             foreach (var table in new[] { "PipelineSnapshots", "LookupResults", "LlmBudgets" })

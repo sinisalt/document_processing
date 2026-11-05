@@ -152,6 +152,17 @@ public sealed class LineTableRuleTests
     }
 
     [Fact]
+    public void Ordered_fails_keys_of_different_kinds_instead_of_throwing()
+    {
+        var rule = Rule("ordered", """{ "path": "lines[*].tiers", "by": "minQuantity" }""");
+        var mixed = List(1, v => v["lines"]![0]!["tiers"]![0]!["minQuantity"] = "2026-01-01");
+        var flag = Run(mixed, rule).ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.RuleFailed);
+        flag.Params!["reason"].ShouldBe("orderedMixed");
+        flag.Field.ShouldBe("lines[0].tiers[1].minQuantity");
+    }
+
+    [Fact]
     public void DeltaToPrevious_passes_with_a_note_without_a_previous_list()
     {
         var rule = Rule("deltaToPrevious", """{ "path": "lines[*].price.amount", "joinOn": "supplierSku", "maxChangePercent": 25 }""", FlagSeverity.Warning);

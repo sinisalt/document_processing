@@ -85,8 +85,9 @@ public sealed class ExternalStatusPoller(
                 continue;
             }
 
-            // The answer is about this reference whatever ids it names.
-            var outcome = await ExternalAcknowledgements.ApplyAsync(db, destination, report with { DocumentId = reference.DocumentId, ExternalId = report.ExternalId ?? reference.ExternalId }, AcknowledgementSources.StatusPoll, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            // The answer is about this reference whatever ids it names: it is applied to the reference itself, never to
+            // another document of the destination whose receiver id the answer happens to name.
+            var outcome = await ExternalAcknowledgements.ApplyToReferenceAsync(db, destination, reference, report, AcknowledgementSources.StatusPoll, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
             if (outcome == AcknowledgementOutcome.StillPending && reference.Polls >= poll.MaxPolls)
             {
                 reference.NextPollAt = null;
@@ -107,6 +108,13 @@ public sealed class ExternalStatusPoller(
         if (!AcknowledgementConfig.PollTemplateIsValid(poll.UrlTemplate) || !Uri.TryCreate(ExternalAcknowledgements.PollUrl(poll, reference), UriKind.Absolute, out var uri))
         {
             return (null, "The status poll URL template does not give an absolute URL.");
+        }
+
+        // The poll carries the destination's headers and credentials, so it goes only to the destination's own host: a
+        // destination moved to another host since its poll was set (with that host's secret) is not polled (§13.8).
+        if (!AcknowledgementConfig.SameHost(poll.UrlTemplate, destination.ConfigJson))
+        {
+            return (null, "The status poll URL is no longer on the destination's host; the poll was not sent. Set the status poll again for the destination's current address.");
         }
 
         var answer = await reader.GetAsync(destination, uri, Timeout, MaxResponseBytes, new Dictionary<string, string> { ["X-DocProc-Document-Id"] = reference.DocumentId.ToString() }, cancellationToken).ConfigureAwait(false);

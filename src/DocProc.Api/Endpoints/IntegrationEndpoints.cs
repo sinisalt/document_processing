@@ -21,7 +21,9 @@ using Microsoft.EntityFrameworkCore;
 namespace DocProc.Api.Endpoints;
 
 /// <summary>The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination.</summary>
-public sealed record CallbackResponse(int Applied, int Pending, int Unknown, IReadOnlyList<string> Problems);
+/// <para><c>Replayed</c> counts the acknowledgements of a signed callback that is older than the last one applied to the
+/// document, or that one again (a replay inside the timestamp window): they change nothing.</para>
+public sealed record CallbackResponse(int Applied, int Pending, int Unknown, IReadOnlyList<string> Problems, int Replayed = 0);
 
 /// <summary><c>PUT /destinations/{id}/callback-secret</c>: the HMAC key or bearer token the receiver signs its callbacks with.</summary>
 public sealed record SetCallbackSecretRequest(string Secret);
@@ -82,32 +84,7 @@ public static class IntegrationEndpoints
     }
 
     /// <summary>Whether a status poll template and the destination's <c>urlTemplate</c> name the same host (placeholders filled with a dummy).</summary>
-    internal static bool SameHost(string pollTemplate, string destinationConfigJson)
-    {
-        string? template;
-        try
-        {
-            template = JsonNode.Parse(destinationConfigJson)?["urlTemplate"]?.GetValue<string>();
-        }
-        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
-        {
-            template = null;
-        }
-
-        static string? HostOf(string? url)
-        {
-            if (url is null)
-            {
-                return null;
-            }
-
-            var filled = System.Text.RegularExpressions.Regex.Replace(url, @"\{\{[^}]*\}\}|\{[^}]*\}", "x", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
-            return Uri.TryCreate(filled, UriKind.Absolute, out var uri) ? uri.IdnHost : null;
-        }
-
-        var destinationHost = HostOf(template);
-        return destinationHost is not null && string.Equals(HostOf(pollTemplate), destinationHost, StringComparison.OrdinalIgnoreCase);
-    }
+    internal static bool SameHost(string pollTemplate, string destinationConfigJson) => AcknowledgementConfig.SameHost(pollTemplate, destinationConfigJson);
 
     /// <summary>Where a destination's callback secret lives (two slots); computed from the ids.</summary>
     internal static string CallbackSecretReference(Guid tenantId, Guid destinationId, int slot) => $"tenant/{tenantId:D}/destination/{destinationId:D}/callback/{slot}";
@@ -184,7 +161,8 @@ public static class IntegrationEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Too many acknowledgements", detail: $"A callback carries at most {MaxReportsPerCallback} acknowledgements.");
         }
 
-        int applied = 0, pending = 0, unknown = 0;
+        int applied = 0, pending = 0, unknown = 0, replayed = 0;
+        var stamp = CallbackStampOf(callback.Auth, request);
         var problems = new List<string>();
         foreach (var item in items)
         {
@@ -194,13 +172,16 @@ public static class IntegrationEndpoints
                 continue;
             }
 
-            switch (await ExternalAcknowledgements.ApplyAsync(db, destination, report, AcknowledgementSources.Callback, now, ct))
+            switch (await ExternalAcknowledgements.ApplyAsync(db, destination, report, AcknowledgementSources.Callback, now, ct, stamp))
             {
                 case AcknowledgementOutcome.Applied:
                     applied++;
                     break;
                 case AcknowledgementOutcome.StillPending:
                     pending++;
+                    break;
+                case AcknowledgementOutcome.Replayed:
+                    replayed++;
                     break;
                 default:
                     unknown++;
@@ -209,12 +190,29 @@ public static class IntegrationEndpoints
         }
 
         await db.SaveChangesAsync(ct);
-        if (applied + pending == 0 && problems.Count > 0)
+        if (applied + pending + replayed == 0 && problems.Count > 0)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Not an acknowledgement", detail: string.Join(" ", problems.Take(5)));
         }
 
-        return TypedResults.Ok(new CallbackResponse(applied, pending, unknown, problems));
+        return TypedResults.Ok(new CallbackResponse(applied, pending, unknown, problems, replayed));
+    }
+
+    /// <summary>
+    /// The signed timestamp and signature of an authenticated <c>hmacSha256</c> callback, which order the callbacks of a
+    /// reference (a replay inside the window, or a callback older than the last applied, is not applied). A bearer
+    /// callback has none: its token is the whole credential, so it is applied as it comes (docs/11 §13.8).
+    /// </summary>
+    private static CallbackStamp? CallbackStampOf(string auth, HttpRequest request)
+    {
+        if (auth == CallbackAuthTypes.Bearer
+            || !long.TryParse(request.Headers[TimestampHeader].ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return null;
+        }
+
+        var signature = request.Headers[SignatureHeader].ToString();
+        return new CallbackStamp(DateTimeOffset.FromUnixTimeSeconds(Math.Clamp(seconds, 0, 253402300799)), signature.StartsWith("sha256=", StringComparison.Ordinal) ? signature["sha256=".Length..].ToLowerInvariant() : signature);
     }
 
     /// <summary>

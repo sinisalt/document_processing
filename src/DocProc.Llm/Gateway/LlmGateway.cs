@@ -35,10 +35,11 @@ public sealed class LlmGateway(
 
         // The tenant's budgets (docs/11 §16): a call that would take a period's spend past its budget is not made, and
         // the stage goes on without it (LLM_BUDGET_EXCEEDED). Nothing is recorded: no call happened.
-        var verdict = await _budgets.CheckAsync(tenantId, request.Stage, request.DocumentId, cancellationToken).ConfigureAwait(false);
-        if (!verdict.Allowed)
+        // The estimate is held until the call's usage row is written, so parallel calls see each other (§16).
+        using var reservation = await _budgets.ReserveAsync(tenantId, request.Stage, request.DocumentId, cancellationToken).ConfigureAwait(false);
+        if (!reservation.Verdict.Allowed)
         {
-            throw new LlmBudgetExceededException(verdict);
+            throw new LlmBudgetExceededException(reservation.Verdict);
         }
 
         var factory = _factories.FirstOrDefault(f => f.Supports(resolved.Config.Kind))

@@ -235,6 +235,66 @@ public sealed class DeliveryPipelineTests
     }
 
     /// <summary>
+    /// A status answer is about the reference that was polled (docs/11 §13.8): one that names another document's id of
+    /// the same destination changes the polled document, never the other one. A destination moved to another host since
+    /// its poll was set is not polled: the poll would carry the destination's credentials to the old host.
+    /// </summary>
+    [Fact]
+    public async Task A_status_answer_applies_to_the_polled_reference_and_no_poll_leaves_the_destination_s_host()
+    {
+        using var receiver = new FakeReceiver();
+        await using var host = await StartAsync(receiver, settings => settings["Delivery:StatusPollInterval"] = "00:00:00");
+        var binding = await BindAsync(host, receiver, ApExpression);
+        await host.WithDbAsync(async db =>
+        {
+            var destination = await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId);
+            destination.CallbackConfigJson = new JsonObject
+            {
+                ["statusPoll"] = new JsonObject
+                {
+                    ["urlTemplate"] = receiver.BaseUrl + "/status/{documentId}",
+                    ["intervalMinutes"] = 5,
+                    ["mapping"] = """{ "status": state = "REJ" ? "rejected" : "pending", "externalId": ref, "message": reason }""",
+                },
+            }.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+
+        var first = await AutoApproveAsync(host);
+        var secondIngestion = await IngestWithoutWaitingAsync(host);
+        await host.RunUntilIdleAsync();
+        var second = await host.SingleDocumentAsync(secondIngestion);
+        second.Status.ShouldBe(DocumentStatus.AutoApproved);
+
+        // The answer about the first document names the second one's id.
+        receiver.Respond = request => request.PathAndQuery == $"/status/{first.Id:D}"
+            ? new ReceiverAnswer(200, $$"""{"state":"REJ","ref":"{{second.Id:D}}","reason":"Vendor blocked"}""")
+            : request.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal) ? new ReceiverAnswer(200, """{"state":"WAIT"}""") : new ReceiverAnswer(201, "{}");
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        var poller = host.Services.GetRequiredService<DocProc.Infrastructure.Outputs.Acknowledgements.ExternalStatusPoller>();
+        (await poller.PollDueAsync(Ct)).ShouldBe(1);
+
+        var references = await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().Where(r => r.DestinationId == binding.DestinationId).ToListAsync());
+        references.Single(r => r.DocumentId == first.Id).Status.ShouldBe(ExternalRefStatus.Rejected, "the polled document is the one the answer is about");
+        references.Single(r => r.DocumentId == first.Id).ExternalId.ShouldBe(first.Id.ToString(), "another reference's id is never learned");
+        references.Single(r => r.DocumentId == second.Id).Status.ShouldBe(ExternalRefStatus.Pending, "the other document is untouched");
+        (await host.WithDbAsync(db => db.DocumentFlags.AsNoTracking().CountAsync(f => f.DocumentId == second.Id && f.Code == DocProc.Domain.Flags.FlagCodes.ExternalRejected))).ShouldBe(0);
+
+        // The destination moves to another host (with that host's secret, say); its poll still names the old one.
+        await host.WithDbAsync(async db =>
+        {
+            var destination = await db.OutputDestinations.SingleAsync(d => d.Id == binding.DestinationId);
+            destination.ConfigJson = new JsonObject { ["urlTemplate"] = "https://erp.elsewhere.example/api/ap/invoices" }.ToJsonString();
+            await db.SaveChangesAsync();
+        });
+        var asked = receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal));
+        host.Clock.Advance(TimeSpan.FromMinutes(6));
+        (await poller.PollDueAsync(Ct)).ShouldBe(0);
+        receiver.Requests.Count(r => r.PathAndQuery.StartsWith("/status/", StringComparison.Ordinal)).ShouldBe(asked, "no poll leaves the destination's host");
+        (await host.WithDbAsync(db => db.DocumentExternalRefs.AsNoTracking().SingleAsync(r => r.DocumentId == second.Id))).Message!.ShouldContain("no longer on the destination's host");
+    }
+
+    /// <summary>
     /// The scheduled master-data sync (docs/11 §6.8, §14): an http source reads its destination through the delivery
     /// client (an address the client refuses is a failed run, never a request), maps the answer with its JSONata and
     /// applies it; the schedule moves on, and the same answer the next time changes nothing.

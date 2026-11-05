@@ -75,7 +75,39 @@ public static class DocumentChecks
     ];
 
     /// <summary>The checks' flags and the rule result (null when the type lists no rules).</summary>
-    public sealed record CheckRun(IReadOnlyList<DocumentFlag> Flags, ValidationResult? Result);
+    /// <summary>What the checks raised, the rules' result, and the confidence threshold they applied (<see cref="ConfidenceThresholdAsync"/>).</summary>
+    public sealed record CheckRun(IReadOnlyList<DocumentFlag> Flags, ValidationResult? Result, double ConfidenceThreshold = 0.8);
+
+    /// <summary>
+    /// The confidence a value needs for auto-approval (docs/11 §11 layer 3, Correction (P5) fix1): the supplier's
+    /// <c>review.autoApproveMinConfidence</c> (its own, else its group's) when it sets one, else the tenant's
+    /// <c>AutoApproveConfidenceThreshold</c>. A value below it raises <c>LOW_CONFIDENCE</c>, which keeps the document out
+    /// of auto-approval, and it is the default of the type's <c>review.lines</c> threshold. The type's own
+    /// <c>review.minConfidence</c> applies to <c>review.lines</c> only, as before.
+    /// </summary>
+    public static async Task<double> ConfidenceThresholdAsync(DocProcDbContext db, Document document, Tenant tenant, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(tenant);
+        if (document.SupplierId is not { } supplierId)
+        {
+            return tenant.Settings.AutoApproveConfidenceThreshold;
+        }
+
+        var tenantId = document.TenantId;
+        var supplier = await db.Suppliers.AsNoTracking()
+            .Where(s => s.Id == supplierId && s.TenantId == tenantId)
+            .Select(s => new { s.SettingsJson, GroupSettings = s.Group != null ? s.Group.SettingsJson : null })
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (supplier is null)
+        {
+            return tenant.Settings.AutoApproveConfidenceThreshold;
+        }
+
+        var settings = Application.Suppliers.SupplierSettings.Parse(supplier.SettingsJson).Over(Application.Suppliers.SupplierSettings.Parse(supplier.GroupSettings));
+        return settings.Review?.AutoApproveMinConfidence is { } own and >= 0 and <= 1 ? own : tenant.Settings.AutoApproveConfidenceThreshold;
+    }
 
     /// <summary>
     /// The checks of the validate steps of <paramref name="type"/> over the stored tree of <paramref name="document"/>:
@@ -90,6 +122,7 @@ public static class DocumentChecks
         ArgumentNullException.ThrowIfNull(type);
         var flags = new List<DocumentFlag>();
         var budget = new PatternBudget();
+        var threshold = await ConfidenceThresholdAsync(db, document, tenant, cancellationToken).ConfigureAwait(false);
         var view = DocumentView.FromJson(document.Type, document.CanonicalJson);
         var compiled = type.Compiled;
         if (compiled is not null && view.Root is { } root)
@@ -134,7 +167,7 @@ public static class DocumentChecks
 
             var context = new ValidationContext(
                 today,
-                ValidationOptions.Default with { ConfidenceThreshold = tenant.Settings.AutoApproveConfidenceThreshold },
+                ValidationOptions.Default with { ConfidenceThreshold = threshold },
                 new Domain.Validation.TenantContext(tenant.LegalName, tenant.VatId, tenant.DefaultCurrency, tenant.NameAliases))
             { Data = data, PatternBudget = budget };
             result = validator.Validate(view, type.Rules, context);
@@ -151,7 +184,7 @@ public static class DocumentChecks
             flags.Add(skipped);
         }
 
-        return new CheckRun(flags, result);
+        return new CheckRun(flags, result, threshold);
     }
 
     /// <summary>

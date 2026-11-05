@@ -16,8 +16,9 @@ namespace DocProc.Api.Endpoints;
 
 /// <summary>
 /// <c>POST /documents/{id}:resolve-revision {resolution}</c> (docs/11 §11, §18): a reviewer decides what a document
-/// with an open <c>REVISION_OF</c> is to the earlier document with the same duplicate key. <c>supersedes</c> gives the
-/// earlier document <see cref="Document.SupersededByDocumentId"/> and this one <c>meta.supersedes</c>; <c>additional</c>
+/// with an open <c>REVISION_OF</c> is to the earlier document with the same duplicate key. <c>supersedes</c> gives this
+/// one <c>meta.supersedes</c>, and the earlier one <see cref="Document.SupersededByDocumentId"/> once this one is approved
+/// (<see cref="DocumentRevisions"/>: a rejected replacement leaves the earlier one standing); <c>additional</c>
 /// lets both stand and keeps the pair from being flagged again; <c>duplicate</c> rejects this document. The flag is
 /// resolved by the reviewer; supersedes and additional leave the document in review for its approval.
 /// </summary>
@@ -102,13 +103,13 @@ public static partial class DocumentEndpoints
         document.UpdatedAt = now;
         flag.ResolvedAt = now;
         flag.ResolvedBy = actor;
-        var details = new { resolution = request.Resolution!.Trim(), earlierDocumentId = earlier.Id, documentId = document.Id, note };
+        var details = new RevisionDetails(request.Resolution!.Trim(), earlier.Id, document.Id, note, null);
         DocumentQueries.AddEvent(db, document, DocumentEventTypes.RevisionResolved, null, actor, details, now);
         if (resolution == RevisionResolution.Supersedes)
         {
-            earlier.SupersededByDocumentId = document.Id;
-            earlier.UpdatedAt = now;
-            DocumentQueries.AddEvent(db, earlier, DocumentEventTypes.RevisionResolved, null, actor, details, now);
+            // Only the intent is recorded here: the earlier document is superseded when this one is approved
+            // (DocumentRevisions.ApplyOnApprovalAsync), so a rejected replacement never leaves it superseded.
+            DocumentQueries.AddEvent(db, earlier, DocumentEventTypes.RevisionResolved, null, actor, details with { Pending = true }, now);
         }
 
         var rejected = false;
@@ -143,4 +144,7 @@ public static partial class DocumentEndpoints
 
         return TypedResults.Ok(await FreshDetailAsync(db, id, configs, features, ct));
     }
+
+    /// <summary>The details of a <c>document.revision_resolved</c> event.</summary>
+    private sealed record RevisionDetails(string Resolution, Guid EarlierDocumentId, Guid DocumentId, string? Note, bool? Pending);
 }

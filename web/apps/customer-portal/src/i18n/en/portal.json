@@ -508,7 +508,7 @@
       "additional": "An additional document",
       "duplicate": "A duplicate (reject)",
       "done": {
-        "supersedes": "This document replaces the earlier one.",
+        "supersedes": "This document replaces the earlier one once it is approved; rejected, it replaces nothing.",
         "additional": "Both documents stand.",
         "duplicate": "Rejected as a duplicate."
       },

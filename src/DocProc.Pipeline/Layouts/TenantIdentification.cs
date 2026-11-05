@@ -90,6 +90,31 @@ internal sealed class TenantIdentification(DocProcDbContext db, ITenantFeatures 
     }
 
     /// <summary>
+    /// Undoes a tenant rule's decision that something better placed took over (docs/11 §6.2, §8.5, Correction (P5)
+    /// fix1): the supplier Match found has layouts of its own that identified the document or raised <c>NEW_LAYOUT</c>,
+    /// or the supplier the rule decided for was replaced. The pin is cleared and the rule's <c>Matched</c> count taken
+    /// back, so the rule neither names a document its supplier's layout decided nor counts it. True when a pin was cleared.
+    /// </summary>
+    public async Task<bool> ReleaseAsync(Document document, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.IdentificationRuleVersionId is not { } pinned)
+        {
+            return false;
+        }
+
+        document.IdentificationRuleVersionId = null;
+        var ruleId = await db.TypeIdentificationRuleVersions.AsNoTracking().Where(v => v.Id == pinned).Select(v => (Guid?)v.RuleId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (ruleId is { } id)
+        {
+            await db.TypeIdentificationRules.Where(r => r.Id == id && r.Matched > 0)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Matched, r => r.Matched - 1), cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Records a tenant rule's decision (<paramref name="decided"/>: the version is pinned and counted) or proposal (under
     /// <c>NEW_LAYOUT</c>: an event only), with the rule, its version and the evidence; rules of two types that held are
     /// recorded as a conflict that decided nothing.

@@ -144,6 +144,7 @@ internal sealed class DocumentExternalRefConfiguration : IEntityTypeConfiguratio
         b.ToTable("DocumentExternalRefs");
         b.Property(r => r.ExternalId).HasMaxLength(400);
         b.Property(r => r.Message).HasMaxLength(2000);
+        b.Property(r => r.LastCallbackSignature).HasMaxLength(64);
         b.HasIndex(r => new { r.DocumentId, r.DestinationId }).IsUnique();
         // A callback names the receiver's id; the status poller picks the due Pending rows (docs/11 §13.8).
         b.HasIndex(r => new { r.DestinationId, r.ExternalId });

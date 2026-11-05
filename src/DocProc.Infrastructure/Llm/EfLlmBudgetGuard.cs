@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using DocProc.Infrastructure.Persistence;
 using DocProc.Llm;
 using DocProc.Llm.Gateway;
@@ -10,14 +11,75 @@ namespace DocProc.Infrastructure.Llm;
 /// refused when the spend of a budget's period (the current UTC day or month, or the document) has reached the budget,
 /// or would pass it by the call's estimate. The estimate is the average cost of the tenant's last
 /// <see cref="EstimateSample"/> successful calls of the same stage (0 without any), so a stage whose next call would
-/// overspend is not called. Reads in platform scope with the tenant as an explicit predicate, like the policy store.
+/// overspend is not called. The calls this process allowed and has not recorded yet count with their estimates
+/// (<see cref="ReserveAsync"/>). Reads in platform scope with the tenant as an explicit predicate, like the policy store.
 /// </summary>
 public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvider clock) : ILlmBudgetGuard
 {
     /// <summary>How many recent calls the estimate averages.</summary>
     public const int EstimateSample = 20;
 
-    public async Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken)
+    /// <summary>The estimates of this process's calls that are allowed and not yet recorded, by tenant.</summary>
+    private readonly ConcurrentDictionary<Guid, TenantHolds> _holds = new();
+
+    public async Task<LlmBudgetVerdict> CheckAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken) =>
+        (await DecideAsync(tenantId, stage, documentId, _holds.GetValueOrDefault(tenantId), cancellationToken).ConfigureAwait(false)).Verdict;
+
+    /// <summary>
+    /// The check and the hold of one call (docs/11 §16, Correction (P5) fix1). The decision is taken under the tenant's
+    /// gate, counting the estimates of the calls this process already allowed and has not recorded yet, and an allowed
+    /// call's estimate is held until the gateway disposes the reservation (after its usage row is written). So parallel
+    /// calls of one process (<c>Pipeline:MaxParallelism</c>) cannot each pass the check against the same spend.
+    /// Replicas do not see each other's holds: across N worker replicas a period's budget can still be passed by up to
+    /// N - 1 calls, which docs/11 §16 states as the bound.
+    /// </summary>
+    public async Task<LlmBudgetReservation> ReserveAsync(Guid tenantId, LlmStage stage, Guid? documentId, CancellationToken cancellationToken)
+    {
+        var holds = _holds.GetOrAdd(tenantId, _ => new TenantHolds());
+        await holds.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var (verdict, estimate, budgeted) = await DecideAsync(tenantId, stage, documentId, holds, cancellationToken).ConfigureAwait(false);
+            if (!verdict.Allowed || !budgeted)
+            {
+                return new LlmBudgetReservation(verdict, null);
+            }
+
+            var hold = new Hold(stage, documentId, estimate);
+            lock (holds.Items)
+            {
+                holds.Items.Add(hold);
+            }
+
+            return new LlmBudgetReservation(verdict, () =>
+            {
+                lock (holds.Items)
+                {
+                    holds.Items.Remove(hold);
+                }
+            });
+        }
+        finally
+        {
+            holds.Gate.Release();
+        }
+    }
+
+    /// <summary>How many estimates this process holds for <paramref name="tenantId"/> (for tests).</summary>
+    public int HeldCount(Guid tenantId)
+    {
+        if (!_holds.TryGetValue(tenantId, out var holds))
+        {
+            return 0;
+        }
+
+        lock (holds.Items)
+        {
+            return holds.Items.Count;
+        }
+    }
+
+    private async Task<(LlmBudgetVerdict Verdict, decimal Estimate, bool Budgeted)> DecideAsync(Guid tenantId, LlmStage stage, Guid? documentId, TenantHolds? holds, CancellationToken cancellationToken)
     {
         await using var db = contexts.CreatePlatformScoped();
         var budgets = await db.LlmBudgets.AsNoTracking()
@@ -26,21 +88,52 @@ public sealed class EfLlmBudgetGuard(ISystemDbContextFactory contexts, TimeProvi
         budgets = [.. budgets.Where(b => b.Period != LlmBudgetPeriod.Document || documentId is not null)];
         if (budgets.Count == 0)
         {
-            return LlmBudgetVerdict.Allow;
+            return (LlmBudgetVerdict.Allow, 0m, false);
         }
 
         var estimate = await EstimateAsync(db, tenantId, stage, cancellationToken).ConfigureAwait(false);
         var now = clock.GetUtcNow();
-        foreach (var budget in budgets.OrderBy(b => b.Period).ThenBy(b => b.Stage is null))
+        List<Hold> held;
+        if (holds is null)
         {
-            var spent = await SpentAsync(db, tenantId, budget.ToDomain(), documentId, now, cancellationToken).ConfigureAwait(false);
-            if (spent >= budget.LimitUsd || spent + estimate > budget.LimitUsd)
+            held = [];
+        }
+        else
+        {
+            lock (holds.Items)
             {
-                return new LlmBudgetVerdict(false, budget.ToDomain(), spent, estimate);
+                held = [.. holds.Items];
             }
         }
 
-        return LlmBudgetVerdict.Allow;
+        foreach (var budget in budgets.OrderBy(b => b.Period).ThenBy(b => b.Stage is null))
+        {
+            var limit = budget.ToDomain();
+            var spent = await SpentAsync(db, tenantId, limit, documentId, now, cancellationToken).ConfigureAwait(false)
+                        + held.Where(h => (limit.Stage is null || h.Stage == limit.Stage) && (limit.Period != LlmBudgetPeriod.Document || h.DocumentId == documentId)).Sum(h => h.Amount);
+            if (spent >= budget.LimitUsd || spent + estimate > budget.LimitUsd)
+            {
+                return (new LlmBudgetVerdict(false, limit, spent, estimate), estimate, true);
+            }
+        }
+
+        return (LlmBudgetVerdict.Allow, estimate, true);
+    }
+
+    private sealed class TenantHolds
+    {
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+
+        public List<Hold> Items { get; } = [];
+    }
+
+    private sealed class Hold(LlmStage stage, Guid? documentId, decimal amount)
+    {
+        public LlmStage Stage { get; } = stage;
+
+        public Guid? DocumentId { get; } = documentId;
+
+        public decimal Amount { get; } = amount;
     }
 
     /// <summary>The start of <paramref name="period"/> that contains <paramref name="now"/> (UTC); null for a document budget.</summary>

@@ -25,7 +25,18 @@ public sealed class KeywordRuleTable
     public const int MaxPhrasesPerRule = 50;
     public const int MaxPhraseLength = 100;
 
-    private static readonly TimeSpan TenantTimeout = TimeSpan.FromSeconds(2);
+    /// <summary>
+    /// The match timeout of one tenant rule on one page. The phrases compile to linear patterns
+    /// (<see cref="KeywordRuleSet.PhrasePattern"/>), so this is a backstop, kept short: every rule of a table runs on every
+    /// page, on the worker every tenant shares.
+    /// </summary>
+    internal static readonly TimeSpan TenantTimeout = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// How long the rules of one table may take on one page in all (<see cref="KeywordMatcher"/>): the rules after that
+    /// are not run on the page, so a large table cannot hold the worker for rules × <see cref="TenantTimeout"/>.
+    /// </summary>
+    internal static readonly TimeSpan PageBudget = TimeSpan.FromMilliseconds(500);
 
     internal KeywordRuleTable(IReadOnlyList<KeywordRule> rules)
     {

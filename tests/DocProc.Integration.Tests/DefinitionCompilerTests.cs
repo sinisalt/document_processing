@@ -488,9 +488,25 @@ public sealed class DefinitionCompilerTests
     [InlineData("""{"id":"r","kind":"arithmetic","params":{"rows":"items[*]","expression":"quantity * 2","equals":"total"}}""", "equals 'total' is not a field of the rows")]
     [InlineData("""{"id":"r","kind":"expression","params":{"forEach":"items[*]","predicate":"quantity > 0","field":"weight"}}""", "field 'weight' is not a field of the rows")]
     [InlineData("""{"id":"r","kind":"expression","params":{"predicate":"1 = 1","limit":3}}""", "do not fit the kind 'expression'")]
+    [InlineData("""{"id":"r","kind":"requiredIf","params":{"path":"items[*].reason","when":"quantity > 0"}}""", "path 'items[*].reason' names rows: set rows to 'items[*]'")]
+    [InlineData("""{"id":"r","kind":"requiredIf","params":{"rows":"items[*]","path":"weight","when":"quantity > 0"}}""", "path 'weight' is not a field of the rows")]
     public void P5_rule_parameters_and_expressions_are_checked_at_publish(string rule, string expected)
     {
         var report = Publish(ReturnSlipJson(rules: $"[{rule}]"));
+
+        report.CanPublish.ShouldBeFalse();
+        string.Join("\n", report.Problems).ShouldContain(expected);
+    }
+
+    [Theory]
+    [InlineData("a - - - - z", "is not words separated by single spaces or hyphens")]
+    [InlineData("- - -", "is not words separated by single spaces or hyphens")]
+    [InlineData("Retourenschein                     Liste", "is not words separated by single spaces or hyphens")]
+    public void Classification_phrases_that_are_not_words_are_refused(string phrase, string expected)
+    {
+        var json = ReturnSlipJson().Replace("\"keywords\":{\"de\":[\"Retourenschein\",\"Rücksendung\"] }", "\"keywords\":{\"de\":[\"Retourenschein\"," + System.Text.Json.JsonSerializer.Serialize(phrase) + "] }", StringComparison.Ordinal);
+        json.ShouldContain(System.Text.Json.JsonSerializer.Serialize(phrase));
+        var report = Publish(json);
 
         report.CanPublish.ShouldBeFalse();
         string.Join("\n", report.Problems).ShouldContain(expected);
@@ -504,11 +520,25 @@ public sealed class DefinitionCompilerTests
              {"id":"r_date","kind":"compare","params":{"left":"returnDate","op":"le","value":"2099-12-31"}},
              {"id":"r_sum","kind":"sumEquals","params":{"path":"items[*].quantity","equals":"items[*].quantity","tolerance":0}},
              {"id":"r_row","kind":"arithmetic","params":{"rows":"items[*]","expression":"quantity * 1","equals":"quantity"}},
-             {"id":"r_expr","kind":"expression","params":{"forEach":"items[*]","predicate":"quantity > 0 or reason = 'Surplus'","field":"quantity"}}]
+             {"id":"r_expr","kind":"expression","params":{"forEach":"items[*]","predicate":"quantity > 0 or reason = 'Surplus'","field":"quantity"}},
+             {"id":"r_rows","kind":"requiredIf","params":{"rows":"items[*]","path":"reason","when":"quantity > 0"}},
+             {"id":"r_single","kind":"compare","params":{"left":"returnDate","op":"ge","right":"items[*].quantity"}},
+             {"id":"r_same","kind":"compare","params":{"left":"items[*].quantity","op":"ge","right":"items[*].quantity"}}]
             """));
 
         report.Problems.ShouldBeEmpty();
         report.CanPublish.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Compare_refuses_two_row_paths_of_different_row_groups()
+    {
+        var json = ReturnSlipJson(rules: """[{"id":"r_pairs","kind":"compare","params":{"left":"items[*].quantity","op":"le","right":"packages[*].count"}}]""")
+            .Replace("""{"id":"fld_sup","key":"supplier","kind":"party"},""", """{"id":"fld_sup","key":"supplier","kind":"party"},{"id":"fld_pk","key":"packages","kind":"array","item":{"fields":[{"id":"fld_pk_n","key":"count","kind":"decimal"}]}},""", StringComparison.Ordinal);
+        var report = Publish(json);
+
+        report.CanPublish.ShouldBeFalse();
+        string.Join("\n", report.Problems).ShouldContain("name rows of different groups (items[*], packages[*])");
     }
 
     [Fact]

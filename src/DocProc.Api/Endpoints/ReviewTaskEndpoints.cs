@@ -94,19 +94,35 @@ public static class ReviewTaskEndpoints
             query = query.Where(t => t.AssignedTo == assignee);
         }
 
-        // Urgent first, then high, then normal (docs/11 §6.2), oldest first within a priority. A cursor issued before the
-        // priority existed carries none and continues among the normal tasks, where every earlier task is.
+        // docs/11 §6.2: "The queue sorts by Priority, then SlaDueAt": urgent first, then high, then normal; within a
+        // priority the task due first (one without a due time last), then the oldest. A cursor issued before the
+        // priority existed carries none and continues among the normal tasks; one issued before the due time was part
+        // of the order continues among the tasks of its rank without one.
         if (after is { } c)
         {
             var rank = c.Rank ?? Rank(ReviewPriority.Normal);
-            query = query.Where(t => (t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) > rank
-                                     || ((t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) == rank
-                                         && (t.CreatedAt > c.At || (t.CreatedAt == c.At && t.Id.CompareTo(c.Id) > 0))));
+            if (c.HasDue && c.Due is { } due)
+            {
+                query = query.Where(t => (t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) > rank
+                                         || ((t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) == rank
+                                             && (t.SlaDueAt == null
+                                                 || t.SlaDueAt > due
+                                                 || (t.SlaDueAt == due && (t.CreatedAt > c.At || (t.CreatedAt == c.At && t.Id.CompareTo(c.Id) > 0))))));
+            }
+            else
+            {
+                query = query.Where(t => (t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) > rank
+                                         || ((t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2) == rank
+                                             && t.SlaDueAt == null
+                                             && (t.CreatedAt > c.At || (t.CreatedAt == c.At && t.Id.CompareTo(c.Id) > 0))));
+            }
         }
 
         var size = PageCursor.ClampLimit(limit);
         var rows = await Rows(db, query
                 .OrderBy(t => t.Priority == ReviewPriority.Urgent ? 0 : t.Priority == ReviewPriority.High ? 1 : 2)
+                .ThenBy(t => t.SlaDueAt == null ? 1 : 0)
+                .ThenBy(t => t.SlaDueAt)
                 .ThenBy(t => t.CreatedAt)
                 .ThenBy(t => t.Id)
                 .Take(size + 1))
@@ -118,7 +134,7 @@ public static class ReviewTaskEndpoints
         }
 
         var items = rows.Select(ToDto).ToList();
-        return TypedResults.Ok(new Page<ReviewTaskDto>(items, hasMore ? new PageCursor(items[^1].CreatedAt, items[^1].Id, Rank(items[^1].Priority)).Encode() : null));
+        return TypedResults.Ok(new Page<ReviewTaskDto>(items, hasMore ? PageCursor.ByDue(items[^1].CreatedAt, items[^1].Id, Rank(items[^1].Priority), items[^1].SlaDueAt).Encode() : null));
     }
 
     private static async Task<Results<Ok<ReviewTaskDto>, ProblemHttpResult>> ClaimAsync(Guid id, [FromServices] DocProcDbContext db, ClaimsPrincipal user, CancellationToken ct)

@@ -1734,7 +1734,8 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       version's `pipelineOverrides` over;
     - `defaults` (run since part C), `code-list` and `transform` steps (listed, not run), the tenant-currency default
       still in the mapper,
-      and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5);
+      and `review.autoApproveMinConfidence` and `defaults.currency`/`locale` of the supplier settings (later parts of P5:
+      `defaults.currency`/`locale` were applied in part C, `review.autoApproveMinConfidence` only in fix 1);
     - `step_completed` timeline events per step with their cost; the alert when a type's Unknown rate or LLM spend passes
       its 14-day baseline (docs/11 §16);
     - the parts C onward of P5 (price lists end to end, the processing UI, master data, callbacks, Insights >
@@ -1948,6 +1949,39 @@ The phases P0 to P6 of docs/11 §23 replace the fixed-type plan above where they
       review when no LLM provider is configured (the compose default);
     - the expired specials copy is a fixed date (4 November 2026), expired on any day after it rather than always
       "yesterday".
+  - Done, fix 1 (the review of P5, recorded as "Correction (P5, fix 1)" in docs/11 §5.8, §7.4, §8.5, §9.4, §11, §13.8,
+    §16 and §23):
+    - `:resolve-revision {supersedes}` records the intent; the earlier list is superseded when the new one is approved
+      and stands again when it is rejected, cancelled or reprocessed (`DocumentRevisions`);
+    - no rule lets an exception out of validation: clamped indexes and `$substring` arguments in `RuleExpression`,
+      `ordered` keys of two kinds as `RULE_FAILED {orderedMixed}`, anything else a rule throws as `RULE_FAILED
+      {expressionError}`; `requiredIf` takes `rows` (its condition per row), `compare` pairs a single value with every
+      row value, and publish refuses the shapes that checked nothing (a row `path` without `rows`, two row paths of
+      different groups);
+    - LLM budgets hold an allowed call's estimate until its usage row is written (per process; across N worker replicas
+      the overshoot is bounded by N - 1 calls, docs/11 §16);
+    - the review queue sorts by priority, then due time; `GET /documents?sort=reviewDue` is the inbox's "Urgent first"
+      across every page;
+    - a supplier's (or its group's) `review.autoApproveMinConfidence` is the confidence threshold of its documents (the
+      tenant's otherwise); the type's `review.minConfidence` stays the threshold of `review.lines`;
+    - Split and Classify take a supplier's `pipelineOverrides` only when the source named it;
+    - Match clears a tenant rule's pin (and its `Matched` count) when the supplier's own layout decides or proposes, or
+      the supplier is replaced; the re-classification after a replaced supplier runs the tenant rules too;
+    - signed callbacks are ordered by their own timestamp per reference (`LastCallbackAt`, `LastCallbackSignature`,
+      migration `AcknowledgementReplayGuard`): a replay or a late callback is answered `replayed` and changes nothing;
+      a status answer applies to the polled reference only; a poll whose URL left the destination's host is not sent,
+      and a destination does not move to another host while its poll names the old one;
+    - tenant classification phrases compile to linear patterns (100 ms per rule, 500 ms per page and table), and
+      publish refuses phrases that are not words;
+    - the P5 Down methods map back the data the build before P5 reads (`P5DowngradeSql`), and a definition without
+      flags is written without `flags`; the down/up test reads the result under those rules;
+    - docs/09: Nordwind's IBAN and Südhof's vendor number in the setup curl, the timeline string of step 15, and the
+      flags of the v2 price list in "Demo: manual mapping".
+  - Left for later (fix 1), roll-forward only after a downgrade from P5 to P4: a type adopted (or a tenant type created)
+    under P5 with no earlier version stays on template v2 (the earlier build cannot compile what it lacks, such as a P5
+    rule kind, and reports such rules as not run, which sends the documents to review); the definition flags' codes
+    become `RULE_FAILED` again; the values an `http-lookup` wrote read as `Profile` values; and a closed integration
+    issue stays closed.
 - **P6** – not started.
 
 ## Risks and open questions

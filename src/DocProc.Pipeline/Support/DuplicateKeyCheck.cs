@@ -80,9 +80,11 @@ public static class DuplicateKeyCheck
             // one, either way round (docs/11 §11 :resolve-revision).
             .Where(d => d.SupersededByDocumentId == null)
             .Where(d => !(d.RevisionOfDocumentId == document.Id && d.RevisionResolution == RevisionResolution.Additional));
-        if (document.RevisionResolution == RevisionResolution.Additional && document.RevisionOfDocumentId is { } additionalTo)
+        // The earlier document of a resolved pair is not this one's match again: "additional" lets both stand, and
+        // "supersedes" leaves the earlier document unsuperseded until this one is approved (DocumentRevisions).
+        if (document.RevisionResolution is RevisionResolution.Additional or RevisionResolution.Supersedes && document.RevisionOfDocumentId is { } resolvedAgainst)
         {
-            candidates = candidates.Where(d => d.Id != additionalTo);
+            candidates = candidates.Where(d => d.Id != resolvedAgainst);
         }
         if (bySupplier)
         {

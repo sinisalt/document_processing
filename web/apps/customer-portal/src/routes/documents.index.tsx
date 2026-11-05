@@ -21,7 +21,7 @@ import {
 import { useDocumentTypes, useTenantFeatures } from "@docproc/review";
 import { UploadDialog } from "@/components/UploadDialog";
 import { MAX_FIELD_COLUMNS, fieldFilterQuery, inboxTabs, indexedFieldOptions, statusFilterOf, typeLabel, typeOptions, type IndexedFieldOption, type InboxTab } from "@/lib/inbox";
-import { dueState, sortByReviewDue } from "@/lib/priority";
+import { documentSortOf, dueState } from "@/lib/priority";
 import { EMPTY_ARRAY, useDocumentList, useSuppliers, type DocumentSummary } from "@/lib/queries";
 
 const ALL = "__all__";
@@ -90,16 +90,18 @@ function InboxPage() {
       ...(fieldFilterQuery(search.field, search.value) as Partial<DocumentListQuery>),
       flag: search.flag || undefined,
       pendingLayoutVersionId: search.pendingLayoutVersionId || undefined,
+      // "Urgent first" is the server's order (priority, then due time), so it holds across every page.
+      sort: documentSortOf(search.sort),
       limit: 50,
     }),
-    [tab, search.type, search.supplierId, search.from, search.to, search.q, search.field, search.value, fieldColumns, search.flag, search.pendingLayoutVersionId],
+    [tab, search.type, search.supplierId, search.from, search.to, search.q, search.field, search.value, fieldColumns, search.flag, search.pendingLayoutVersionId, search.sort],
   );
 
   // The API answers from > to with 400; such a range is shown as an error at the inputs and not sent.
   const rangeInvalid = !!(search.from && search.to && search.from > search.to);
   const list = useDocumentList(query, !rangeInvalid);
   const suppliers = useSuppliers({ limit: 200 }, tenantScope);
-  const rows = useMemo(() => (search.sort === "reviewDue" ? sortByReviewDue(list.items, (d) => d.reviewPriority, (d) => d.reviewDueAt) : list.items), [list.items, search.sort]);
+  const rows = list.items;
 
   const setSearch = (patch: Partial<InboxSearch>) =>
     void navigate({ search: (previous) => ({ ...previous, ...patch }) });

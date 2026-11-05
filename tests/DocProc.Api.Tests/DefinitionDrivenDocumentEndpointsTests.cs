@@ -555,4 +555,64 @@ public sealed class DefinitionDrivenDocumentEndpointsTests(ApiFactory factory) :
         var summary = (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>("/api/v1/documents", ApiFactory.Json, Ct))!.Items.Single(d => d.Id == ids[2]);
         summary.ReviewPriority.ShouldBe(ReviewPriority.Urgent);
     }
+
+    [Fact]
+    public async Task Within_a_priority_the_queue_and_the_inbox_sort_by_due_time_across_pages()
+    {
+        var tenant = NewTenant("Queue due", configurable: false);
+        var start = factory.Clock.GetUtcNow();
+        var ids = new List<Guid>();
+        for (var i = 0; i < 5; i++)
+        {
+            var seeded = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, ReviewTask = true, CreatedAt = start.AddMinutes(i) });
+            ids.Add(seeded.DocumentId);
+        }
+
+        var settled = await factory.SeedDocumentAsync(new DocumentSeed { TenantId = tenant, Status = DocProc.Domain.Documents.DocumentStatus.Approved, CreatedAt = start.AddMinutes(10) });
+        factory.Run(db =>
+        {
+            // Two urgent specials lists: the younger one is due first. A normal task with a due time comes before the
+            // normal ones without, which keep their age order.
+            var older = db.ReviewTasks.Single(t => t.DocumentId == ids[0]);
+            older.Priority = ReviewPriority.Urgent;
+            older.SlaDueAt = start.AddHours(8);
+            var younger = db.ReviewTasks.Single(t => t.DocumentId == ids[1]);
+            younger.Priority = ReviewPriority.Urgent;
+            younger.SlaDueAt = start.AddHours(2);
+            db.ReviewTasks.Single(t => t.DocumentId == ids[4]).SlaDueAt = start.AddHours(30);
+            db.ReviewTasks.Single(t => t.DocumentId == ids[2]).SlaDueAt = null;
+            db.ReviewTasks.Single(t => t.DocumentId == ids[3]).SlaDueAt = null;
+        });
+        using var reviewer = Reviewer(tenant);
+
+        var queue = new List<Guid>();
+        string? cursor = null;
+        do
+        {
+            var page = (await reviewer.GetFromJsonAsync<Page<ReviewTaskDto>>("/api/v1/review-tasks?limit=1" + (cursor is null ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor)), ApiFactory.Json, Ct))!;
+            queue.AddRange(page.Items.Select(t => t.DocumentId));
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
+
+        queue.ShouldBe([ids[1], ids[0], ids[4], ids[2], ids[3]], "priority, then the due time (none last), then age (docs/11 §6.2)");
+
+        // The inbox's "Urgent first" is the server's order across every page, not only the loaded one; documents
+        // without a review task come last, newest first.
+        var inbox = new List<Guid>();
+        cursor = null;
+        do
+        {
+            var page = (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>("/api/v1/documents?sort=reviewDue&limit=2" + (cursor is null ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor)), ApiFactory.Json, Ct))!;
+            inbox.AddRange(page.Items.Select(d => d.Id));
+            cursor = page.NextCursor;
+        }
+        while (cursor is not null);
+
+        inbox.ShouldBe([ids[1], ids[0], ids[4], ids[3], ids[2], settled.DocumentId], "within a priority and no due time the inbox keeps its newest-first order");
+        (await reviewer.GetAsync("/api/v1/documents?sort=total", Ct)).StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        var first = (await reviewer.GetFromJsonAsync<Page<DocumentSummary>>("/api/v1/documents?sort=reviewDue&limit=1", ApiFactory.Json, Ct))!.Items.Single();
+        first.ReviewPriority.ShouldBe(ReviewPriority.Urgent);
+        first.ReviewDueAt.ShouldBe(start.AddHours(2));
+    }
 }

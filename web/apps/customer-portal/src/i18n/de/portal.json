@@ -508,7 +508,7 @@
       "additional": "Ein zusätzliches Dokument",
       "duplicate": "Ein Duplikat (ablehnen)",
       "done": {
-        "supersedes": "Dieses Dokument ersetzt das frühere.",
+        "supersedes": "Dieses Dokument ersetzt das frühere, sobald es freigegeben ist; abgelehnt ersetzt es nichts.",
         "additional": "Beide Dokumente bleiben bestehen.",
         "duplicate": "Als Duplikat abgelehnt."
       },

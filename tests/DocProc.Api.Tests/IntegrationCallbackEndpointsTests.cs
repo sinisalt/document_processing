@@ -123,6 +123,61 @@ public sealed class IntegrationCallbackEndpointsTests(ApiFactory factory) : ICla
     }
 
     [Fact]
+    public async Task A_replayed_or_late_signed_callback_changes_nothing()
+    {
+        var setup = await SetupAsync("Callback replay");
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+        using var anonymous = factory.CreateClient();
+        (await admin.PutAsJsonAsync($"/api/v1/destinations/{setup.Destination}/acknowledgements", new { callback = new { auth = "hmacSha256", mapping = Mapping } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await admin.PutAsJsonAsync($"/api/v1/destinations/{setup.Destination}/callback-secret", new { secret = Secret }, Ct);
+
+        var now = factory.Clock.GetUtcNow();
+        var rejection = $$"""{"ref":"{{setup.ExternalId}}","state":"ERROR","text":"Vendor blocked"}""";
+        var acceptance = $$"""{"ref":"{{setup.ExternalId}}","state":"OK","text":null}""";
+        (await anonymous.SendAsync(Callback(setup.Destination, rejection, Secret, now.AddMinutes(-2)), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var accepted = await anonymous.SendAsync(Callback(setup.Destination, acceptance, Secret, now.AddMinutes(-1)), Ct);
+        (await accepted.Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!.Applied.ShouldBe(1);
+        Flags(setup.Document).Single().ResolvedAt.ShouldNotBeNull();
+        factory.Query(db => db.ReviewTasks.Single(t => t.DocumentId == setup.Document).Status).ShouldBe(ReviewTaskStatus.Done);
+
+        // The captured rejection sent again inside the window: authenticated, but older than the acceptance.
+        var replay = await anonymous.SendAsync(Callback(setup.Destination, rejection, Secret, now.AddMinutes(-2)), Ct);
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var answer = (await replay.Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!;
+        answer.Applied.ShouldBe(0);
+        answer.Replayed.ShouldBe(1);
+        Flags(setup.Document).ShouldHaveSingleItem().ResolvedAt.ShouldNotBeNull("no new EXTERNAL_REJECTED");
+        factory.Query(db => db.ReviewTasks.Count(t => t.DocumentId == setup.Document)).ShouldBe(1, "no new integration issue");
+        factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).Status).ShouldBe(ExternalRefStatus.Accepted);
+
+        // The acceptance itself again is a replay too; a later, different callback still applies.
+        (await (await anonymous.SendAsync(Callback(setup.Destination, acceptance, Secret, now.AddMinutes(-1)), Ct)).Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!.Replayed.ShouldBe(1);
+        factory.Query(db => db.DocumentEvents.Count(e => e.DocumentId == setup.Document && e.EventType == "document.externally_accepted")).ShouldBe(1);
+        var later = await anonymous.SendAsync(Callback(setup.Destination, rejection, Secret, now), Ct);
+        (await later.Content.ReadFromJsonAsync<CallbackResponse>(ApiFactory.Json, Ct))!.Applied.ShouldBe(1);
+        factory.Query(db => db.DocumentExternalRefs.Single(r => r.DocumentId == setup.Document).Status).ShouldBe(ExternalRefStatus.Rejected);
+    }
+
+    [Fact]
+    public async Task A_destination_with_a_status_poll_does_not_move_to_another_host()
+    {
+        var setup = await SetupAsync("Callback poll host");
+        factory.Run(db => db.Tenants.Single(t => t.Id == setup.Tenant).Settings.Features!.Outputs = true);
+        using var admin = factory.TenantAdminOf(setup.Tenant);
+        (await admin.PutAsJsonAsync($"/api/v1/destinations/{setup.Destination}/acknowledgements", new { statusPoll = new { urlTemplate = "https://erp.example/api/ap/status/{externalId}" } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var moved = await admin.PatchAsJsonAsync($"/api/v1/destinations/{setup.Destination}", new { config = new { urlTemplate = "https://erp.elsewhere.example/api/ap/invoices" } }, Ct);
+        moved.StatusCode.ShouldBe(HttpStatusCode.BadRequest, await moved.Content.ReadAsStringAsync(Ct));
+        (await moved.Content.ReadAsStringAsync(Ct)).ShouldContain("status poll");
+        var samePlace = await admin.PatchAsJsonAsync($"/api/v1/destinations/{setup.Destination}", new { config = new { urlTemplate = "https://erp.example/api/v2/ap/invoices" } }, Ct);
+        samePlace.StatusCode.ShouldBe(HttpStatusCode.OK, await samePlace.Content.ReadAsStringAsync(Ct));
+
+        // With the poll turned off, the destination moves.
+        (await admin.PutAsJsonAsync($"/api/v1/destinations/{setup.Destination}/acknowledgements", new { }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.PatchAsJsonAsync($"/api/v1/destinations/{setup.Destination}", new { config = new { urlTemplate = "https://erp.elsewhere.example/api/ap/invoices" } }, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task The_callback_secret_rotates_with_the_old_one_accepted_until_the_next_rotation_and_bearer_works_too()
     {
         var setup = await SetupAsync("Callback rotation");

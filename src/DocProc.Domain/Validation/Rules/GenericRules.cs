@@ -125,7 +125,19 @@ public static partial class GenericRules
                 return [];
             }
 
-            var flags = evaluate(view, parameters, context).ToList();
+            List<DocumentFlag> flags;
+            try
+            {
+                flags = evaluate(view, parameters, context).ToList();
+            }
+            catch (Exception e) when (e is ArithmeticException or ArgumentException or InvalidOperationException or InvalidCastException or FormatException or IndexOutOfRangeException or KeyNotFoundException or NotSupportedException)
+            {
+                // A rule is configuration and its values are the document's: neither may crash the validation of the
+                // whole document (the stage would retry and fail, an inline revalidation answer 500). What the rule
+                // could not evaluate fails the rule instead, as an expression that cannot be evaluated does.
+                return [FlagCodes.Create(FlagCodes.RuleFailed, $"The rule could not be evaluated: {e.Message}", null, FlagParams.Of((FlagParams.Reason, "expressionError"), ("error", e.GetType().Name)))];
+            }
+
             if (!capped)
             {
                 return flags;

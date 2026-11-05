@@ -213,7 +213,20 @@ public static partial class GenericRules
                 if (Comparable(ValuePaths.Select(item, by).FirstOrDefault().Value) is { } key)
                 {
                     var at = $"{itemPath}.{by}";
-                    if (previousBy is { } before)
+                    if (previousBy is { } mixed && key.GetType() != mixed.Value.GetType())
+                    {
+                        // A date and a number are not in any order: the keys of one list are compared only with keys of
+                        // their own kind (IComparable.CompareTo across types would throw).
+                        yield return RuleFailed(
+                            at,
+                            $"'{at}' ({Show(key)}) cannot be ordered after '{mixed.Path}' ({Show(mixed.Value)}): one is a date, the other a number.",
+                            "orderedMixed",
+                            ("field", at),
+                            ("value", Show(key)),
+                            ("previous", Show(mixed.Value)),
+                            ("previousField", mixed.Path));
+                    }
+                    else if (previousBy is { } before)
                     {
                         var order = key.CompareTo(before.Value);
                         if (order < 0 || (strict && order == 0))

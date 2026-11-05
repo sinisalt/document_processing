@@ -36,11 +36,12 @@ public static class RuleKinds
         ["expression"] = ["predicate"],
     };
 
-    /// <summary>The parameters, by kind, that name a path relative to the rows of another parameter (<c>arithmetic.equals</c> under <c>rows</c>, <c>expression.field</c> under <c>forEach</c>).</summary>
+    /// <summary>The parameters, by kind, that name a path relative to the rows of another parameter (<c>arithmetic.equals</c> under <c>rows</c>, <c>expression.field</c> under <c>forEach</c>, <c>requiredIf.path</c> under <c>rows</c>).</summary>
     public static readonly IReadOnlyDictionary<string, (string Rows, string Relative)> RowRelativeParams = new Dictionary<string, (string, string)>(StringComparer.Ordinal)
     {
         ["arithmetic"] = ("rows", "equals"),
         ["expression"] = ("forEach", "field"),
+        ["requiredIf"] = ("rows", "path"),
     };
 
     /// <summary>Every kind available in this deployment, by key.</summary>
@@ -120,9 +121,9 @@ public static class RuleKinds
         yield return new RuleKindDescriptor(
             "requiredIf",
             P5,
-            "The field at path has a value whenever the expression when holds.",
-            Params(Required("path", "when"), ("path", PathSchema()), ("when", ExpressionSchema())),
-            ["path"]);
+            "The field at path has a value whenever the expression when holds; with rows (for example lines[*]), path is a field of each row and when is evaluated on each row ($$ is the document).",
+            Params(Required("path", "when"), ("rows", PathSchema()), ("path", PathSchema()), ("when", ExpressionSchema())),
+            ["rows"]);
         yield return new RuleKindDescriptor(
             "compare",
             P5,

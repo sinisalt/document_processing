@@ -526,6 +526,13 @@ namespace DocProc.Infrastructure.Persistence.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("nvarchar(400)");
 
+                    b.Property<DateTimeOffset?>("LastCallbackAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastCallbackSignature")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("Message")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");

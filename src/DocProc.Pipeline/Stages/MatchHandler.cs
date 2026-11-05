@@ -48,6 +48,7 @@ internal sealed class MatchHandler(
     KeywordDocumentClassifier keywords,
     IServiceProvider services,
     LayoutIdentification layouts,
+    TenantIdentification tenantRules,
     IOptions<PipelineOptions> options,
     StagePipeline pipelines,
     ILogger<MatchHandler> logger) : DocumentStageHandler(db, timeline, logger)
@@ -204,11 +205,41 @@ internal sealed class MatchHandler(
         // and a type its layout identified or proposed, which is classified again for the new supplier.
         layouts.Clear(document, LayoutIdentification.ClassifyStep);
         document.SupplierLayoutVersionId = null;
+        // A tenant rule's decision was for the old supplier's document: it is classified again for the new one.
+        await tenantRules.ReleaseAsync(document, cancellationToken).ConfigureAwait(false);
         if (document.TypeSource is TypeSource.Supplier or TypeSource.Identification or TypeSource.Proposed)
         {
             var allowed = await ClassifyHandler.AllowedTypesAsync(Db, evidence.Supplier.Id, cancellationToken).ConfigureAwait(false);
-            var tenantTypes = await Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<DocProc.Infrastructure.Classification.TenantClassification>(services).ResolveAsync(document.TenantId, cancellationToken).ConfigureAwait(false);
-            var (outcome, _, budget) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed, tenantTypes: tenantTypes).ConfigureAwait(false);
+            // In the order of §7.4/§9.4: the new supplier's layouts (match.layout below corrects the type when one holds),
+            // then, for a supplier without own layouts, the tenant fallback rules, then the keyword rules and the LLM.
+            var managed = await layouts.ResolveAsync(document, fixedType: null, cancellationToken).ConfigureAwait(false);
+            ClassificationOutcome? ruled = null;
+            if (managed?.Result.Resolution is null or LayoutResolution.NotManaged or LayoutResolution.NewLayout)
+            {
+                async Task<DocumentWords> Words() =>
+                    managed?.Words ?? DocumentWords.From(await blobs.ReadTextLayerAsync(document, cancellationToken).ConfigureAwait(false));
+                var tenantRule = await tenantRules.ResolveAsync(document, Words, cancellationToken).ConfigureAwait(false);
+                if (tenantRule is { Resolution: TenantRuleResolution.Identified, Selected: { } heldRule }
+                    && (allowed is not { Count: > 0 } || allowed.Contains(heldRule.Candidate.DocumentTypeKey, StringComparer.Ordinal)))
+                {
+                    var proposedOnly = managed?.Result.Resolution == LayoutResolution.NewLayout;
+                    ruled = new ClassificationOutcome(DocumentTypeKey.FromStored(heldRule.Candidate.DocumentTypeKey), 1.0, proposedOnly ? TypeSource.Proposed : TypeSource.Identification);
+                    await tenantRules.RecordAsync(document, tenantRule, decided: !proposedOnly, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            ClassificationOutcome outcome;
+            DocProc.Llm.Gateway.LlmBudgetExceededException? budget = null;
+            if (ruled is not null)
+            {
+                outcome = ruled;
+            }
+            else
+            {
+                var tenantTypes = await Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<DocProc.Infrastructure.Classification.TenantClassification>(services).ResolveAsync(document.TenantId, cancellationToken).ConfigureAwait(false);
+                (outcome, _, budget) = await ClassifyHandler.ClassifyPagesAsync(document, blobs, keywords, services, options.Value, cancellationToken, allowed, tenantTypes: tenantTypes).ConfigureAwait(false);
+            }
+
             ClassifyHandler.SetType(document, outcome);
             pipelines.RecordBudget(document, DocProc.Definitions.Pipelines.StepKindCatalogue.ClassifyLlm, budget);
             flags.Replace(document, [FlagCodes.TypeUnknown], outcome.Type == DocumentTypeKey.Unknown
@@ -246,6 +277,13 @@ internal sealed class MatchHandler(
         {
             ClearMatchLayout(document);
             return null;
+        }
+
+        if (found.Result.Resolution is LayoutResolution.Identified or LayoutResolution.NewLayout)
+        {
+            // The supplier has layouts of its own: they, not a tenant fallback rule, decide or propose its documents'
+            // type (docs/11 §8.5), so a rule Classify applied before the supplier was known is no longer the decider.
+            await tenantRules.ReleaseAsync(document, cancellationToken).ConfigureAwait(false);
         }
 
         if (fixedType is null && found.Result is { Resolution: LayoutResolution.Identified, Selected: { } selected })

@@ -86,6 +86,35 @@ public sealed class LlmBudgetGuardTests
         (await guard.CheckAsync(TenantA, LlmStage.Split, null, Ct)).Allowed.ShouldBeFalse("a budget of 0 keeps the stage from calling at all");
     }
 
+    [Fact]
+    public async Task Parallel_calls_hold_their_estimates_so_they_cannot_pass_the_budget_together()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        var now = host.Clock.GetUtcNow();
+        await UsageAsync(host, TenantA, LlmStage.Extract, 0.40m, now.AddHours(-1));
+        await UsageAsync(host, TenantA, LlmStage.Extract, 0.50m, now.AddDays(-1));
+        await BudgetAsync(host, LlmBudgetPeriod.Day, 1m);
+        var guard = Guard(host);
+
+        // 0.40 spent today, estimate 0.45: one call fits, two at the same time (0.40 + 0.45 + 0.45) do not.
+        var reservations = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => guard.ReserveAsync(TenantA, LlmStage.Extract, null, Ct)));
+        reservations.Count(r => r.Verdict.Allowed).ShouldBe(1, "the first allowed call's estimate counts for the others");
+        guard.HeldCount(TenantA).ShouldBe(1);
+        var refused = reservations.First(r => !r.Verdict.Allowed).Verdict;
+        refused.SpentUsd.ShouldBe(0.85m, "the spend counts the held estimate");
+
+        foreach (var reservation in reservations)
+        {
+            reservation.Dispose();
+        }
+
+        guard.HeldCount(TenantA).ShouldBe(0, "released once the call is recorded");
+        using var next = await guard.ReserveAsync(TenantA, LlmStage.Extract, null, Ct);
+        next.Verdict.Allowed.ShouldBeTrue();
+        (await guard.ReserveAsync(TenantB, LlmStage.Extract, null, Ct)).Verdict.Allowed.ShouldBeTrue("another tenant's holds do not count");
+        guard.HeldCount(TenantB).ShouldBe(0, "a tenant without budgets holds nothing");
+    }
+
     private static EfLlmBudgetGuard Guard(PipelineTestHost host) => new(host.Services.GetRequiredService<ISystemDbContextFactory>(), host.Clock);
 
     private static Task<DocProcDbContext> DbAsync(PipelineTestHost host) => Task.FromResult(host.Services.GetRequiredService<ISystemDbContextFactory>().CreatePlatformScoped());

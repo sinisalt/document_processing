@@ -493,9 +493,41 @@ public static partial class DefinitionChecker
                 {
                     problems.Add(new($"classification.{block}.{language}", "needs non-empty phrases."));
                 }
+
+                // The classifier matches a phrase as words separated by white space or hyphens (docs/11 §9.4): a phrase
+                // longer than it takes, more than it keeps, or one that is mostly separators is refused here rather
+                // than silently dropped or run.
+                if (phrases.Count > MaxClassificationPhrases)
+                {
+                    problems.Add(new($"classification.{block}.{language}", $"has more than {MaxClassificationPhrases} phrases."));
+                }
+
+                foreach (var phrase in phrases.Where(p => !string.IsNullOrWhiteSpace(p)))
+                {
+                    if (phrase.Trim().Length > MaxClassificationPhraseLength)
+                    {
+                        problems.Add(new($"classification.{block}.{language}", $"'{Shorten(phrase)}' is longer than {MaxClassificationPhraseLength} characters."));
+                    }
+                    else if (SeparatorRun().IsMatch(phrase) || !phrase.Any(char.IsLetterOrDigit))
+                    {
+                        problems.Add(new($"classification.{block}.{language}", $"'{Shorten(phrase)}' is not words separated by single spaces or hyphens."));
+                    }
+                }
             }
         }
     }
+
+    /// <summary>The most phrases of one classification list (type, block and language); the classifier keeps no more.</summary>
+    public const int MaxClassificationPhrases = 50;
+
+    /// <summary>The longest classification phrase; the classifier drops longer ones.</summary>
+    public const int MaxClassificationPhraseLength = 100;
+
+    /// <summary>More than three spaces or hyphens in a row: not a phrase of words.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"[\s\-]{4,}", System.Text.RegularExpressions.RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
+    private static partial System.Text.RegularExpressions.Regex SeparatorRun();
+
+    private static string Shorten(string text) => text.Length <= 40 ? text : text[..40] + "…";
 
     /// <summary>The message for a pattern above <see cref="PatternSize.MaxUnrolled"/> or <see cref="PatternSize.MaxVariation"/>.</summary>
     internal static string TooLarge(string what, string pattern) =>

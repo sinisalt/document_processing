@@ -2625,6 +2625,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8466,6 +8473,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "replayed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         },
         "description": "The answer of a callback: how many acknowledgements were applied, and the ones naming no document of the destination."

@@ -683,7 +683,8 @@ docs/11 §5.8, §6.8, §11, §13.8 to §13.10 and §14 (P5 part C). New settings
   goes to review with the rows named in the flag). Specials are `urgent` with the review task due at the end of their
   day; one printed for a past day is blocked (`r_not_expired`), and a second list of the same supplier and day arrives
   with `REVISION_OF`, resolved in review (`POST /api/v1/documents/{id}:resolve-revision {"resolution":
-  "supersedes"|"additional"|"duplicate"}`, the panel above the form). Without `configurableSteps` a specials list
+  "supersedes"|"additional"|"duplicate"}`, the panel above the form; a list resolved as `supersedes` replaces the
+  earlier one once it is approved, and a rejected one replaces nothing). Without `configurableSteps` a specials list
   without a printed date has no `validFrom` (the `defaults` step that falls back to the day received does not run).
 - **The P5 demo files** are in `fixtures/demo/uploads/tenant-a` (drawn by `tests/DocProc.Pipeline.Tests/Pdf/
   DemoPriceLists.cs`, redrawn only with `REGENERATE_DEMO_PDFS=<file name>`): `Nordwind_Preisliste_2027-01.pdf` (the
@@ -963,7 +964,11 @@ Nordwind is not in the demo master data; the demo creates it from the document (
 3. **Map this document.** Open it from the inbox ("(no number)", type Other). The Fields tab shows the Map this
    document panel: Type = Price list, Start with = Empty, Set type. The form of Price list v1 appears with every field
    empty, the blocking `FIELD_REQUIRED` flags of Valid from, Supplier and Currency, and map mode on (Map in the page
-   viewer's toolbar; M switches it on and off). Approve stays disabled with the same note: a form whose fields are all
+   viewer's toolbar; M switches it on and off). Since P5 the adopted price list follows the template's second version,
+   whose rules add two more flags: a blocking "Rule failed" of `r_table` ("The rows of 'lines' have no table report
+   …": no table mapping read them yet; the table write of step 6 resolves it) and an informational "Rule failed" of
+   `r_delta` ("There is no earlier approved document of this supplier and type to compare the values with."), which
+   does not block and stays. Approve stays disabled with the same note: a form whose fields are all
    empty is no data (docs/11 §11), until the first value is saved in step 4.
 4. **Header values from the page.** Click Valid from in the form, then click "01.01.2027" on the page: the preview above
    the page reads `“01.01.2027” → 2027-01-01` (editable); Enter assigns it and moves to the next empty required field,
@@ -987,7 +992,7 @@ Nordwind is not in the demo master data; the demo creates it from the document (
    pages read`, p. 1: 22 rows and p. 2 to p. 14: 30 rows each; a click on a page shows it with the dividers measured
    again at its header. Write 412 rows: one correction ("412 rows written as one correction."), the rows in the grid
    "Articles · 412 rows" (100 a page) with their category and tier prices, and the report kept as the Table tab's page
-   strip (also after a reload).
+   strip (also after a reload). The table report resolves `r_table`; only the informational `r_delta` note is left.
    A box drawn down to the foot of the page holds the footer of every page. It is printed at the same place on all 14
    pages, so it is left out by itself: still `412 rows, 0 rejected`, and each page says "2 lines printed at the same
    place on most pages (running titles, page numbers, footers) were left out." and lists them under "Left out on page
@@ -1296,7 +1301,7 @@ API=http://localhost:5100/api/v1; J='content-type: application/json'; MAIL=fixtu
 tok() { curl -s http://localhost:8080/realms/docproc/protocol/openid-connect/token -d grant_type=password -d client_id=docproc-portal -d username=$1 -d password=$1 | jq -r .access_token; }
 H="authorization: Bearer $(tok tenant-a-admin)"; R="authorization: Bearer $(tok tenant-a-reviewer)"; B="authorization: Bearer $(tok tenant-b-admin)"
 # Steps 2 to 4: the supplier, the channels, layouts required, the source rules, and routing:test.
-NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
+NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","ibans":["DE44 2005 0550 1234 5678 90"],"emailDomains":["nordwind.example"]}' | jq -r .id)
 curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Rechnungen","type":"Mailbox","config":{"address":"invoices@tenant-a.local"}}' | jq .id
 SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
 curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"settings":{"layouts":{"required":true}}}' | jq .settings
@@ -1379,8 +1384,8 @@ few seconds and takes a file once it has not changed for 5 s, so a drop shows up
    Configurable steps on. Types of the tenant's own (`customTypes`) gives the tenant's keyword set, which types the
    first Südhof list; Configurable steps runs the templates' `defaults` step, which dates an undated specials list.
 2. **What the earlier demos leave** (on a fresh stack; curl below): the adopted `price-list` and `daily-specials`;
-   Nordwind (VAT id `DE312456789`, ERP vendor number `V-10042`, Layouts required) and Südhof Feinkost GmbH (`DE298765432`,
-   `V-20077`) as suppliers; the watched folder channel `Scanner` (path `scanner`, stable for 5 s); the tenant's
+   Nordwind (VAT id `DE312456789`, IBAN `DE44 2005 0550 1234 5678 90` as printed in its lists' footer, ERP vendor number
+   `V-10042`, Layouts required) and Südhof Feinkost GmbH (`DE298765432`, `V-20077`) as suppliers; the watched folder channel `Scanner` (path `scanner`, stable for 5 s); the tenant's
    warm-up 0 (Settings > General > Layouts and routing, the P4 demo's last step); and the P3 demo's outputs: the
    `erp-uom` lookup table, the `erp-articles` destination, the `article-price-import` mapping (published) and its
    `article-prices` binding, plus a `pos-hub` destination `http://mock-erp:8080/api/promotions` with the `pos-promotions`
@@ -1449,7 +1454,7 @@ few seconds and takes a file once it has not changed for 5 s, so a drop shows up
     layouts). Activate: "Rule Preisliste im Titel is active".
 15. **Typed by the rule.** Upload `Suedhof_Preisliste_2027-02.pdf` and `Bergquell_Preisliste_2027.pdf` (Bergquell is no
     supplier of the tenant). Both are typed `price-list` by the rule: `typeSource: Identification`,
-    `identificationRuleVersionId` set, the timeline's "Type identified by a tenant rule", no LLM cost, Bergquell with
+    `identificationRuleVersionId` set, the timeline's "Type identified by tenant rule", no LLM cost, Bergquell with
     `SUPPLIER_UNMATCHED`. Copy `Nordwind_Preisliste_2027-04.pdf` into the price-list folder: it is decided by
     `nordwind-price-list` (`identificationRuleVersionId` empty) and AutoApproved. Settings > Document types > Price list
     > Identification lists the rule with its test.
@@ -1468,6 +1473,7 @@ for t in std.price-list std.daily-specials; do curl -s -X POST $API/document-typ
 NW=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Nordwind Großhandel GmbH","vatId":"DE312456789","emailDomains":["nordwind.example"]}' | jq -r .id)
 curl -s -X PATCH $API/suppliers/$NW -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-10042"},"settings":{"layouts":{"required":true}}}' > /dev/null
 SF=$(curl -s -X POST $API/suppliers -H "$H" -H "$J" -d '{"name":"Südhof Feinkost GmbH","vatId":"DE298765432"}' | jq -r .id)
+curl -s -X PATCH $API/suppliers/$SF -H "$H" -H "$J" -d '{"attributes":{"erpVendorId":"V-20077"}}' > /dev/null
 SCANNER=$(curl -s -X POST $API/channels -H "$H" -H "$J" -d '{"name":"Scanner","type":"WatchedFolder","config":{"path":"scanner","stableSeconds":5}}' | jq -r .id)
 curl -s $API/settings -H "$H" | jq '.settings | .layoutReviewWarmup = 0' | curl -s -X PUT $API/settings -H "$H" -H "$J" -d @- | jq .settings.layoutReviewWarmup
 POS=$(curl -s -X POST $API/destinations -H "$H" -H "$J" -d '{"name":"pos-hub","transport":"http","config":{"urlTemplate":"http://mock-erp:8080/api/promotions","responseMapping":"promotionId"}}' | jq -r .id)

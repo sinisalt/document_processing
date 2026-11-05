@@ -147,10 +147,49 @@ public sealed class RowLevelSecuritySqlTests
         {
             foreach (var sql in migration.UpOperations.Concat(migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql))
             {
-                var bare = sql.Split('\n').Select(l => l.TrimStart()).Where(l => l.StartsWith("UPDATE ", StringComparison.OrdinalIgnoreCase) || l.StartsWith("INSERT ", StringComparison.OrdinalIgnoreCase) || l.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase));
+                // What EXEC runs is a string literal (N'…', quotes doubled inside): a multi-line statement in it starts
+                // its own lines with UPDATE, which is fine; only the text outside the literals is compiled with the batch.
+                var outside = OutsideStringLiterals(sql);
+                var bare = outside.Split('\n').Select(l => l.TrimStart()).Where(l => l.StartsWith("UPDATE ", StringComparison.OrdinalIgnoreCase) || l.StartsWith("INSERT ", StringComparison.OrdinalIgnoreCase) || l.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase));
                 bare.ShouldBeEmpty($"{migration.GetType().Name}: a data statement outside EXEC");
             }
         }
+    }
+
+    /// <summary>The SQL with the contents of its string literals blanked (a doubled quote is part of the literal).</summary>
+    private static string OutsideStringLiterals(string sql)
+    {
+        var text = new System.Text.StringBuilder(sql.Length);
+        var inLiteral = false;
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var c = sql[i];
+            if (c == '\'')
+            {
+                if (inLiteral && i + 1 < sql.Length && sql[i + 1] == '\'')
+                {
+                    i++;
+                    continue;
+                }
+
+                inLiteral = !inLiteral;
+                text.Append(c);
+                continue;
+            }
+
+            text.Append(inLiteral ? (c == '\n' ? '\n' : ' ') : c);
+        }
+
+        return text.ToString();
+    }
+
+    [Fact]
+    public void A_bare_data_statement_is_found_outside_a_literal_and_not_inside_one()
+    {
+        OutsideStringLiterals("EXEC(N'UPDATE [A] SET [B] = N''x''\nUPDATE [C] SET [D] = 1');").Split('\n').Select(l => l.TrimStart())
+            .ShouldNotContain(l => l.StartsWith("UPDATE ", StringComparison.Ordinal));
+        OutsideStringLiterals("EXEC(N'SELECT 1');\nUPDATE [A] SET [B] = N'x';").Split('\n').Select(l => l.TrimStart())
+            .ShouldContain(l => l.StartsWith("UPDATE ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -391,7 +430,7 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
         statements.ShouldBe(up
             ? [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV13)]
-            : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12)]);
+            : [RowLevelSecurity.DropSql(), RowLevelSecurity.InPlatformScope(DocProc.Infrastructure.Persistence.Migrations.P5DowngradeSql.CloseIntegrationIssues), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV12)]);
 
         RowLevelSecurity.CurrentPolicy.ShouldBe(RowLevelSecurity.PolicyV13);
         RowLevelSecurity.PolicyV13.StrictTables.Except(RowLevelSecurity.PolicyV12.StrictTables).Select(t => t.Table)
@@ -421,7 +460,18 @@ public sealed class RowLevelSecuritySqlTests
         var statements = (up ? migration.UpOperations : migration.DownOperations).OfType<SqlOperation>().Select(o => o.Sql).ToList();
         statements.ShouldBe(up
             ? [RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.BackfillFlagSql), RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV11)]
-            : [RowLevelSecurity.DropSql(), RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10), RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.RemoveFlagSql)]);
+            : [
+                RowLevelSecurity.DropSql(),
+                // Back to the build before P5: the data it reads (Correction (P5, fix 1)), while the policy is dropped.
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.StripDefinitionFlags("DocumentTypeVersions")),
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.RestoreAdoptedTypes),
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.RemovePipelineOverrides),
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.MapLookupSources("Documents")),
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.InHistory("Documents", "DocumentsHistory", P5DowngradeSql.MapLookupSources("DocumentsHistory"))),
+                RowLevelSecurity.InPlatformScope(P5DowngradeSql.InHistory("DocumentTypeVersions", "DocumentTypeVersionsHistory", P5DowngradeSql.StripDefinitionFlags("DocumentTypeVersionsHistory"))),
+                RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10),
+                RowLevelSecurity.InPlatformScope(ConfigurableStepsAndBudgets.RemoveFlagSql),
+            ]);
 
         RowLevelSecurity.PolicyV11.StrictTables.Except(RowLevelSecurity.PolicyV10.StrictTables).Select(t => t.Table)
             .ShouldBe(["PipelineSnapshots", "LookupResults", "LlmBudgets"], ignoreOrder: true);

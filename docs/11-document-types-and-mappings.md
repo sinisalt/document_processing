@@ -621,6 +621,12 @@ Correction (P5, part C), as built (`std.price-list` v2, `std.daily-specials` v2,
   before `http-lookup`, never over a correction, and not on a tree nothing was extracted into (it would read as data to
   the approval gate and map mode).
 - There is no tenant review SLA yet, so `dueBy` is not capped by one; the queue sorts by priority, then creation.
+  Correction (P5, fix 1): that contradicted §6.2 ("The queue sorts by Priority, then SlaDueAt") for no reason, and two
+  urgent specials lists did not come in the order they are due. The queue (`GET /review-tasks`) sorts by priority,
+  then `SlaDueAt` (a task without one last), then creation, and its cursor carries the due time. The inbox's "Urgent
+  first" is the server's order too (`GET /documents?sort=reviewDue`: the most urgent open task's priority, then the
+  earliest due time, then newest first; documents without an open task last), across every page, not a sort of the
+  50 rows loaded; a document's `reviewPriority` and `reviewDueAt` name its most urgent open task and earliest due time.
 - The demo's "copy dated yesterday" is a committed file printed for 4 November 2026 (`fixtures/demo/uploads/tenant-a`),
   so it is expired on any later day.
 
@@ -1193,6 +1199,12 @@ for two suppliers sharing a VAT id are left for later. `SUPPLIER_SOURCE_UNVERIFI
 supplier's `review.mode: always` (its own or its group's) sends every document to review; `autoApproveMinConfidence`
 is stored but not applied yet.
 
+Correction (P5, fix 1): `review.autoApproveMinConfidence` (the supplier's own, else its group's) is applied. It is the
+confidence threshold of the supplier's documents in place of the tenant's `AutoApproveConfidenceThreshold`: a value
+below it raises `LOW_CONFIDENCE`, which keeps the document out of auto-approval, and it is the default of the type's
+`review.lines` threshold. The type's own `review.minConfidence` stays the threshold of `review.lines` only (§11 layer
+3 reads "tenant, then type, then supplier"; as built the type's layer is `review.lines`).
+
 ### 7.5 Example: Nordwind Großhandel GmbH for tenant Acme
 
 ```json
@@ -1699,6 +1711,14 @@ Correction (P5, part B), as built (`KeywordRuleTable`, `TenantClassification`, `
   block equals its template's keeps the built-in rules exactly (they are the block's seed); any other type's block is
   compiled as escaped literal phrases (at most 50 per type, language and kind, 100 characters each). The table is cached
   by the hash of the tenant's type keys and published versions.
+- Correction (P5, fix 1): "escaped literals" were not enough to bound them. Each space became `\s+` and each hyphen
+  `[-\s]?`, side by side in a phrase like "a - - - z", which backtracks exponentially over a run of white space (the
+  whole-word lookbehind keeps these patterns off NonBacktracking), and every rule spent its full 2 s timeout on every
+  page. A phrase now compiles word by word, each run of spaces and hyphens between two words one token (`\s+`, or
+  `[-\s]*` when it holds a hyphen), so the pattern is linear; a tenant rule's timeout is 100 ms and a tenant table has
+  500 ms per page in all (the rules left are not run on that page). Publish refuses a classification list of more than
+  50 phrases, a phrase longer than 100 characters, one without a letter or digit and one with more than three spaces or
+  hyphens in a row.
 - The LLM classifier's schema is `document_classification@1+t.<hash8>` (one per candidate set) with the prompt
   `classify-tenant-document`; an answer outside the set is Unknown.
 - Not built: the splitter's keyword signals and `LlmDocumentSplitter` keep the built-in table and enum.
@@ -1708,6 +1728,12 @@ Correction (P5, part B), as built (`KeywordRuleTable`, `TenantClassification`, `
   cached by the hashes of the Active versions. The decision is the event `document.type_identified_by_rule` (the
   rule, version, hash and evidence) and `Documents.IdentificationRuleVersionId`; `AppliedConfigJson.identification`
   is not written for it.
+- Correction (P5, fix 1): a rule's pin outlived what decided the type. When Match finds the supplier (by VAT id or
+  IBAN) and that supplier's own layouts identify the document or raise `NEW_LAYOUT`, the supplier's layout decides or
+  proposes (§8.5: the rules are for suppliers without own layouts), so `IdentificationRuleVersionId` is cleared and the
+  rule's `Matched` count taken back. The same when content replaces the source's supplier; the type is then classified
+  again in the order of §7.4: the new supplier's layouts (by `match.layout`), the tenant rules when it has none (they
+  may decide again, and count again), then the keyword rules and the LLM.
 
 ## 10. Configurable handlers (R7)
 
@@ -1822,6 +1848,7 @@ Validation has three layers. All of them produce `DocumentFlag` entries with a f
      - Nulls: a null component matches only a null component of the other document. A component bound to a required field that is missing is not compared; the check is skipped and says so, because `FIELD_REQUIRED` already blocks. When every component other than the supplier is null, the check is skipped too.
      - Sandbox, rejected and superseded documents are never matches.
      - `params.onMatch` is `block` (default; today's `DUPLICATE_SUSPECTED`, with the rule's severity) or `revision`. With `revision` a match raises `REVISION_OF {documentId, status}` with the rule's severity (`std.price-list` and `std.daily-specials` use warning plus `blockOnWarnings`, so the document goes to review). The reviewer resolves it with `POST /documents/{id}:resolve-revision {resolution}`: `supersedes` (the earlier document gets `SupersededByDocumentId`, `meta.supersedes` is set in the values view, and the new document is delivered normally), `additional` (both stand; recorded so the pair is not flagged again) or `duplicate` (the new document is rejected).
+       Correction (P5, fix 1): `supersedes` is recorded on the new document only (`RevisionResolution`, `RevisionOfDocumentId`) while it waits for its approval; the earlier document gets `SupersededByDocumentId` when the new one is approved (by a reviewer or automatically), and loses it again when the new one is rejected, cancelled by a join or sent back through the pipeline. Set at once, a rejected replacement left the approved earlier list superseded: out of the duplicate check and out of `deltaToPrevious`, so the next list was compared with an older one or none and could auto-approve unseen. Until the approval the earlier document stays the duplicate check's and `deltaToPrevious`'s reference, but the pair is not flagged again.
 3. **Approval safety** (`review-gate`). A document auto-approves only if all of the following hold:
    - the type has `review.autoApprove` and at least one rule beyond structural checks;
    - there are no blocking flags, and confidence meets the threshold (tenant, then type, then supplier);
@@ -1877,6 +1904,18 @@ Correction (P5, part B), as built (`RuleExpression`, `GenericRules`, `ReviewGate
 - The parameters as built: `requiredIf {path, when}`, `compare {left, op: eq|ne|lt|le|gt|ge, right | value,
   tolerance?}`, `sumEquals {path, equals, tolerance? (0.02), perItemTolerance?}`, `arithmetic {rows?, expression,
   equals, tolerance?}` (`equals` a path in the row) and `expression {predicate, forEach?, field?}`.
+- Correction (P5, fix 1): two shapes publish accepted checked nothing. `requiredIf` evaluated `when` once on the
+  document, so a row path with a row condition (`path: lines[*].unit, when: "quantity > 0"`) required nothing; it takes
+  `rows` now (`{rows: lines[*], path: unit, when: "quantity > 0"}`: `path` a field of each row, `when` evaluated on each
+  row, `$$` the document), and publish refuses a `path` that names rows without `rows`. `compare` paired values only
+  when both sides had the same count or the right one value: a single-valued side (a path without `[*]`) is now
+  compared with every value of the other, two row paths are paired row by row, publish refuses two row paths of
+  different row groups, and at run time two row paths whose counts differ raise `RULE_FAILED {reason:
+  compareUnpaired}`. Neither the evaluator nor any rule lets an exception out of validation: an index or a
+  `$substring` argument beyond the range of an integer is clamped (an index past the end is absent, a start past the
+  end the empty string, as in JSONata), `ordered` keys of different kinds (a date and a number) raise `RULE_FAILED
+  {reason: orderedMixed}`, and what a rule still cannot evaluate raises `RULE_FAILED {reason: expressionError}`
+  instead of failing the stage (or answering 500 to an inline revalidation).
 - Definition-scoped codes are not derived from the rule id (`X_<RULEID>`): a definition declares its codes in a new
   top-level `flags` block (`{code: X_…, severity?, message?, description?}`) and a rule of a generic kind names one in
   `flag`. Its flags carry the code, the rule's severity (else the declaration's, else warning), its message and
@@ -2542,7 +2581,19 @@ callback secret in two slots (`PUT /destinations/{id}/callback-secret`; the repl
 rotation). An HMAC callback signs `"<X-DocProc-Timestamp>.<body>"` (a timestamp within 5 minutes, so a replay is
 refused) in `X-DocProc-Signature: sha256=<hex>`; one callback may carry a list of at most 100 acknowledgements. A
 status poll URL may hold `{externalId}` and `{documentId}` after the host only and must name the destination's own host,
-since it sends the destination's credentials. A destination with acknowledgements keeps the external reference
+since it sends the destination's credentials.
+
+Correction (P5, fix 1): the window alone does not refuse a replay: the same signed request is valid for its 5 minutes,
+and a replayed or late "rejected" re-raised `EXTERNAL_REJECTED` and a new integration issue after an "accepted". A
+reference keeps the timestamp and signature of the last signed callback applied to it (`LastCallbackAt`,
+`LastCallbackSignature`); a signed callback older than that, or that one again, is answered 200 and counted as
+`replayed` without changing anything. Callbacks are ordered by the receiver's own timestamps, never against the
+platform's clock. A bearer callback has no timestamp: its token is the whole credential, and it is applied as it comes.
+A status answer is applied to the reference that was polled, whatever ids it names (it never marks another document of
+the destination), and a receiver id is learned from it only while the reference still holds the document id and no
+other reference has that id. The host rule holds at every poll, not only when the poll is set: the poller skips (and
+notes on the reference) a poll whose URL is no longer on the destination's host, and `PATCH /destinations/{id}` refuses
+a config that moves the destination to another host while its status poll names the old one. A destination with acknowledgements keeps the external reference
 `Pending` after a 2xx (one without them takes the 2xx as `Accepted`, as before) under the document id until the
 receiver names its own id. An acceptance resolves the destination's open `EXTERNAL_REJECTED` and completes the
 integration issue when none is left; an approval completes every open review task of the document, the issue too;
@@ -2804,6 +2855,13 @@ Correction (P4, second review fixes):
   the pre-fill's values or the type's empty tree). The per-type cap is the `llm` step's `maxCostPerDocument`,
   which a supplier or layout override can set too; the provider configuration's monthly spend cap stays a hard
   stop. The 14-day baseline alerts are not built.
+
+  Correction (P5, fix 1): checked against finished calls only, parallel calls (`Pipeline:MaxParallelism`, 2 by
+  default) each passed the check against the same spend, and a period's budget was passed by up to one call per slot.
+  The check and the call's hold are one step under the tenant's gate: an allowed call's estimate counts as spent until
+  its usage row is written, so the calls of one worker process cannot pass the budget together. Holds are per process:
+  with N worker replicas a period's budget can still be passed by up to N - 1 calls (each at about the stage's average
+  cost), and a stage without any recorded call is estimated at 0, so its first calls are not held.
 
 ## 17. Onboarding and operations view
 
@@ -3307,6 +3365,14 @@ Every phase is demonstrated with `docker compose up`, using the GreenMail mailbo
   - e-invoice extras with xml-path.
   - Golden documents, sandbox runs and config bundle export/import.
   - Supplier sheet tabs.
+- Correction (P5, fix 1), migrations: "No data moves" held for the Up methods only. The Down methods dropped the new
+  schema and left data the build before P5 cannot read: definitions written with `"flags": []` (the reader refuses a
+  member it does not know), adopted price lists moved onto template v2, supplier settings with `pipelineOverrides`
+  (read as empty, then overwritten by the next save), `source.method: "Lookup"` in canonical trees, and open
+  integration-issue tasks that would become document review tasks. A definition without flags is written without
+  `flags` again, and the Downs map back what can be mapped (definition flags removed, adopted types back on the version
+  they had, overrides removed, `Lookup` as `Profile`, integration issues closed as skipped); docs/07 lists what is
+  roll-forward only.
 - **P5, configurable steps, custom types end to end, rules and master data (6 weeks).**
   - Step kinds per phase with supplier `pipelineOverrides`.
   - `http-lookup`.

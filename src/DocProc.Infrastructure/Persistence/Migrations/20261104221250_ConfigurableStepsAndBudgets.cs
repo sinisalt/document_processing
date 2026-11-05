@@ -12,6 +12,12 @@ namespace DocProc.Infrastructure.Persistence.Migrations
     /// of the re-created policy <see cref="RowLevelSecurity.PolicyV11"/>. No data moves: the column is nullable and the
     /// tables are new (the <c>configurableSteps</c> switch lives in the settings JSON and reads as off where it is not
     /// stored, and is back-filled off in every tenant's flags). The Down drops the policy first (it names the new tables) and creates <see cref="RowLevelSecurity.PolicyV10"/> after.
+    /// <para>
+    /// As the Down that goes back to the build before P5, it also maps back what P5 wrote into data that build reads
+    /// (<see cref="P5DowngradeSql"/>): definition flags out of the stored definitions, adopted types back on the template
+    /// version they had, pipeline overrides out of the supplier and group settings, and <c>Lookup</c> source methods as
+    /// <c>Profile</c> in the canonical trees and their history.
+    /// </para>
     /// </summary>
     public partial class ConfigurableStepsAndBudgets : Migration
     {
@@ -175,6 +181,16 @@ namespace DocProc.Infrastructure.Persistence.Migrations
             migrationBuilder.DropColumn(
                 name: "PipelineHash",
                 table: "Documents");
+
+            // Back to the build before P5 (Correction (P5) fix1): what P5 wrote into data that build reads is mapped back
+            // (P5DowngradeSql). The tables and their histories, which the system writes alone, so system versioning is
+            // off for the history statements; the policy, which names the histories, is still dropped here.
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.StripDefinitionFlags("DocumentTypeVersions")));
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.RestoreAdoptedTypes));
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.RemovePipelineOverrides));
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.MapLookupSources("Documents")));
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.InHistory("Documents", "DocumentsHistory", P5DowngradeSql.MapLookupSources("DocumentsHistory"))));
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.InHistory("DocumentTypeVersions", "DocumentTypeVersionsHistory", P5DowngradeSql.StripDefinitionFlags("DocumentTypeVersionsHistory"))));
 
             migrationBuilder.Sql(RowLevelSecurity.CreateSql(RowLevelSecurity.PolicyV10));
             migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(RemoveFlagSql));

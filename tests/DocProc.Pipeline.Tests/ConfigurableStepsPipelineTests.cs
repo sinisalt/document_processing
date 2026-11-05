@@ -146,6 +146,72 @@ public sealed class ConfigurableStepsPipelineTests
         documents.ShouldAllBe(d => d.PageCount == 1);
     }
 
+    [Fact]
+    public async Task Split_and_classify_take_a_supplier_s_overrides_only_when_the_source_named_it()
+    {
+        await using var host = await PipelineTestHost.StartAsync();
+        await EnableAsync(host);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Fischhandel Müller GmbH", vatId: FischhandelVat);
+        await SetOverridesAsync(host, supplier.Id, """[{"op":"param","step":"split.heuristic","params":{"mode":"perPage"}},{"op":"disable","step":"classify.llm"}]""");
+
+        using var scope = host.CreateTenantScope(PipelineTestHost.TenantA);
+        var pipelines = scope.ServiceProvider.GetRequiredService<StagePipeline>();
+
+        // What Match found in an earlier run by the VAT id (a :reprocess from Normalize or Classify keeps it): Split and
+        // Classify run before Match, so this supplier's overrides do not apply there (docs/11 §10.1); Extract takes them.
+        var byContent = new Document { Id = Guid.CreateVersion7(), TenantId = PipelineTestHost.TenantA, SupplierId = supplier.Id, SupplierMatchMethod = SupplierMatchMethod.Vat };
+        (await pipelines.ResolveAsync(byContent, null, PipelinePhases.Split, Ct)).Phase(PipelinePhases.Split).Single(s => s.Kind == "split.heuristic").Text("mode").ShouldNotBe("perPage");
+        (await pipelines.ResolveAsync(byContent, null, PipelinePhases.Classify, Ct)).Phase(PipelinePhases.Classify).Single(s => s.Kind == "classify.llm").Enabled.ShouldBeTrue();
+        (await pipelines.ResolveAsync(byContent, null, PipelinePhases.Extract, Ct)).Steps.ShouldContain(s => s.Source == PipelineSources.Supplier, "from Match on the supplier is known");
+
+        // The same supplier named by the source: its overrides apply from Split on.
+        var routed = new Document { Id = Guid.CreateVersion7(), TenantId = PipelineTestHost.TenantA, SupplierId = supplier.Id, SupplierMatchMethod = SupplierMatchMethod.SourceRule };
+        (await pipelines.ResolveAsync(routed, null, PipelinePhases.Split, Ct)).Phase(PipelinePhases.Split).Single(s => s.Kind == "split.heuristic").Text("mode").ShouldBe("perPage");
+        (await pipelines.ResolveAsync(routed, null, PipelinePhases.Classify, Ct)).Phase(PipelinePhases.Classify).Single(s => s.Kind == "classify.llm").Enabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_supplier_s_autoApproveMinConfidence_is_the_confidence_threshold_of_its_documents()
+    {
+        await using var host = await StartLlmHostAsync(forceLlmClassification: true);
+        var supplier = await host.AddSupplierAsync(PipelineTestHost.TenantA, "Musterfirma GmbH");
+        await host.WithDbAsync(async db =>
+        {
+            var group = new SupplierGroup { Id = Guid.CreateVersion7(), TenantId = PipelineTestHost.TenantA, Name = "Strict", SettingsJson = """{"review":{"autoApproveMinConfidence":0.999}}""", CreatedAt = PipelineTestHost.Now, UpdatedAt = PipelineTestHost.Now };
+            db.SupplierGroups.Add(group);
+            (await db.Suppliers.SingleAsync(s => s.Id == supplier.Id, Ct)).GroupId = group.Id;
+            await db.SaveChangesAsync(Ct);
+        });
+        host.Llm.Enqueue(ScriptedAnswers.ClassifyInvoice, usage: new LlmUsage(500, 20));
+        host.Llm.Enqueue(ScriptedAnswers.ExtractGermanInvoice, usage: new LlmUsage(6_000, 800));
+
+        var ingestion = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("rechnung.pdf", PdfMime, TestPdfs.GermanInvoice())]);
+        await host.RunUntilIdleAsync();
+
+        var document = await host.SingleDocumentAsync(ingestion.Id);
+        document.FailureReason.ShouldBeNull();
+        document.SupplierId.ShouldBe(supplier.Id);
+        var validated = (await host.EventsAsync(document.Id)).Single(e => e.ToStatus == DocumentStatus.Validated);
+        validated.DetailsJson.ShouldNotBeNull().ShouldContain("\"threshold\":0.999", Case.Sensitive, "the group's threshold, not the tenant's 0.8");
+        document.Flags.ShouldContain(f => f.Code == FlagCodes.LowConfidence && f.ResolvedAt == null, "values the LLM read below 0.999 keep the document out of auto-approval");
+        document.Status.ShouldBe(DocumentStatus.NeedsReview);
+
+        // The supplier's own setting wins over its group's; without either the tenant's threshold applies.
+        await host.WithDbAsync(async db =>
+        {
+            var row = await db.Suppliers.SingleAsync(s => s.Id == supplier.Id, Ct);
+            row.SettingsJson = """{"review":{"autoApproveMinConfidence":0.5}}""";
+            await db.SaveChangesAsync(Ct);
+            var tenant = await db.Tenants.SingleAsync(t => t.Id == PipelineTestHost.TenantA, Ct);
+            var stored = await db.Documents.SingleAsync(d => d.Id == document.Id, Ct);
+            (await DocumentChecks.ConfidenceThresholdAsync(db, stored, tenant, Ct)).ShouldBe(0.5);
+            row.SettingsJson = null;
+            row.GroupId = null;
+            await db.SaveChangesAsync(Ct);
+            (await DocumentChecks.ConfidenceThresholdAsync(db, stored, tenant, Ct)).ShouldBe(tenant.Settings.AutoApproveConfidenceThreshold);
+        });
+    }
+
     // ------------------------------------------------------------------ http-lookup
 
     [Fact]

@@ -76,4 +76,45 @@ public sealed class TenantKeywordRulesTests
         _classifier.Classify(Layer("Musterfirma GmbH", "Titelaa"), null, table).Type.ShouldBe(ReturnSlip);
         _classifier.Classify(Layer("Musterfirma GmbH", "Titelci"), null, table).Type.ShouldBe(DocumentTypeKey.Unknown, "phrases past the cap are not used");
     }
+
+    [Fact]
+    public void A_phrase_of_separators_compiles_to_a_linear_pattern_that_cannot_backtrack()
+    {
+        // "a - - - … z": before, each space became \s+ and each hyphen [-\s]?, side by side, which backtracked
+        // exponentially over a run of white space on the page and spent the whole timeout on every page.
+        var phrase = "a" + string.Concat(Enumerable.Repeat(" -", 24)) + " z";
+        KeywordRuleSet.PhrasePattern(phrase).ShouldBe(@"a[-\s]*z");
+        var regex = KeywordRuleSet.Compile([phrase], compiled: false, KeywordRuleTable.TenantTimeout);
+        var page = string.Concat(Enumerable.Repeat("a" + new string(' ', 60) + "b ", 40));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        regex.IsMatch(page).ShouldBeFalse();
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1), "linear in the page (the old pattern spent its whole 2 s timeout here)");
+
+        // The separators still mean what they meant: spaces any white space, a hyphen optional or a space.
+        KeywordRuleTable.Matches("Retouren-Nr", "Retouren-Nr. 4711").ShouldBeTrue();
+        KeywordRuleTable.Matches("Retouren-Nr", "Retouren Nr. 4711").ShouldBeTrue();
+        KeywordRuleTable.Matches("Retouren-Nr", "RetourenNr. 4711").ShouldBeTrue();
+        KeywordRuleTable.Matches("Retouren schein", "Retouren \n  schein").ShouldBeTrue();
+        KeywordRuleTable.Matches("Retouren schein", "Retourenschein").ShouldBeFalse("a space is not optional");
+        KeywordRuleSet.PhrasePattern(" - Retoure - ").ShouldBe("Retoure", "separators at the ends are dropped");
+    }
+
+    [Fact]
+    public void The_built_in_phrases_compile_as_before()
+    {
+        var invoiceLabel = KeywordRuleSet.Rules.Single(r => r.Type == DocumentTypeKey.Invoice && r.Kind == KeywordKind.Label && r.Language == DocumentLanguages.German);
+        foreach (var text in new[] { "Rechnungs-Nr 42", "Rechnungs Nr 42", "RechnungsNr 42", "Rechnungsnummer 42" })
+        {
+            invoiceLabel.Pattern.IsMatch(text).ShouldBeTrue(text);
+        }
+
+        invoiceLabel.Pattern.IsMatch("Rechnungsnummernkreis").ShouldBeFalse("whole words only");
+    }
+
+    [Fact]
+    public void A_tenant_table_stops_at_its_budget_per_page()
+    {
+        KeywordRuleTable.PageBudget.ShouldBeLessThanOrEqualTo(TimeSpan.FromSeconds(1));
+        KeywordRuleTable.TenantTimeout.ShouldBeLessThanOrEqualTo(KeywordRuleTable.PageBudget);
+    }
 }

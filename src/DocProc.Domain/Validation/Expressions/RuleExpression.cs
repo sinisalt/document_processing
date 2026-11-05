@@ -223,6 +223,14 @@ public sealed class RuleExpression
         _ => false,
     };
 
+    /// <summary>
+    /// A number used as an index, a start or a length, clamped to the range of <see cref="int"/> (and truncated): an
+    /// index or a start beyond any string or sequence is simply past its end (absent, or an empty string, as in
+    /// JSONata), never an <see cref="OverflowException"/> out of the evaluator.
+    /// </summary>
+    internal static int ClampToInt(decimal value) =>
+        value >= int.MaxValue ? int.MaxValue : value <= int.MinValue ? int.MinValue : (int)value;
+
     private static decimal? AsNumber(object? value) => Single(value) switch
     {
         decimal d => d,
@@ -789,7 +797,7 @@ public sealed class RuleExpression
             if (predicate is Literal { Value: decimal } || (predicate is Unary { Op: "-", Operand: Literal { Value: decimal } }))
             {
                 var at = AsNumber(Eval(predicate, context))!.Value;
-                var i = (int)Math.Floor(at);
+                var i = ClampToInt(Math.Floor(at));
                 if (i < 0)
                 {
                     i += items.Count;
@@ -1071,14 +1079,14 @@ public sealed class RuleExpression
                         }
 
                         var s = StringArg(first, call.Function);
-                        var start = (int)(AsNumber(args[1]) ?? 0);
+                        var start = ClampToInt(AsNumber(args[1]) ?? 0);
                         if (start < 0)
                         {
                             start = Math.Max(0, s.Length + start);
                         }
 
                         start = Math.Min(start, s.Length);
-                        var length = args.Count > 2 ? (int)Math.Max(0, AsNumber(args[2]) ?? 0) : s.Length - start;
+                        var length = args.Count > 2 ? ClampToInt(Math.Max(0, AsNumber(args[2]) ?? 0)) : s.Length - start;
                         return s.Substring(start, Math.Min(length, s.Length - start));
                     }
 

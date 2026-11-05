@@ -266,6 +266,7 @@ public static class ReviewPartitioning
             ClearColumns(other);
             await DocumentFieldIndexWriter.RefreshAsync(db, other, [], cancellationToken).ConfigureAwait(false);
             AddEvent(db, other, DocumentEventTypes.Joined, otherFrom, DocumentStatus.Cancelled, actor, new { into = target.Id, pageStart = other.PageStart, pageEnd = other.PageEnd, by = "review" }, now);
+            await DocumentRevisions.ReleaseAsync(db, other, actor, "cancelled", now, cancellationToken).ConfigureAwait(false);
         }
 
         return new ReviewPartOutcome(target.Id, [.. Enumerable.Range(1, target.PageCount)], null, DocumentStatus.Split, PipelineStage.Classify);

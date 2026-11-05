@@ -178,4 +178,69 @@ public sealed class GenericRuleP5Tests
         result.Passed("r_later").ShouldBeFalse("a rule that did not run did not pass");
         result.RulesNotRun.ShouldBe(["r_later"]);
     }
+
+    [Fact]
+    public void RequiredIf_with_rows_evaluates_its_condition_on_every_row()
+    {
+        var rule = Rule("requiredIf", """{ "rows": "items[*]", "path": "unitPrice", "when": "quantity > 0" }""");
+        Run(Values(), rule).ShouldBeEmpty();
+        var flag = Run(Values(v => v["items"]![1]!["unitPrice"] = null), rule).ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.FieldRequired);
+        flag.Field.ShouldBe("items[1].unitPrice");
+        Run(Values(v => { v["items"]![1]!["unitPrice"] = null; v["items"]![1]!["quantity"] = 0; }), rule).ShouldBeEmpty("the condition is the row's");
+
+        // The document is $$ in a row's condition.
+        var documentCondition = Rule("requiredIf", """{ "rows": "items[*]", "path": "unitPrice", "when": "$$.reason = 'Damaged'" }""");
+        Run(Values(v => v["items"]![0]!["unitPrice"] = null), documentCondition).ShouldHaveSingleItem().Field.ShouldBe("items[0].unitPrice");
+    }
+
+    [Fact]
+    public void Compare_pairs_a_single_value_with_every_row_value()
+    {
+        var values = Values(v =>
+        {
+            v["items"]![0]!["d"] = "2026-11-01";
+            v["items"]![1]!["d"] = "2026-11-02";
+        });
+
+        // left single, right rows: the single value is compared with each row (before: nothing was compared).
+        var raised = Run(values, Rule("compare", """{ "left": "pickupDate", "op": "le", "right": "items[*].d" }"""));
+        raised.Count.ShouldBe(2);
+        raised.ShouldAllBe(f => f.Params!["reason"] == "compare");
+        raised.Select(f => f.Params!["otherField"]).ShouldBe(["items[0].d", "items[1].d"]);
+        Run(values, Rule("compare", """{ "left": "returnDate", "op": "ge", "right": "items[*].d" }""")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Compare_fails_two_row_paths_whose_counts_differ()
+    {
+        var values = Values(v => v["other"] = new JsonArray(new JsonObject { ["q"] = 1 }, new JsonObject { ["q"] = 2 }, new JsonObject { ["q"] = 3 }));
+        var flag = Run(values, Rule("compare", """{ "left": "items[*].quantity", "op": "le", "right": "other[*].q" }""")).ShouldHaveSingleItem();
+        flag.Code.ShouldBe(FlagCodes.RuleFailed);
+        flag.Params!["reason"].ShouldBe("compareUnpaired");
+    }
+
+    [Theory]
+    [InlineData("items[99999999999].sku = 'A'")]
+    [InlineData("$exists(items[99999999999999999999])")]
+    [InlineData("$exists(items[-99999999999999999999])")]
+    [InlineData("$substring(reason, 99999999999) = 'A'")]
+    [InlineData("$substring(reason, -99999999999) = 'Damaged'")]
+    [InlineData("$substring(reason, 0, 99999999999999) = 'A'")]
+    public void Huge_indexes_and_substring_arguments_do_not_escape_the_evaluator(string predicate)
+    {
+        var rule = Rule("expression", "{ \"predicate\": " + JsonSerializer.Serialize(predicate) + " }");
+        var flags = Run(Values(), rule);
+        flags.ShouldNotContain(f => f.Params!.ContainsKey("reason") && f.Params["reason"] == "expressionError", "a number past the end is past the end, not an error");
+    }
+
+    [Fact]
+    public void Substring_arguments_from_the_document_are_clamped()
+    {
+        // The arguments come from the document: a quantity of 10^15 must not crash the validation.
+        var rule = Rule("expression", """{ "forEach": "items[*]", "predicate": "$substring(sku, quantity) = ''", "field": "sku" }""");
+        Run(Values(v => v["items"]![0]!["quantity"] = 1_000_000_000_000_000m), rule).ShouldBeEmpty("past the end is the empty string");
+        var length = Rule("expression", """{ "predicate": "$substring(reason, 0, big) = 'Damaged'" }""");
+        Run(Values(v => v["big"] = 1e15m), length).ShouldBeEmpty();
+    }
 }

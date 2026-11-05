@@ -183,6 +183,49 @@ public sealed class PriceListDemoFixturesTests
         april.IdentificationRuleVersionId.ShouldBeNull();
         april.LineCount.ShouldBe(DemoPriceList.RowCount);
         host.Llm.Requests.ShouldBeEmpty("neither the keyword rules' LLM fallback nor an extraction was asked");
+        (await host.WithDbAsync(db => db.TypeIdentificationRules.AsNoTracking().SingleAsync(r => r.Id == rule.RuleId, Ct))).Matched.ShouldBe(2);
+
+        // The April list from a sender no source rule knows: Classify knows no supplier, so the tenant rule types it; Match
+        // then finds Nordwind by its VAT id and Nordwind's own layout identifies it. The layout decided, so the rule's pin
+        // is cleared and its match is not counted (docs/11 §6.2, §8.5). A comment after the end keeps the copy's bytes apart
+        // from the routed April list, which the intake would otherwise take as the same file again.
+        var unrouted = await host.IngestAsync(PipelineTestHost.TenantA, [new IngestFile("April_unrouted.pdf", PdfMime, [.. Upload(DemoPriceLists.April.FileName), .. "\n% another copy\n"u8.ToArray()])], from: "tenant-a-admin@tenant-a.local");
+        await host.RunUntilIdleAsync(TimeSpan.FromSeconds(90));
+        var byContent = await host.SingleDocumentAsync(unrouted.Id);
+        byContent.SupplierId.ShouldBe(nordwind.Id);
+        byContent.SupplierLayoutVersionId.ShouldBe(layout.Id);
+        byContent.IdentificationRuleVersionId.ShouldBeNull("Nordwind's layout, not the tenant rule, decided the type");
+        (await host.EventsAsync(byContent.Id)).ShouldContain(e => e.EventType == TenantIdentification.IdentifiedEvent, "Classify did apply the rule first");
+        (await host.WithDbAsync(db => db.TypeIdentificationRules.AsNoTracking().SingleAsync(r => r.Id == rule.RuleId, Ct))).Matched.ShouldBe(2, "the match the layout took over is taken back");
+    }
+
+    /// <summary>
+    /// docs/09 "Demo: price lists, specials and fallback rules", step 5, with the supplier as step 2 sets it up: the
+    /// January list arrives with NEW_LAYOUT and the New layout panel's five pre-filled values (the supplier's name, VAT id
+    /// and IBAN from master data, Valid from and the printed article count from the type's labels).
+    /// </summary>
+    [Fact]
+    public async Task The_January_list_is_pre_filled_with_five_values_when_Nordwind_has_its_IBAN()
+    {
+        await using var host = await StartAsync("std.price-list");
+        var nordwind = await host.AddSupplierAsync(PipelineTestHost.TenantA, DemoPriceList.SupplierName, vatId: DemoPriceList.SupplierVatId, ibans: ["DE44 2005 0550 1234 5678 90"]);
+        await host.WithDbAsync(async db =>
+        {
+            (await db.Suppliers.SingleAsync(s => s.Id == nordwind.Id, Ct)).SettingsJson = """{"layouts":{"required":true}}""";
+            await db.SaveChangesAsync(Ct);
+        });
+        await SourceRoutingPipelineTests.AddRuleAsync(host, nordwind.Id, r =>
+        {
+            r.Sender = Sender;
+            r.PinTypeKey = "price-list";
+        });
+
+        var january = await SendAsync(host, DemoPriceLists.January.FileName);
+
+        (await OpenFlagsAsync(host, january.Id)).ShouldContain(f => f.Code == FlagCodes.NewLayout);
+        var sources = JsonNode.Parse(january.AppliedConfigJson!)!["prefill"]!["sources"]!.AsObject();
+        string.Join(",", sources.Select(s => s.Key).Order(StringComparer.Ordinal)).ShouldBe("declaredLineCount,supplier.iban,supplier.name,supplier.vatId,validFrom", string.Join(", ", sources.Select(s => $"{s.Key}={s.Value}")));
+        sources["supplier.iban"]!.GetValue<string>().ShouldBe(DocProc.Mapping.Learning.PrefillSources.MasterData);
     }
 
     [Fact]

@@ -469,6 +469,15 @@ public sealed class DocumentExternalRef : ITenantScoped
 
     /// <summary>How often the status was polled; polling stops at the destination's <c>maxPolls</c>.</summary>
     public int Polls { get; set; }
+
+    /// <summary>
+    /// The signed timestamp (<c>X-DocProc-Timestamp</c>, the receiver's clock) of the last signed callback applied to this
+    /// reference; a signed callback older than it, or this one again, is not applied (docs/11 §13.8, Correction (P5) fix1).
+    /// </summary>
+    public DateTimeOffset? LastCallbackAt { get; set; }
+
+    /// <summary>The signature (hex HMAC) of that callback, to tell it from another callback signed in the same second.</summary>
+    public string? LastCallbackSignature { get; set; }
 }
 
 public enum LookupTableSource

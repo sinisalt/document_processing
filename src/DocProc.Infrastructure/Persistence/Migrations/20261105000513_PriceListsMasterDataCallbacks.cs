@@ -12,7 +12,8 @@ namespace DocProc.Infrastructure.Persistence.Migrations
     /// <c>Document</c>), the destination's callback secrets, the status poll columns of <c>DocumentExternalRefs</c>, and
     /// the master-data sources and runs under the strict predicate of the re-created policy
     /// <see cref="RowLevelSecurity.PolicyV13"/>. No data moves. The Down drops the policy first (it names the new
-    /// tables) and creates <see cref="RowLevelSecurity.PolicyV12"/> after.
+    /// tables) and creates <see cref="RowLevelSecurity.PolicyV12"/> after; it closes the open integration-issue tasks
+    /// before <c>Kind</c> goes (<see cref="P5DowngradeSql.CloseIntegrationIssues"/>).
     /// </summary>
     public partial class PriceListsMasterDataCallbacks : Migration
     {
@@ -220,6 +221,9 @@ namespace DocProc.Infrastructure.Persistence.Migrations
             migrationBuilder.DropIndex(
                 name: "IX_DocumentExternalRefs_Status_NextPollAt",
                 table: "DocumentExternalRefs");
+
+            // Open integration issues would be document review tasks of settled documents to the earlier build.
+            migrationBuilder.Sql(RowLevelSecurity.InPlatformScope(P5DowngradeSql.CloseIntegrationIssues));
 
             migrationBuilder.DropColumn(
                 name: "Kind",
